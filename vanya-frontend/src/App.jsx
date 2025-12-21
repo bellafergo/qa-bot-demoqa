@@ -1,9 +1,3 @@
-Aquí tienes el código completo y corregido de App.jsx.
-
-He ajustado el endpoint a /chat_run para que coincida con tu app.py, eliminé el campo session_id que no utiliza tu servidor y sincronicé la lectura de la respuesta con la estructura run_result que devuelve tu backend.
-
-JavaScript
-
 import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 
