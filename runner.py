@@ -33,12 +33,29 @@ def execute_test(steps: List[Dict[str, Any]], headless: bool = True) -> Dict[str
         )
         page = context.new_page()
 
-        def take_screenshot() -> Optional[str]:
-            try:
-                img_bytes = page.screenshot(full_page=False)
-                return base64.b64encode(img_bytes).decode("utf-8")
-            except Exception:
-                return None
+        def take_screenshot_robust(retries: int = 3, delay_ms: int = 700) -> Optional[str]:
+            """
+            Evita screenshots en blanco:
+            - espera a DOM + networkidle
+            - espera a body
+            - usa full_page=True
+            - reintenta si el PNG sale demasiado pequeño (típico de blanco/bug)
+            """
+            for _ in range(retries):
+                try:
+                    # Asegura que haya algo renderizado
+                    page.wait_for_load_state("domcontentloaded", timeout=60000)
+                    page.wait_for_load_state("networkidle", timeout=60000)
+                    page.wait_for_selector("body", state="attached", timeout=15000)
+                    page.wait_for_timeout(delay_ms)
+
+                    img_bytes = page.screenshot(full_page=True)
+                    # Si el PNG es muy pequeño suele ser blanco/bug -> reintenta
+                    if img_bytes and len(img_bytes) > 15000:  # ~15KB
+                        return base64.b64encode(img_bytes).decode("utf-8")
+                except Exception:
+                    pass
+            return None
 
         status = "fail"
         error_msg: Optional[str] = None
@@ -70,7 +87,7 @@ def execute_test(steps: List[Dict[str, Any]], headless: bool = True) -> Dict[str
                             raise StepExecutionError("goto requiere 'url'")
                         logs.append(f"Goto: {url}")
                         page.goto(url, wait_until="domcontentloaded", timeout=60000)
-                        # pequeña espera adicional por estabilidad
+                        # espera extra por estabilidad
                         page.wait_for_load_state("networkidle", timeout=60000)
 
                     elif action == "wait_for_selector":
@@ -95,6 +112,11 @@ def execute_test(steps: List[Dict[str, Any]], headless: bool = True) -> Dict[str
                         logs.append(f"Click: {selector}")
                         page.wait_for_selector(selector, state="visible", timeout=timeout_ms)
                         page.click(selector, timeout=timeout_ms)
+                        # a veces el click dispara cambios, damos chance
+                        try:
+                            page.wait_for_load_state("networkidle", timeout=30000)
+                        except Exception:
+                            pass
 
                     elif action == "press":
                         # press puede ser sobre elemento (selector) o global (keyboard)
@@ -104,8 +126,11 @@ def execute_test(steps: List[Dict[str, Any]], headless: bool = True) -> Dict[str
                             page.wait_for_selector(selector, state="visible", timeout=timeout_ms)
                             page.focus(selector)
                         page.keyboard.press(str(key))
-                        # para acciones tipo Enter, dejamos que navegue
-                        page.wait_for_load_state("networkidle", timeout=60000)
+                        # para Enter, dejamos que navegue
+                        try:
+                            page.wait_for_load_state("networkidle", timeout=60000)
+                        except Exception:
+                            pass
 
                     elif action == "assert_visible":
                         if not selector:
@@ -149,16 +174,15 @@ def execute_test(steps: List[Dict[str, Any]], headless: bool = True) -> Dict[str
                     step_result["duration_ms"] = _ms() - step_t0
                     report_steps.append(step_result)
 
-            # Screenshot final
-            time.sleep(1)
-            screenshot_b64 = take_screenshot()
+            # Screenshot final (robusto)
+            screenshot_b64 = take_screenshot_robust()
             status = "passed"
 
         except Exception as e:
             error_msg = str(e)
             logs.append(f"ERROR: {error_msg}")
-            # Screenshot en fallo
-            screenshot_b64 = screenshot_b64 or take_screenshot()
+            # Screenshot en fallo (robusto)
+            screenshot_b64 = screenshot_b64 or take_screenshot_robust()
             status = "fail"
 
         finally:
