@@ -1,9 +1,3 @@
-¡Entiendo perfectamente! El problema es que en tu app.py faltaba el endpoint /chat_run, que es el que el frontend está intentando llamar. Además, vamos a simplificarlo al máximo para que no haya errores de rutas.
-
-Aquí tienes el código de app.py completo y blindado. Cópialo todo y reemplaza lo que tienes:
-
-Python
-
 import os
 from dotenv import load_dotenv
 
@@ -23,7 +17,6 @@ app = FastAPI()
 # =========================
 #            CORS
 # =========================
-# ✅ Permite que Vercel y cualquier origen se conecten
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -76,13 +69,11 @@ Devuelve siempre JSON.
 def health():
     return {"ok": True, "message": "Vanya está despierta"}
 
-# ✅ ESTE ES EL ENDPOINT QUE TU FRONTEND ESTÁ LLAMANDO
 @app.post("/chat_run")
 def chat_run(req: ChatRunRequest):
     try:
         client = get_openai_client()
         
-        # 1. Generar pasos con IA
         completion = client.beta.chat.completions.parse(
             model="gpt-4o-mini",
             messages=[
@@ -95,7 +86,6 @@ def chat_run(req: ChatRunRequest):
         plan = completion.choices[0].message.parsed
         steps = [s.model_dump(exclude_none=True) for s in plan.steps]
 
-        # 2. Ejecutar con Playwright
         result = execute_test(steps, headless=req.headless)
         
         return {
@@ -107,12 +97,11 @@ def chat_run(req: ChatRunRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==========================================
-#   SERVIR FRONTEND (AL FINAL)
+#   SERVIR FRONTEND
 # ==========================================
-# Esto asegura que la raíz '/' no choque con los endpoints
 if os.path.exists("frontend"):
     app.mount("/client", StaticFiles(directory="frontend", html=True), name="frontend")
 
 @app.get("/")
 def home():
-    return {"ok": True, "message": "API de Vanya funcionando. Usa /health o /chat_run"}
+    return {"ok": True, "message": "API de Vanya funcionando"}
