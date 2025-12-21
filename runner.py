@@ -1,95 +1,111 @@
 import os
 import time
+import base64
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-
 from playwright.sync_api import sync_playwright
-from steps import run_steps, StepExecutionError
 
+# Excepción personalizada para el control de flujo
+class StepExecutionError(Exception):
+    pass
 
 def execute_test(steps: List[Dict[str, Any]], headless: bool = True) -> Dict[str, Any]:
-    os.makedirs("evidence", exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_id = f"run_{ts}"
-
-    started_at = datetime.now().isoformat()
+    """
+    Ejecuta una secuencia de pasos de Playwright y devuelve un reporte con captura en Base64.
+    """
     t0 = time.time()
-
-    final_shot = f"evidence/{run_id}_final.png"
-    fail_shot = f"evidence/{run_id}_fail.png"
-
-    report_steps: List[Dict[str, Any]] = []
-
-    def on_step(i: int, step: Dict[str, Any], status: str, duration_ms: int, error: Optional[str]):
-        report_steps.append({
-            "i": i,
-            "action": step.get("action"),
-            "selector": step.get("selector"),
-            "url": step.get("url"),
-            "status": status,
-            "duration_ms": duration_ms,
-            "error": error,
-        })
-
-    report: Dict[str, Any] = {
-        "run_id": run_id,
-        "status": "fail",
-        "started_at": started_at,
-        "duration_ms": None,
-        "error": None,
-        "steps": report_steps,
-        "evidence": {
-            "final_screenshot": None,
-            "failure_screenshot": None,
-        },
-        "meta": {
-            "headless": headless,
-            "steps_count": len(steps),
-        },
-    }
+    started_at = datetime.now().isoformat()
+    screenshot_b64 = None
+    report_steps = []
 
     with sync_playwright() as p:
+        # Lanzamiento del navegador (Chromium)
         browser = p.chromium.launch(headless=headless)
-        context = browser.new_context(viewport={'width': 1280, 'height': 720})
+        context = browser.new_context(
+            viewport={'width': 1280, 'height': 720},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+        )
         page = context.new_page()
 
         try:
-            # Ejecuta los pasos de la prueba
-            run_steps(page, steps, on_step=on_step)
+            for i, step in enumerate(steps):
+                action = step.get("action")
+                selector = step.get("selector")
+                value = step.get("value") or step.get("text")
+                url = step.get("url")
+                
+                step_start = time.time()
+                try:
+                    # --- LÓGICA DE ACCIONES CORREGIDA ---
+                    if action == "goto":
+                        page.goto(url, wait_until="networkidle", timeout=30000)
+                    
+                    elif action == "wait_for_selector":
+                        page.wait_for_selector(selector, state="visible", timeout=10000)
+                    
+                    elif action == "fill":
+                        page.wait_for_selector(selector, state="visible", timeout=10000)
+                        page.fill(selector, "") # Limpia primero
+                        page.fill(selector, value)
+                        # ✅ TRUCO PARA GOOGLE: Presionamos Enter tras escribir
+                        page.keyboard.press("Enter")
+                        page.wait_for_load_state("networkidle")
+                    
+                    elif action == "click":
+                        page.wait_for_selector(selector, state="visible", timeout=10000)
+                        page.click(selector)
+                        page.wait_for_load_state("networkidle")
+                    
+                    elif action == "assert_text_contains":
+                        page.wait_for_selector(selector, timeout=10000)
+                        content = page.text_content(selector)
+                        if value.lower() not in content.lower():
+                            raise Exception(f"Texto '{value}' no encontrado. Encontrado: '{content}'")
 
-            # --- MEJORA PARA EVITAR CAPTURAS EN BLANCO ---
-            # 1. Esperamos a que la red esté inactiva (que no haya peticiones pendientes)
+                    # Registro de paso exitoso
+                    report_steps.append({
+                        "step": i,
+                        "action": action,
+                        "status": "pass",
+                        "duration_ms": int((time.time() - step_start) * 1000)
+                    })
+
+                except Exception as e:
+                    # Registro de paso fallido
+                    report_steps.append({
+                        "step": i,
+                        "action": action,
+                        "status": "fail",
+                        "error": str(e)
+                    })
+                    raise StepExecutionError(f"Fallo en paso {i} ({action}): {str(e)}")
+
+            # ✅ ÉXITO: Captura de pantalla final
             page.wait_for_load_state("networkidle")
-            
-            # 2. Si es DemoQA o similar, intentamos esperar a que aparezca el cuadro de resultados
-            try:
-                # Espera hasta 3 segundos si aparece el div de salida
-                page.wait_for_selector("#output", state="visible", timeout=3000)
-            except:
-                # Si no existe el selector #output, esperamos un segundo extra de cortesía
-                time.sleep(1)
-            # ---------------------------------------------
-
-            # ✅ Evidencia final con la página ya renderizada
-            page.screenshot(path=final_shot, full_page=False) # full_page=False suele ser más estable para capturas rápidas
-            report["evidence"]["final_screenshot"] = final_shot
-            report["status"] = "pass"
+            time.sleep(1) # Pausa de cortesía para renderizado final
+            img_bytes = page.screenshot(full_page=False)
+            screenshot_b64 = base64.b64encode(img_bytes).decode('utf-8')
+            status = "pass"
+            error_msg = None
 
         except StepExecutionError as e:
-            # ❌ Evidencia en caso de fallo
+            # ❌ FALLO: Captura de pantalla del error
             try:
-                # Esperamos un poco para capturar el mensaje de error en pantalla
-                time.sleep(0.5)
-                page.screenshot(path=fail_shot, full_page=False)
-                report["evidence"]["failure_screenshot"] = fail_shot
-            except Exception:
+                img_bytes = page.screenshot(full_page=False)
+                screenshot_b64 = base64.b64encode(img_bytes).decode('utf-8')
+            except:
                 pass
-
-            report["error"] = str(e)
-            report["status"] = "fail"
-
+            status = "fail"
+            error_msg = str(e)
+        
         finally:
             browser.close()
 
-    report["duration_ms"] = int((time.time() - t0) * 1000)
-    return report
+    return {
+        "status": status,
+        "started_at": started_at,
+        "duration_ms": int((time.time() - t0) * 1000),
+        "error": error_msg,
+        "steps": report_steps,
+        "screenshot_b64": screenshot_b64 # La clave para que Vercel muestre la foto
+    }
