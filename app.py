@@ -1,9 +1,3 @@
-Aquí tienes el código completo y listo para copiar de tu archivo app.py.
-
-He incluido las importaciones necesarias, los permisos de CORS para tus dos URLs (DemoQA y Valtre) y la lógica al final para que Render muestre la interfaz moderna de Vanya en lugar del mensaje de texto.
-
-Python
-
 import os
 from dotenv import load_dotenv
 
