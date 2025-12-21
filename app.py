@@ -1,6 +1,6 @@
 import os
 import re
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
@@ -9,9 +9,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from openai import OpenAI
-from runner import execute_test
+from runner import execute_test  # runner local en Render
 
 load_dotenv()
+
 app = FastAPI()
 
 # =========================
@@ -19,7 +20,7 @@ app = FastAPI()
 # =========================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # puedes cambiar a ["https://valtre-vanya.vercel.app"]
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -28,6 +29,7 @@ app.add_middleware(
 # =========================
 #    MODELOS DE DATOS
 # =========================
+
 class StepItem(BaseModel):
     action: str
     url: Optional[str] = None
@@ -39,104 +41,164 @@ class StepItem(BaseModel):
 class StepPlan(BaseModel):
     steps: List[StepItem] = Field(default_factory=list)
 
+Intent = Literal["execute", "plan", "info"]
+
+class IntentResult(BaseModel):
+    intent: Intent
+    confidence: float = Field(ge=0.0, le=1.0, default=0.7)
+    reason: Optional[str] = None
+    # Para "execute": una versión corregida/normalizada del prompt del usuario
+    normalized_prompt: Optional[str] = None
+
 class ChatRunRequest(BaseModel):
     prompt: str
     base_url: Optional[str] = None
     headless: bool = True
 
 # =========================
-#       CONFIG
+#       CONFIGURACIÓN
 # =========================
+
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
+OPENAI_MODEL_STEPS = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
+# Modelo “barato” solo para clasificar intención
+OPENAI_MODEL_INTENT = os.getenv("OPENAI_MODEL_INTENT", "gpt-4o-mini").strip()
 
 def get_openai_client() -> OpenAI:
     if not OPENAI_API_KEY:
-        raise HTTPException(status_code=500, detail="Falta OPENAI_API_KEY.")
+        raise HTTPException(status_code=500, detail="Falta OPENAI_API_KEY en Render.")
     return OpenAI(api_key=OPENAI_API_KEY)
 
-# Dominios que NO quieres automatizar en demo (prod, captcha, etc.)
-BLOCKED_DOMAINS = [
-    "instagram.com",
-]
+# =========================
+#   PROMPTS
+# =========================
 
-def _extract_domain(url: str) -> str:
-    m = re.search(r"https?://([^/]+)", url or "")
-    return (m.group(1) or "").lower() if m else ""
+INTENT_PROMPT = """
+Eres un clasificador de intención para un asistente de QA que puede:
+- INFO: responder capacidades y orientación (sin ejecutar navegador).
+- PLAN: generar estrategia QA, checklist, matriz, casos de prueba (sin ejecutar).
+- EXECUTE: ejecutar una prueba automática en navegador con Playwright.
 
-def _is_blocked_url(url: str) -> bool:
-    d = _extract_domain(url)
-    return any(b in d for b in BLOCKED_DOMAINS)
+Clasifica el mensaje del usuario en uno de:
+- "info"  (pregunta general: qué haces, cómo funciona, capacidades)
+- "plan"  (quiere diseño de pruebas, criterios, casos, matriz, estrategia)
+- "execute" (quiere que navegues y valides algo en una web)
 
-SYSTEM_PROMPT = """
-Eres Vanya, QA senior. Convierte la instrucción del usuario en pasos para Playwright.
+Reglas:
+- Si NO hay un objetivo accionable (URL o acción de UI como click/fill/login/validar), NO es execute.
+- Si el usuario sólo pregunta "¿qué puedes hacer?" o similar -> info.
+- Si el usuario pide "genera casos", "matriz", "criterios", "escenarios" -> plan.
+- Si el usuario dice "ve a", "ingresa", "inicia sesión", "valida", "ejecuta prueba" -> execute.
 
-Devuelve SOLO JSON con este formato exacto:
-{"steps":[ ... ]}
-
-Acciones permitidas:
-goto(url)
-wait_for_selector(selector)
-fill(selector,value)
-click(selector)
-press(selector,text)
-assert_visible(selector)
-assert_text_contains(selector,text)
-wait_ms(value)
-
-REGLAS:
-- NO uses 'screenshot' como acción.
-- SIEMPRE deja una condición de salida al final: un assert_visible o assert_text_contains.
-- Si el usuario pide "validar éxito", conviértelo en un assert concreto (texto o elemento).
-- Evita sitios con CAPTCHA (Google, redes, etc.)
+Devuelve SOLO JSON con este schema:
+{
+  "intent": "info|plan|execute",
+  "confidence": 0.0-1.0,
+  "reason": "breve",
+  "normalized_prompt": "si intent=execute, reescribe el prompt en una instrucción clara y ejecutable; si no, null"
+}
 """
 
-def _auto_fix_steps(user_prompt: str, steps: List[Dict[str, Any]], fallback_url: Optional[str]) -> List[Dict[str, Any]]:
+SYSTEM_PROMPT_STEPS = """
+Eres un ingeniero QA senior. Convierte la intención del usuario en pasos ejecutables para Playwright.
+
+FORMATO:
+Devuelve SIEMPRE JSON: {"steps":[{...}]}
+
+ACCIONES SOPORTADAS:
+- goto (usa url)
+- wait_for_selector (usa selector, timeout_ms opcional)
+- fill (usa selector y value)
+- press (usa selector y text)   # text puede ser "Enter"
+- click (usa selector)
+- assert_visible (usa selector)
+- assert_text_contains (usa selector y text)
+- wait_ms (usa value o text como ms)
+
+REGLAS IMPORTANTES:
+- NO generes "screenshot". La evidencia se captura automáticamente.
+- Si el usuario menciona login, prioriza selectors estables y waits.
+- Para buscar en Google:
+  1) goto https://www.google.com
+  2) wait_for_selector textarea[name="q"] o input[name="q"]
+  3) fill ...
+  4) press Enter ...
+"""
+
+SYSTEM_PROMPT_INFO = """
+Eres Vanya, un QA Intelligence Agent. Responde de forma clara y comercial:
+- Qué puedes hacer
+- Qué tipo de pruebas soportas
+- Qué necesitas del usuario
+- Limitaciones (CAPTCHAs/2FA, sitios que bloquean bots, credenciales reales)
+Responde en español, breve y con bullets.
+"""
+
+SYSTEM_PROMPT_PLAN = """
+Eres un QA Lead. Cuando el usuario pide planeación:
+- Genera checklist y casos de prueba (positivo/negativo)
+- Sugiere datos de prueba
+- Señala riesgos y criterios de aceptación
+Responde en español, estructurado y accionable.
+"""
+
+# =========================
+#   HEURÍSTICA FALLBACK (por si falla el LLM)
+# =========================
+
+_EXECUTE_HINTS = [
+    "ve a", "ingresa a", "abre", "navega", "da click", "haz click", "click",
+    "inicia sesión", "login", "llena", "escribe", "presiona", "valida", "verifica",
+    "ejecuta", "corre la prueba", "prueba automatizada"
+]
+_PLAN_HINTS = [
+    "casos de prueba", "matriz", "checklist", "criterios de aceptación", "gherkin",
+    "escenarios", "plan de pruebas", "estrategia", "cobertura", "test plan"
+]
+
+def _heuristic_intent(prompt: str) -> Intent:
+    p = (prompt or "").strip().lower()
+    if not p:
+        return "info"
+    if any(h in p for h in _PLAN_HINTS):
+        return "plan"
+    if any(h in p for h in _EXECUTE_HINTS) or "http://" in p or "https://" in p:
+        return "execute"
+    return "info"
+
+# =========================
+#   CLASIFICADOR LLM
+# =========================
+
+def classify_intent(client: OpenAI, prompt: str) -> IntentResult:
     """
-    Autocorrección:
-    - añade goto si falta
-    - bloquea dominios problemáticos
-    - añade assert final si falta (condición de salida)
-    - evita esperas infinitas añadiendo assert después de acciones de navegación
+    Mini-clasificador con LLM + fallback heurístico.
     """
-    fixed = [s for s in steps if (s.get("action") or "").lower() != "screenshot"]
+    try:
+        completion = client.beta.chat.completions.parse(
+            model=OPENAI_MODEL_INTENT,
+            messages=[
+                {"role": "system", "content": INTENT_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            response_format=IntentResult,
+        )
+        result: IntentResult = completion.choices[0].message.parsed
 
-    # 1) Asegura GOTO
-    has_goto = any((s.get("action") == "goto" and s.get("url")) for s in fixed)
-    if not has_goto:
-        url = fallback_url or "https://example.com"
-        fixed.insert(0, {"action": "goto", "url": url})
+        # Hard guard: si dice execute pero con baja confianza, degradamos a plan/info
+        if result.intent == "execute" and result.confidence < 0.55:
+            # Si parece plan, plan; si no, info
+            h = _heuristic_intent(prompt)
+            if h != "execute":
+                return IntentResult(intent=h, confidence=0.6, reason="Degradado por baja confianza", normalized_prompt=None)
+        return result
+    except Exception:
+        h = _heuristic_intent(prompt)
+        return IntentResult(intent=h, confidence=0.6, reason="Fallback heurístico", normalized_prompt=None)
 
-    # 2) Bloquea dominios no aptos (si aparece alguno en goto)
-    for s in fixed:
-        if s.get("action") == "goto" and s.get("url") and _is_blocked_url(s["url"]):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Este sitio ({_extract_domain(s['url'])}) no es apto para automatización en demo (CAPTCHA/protecciones). "
-                       f"Usa un sandbox como the-internet.herokuapp.com o example.com."
-            )
-
-    # 3) Si el usuario pidió “login exitoso”, fuerza un assert concreto (para herokuapp login)
-    # (esto hace que la prueba no se quede colgada y termine)
-    wants_login_success = any(k in user_prompt.lower() for k in ["inicia sesión", "login", "iniciar sesión", "log in"]) and \
-                          any(k in user_prompt.lower() for k in ["exitos", "correct", "success"])
-    if wants_login_success:
-        # Si detectamos el sitio demo, ponemos el assert correcto al final
-        last_goto = next((s for s in fixed if s.get("action") == "goto" and s.get("url")), None)
-        if last_goto and "the-internet.herokuapp.com/login" in (last_goto.get("url") or ""):
-            # aseguramos que haya click login si no existe
-            if not any(s.get("action") == "click" for s in fixed):
-                fixed.append({"action": "click", "selector": "button[type='submit']"})
-            # assert final
-            fixed.append({"action": "assert_text_contains", "selector": "#flash", "text": "You logged into a secure area!"})
-
-    # 4) Asegura condición de salida al final
-    has_assert = any((s.get("action") or "").startswith("assert_") for s in fixed)
-    if not has_assert:
-        # default seguro: example.com
-        fixed.append({"action": "assert_text_contains", "selector": "h1", "text": "Example Domain"})
-
-    return fixed
+# =========================
+#   ENDPOINTS
+# =========================
 
 @app.get("/health")
 def health():
@@ -144,38 +206,78 @@ def health():
 
 @app.post("/chat_run")
 def chat_run(req: ChatRunRequest):
+    client = get_openai_client()
+
+    # 1) Clasificar intención
+    intent_res = classify_intent(client, req.prompt)
+
+    # 2) Ruteo por intención
+    if intent_res.intent == "info":
+        completion = client.chat.completions.create(
+            model=OPENAI_MODEL_STEPS,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT_INFO},
+                {"role": "user", "content": req.prompt},
+            ],
+        )
+        answer = completion.choices[0].message.content or ""
+        return {
+            "mode": "info",
+            "intent": intent_res.model_dump(),
+            "answer": answer,
+        }
+
+    if intent_res.intent == "plan":
+        completion = client.chat.completions.create(
+            model=OPENAI_MODEL_STEPS,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT_PLAN},
+                {"role": "user", "content": req.prompt},
+            ],
+        )
+        answer = completion.choices[0].message.content or ""
+        return {
+            "mode": "plan",
+            "intent": intent_res.model_dump(),
+            "answer": answer,
+        }
+
+    # 3) EXECUTE: generar steps + correr
     try:
-        client = get_openai_client()
+        user_for_steps = intent_res.normalized_prompt or req.prompt
 
         completion = client.beta.chat.completions.parse(
-            model=OPENAI_MODEL,
+            model=OPENAI_MODEL_STEPS,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": req.prompt},
+                {"role": "system", "content": SYSTEM_PROMPT_STEPS},
+                {"role": "user", "content": user_for_steps},
             ],
             response_format=StepPlan,
         )
 
         plan = completion.choices[0].message.parsed
-        raw_steps = [s.model_dump(exclude_none=True) for s in plan.steps]
+        steps = [s.model_dump(exclude_none=True) for s in plan.steps]
 
-        # ✅ autocorrección aquí
-        fixed_steps = _auto_fix_steps(req.prompt, raw_steps, req.base_url)
+        # Guardrail extra: si no hay goto, insertamos uno con base_url o google
+        if not any((s.get("action") or "").lower() == "goto" for s in steps):
+            fallback_url = req.base_url or "https://example.com"
+            steps.insert(0, {"action": "goto", "url": fallback_url})
 
-        run_result = execute_test(fixed_steps, headless=req.headless)
+        run_result = execute_test(steps, headless=req.headless)
 
         return {
-            "generated_steps": fixed_steps,
-            "run_result": run_result
+            "mode": "execute",
+            "intent": intent_res.model_dump(),
+            "generated_steps": steps,
+            "run_result": run_result,
         }
 
-    except HTTPException:
-        raise
     except Exception as e:
-        print(f"Error /chat_run: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# (Opcional) servir frontend estático si lo usas
+# ==========================================
+#   SERVIR FRONTEND (opcional)
+# ==========================================
 if os.path.exists("frontend"):
     app.mount("/client", StaticFiles(directory="frontend", html=True), name="frontend")
 
