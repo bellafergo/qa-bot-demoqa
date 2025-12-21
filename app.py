@@ -17,7 +17,7 @@ app = FastAPI()
 # =========================
 #            CORS
 # =========================
-# ✅ Configuración limpia: permite todas las conexiones
+# ✅ CONFIGURACIÓN FINAL: Permite la conexión desde Vercel y local sin restricciones
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -34,14 +34,7 @@ class RunRequest(BaseModel):
     steps: List[Dict[str, Any]]
     headless: bool = True
 
-AllowedAction = Literal[
-    "goto",
-    "wait_for_selector",
-    "fill",
-    "click",
-    "assert_visible",
-    "assert_text_contains",
-]
+AllowedAction = Literal["goto", "wait_for_selector", "fill", "click", "assert_visible", "assert_text_contains"]
 
 class StepItem(BaseModel):
     action: AllowedAction
@@ -70,43 +63,20 @@ class ChatRunRequest(BaseModel):
 def get_openai_client() -> OpenAI:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        raise HTTPException(status_code=500, detail="Falta OPENAI_API_KEY en el archivo .env")
+        raise HTTPException(status_code=500, detail="Falta OPENAI_API_KEY")
     return OpenAI(api_key=api_key)
 
-SYSTEM_PROMPT = """
-Eres un ingeniero QA senior especializado en automatización web con Playwright.
-Convierte la intención del usuario en un plan de pruebas automatizadas.
-
-REGLAS OBLIGATORIAS:
-- Usa SOLO estas acciones: goto, wait_for_selector, fill, click, assert_visible, assert_text_contains.
-- Para escribir en campos usa SIEMPRE: action: "fill" con los campos `selector` y `value`.
-- Para validar texto usa SIEMPRE: action: "assert_text_contains" con los campos `selector` y `text`.
-- Si el flujo es un formulario, incluye el submit (click) antes de cualquier validación.
-- Antes de cada assert_* incluye un wait_for_selector del selector a validar.
-- Devuelve EXCLUSIVAMENTE JSON válido.
-"""
+SYSTEM_PROMPT = "Eres un ingeniero QA senior. Convierte la intención del usuario en pasos de Playwright en formato JSON."
 
 # =========================
 #   NORMALIZADOR DE STEPS
 # =========================
 
 def normalize_steps(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    for s in steps:
-        if s.get("action") == "assert_text_contains" and "value" in s and "text" not in s:
-            s["text"] = s.pop("value")
-        if s.get("selector") == "#name":
-            s["selector"] = "#output #name"
-
-    has_submit = any(s.get("action") == "click" and s.get("selector") == "#submit" for s in steps)
-    first_assert_idx = next((i for i, s in enumerate(steps) if str(s.get("action", "")).startswith("assert")), None)
-
-    if first_assert_idx is not None and not has_submit:
-        steps.insert(first_assert_idx, {"action": "click", "selector": "#submit"})
-
     fixed: List[Dict[str, Any]] = []
     for s in steps:
-        if str(s.get("action", "")).startswith("assert") and s.get("selector"):
-            fixed.append({"action": "wait_for_selector", "selector": s["selector"], "timeout_ms": 15000})
+        if s.get("action") == "assert_text_contains" and "value" in s:
+            s["text"] = s.pop("value")
         fixed.append(s)
     return fixed
 
@@ -116,7 +86,7 @@ def normalize_steps(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 @app.get("/health")
 def health():
-    return {"ok": True, "message": "QA bot corriendo correctamente"}
+    return {"ok": True, "message": "Vanya está despierta"}
 
 @app.post("/run")
 def run_test(req: RunRequest):
@@ -126,47 +96,23 @@ def run_test(req: RunRequest):
 def chat(req: ChatRequest):
     try:
         client = get_openai_client()
-        user_msg = req.prompt.strip()
         completion = client.beta.chat.completions.parse(
             model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_msg},
-            ],
+            messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": req.prompt}],
             response_format=StepPlan,
         )
-        msg = completion.choices[0].message
-        plan = getattr(msg, "parsed", None)
-        steps = [s.model_dump(exclude_none=True) for s in plan.steps]
-        steps = normalize_steps(steps)
+        plan = completion.choices[0].message.parsed
+        steps = normalize_steps([s.model_dump(exclude_none=True) for s in plan.steps])
         return {"steps": steps}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/chat_run")
-def chat_run(req: ChatRunRequest):
-    client = get_openai_client()
-    completion = client.beta.chat.completions.parse(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": req.prompt},
-        ],
-        response_format=StepPlan,
-    )
-    msg = completion.choices[0].message
-    plan = getattr(msg, "parsed", None)
-    steps = [s.model_dump(exclude_none=True) for s in plan.steps]
-    steps = normalize_steps(steps)
-    result = execute_test(steps, headless=req.headless)
-    return {"generated_steps": steps, "run_result": result}
-
 # ==========================================
-#   SERVIR FRONTEND (DEBE IR AL FINAL)
+#   SERVIR FRONTEND (AL FINAL)
 # ==========================================
 if os.path.exists("frontend"):
     app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
 else:
     @app.get("/")
     def home():
-        return {"ok": True, "message": "API activa."}
+        return {"ok": True, "message": "Servidor activo"}
