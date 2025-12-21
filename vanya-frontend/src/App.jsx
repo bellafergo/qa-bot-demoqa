@@ -159,8 +159,19 @@ function App() {
 
       const data = await resp.json();
 
-      const runner = data.run_result;
-      const status = runner?.status ? prettyStatus(runner.status) : "Resultado listo";
+if (data.mode === "info" || data.mode === "plan") {
+  setMessages(prev => [...prev, {
+    role: 'bot',
+    content: data.answer || "Listo.",
+    runner: null
+  }]);
+} else {
+  setMessages(prev => [...prev, {
+    role: 'bot',
+    content: "He procesado tu solicitud. Aquí tienes los resultados de la ejecución:",
+    runner: data.run_result
+  }]);
+}
 
       setMessages(prev => [...prev, {
         role: 'bot',
