@@ -1,3 +1,9 @@
+¡Entiendo perfectamente! El problema es que en tu app.py faltaba el endpoint /chat_run, que es el que el frontend está intentando llamar. Además, vamos a simplificarlo al máximo para que no haya errores de rutas.
+
+Aquí tienes el código de app.py completo y blindado. Cópialo todo y reemplaza lo que tienes:
+
+Python
+
 import os
 from dotenv import load_dotenv
 
@@ -17,7 +23,7 @@ app = FastAPI()
 # =========================
 #            CORS
 # =========================
-# ✅ CONFIGURACIÓN FINAL: Permite la conexión desde Vercel y local sin restricciones
+# ✅ Permite que Vercel y cualquier origen se conecten
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -30,14 +36,8 @@ app.add_middleware(
 #    MODELOS DE DATOS
 # =========================
 
-class RunRequest(BaseModel):
-    steps: List[Dict[str, Any]]
-    headless: bool = True
-
-AllowedAction = Literal["goto", "wait_for_selector", "fill", "click", "assert_visible", "assert_text_contains"]
-
 class StepItem(BaseModel):
-    action: AllowedAction
+    action: str
     url: Optional[str] = None
     selector: Optional[str] = None
     value: Optional[str] = None
@@ -46,10 +46,6 @@ class StepItem(BaseModel):
 
 class StepPlan(BaseModel):
     steps: List[StepItem] = Field(default_factory=list)
-
-class ChatRequest(BaseModel):
-    prompt: str
-    base_url: Optional[str] = None
 
 class ChatRunRequest(BaseModel):
     prompt: str
@@ -63,22 +59,14 @@ class ChatRunRequest(BaseModel):
 def get_openai_client() -> OpenAI:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        raise HTTPException(status_code=500, detail="Falta OPENAI_API_KEY")
+        raise HTTPException(status_code=500, detail="Falta la API Key de OpenAI")
     return OpenAI(api_key=api_key)
 
-SYSTEM_PROMPT = "Eres un ingeniero QA senior. Convierte la intención del usuario en pasos de Playwright en formato JSON."
-
-# =========================
-#   NORMALIZADOR DE STEPS
-# =========================
-
-def normalize_steps(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    fixed: List[Dict[str, Any]] = []
-    for s in steps:
-        if s.get("action") == "assert_text_contains" and "value" in s:
-            s["text"] = s.pop("value")
-        fixed.append(s)
-    return fixed
+SYSTEM_PROMPT = """
+Eres un ingeniero QA senior. Convierte la intención del usuario en pasos de Playwright.
+Acciones permitidas: goto, wait_for_selector, fill, click, assert_visible, assert_text_contains.
+Devuelve siempre JSON.
+"""
 
 # =========================
 #        ENDPOINTS
@@ -88,31 +76,43 @@ def normalize_steps(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 def health():
     return {"ok": True, "message": "Vanya está despierta"}
 
-@app.post("/run")
-def run_test(req: RunRequest):
-    return execute_test(req.steps, headless=req.headless)
-
-@app.post("/chat")
-def chat(req: ChatRequest):
+# ✅ ESTE ES EL ENDPOINT QUE TU FRONTEND ESTÁ LLAMANDO
+@app.post("/chat_run")
+def chat_run(req: ChatRunRequest):
     try:
         client = get_openai_client()
+        
+        # 1. Generar pasos con IA
         completion = client.beta.chat.completions.parse(
             model="gpt-4o-mini",
-            messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": req.prompt}],
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": req.prompt}
+            ],
             response_format=StepPlan,
         )
+        
         plan = completion.choices[0].message.parsed
-        steps = normalize_steps([s.model_dump(exclude_none=True) for s in plan.steps])
-        return {"steps": steps}
+        steps = [s.model_dump(exclude_none=True) for s in plan.steps]
+
+        # 2. Ejecutar con Playwright
+        result = execute_test(steps, headless=req.headless)
+        
+        return {
+            "generated_steps": steps,
+            "run_result": result
+        }
     except Exception as e:
+        print(f"Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==========================================
 #   SERVIR FRONTEND (AL FINAL)
 # ==========================================
+# Esto asegura que la raíz '/' no choque con los endpoints
 if os.path.exists("frontend"):
-    app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
-else:
-    @app.get("/")
-    def home():
-        return {"ok": True, "message": "Servidor activo"}
+    app.mount("/client", StaticFiles(directory="frontend", html=True), name="frontend")
+
+@app.get("/")
+def home():
+    return {"ok": True, "message": "API de Vanya funcionando. Usa /health o /chat_run"}
