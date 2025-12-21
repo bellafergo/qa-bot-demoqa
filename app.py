@@ -17,14 +17,13 @@ app = FastAPI()
 # =========================
 #            CORS
 # =========================
-# ✅ Permitimos que tu frontend en Vercel y tus URLs de Render se comuniquen
-ALLOWED_ORIGINS = [
-    "http://127.0.0.1:5173",
-    "http://localhost:5173",
-    "https://qa-bot-demoqa.vercel.app",
-    "https://qa-bot-demoqa.onrender.com",
-    "https://qa-bot-valtre.onrender.com",
-]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # <--- Esto permite conexiones desde cualquier URL (Vercel, Render, Local)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.add_middleware(
     CORSMiddleware,
