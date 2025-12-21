@@ -1,3 +1,9 @@
+Aquí tienes el código completo y corregido de App.jsx.
+
+He ajustado el endpoint a /chat_run para que coincida con tu app.py, eliminé el campo session_id que no utiliza tu servidor y sincronicé la lectura de la respuesta con la estructura run_result que devuelve tu backend.
+
+JavaScript
+
 import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 
@@ -7,7 +13,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const chatEndRef = useRef(null);
 
-  // URL de tu API en Render (Verificada)
+  // URL de tu cerebro activo en Render
   const API_BASE = "https://qa-bot-demoqa.onrender.com"; 
 
   const scrollToBottom = () => {
@@ -15,7 +21,6 @@ function App() {
   };
 
   useEffect(() => {
-    // Saludo inicial de Vanya
     setMessages([{
       role: 'bot',
       content: 'Hola, soy **Vanya**, tu Agente de QA inteligente. ¿En qué puedo ayudarte hoy con tus pruebas?'
@@ -24,12 +29,11 @@ function App() {
 
   useEffect(scrollToBottom, [messages]);
 
-  // Función para formatear el texto de Markdown a HTML básico
   const formatText = (text) => {
     if (!text) return "";
     return text
-      .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>') // Negritas
-      .replace(/\n/g, '<br/>');               // Saltos de línea
+      .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
+      .replace(/\n/g, '<br/>');
   };
 
   const handleSend = async () => {
@@ -43,12 +47,13 @@ function App() {
     setIsLoading(true);
 
     try {
-      const resp = await fetch(`${API_BASE}/ask`, {
+      // ✅ CORRECCIÓN: Usamos /chat_run que es el endpoint real en tu app.py
+      const resp = await fetch(`${API_BASE}/chat_run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          prompt: currentInput, 
-          session_id: "anon" 
+          prompt: currentInput,
+          headless: true // Parámetro que espera tu ChatRunRequest
         })
       });
       
@@ -56,16 +61,18 @@ function App() {
       
       const data = await resp.json();
       
+      // ✅ CORRECCIÓN: Accedemos a data.run_result como viene en tu app.py
       setMessages(prev => [...prev, {
         role: 'bot',
-        content: data.answer || "Ejecución finalizada.",
-        runner: data.runner || data.run_result // Compatible con ambas estructuras
+        content: "He procesado tu solicitud. Aquí tienes los resultados de la ejecución:",
+        runner: data.run_result 
       }]);
+
     } catch (error) {
       console.error("Error en la petición:", error);
       setMessages(prev => [...prev, { 
         role: 'bot', 
-        content: "❌ **Error de conexión con Vanya.**\n\nEl servidor en Render podría estar tardando en despertar o la URL es incorrecta. Por favor, verifica los logs en Render." 
+        content: "❌ **Error de conexión con Vanya.**\n\nEl servidor en Render no responde en el endpoint /chat_run. Verifica que el despliegue haya terminado correctamente." 
       }]);
     } finally {
       setIsLoading(false);
@@ -89,7 +96,6 @@ function App() {
                 dangerouslySetInnerHTML={{ __html: formatText(msg.content) }} 
               />
               
-              {/* Renderizado de Evidencia (Screenshot) */}
               {msg.runner?.screenshot_b64 && (
                 <div className="evidence-container">
                   <p className="ev-title">🖼️ Evidencia de ejecución:</p>
