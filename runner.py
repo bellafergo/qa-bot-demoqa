@@ -37,7 +37,7 @@ def execute_test(steps: List[Dict[str, Any]], headless: bool = True) -> Dict[str
         "started_at": started_at,
         "duration_ms": None,
         "error": None,
-        "steps": report_steps,  # 👈 desglose por paso
+        "steps": report_steps,
         "evidence": {
             "final_screenshot": None,
             "failure_screenshot": None,
@@ -50,22 +50,37 @@ def execute_test(steps: List[Dict[str, Any]], headless: bool = True) -> Dict[str
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
-        page = browser.new_page()
+        context = browser.new_context(viewport={'width': 1280, 'height': 720})
+        page = context.new_page()
 
         try:
-            # Ejecuta y va llenando report_steps con el callback
+            # Ejecuta los pasos de la prueba
             run_steps(page, steps, on_step=on_step)
 
-            # ✅ evidencia al final aunque pase
-            page.screenshot(path=final_shot, full_page=True)
-            report["evidence"]["final_screenshot"] = final_shot
+            # --- MEJORA PARA EVITAR CAPTURAS EN BLANCO ---
+            # 1. Esperamos a que la red esté inactiva (que no haya peticiones pendientes)
+            page.wait_for_load_state("networkidle")
+            
+            # 2. Si es DemoQA o similar, intentamos esperar a que aparezca el cuadro de resultados
+            try:
+                # Espera hasta 3 segundos si aparece el div de salida
+                page.wait_for_selector("#output", state="visible", timeout=3000)
+            except:
+                # Si no existe el selector #output, esperamos un segundo extra de cortesía
+                time.sleep(1)
+            # ---------------------------------------------
 
+            # ✅ Evidencia final con la página ya renderizada
+            page.screenshot(path=final_shot, full_page=False) # full_page=False suele ser más estable para capturas rápidas
+            report["evidence"]["final_screenshot"] = final_shot
             report["status"] = "pass"
 
         except StepExecutionError as e:
-            # ❌ evidencia cuando falla
+            # ❌ Evidencia en caso de fallo
             try:
-                page.screenshot(path=fail_shot, full_page=True)
+                # Esperamos un poco para capturar el mensaje de error en pantalla
+                time.sleep(0.5)
+                page.screenshot(path=fail_shot, full_page=False)
                 report["evidence"]["failure_screenshot"] = fail_shot
             except Exception:
                 pass

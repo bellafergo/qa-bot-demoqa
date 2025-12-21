@@ -1,21 +1,35 @@
 import os
 from dotenv import load_dotenv
+
 load_dotenv()
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional, Literal
 
 from openai import OpenAI
 from runner import execute_test
 
-from fastapi.middleware.cors import CORSMiddleware
-
 app = FastAPI()
+
+# =========================
+#            CORS
+# =========================
+# ✅ Ajusta esta lista según el puerto donde abras el frontend
+# (Vite suele ser 5173, Live Server 5500, python -m http.server 5500/8080)
+ALLOWED_ORIGINS = [
+    "http://127.0.0.1:5173",
+    "http://localhost:5173",
+    "http://127.0.0.1:5500",
+    "http://localhost:5500",
+    "http://127.0.0.1:8080",
+    "http://localhost:8080",
+]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # luego lo restringimos
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -110,12 +124,12 @@ REGLAS OBLIGATORIAS:
 # =========================
 
 def normalize_steps(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    # 1) Arreglo: assert_text_contains debe usar "text", no "value"
+    # 1) assert_text_contains debe usar "text" (no "value")
     for s in steps:
         if s.get("action") == "assert_text_contains" and "value" in s and "text" not in s:
             s["text"] = s.pop("value")
 
-    # 2) Arreglo: DemoQA suele renderizar el nombre en #output #name
+    # 2) DemoQA suele renderizar el nombre en #output #name
     for s in steps:
         if s.get("selector") == "#name":
             s["selector"] = "#output #name"
@@ -131,11 +145,11 @@ def normalize_steps(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         steps.insert(first_assert_idx, {"action": "click", "selector": "#submit"})
         steps.insert(first_assert_idx, {"action": "wait_for_selector", "selector": "#submit", "timeout_ms": 15000})
 
-    # 4) Antes de cada assert, meter wait_for_selector del mismo selector (estabilidad)
+    # 4) Antes de cada assert, agregar wait_for_selector (más estable)
     fixed: List[Dict[str, Any]] = []
     for s in steps:
         if str(s.get("action", "")).startswith("assert") and s.get("selector"):
-            fixed.append({"action": "wait_for_selector", "selector": s["selector"], "timeout_ms": 15000})
+            fixed.append({"action": "wait_for_selector", "selector": s["selector"], "timeout_ms": int(s.get("timeout_ms", 15000))})
         fixed.append(s)
 
     return fixed
@@ -159,7 +173,7 @@ def demoqa_textbox_steps():
             {"action": "fill", "selector": "#currentAddress", "value": "Monterrey"},
             {"action": "fill", "selector": "#permanentAddress", "value": "Nuevo León"},
             {"action": "click", "selector": "#submit"},
-            {"action": "assert_visible", "selector": "#output #name"},
+            {"action": "wait_for_selector", "selector": "#output #name", "timeout_ms": 15000},
             {"action": "assert_text_contains", "selector": "#output #name", "text": "Fernanda QA"},
         ]
     }
@@ -213,7 +227,7 @@ def chat_run(req: ChatRunRequest):
 
     user_msg = req.prompt.strip()
     if req.base_url:
-        user_msg += f"\nBase URL: {req.base_url}"
+        user_msg += f"\nBase URL contextual: {req.base_url}"
 
     # 2) Generar pasos con OpenAI
     completion = client.beta.chat.completions.parse(
@@ -229,19 +243,19 @@ def chat_run(req: ChatRunRequest):
     plan = getattr(msg, "parsed", None)
 
     if plan is None or not plan.steps:
-        raise HTTPException(
-            status_code=500,
-            detail="OpenAI no generó pasos. Ajusta el prompt."
-        )
+        raise HTTPException(status_code=500, detail="OpenAI no generó pasos. Ajusta el prompt.")
 
     # 3) Normalizar steps
     steps = [s.model_dump(exclude_none=True) for s in plan.steps]
     steps = normalize_steps(steps)
 
+    if not steps:
+        raise HTTPException(status_code=500, detail="OpenAI devolvió 0 steps después de normalizar.")
+
     # 4) Ejecutar Playwright
     result = execute_test(steps, headless=req.headless)
 
-    # 5) ⬅️ ESTE RETURN ES OBLIGATORIO
+    # 5) Responder
     return {
         "generated_steps": steps,
         "run_result": result
