@@ -8,7 +8,7 @@ function App() {
   const chatEndRef = useRef(null);
 
   // URL de tu API en Render (Verificada)
-  const API_BASE = "https://qa-bot-demoqa.onrender.com"; 
+  const API_BASE = "https://qa-bot-valtre.onrender.com"; 
 
   const scrollToBottom = () => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
