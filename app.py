@@ -5,7 +5,7 @@ load_dotenv()
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles  # <-- IMPORTANTE PARA EL FRONTEND
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional, Literal
 
@@ -17,17 +17,10 @@ app = FastAPI()
 # =========================
 #            CORS
 # =========================
+# ✅ Configuración limpia: permite todas las conexiones
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # <--- Esto permite conexiones desde cualquier URL (Vercel, Render, Local)
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -82,16 +75,12 @@ def get_openai_client() -> OpenAI:
 
 SYSTEM_PROMPT = """
 Eres un ingeniero QA senior especializado en automatización web con Playwright.
-
 Convierte la intención del usuario en un plan de pruebas automatizadas.
 
 REGLAS OBLIGATORIAS:
-- Usa SOLO estas acciones:
-  goto, wait_for_selector, fill, click, assert_visible, assert_text_contains.
-- Para escribir en campos usa SIEMPRE:
-  action: "fill" con los campos `selector` y `value`.
-- Para validar texto usa SIEMPRE:
-  action: "assert_text_contains" con los campos `selector` y `text`.
+- Usa SOLO estas acciones: goto, wait_for_selector, fill, click, assert_visible, assert_text_contains.
+- Para escribir en campos usa SIEMPRE: action: "fill" con los campos `selector` y `value`.
+- Para validar texto usa SIEMPRE: action: "assert_text_contains" con los campos `selector` y `text`.
 - Si el flujo es un formulario, incluye el submit (click) antes de cualquier validación.
 - Antes de cada assert_* incluye un wait_for_selector del selector a validar.
 - Devuelve EXCLUSIVAMENTE JSON válido.
@@ -175,10 +164,9 @@ def chat_run(req: ChatRunRequest):
 # ==========================================
 #   SERVIR FRONTEND (DEBE IR AL FINAL)
 # ==========================================
-# Esto permite que al entrar a la URL raíz se vea el chat de Vanya
 if os.path.exists("frontend"):
     app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
 else:
     @app.get("/")
     def home():
-        return {"ok": True, "message": "API activa. Por favor, sube la carpeta frontend para ver la interfaz."}
+        return {"ok": True, "message": "API activa."}
