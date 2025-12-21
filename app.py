@@ -1,16 +1,13 @@
 import os
-from typing import List, Optional, Dict, Any
-
-import requests
+from typing import List, Optional, Dict, Any, Tuple
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-
 from openai import OpenAI
 
-# Si tienes runner local (solo se usa si NO hay RUNNER_URL)
+# Importamos tu ejecución local
 from runner import execute_test
 
 load_dotenv()
@@ -20,8 +17,6 @@ app = FastAPI()
 # =========================
 #            CORS
 # =========================
-# Si tu frontend está en Vercel, esto permite llamadas desde ahí.
-# Si quieres cerrarlo, reemplaza ["*"] por ["https://valtre-vanya.vercel.app"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -36,7 +31,7 @@ app.add_middleware(
 
 class StepItem(BaseModel):
     action: str
-    url: Optional[str] = None  # OJO: el runner en DO no acepta url dentro de step, lo normalizaremos
+    url: Optional[str] = None
     selector: Optional[str] = None
     value: Optional[str] = None
     text: Optional[str] = None
@@ -47,7 +42,7 @@ class StepPlan(BaseModel):
 
 class ChatRunRequest(BaseModel):
     prompt: str
-    base_url: Optional[str] = None  # url base opcional
+    base_url: Optional[str] = None
     headless: bool = True
 
 # =========================
@@ -55,108 +50,22 @@ class ChatRunRequest(BaseModel):
 # =========================
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
-
-RUNNER_URL = os.getenv("RUNNER_URL", "").strip()          # Ej: http://104.248.74.76:8000/run
-RUNNER_TOKEN = os.getenv("RUNNER_TOKEN", "").strip()      # Header x-runner-token
-RUNNER_TIMEOUT_S = int(os.getenv("RUNNER_TIMEOUT_S", "120"))
 
 def get_openai_client() -> OpenAI:
     if not OPENAI_API_KEY:
-        raise HTTPException(status_code=500, detail="Falta la API Key de OpenAI (OPENAI_API_KEY).")
+        raise HTTPException(status_code=500, detail="Falta OPENAI_API_KEY en Render.")
     return OpenAI(api_key=OPENAI_API_KEY)
 
 SYSTEM_PROMPT = """
-Eres un ingeniero QA senior. Convierte la intención del usuario en pasos ejecutables.
+Eres un ingeniero QA senior. Convierte la intención del usuario en pasos ejecutables para Playwright.
 
-FORMATO:
-Devuelve SIEMPRE JSON: {"steps":[{...}]}
-
-ACCIONES SOPORTADAS:
-- goto (usa url)
-- wait_for_selector (usa selector, timeout_ms opcional)
-- fill (usa selector y value)
-- press (usa selector y text)   # text puede ser "Enter"
-- click (usa selector)
-- assert_visible (usa selector)
-- assert_text_contains (usa selector y text)
-
-REGLAS IMPORTANTES:
-- NO generes "screenshot". La evidencia se captura automáticamente.
-- Para buscar en Google SIEMPRE sigue estos pasos:
-  1) goto https://www.google.com
-  2) wait_for_selector input[name="q"]
-  3) fill input[name="q"] con el texto solicitado
-  4) press Enter en input[name="q"]
-
-EJEMPLO:
-{
-  "steps": [
-    {"action":"goto","url":"https://www.google.com"},
-    {"action":"wait_for_selector","selector":"input[name='q']"},
-    {"action":"fill","selector":"input[name='q']","value":"Valtre"},
-    {"action":"press","selector":"input[name='q']","text":"Enter"}
-  ]
-}
+REGLAS:
+1. Devuelve SIEMPRE JSON: {"steps":[{...}]}
+2. Si el usuario pide ir a una web, el primer paso DEBE ser "action": "goto" con su "url".
+3. Para buscar en Google: 
+   - goto https://www.google.com
+   - fill con selector 'textarea[name="q"]' o 'input[name="q"]'
 """
-
-# =========================
-#   HELPERS NORMALIZACIÓN
-# =========================
-
-def _normalize_steps_for_runner(steps: List[Dict[str, Any]], fallback_url: Optional[str] = None):
-    """
-    Normaliza steps generados por el LLM para cumplir con el runner de DigitalOcean:
-    - El runner requiere "url" raíz en el body.
-    - El runner NO espera "url" dentro de cada step.
-    - El runner ya trae take_screenshot=true, así que filtramos cualquier screenshot (por seguridad).
-    """
-    # 1) filtra screenshot si se coló
-    clean_steps = [s for s in steps if (s.get("action") or "").lower() != "screenshot"]
-
-    # 2) obtiene target_url del primer goto que tenga url
-    target_url = None
-    for s in clean_steps:
-        if (s.get("action") or "").lower() == "goto" and s.get("url"):
-            target_url = s["url"]
-            break
-
-    # 3) si no hay goto/url, usa fallback
-    if not target_url:
-        target_url = fallback_url or "https://example.com"
-
-    # 4) elimina url de steps (para cumplir con schema del runner DO)
-    for s in clean_steps:
-        s.pop("url", None)
-
-    return target_url, clean_steps
-
-def _call_remote_runner(url: str, steps: List[Dict[str, Any]], headless: bool = True) -> Dict[str, Any]:
-    """
-    Llama al runner en DigitalOcean.
-    Según tu openapi.json:
-      POST /run con body: { url: str, steps: [...], take_screenshot: bool }
-      header opcional: x-runner-token
-    """
-    if not RUNNER_URL:
-        raise RuntimeError("RUNNER_URL no está configurado.")
-
-    headers = {"Content-Type": "application/json"}
-    if RUNNER_TOKEN:
-        headers["x-runner-token"] = RUNNER_TOKEN
-
-    payload = {
-        "url": url,
-        "steps": steps,
-        "take_screenshot": True,
-        # headless no viene en tu schema, así que no lo mandamos (si lo soportas, lo agregas en el runner).
-    }
-
-    resp = requests.post(RUNNER_URL, json=payload, headers=headers, timeout=RUNNER_TIMEOUT_S)
-    if resp.status_code >= 400:
-        raise HTTPException(status_code=502, detail=f"Runner error {resp.status_code}: {resp.text}")
-
-    return resp.json()
 
 # =========================
 #        ENDPOINTS
@@ -171,8 +80,9 @@ def chat_run(req: ChatRunRequest):
     try:
         client = get_openai_client()
 
+        # 1. Preguntar a la IA por los pasos
         completion = client.beta.chat.completions.parse(
-            model=OPENAI_MODEL,
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": req.prompt},
@@ -181,33 +91,24 @@ def chat_run(req: ChatRunRequest):
         )
 
         plan = completion.choices[0].message.parsed
-        raw_steps = [s.model_dump(exclude_none=True) for s in plan.steps]
+        # Convertimos a lista de diccionarios limpia
+        steps_to_execute = [s.model_dump(exclude_none=True) for s in plan.steps]
 
-        # Normaliza para tu runner (DO)
-        fallback = req.base_url
-        target_url, normalized_steps = _normalize_steps_for_runner(raw_steps, fallback_url=fallback)
+        # ✅ FIX IMPORTANTE: 
+        # Aseguramos que el primer paso sea un GOTO si la IA no lo puso
+        if not any(s.get("action") == "goto" for s in steps_to_execute):
+            fallback_url = req.base_url or "https://www.google.com"
+            steps_to_execute.insert(0, {"action": "goto", "url": fallback_url})
 
-        # Ejecuta:
-        # - Si hay RUNNER_URL -> runner remoto (DigitalOcean)
-        # - Si NO -> runner local (execute_test)
-        if RUNNER_URL:
-            run_result = _call_remote_runner(url=target_url, steps=normalized_steps, headless=req.headless)
-        else:
-            # runner local: aquí sí podrías usar headless
-            run_result = execute_test([{"action": "goto", "url": target_url}] + normalized_steps, headless=req.headless)
+        # 2. EJECUTAR LOCALMENTE (En Render)
+        # Aquí NO borramos la URL de los pasos, porque el runner local la necesita
+        run_result = execute_test(steps_to_execute, headless=req.headless)
 
         return {
-            "generated_steps": raw_steps,          # lo que el LLM propuso
-            "normalized": {
-                "url": target_url,
-                "steps": normalized_steps,
-                "take_screenshot": True,
-            },
-            "run_result": run_result,
+            "generated_steps": steps_to_execute,
+            "run_result": run_result
         }
 
-    except HTTPException:
-        raise
     except Exception as e:
         print(f"Error /chat_run: {e}")
         raise HTTPException(status_code=500, detail=str(e))
