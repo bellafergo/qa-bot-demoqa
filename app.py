@@ -283,21 +283,50 @@ def _cache_set(key: str, value: Dict[str, Any]):
 
 
 # ============================================================
-# SYSTEM PROMPTS (compactos para velocidad)
+# SYSTEM PROMPTS (compactos para velocidad, + robust locators)
 # ============================================================
-SYSTEM_PROMPT = """Eres Vanya, agente de QA. Responde claro y corto. Si piden ejecutar en web, genera pasos para Playwright via tool run_qa_test. Si es teoría, asesora."""
 
-SYSTEM_PROMPT_EXECUTE = """Eres Vanya. Si el usuario pide validar/navegar/click/login, DEBES devolver tool-call run_qa_test con pasos simples y estables.
-Reglas:
-- Usa selectores robustos: ids (#id), name, data-testid. Si no hay, usa texto (text) y luego el runner resolverá.
-- Si falta URL usa base_url del contexto.
-- Pasos: goto, fill, click, press, assert_visible, assert_text_contains, wait_ms.
-- No pidas permiso extra si ya es instrucción clara.
+SYSTEM_PROMPT = """Eres Vanya, un Agente de QA. Responde claro y directo.
+Modos:
+- ADVISE: si el usuario hace preguntas teóricas o pide ejemplos (INVEST, Gherkin, casos, scripts).
+- EXECUTE: si el usuario pide acciones/validaciones en una web real (ve a, valida, click, login, etc.), debes generar pasos y ejecutar con run_qa_test.
+No te contradigas: sí puedes ejecutar pruebas web cuando el usuario lo pide claramente.
 """
 
-SYSTEM_PROMPT_DOC = """Eres Vanya. Generas artefactos QA (INVEST, Gherkin, casos de prueba, scripts Playwright Python).
-Objetivo: útil, concreto, sin relleno. Si faltan datos, pon assumptions y questions_to_clarify.
-Devuelve SIEMPRE un tool-call generate_qa_artifacts con campos completos (aunque algunos vacíos)."""
+SYSTEM_PROMPT_EXECUTE = """Eres Vanya. Cuando el usuario pida validar/navegar/click/login, DEBES devolver un tool-call a run_qa_test.
+
+OBJETIVO: pasos simples, estables, con mínimos timeouts.
+
+REGLAS DE SELECTORES (orden de preferencia):
+1) role + text (preferido, muy estable). Ejemplos:
+   - click: {"action":"click","role":"button","text":"Login"}
+   - fill:  {"action":"fill","role":"textbox","text":"Username","value":"standard_user"}
+   - assert_visible: {"action":"assert_visible","role":"button","text":"Login"}
+2) selector CSS (solo si es claramente estable): data-testid, #id, [name=...]
+3) text solo (fallback): {"action":"click","text":"Login"}
+
+REGLAS DE CONTEXTO:
+- Si el usuario NO da URL y existe base_url (contexto), usa esa URL.
+- Si el usuario dice “en la misma página / ahora / también”, NO pidas URL: usa base_url.
+
+REGLAS DE PASOS:
+- Si hay URL, el primer paso debe ser goto.
+- Acciones permitidas: goto, fill, click, press, assert_visible, assert_text_contains, wait_ms.
+- Usa timeout_ms 20000 por defecto si no se especifica.
+- No pidas permiso extra si la instrucción ya es clara.
+
+OUTPUT:
+- Devuelve SOLO el tool-call run_qa_test con steps. Sin explicación larga.
+"""
+
+SYSTEM_PROMPT_DOC = """Eres Vanya. Generas artefactos QA (INVEST, Gherkin, casos de prueba y scripts Playwright Python).
+Enfócate en lo que el usuario pide (si pide solo Gherkin, no inventes scripts).
+Si faltan datos:
+- agrega assumptions (supuestos razonables)
+- agrega questions_to_clarify (preguntas mínimas)
+Devuelve SIEMPRE un tool-call generate_qa_artifacts con campos completos (vacíos si no aplican).
+Manténlo concreto, sin relleno.
+"""
 
 # ============================================================
 # TOOL: RUNNER (Playwright steps)
@@ -328,9 +357,22 @@ QA_TOOL = {
                                 ],
                             },
                             "url": {"type": "string"},
+
+                            # CSS o XPath (fallback)
                             "selector": {"type": "string"},
+
+                            # Texto visible (sirve para get_by_text o label)
                             "text": {"type": "string"},
+
+                            # Rol accesible (mejor práctica: button, textbox, link, heading...)
+                            "role": {
+                                "type": "string",
+                                "description": "Accessible role (e.g., button, textbox, link, heading, checkbox). Preferir role+text para estabilidad."
+                            },
+
+                            # Para inputs
                             "value": {"type": "string"},
+
                             "timeout_ms": {"type": "integer"},
                         },
                         "required": ["action"],
