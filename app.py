@@ -47,7 +47,6 @@ class IntentResult(BaseModel):
     intent: Intent
     confidence: float = Field(ge=0.0, le=1.0, default=0.7)
     reason: Optional[str] = None
-    # Para "execute": una versión corregida/normalizada del prompt del usuario
     normalized_prompt: Optional[str] = None
 
 class ChatRunRequest(BaseModel):
@@ -61,7 +60,6 @@ class ChatRunRequest(BaseModel):
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_MODEL_STEPS = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
-# Modelo “barato” solo para clasificar intención
 OPENAI_MODEL_INTENT = os.getenv("OPENAI_MODEL_INTENT", "gpt-4o-mini").strip()
 
 def get_openai_client() -> OpenAI:
@@ -80,22 +78,22 @@ Eres un clasificador de intención para un asistente de QA que puede:
 - EXECUTE: ejecutar una prueba automática en navegador con Playwright.
 
 Clasifica el mensaje del usuario en uno de:
-- "info"  (pregunta general: qué haces, cómo funciona, capacidades)
-- "plan"  (quiere diseño de pruebas, criterios, casos, matriz, estrategia)
-- "execute" (quiere que navegues y valides algo en una web)
+- "info"
+- "plan"
+- "execute"
 
 Reglas:
 - Si NO hay un objetivo accionable (URL o acción de UI como click/fill/login/validar), NO es execute.
-- Si el usuario sólo pregunta "¿qué puedes hacer?" o similar -> info.
-- Si el usuario pide "genera casos", "matriz", "criterios", "escenarios" -> plan.
-- Si el usuario dice "ve a", "ingresa", "inicia sesión", "valida", "ejecuta prueba" -> execute.
+- "¿qué puedes hacer?" -> info.
+- "genera casos/matriz/criterios" -> plan.
+- "ve a/ingresa/inicia sesión/valida/ejecuta prueba" -> execute.
 
-Devuelve SOLO JSON con este schema:
+Devuelve SOLO JSON:
 {
   "intent": "info|plan|execute",
   "confidence": 0.0-1.0,
   "reason": "breve",
-  "normalized_prompt": "si intent=execute, reescribe el prompt en una instrucción clara y ejecutable; si no, null"
+  "normalized_prompt": "si intent=execute, reescribe el prompt en una instrucción clara; si no, null"
 }
 """
 
@@ -143,7 +141,42 @@ Responde en español, estructurado y accionable.
 """
 
 # =========================
-#   HEURÍSTICA FALLBACK (por si falla el LLM)
+#   HARD GUARD: “capabilities/info” SIEMPRE INFO
+# =========================
+
+_INFO_PATTERNS = [
+    r"\bque puedes hacer\b",
+    r"\bqué puedes hacer\b",
+    r"\bque haces\b",
+    r"\bqué haces\b",
+    r"\bcomo funcionas\b",
+    r"\bcómo funcionas\b",
+    r"\bcomo funciona\b",
+    r"\bcómo funciona\b",
+    r"\bcapacidades\b",
+    r"\bayuda\b",
+    r"\binstrucciones\b",
+    r"\bque eres\b",
+    r"\bqué eres\b",
+]
+
+def _force_info(prompt: str) -> bool:
+    p = (prompt or "").strip().lower()
+    if not p:
+        return True
+    if len(p) <= 60:  # preguntas cortas suelen ser info
+        for pat in _INFO_PATTERNS:
+            if re.search(pat, p):
+                return True
+    # Si es pregunta general sin URL ni verbos de UI, también
+    if ("http://" not in p and "https://" not in p) and ("?" in p) and not any(k in p for k in ["ve a", "ingresa", "inicia sesión", "login", "valida", "verifica", "click", "llen", "escribe"]):
+        for pat in _INFO_PATTERNS:
+            if re.search(pat, p):
+                return True
+    return False
+
+# =========================
+#   HEURÍSTICA FALLBACK
 # =========================
 
 _EXECUTE_HINTS = [
@@ -160,20 +193,19 @@ def _heuristic_intent(prompt: str) -> Intent:
     p = (prompt or "").strip().lower()
     if not p:
         return "info"
+    if _force_info(prompt):
+        return "info"
     if any(h in p for h in _PLAN_HINTS):
         return "plan"
     if any(h in p for h in _EXECUTE_HINTS) or "http://" in p or "https://" in p:
         return "execute"
     return "info"
 
-# =========================
-#   CLASIFICADOR LLM
-# =========================
-
 def classify_intent(client: OpenAI, prompt: str) -> IntentResult:
-    """
-    Mini-clasificador con LLM + fallback heurístico.
-    """
+    # HARD GUARD antes del LLM
+    if _force_info(prompt):
+        return IntentResult(intent="info", confidence=0.99, reason="Hard-guard: pregunta de capacidades", normalized_prompt=None)
+
     try:
         completion = client.beta.chat.completions.parse(
             model=OPENAI_MODEL_INTENT,
@@ -185,13 +217,18 @@ def classify_intent(client: OpenAI, prompt: str) -> IntentResult:
         )
         result: IntentResult = completion.choices[0].message.parsed
 
-        # Hard guard: si dice execute pero con baja confianza, degradamos a plan/info
+        # Si dice execute con baja confianza, degradamos
         if result.intent == "execute" and result.confidence < 0.55:
-            # Si parece plan, plan; si no, info
             h = _heuristic_intent(prompt)
             if h != "execute":
                 return IntentResult(intent=h, confidence=0.6, reason="Degradado por baja confianza", normalized_prompt=None)
+
+        # Extra hard guard por si el LLM se equivoca
+        if result.intent == "execute" and _force_info(prompt):
+            return IntentResult(intent="info", confidence=0.95, reason="Hard-guard post: capacidades", normalized_prompt=None)
+
         return result
+
     except Exception:
         h = _heuristic_intent(prompt)
         return IntentResult(intent=h, confidence=0.6, reason="Fallback heurístico", normalized_prompt=None)
@@ -208,10 +245,8 @@ def health():
 def chat_run(req: ChatRunRequest):
     client = get_openai_client()
 
-    # 1) Clasificar intención
     intent_res = classify_intent(client, req.prompt)
 
-    # 2) Ruteo por intención
     if intent_res.intent == "info":
         completion = client.chat.completions.create(
             model=OPENAI_MODEL_STEPS,
@@ -221,11 +256,7 @@ def chat_run(req: ChatRunRequest):
             ],
         )
         answer = completion.choices[0].message.content or ""
-        return {
-            "mode": "info",
-            "intent": intent_res.model_dump(),
-            "answer": answer,
-        }
+        return {"mode": "info", "intent": intent_res.model_dump(), "answer": answer}
 
     if intent_res.intent == "plan":
         completion = client.chat.completions.create(
@@ -236,13 +267,9 @@ def chat_run(req: ChatRunRequest):
             ],
         )
         answer = completion.choices[0].message.content or ""
-        return {
-            "mode": "plan",
-            "intent": intent_res.model_dump(),
-            "answer": answer,
-        }
+        return {"mode": "plan", "intent": intent_res.model_dump(), "answer": answer}
 
-    # 3) EXECUTE: generar steps + correr
+    # EXECUTE
     try:
         user_for_steps = intent_res.normalized_prompt or req.prompt
 
@@ -258,7 +285,7 @@ def chat_run(req: ChatRunRequest):
         plan = completion.choices[0].message.parsed
         steps = [s.model_dump(exclude_none=True) for s in plan.steps]
 
-        # Guardrail extra: si no hay goto, insertamos uno con base_url o google
+        # Guardrail goto
         if not any((s.get("action") or "").lower() == "goto" for s in steps):
             fallback_url = req.base_url or "https://example.com"
             steps.insert(0, {"action": "goto", "url": fallback_url})
