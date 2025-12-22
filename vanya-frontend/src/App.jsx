@@ -5,6 +5,7 @@ function App() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+
   const [sessionId, setSessionId] = useState(() => {
     try {
       return localStorage.getItem("vanya_session_id") || null;
@@ -12,9 +13,10 @@ function App() {
       return null;
     }
   });
+
   const chatEndRef = useRef(null);
 
-  // ✅ Mejor: API por env (Vite) y fallback al tuyo
+  // ✅ API por env (Vite) y fallback
   const API_BASE = useMemo(() => {
     const fromEnv = (import.meta?.env?.VITE_API_BASE || "").trim();
     return fromEnv || "https://qa-bot-demoqa.onrender.com";
@@ -37,7 +39,7 @@ function App() {
   useEffect(scrollToBottom, [messages]);
 
   // ------------------------------------------------------------
-  // Formatting (sin librerías)
+  // Formatting (markdown ultra simple, sin librerías)
   // ------------------------------------------------------------
   const escapeHtml = (s) => {
     if (s == null) return "";
@@ -51,9 +53,7 @@ function App() {
 
   const formatText = (text) => {
     if (!text) return "";
-    // Escapamos primero para evitar inyecciones
     const safe = escapeHtml(text);
-    // Luego aplicamos markdown simple
     return safe
       .replace(/\*\*(.*?)\*\*/g, "<b>$1</b>")
       .replace(/\n/g, "<br/>");
@@ -198,12 +198,107 @@ function App() {
   };
 
   // ------------------------------------------------------------
+  // DOC (INVEST/Gherkin/Casos/Scripts) UI
+  // ------------------------------------------------------------
+  const copyToClipboard = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const renderDocArtifacts = (doc) => {
+    if (!doc) return null;
+
+    const scripts = doc?.automation_scripts || {};
+    const files = Array.isArray(scripts.files) ? scripts.files : [];
+    const framework = scripts.framework || "playwright-python";
+    const structure = scripts.structure || "page-object";
+
+    if (!files.length) return null;
+
+    return (
+      <div style={{ marginTop: 12 }}>
+        <details>
+          <summary style={{ cursor: "pointer", fontWeight: 700 }}>
+            📦 Scripts ({framework}, {structure}) — {files.length} archivo(s)
+          </summary>
+
+          <div style={{ marginTop: 10 }}>
+            {files.map((f, idx) => {
+              const path = f.path || `file_${idx}.txt`;
+              const content = f.content || "";
+              return (
+                <div
+                  key={idx}
+                  style={{
+                    marginBottom: 12,
+                    padding: 10,
+                    borderRadius: 10,
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    background: "rgba(0,0,0,0.18)",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 10,
+                      marginBottom: 8,
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, fontSize: 13 }}>
+                      {path}
+                    </div>
+                    <button
+                      style={{
+                        padding: "6px 10px",
+                        fontSize: 12,
+                        cursor: "pointer",
+                      }}
+                      onClick={async () => {
+                        const ok = await copyToClipboard(content);
+                        alert(ok ? `Copiado: ${path}` : "No se pudo copiar.");
+                      }}
+                    >
+                      Copiar
+                    </button>
+                  </div>
+
+                  <pre
+                    style={{
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                      padding: 10,
+                      borderRadius: 10,
+                      background: "rgba(0,0,0,0.25)",
+                      border: "1px solid rgba(255,255,255,0.12)",
+                      fontSize: 12,
+                      maxHeight: 260,
+                      overflow: "auto",
+                    }}
+                  >
+                    {content}
+                  </pre>
+                </div>
+              );
+            })}
+          </div>
+        </details>
+      </div>
+    );
+  };
+
+  // ------------------------------------------------------------
   // Message helpers
   // ------------------------------------------------------------
   const addMessage = (msg) => setMessages((prev) => [...prev, msg]);
 
-  const addBotMessage = (content, runner = null) =>
-    addMessage({ role: "bot", content, runner });
+  const addBotMessage = (content, runner = null, docArtifacts = null) =>
+    addMessage({ role: "bot", content, runner, docArtifacts });
 
   // ------------------------------------------------------------
   // Main send
@@ -229,7 +324,7 @@ function App() {
 
       const data = await resp.json().catch(() => ({}));
 
-      // Guarda session_id (para "la misma URL")
+      // Persist session_id
       if (data.session_id) {
         setSessionId(data.session_id);
         try {
@@ -244,19 +339,35 @@ function App() {
 
       const mode = (data.mode || "").toLowerCase();
 
-      // ✅ MODO EJECUCIÓN
+      // ✅ EXECUTE
       if (mode === "execute") {
         const runner = data.run_result || null;
         const scope = data.scope ? ` (${data.scope})` : "";
         addBotMessage(
           `✅ Ejecuté la prueba${scope}. Aquí tienes los resultados:`,
-          runner
+          runner,
+          null
         );
         return;
       }
 
-      // ✅ MODO ASESOR / PEDIR INFO
-      if (mode === "advise" || mode === "need_info" || mode === "info" || mode === "plan") {
+      // ✅ DOC (INVEST/Gherkin/Casos/Scripts)
+      if (mode === "doc") {
+        addBotMessage(
+          data.answer || "Generé artefactos QA.",
+          null,
+          data.doc_artifacts || null
+        );
+        return;
+      }
+
+      // ✅ ASESORÍA / NEED INFO
+      if (
+        mode === "advise" ||
+        mode === "need_info" ||
+        mode === "info" ||
+        mode === "plan"
+      ) {
         addBotMessage(data.answer || "Ok. ¿Qué quieres validar?");
         return;
       }
@@ -288,15 +399,20 @@ function App() {
       <main className="chat-area">
         {messages.map((msg, i) => (
           <div key={i} className={`message-row ${msg.role}`}>
-            <div className="message-label">{msg.role === "user" ? "Tú" : "Vanya"}</div>
+            <div className="message-label">
+              {msg.role === "user" ? "Tú" : "Vanya"}
+            </div>
             <div className="bubble">
               <div
                 className="text-content"
                 dangerouslySetInnerHTML={{ __html: formatText(msg.content) }}
               />
 
-              {/* Reporte completo */}
+              {/* Reporte Runner */}
               {msg.runner && renderRunnerReport(msg.runner)}
+
+              {/* Artefactos DOC */}
+              {msg.docArtifacts && renderDocArtifacts(msg.docArtifacts)}
 
               {/* Evidencia */}
               {msg.runner?.screenshot_b64 && (
@@ -314,7 +430,13 @@ function App() {
                       );
                     }}
                   />
-                  <p style={{ fontSize: "10px", marginTop: "5px", opacity: 0.5 }}>
+                  <p
+                    style={{
+                      fontSize: "10px",
+                      marginTop: "5px",
+                      opacity: 0.5,
+                    }}
+                  >
                     Click para ampliar
                   </p>
                 </div>
