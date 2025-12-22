@@ -36,8 +36,10 @@ OPENAI_MODEL = (os.getenv("OPENAI_MODEL") or "gpt-4o-mini").strip()
 
 SESSION_TTL_S = int(os.getenv("SESSION_TTL_S", "3600"))
 MAX_HISTORY_MSGS = int(os.getenv("MAX_HISTORY_MSGS", "10"))
+
 DOC_DEFAULT_DOMAIN = (os.getenv("DOC_DEFAULT_DOMAIN") or "retail").strip()
 DOC_MAX_TEST_CASES = int(os.getenv("DOC_MAX_TEST_CASES", "18"))  # límite para no explotar tokens
+DOC_MAX_GHERKIN = int(os.getenv("DOC_MAX_GHERKIN", "10"))
 
 def _now() -> int:
     return int(time.time())
@@ -239,45 +241,57 @@ SYSTEM_PROMPT = """
 Eres Vanya, una Agente de QA Inteligente capaz de ASESORAR y EJECUTAR pruebas.
 
 DOS MODOS:
-A) Modo Asesor (sin ejecutar):
-- Respondes preguntas, matrices de casos, criterios, riesgos, recomendaciones.
-- No ejecutes nada si el usuario solo pregunta teoría o pide casos.
+A) Asesor (sin ejecutar):
+- Respondes teoría, riesgos, recomendaciones.
+- NO ejecutes si el usuario no lo pide explícitamente.
 
-B) Modo Runner (con ejecución):
-- SOLO ejecutas cuando el usuario lo pide explícitamente (ej. "ve a", "abre", "navega", "entra", "ejecuta", "corre")
-  o cuando es un FOLLOW-UP de validación y ya existe una última URL en sesión.
+B) Runner (con ejecución Playwright):
+- Ejecuta SOLO si el usuario lo pide explícitamente (ve a/abre/navega/entra/ejecuta/corre)
+  o si es follow-up de validación y existe last_url.
 
 MEMORIA:
 - Si el usuario no menciona URL pero dice "la misma" y hay last_url, reusa last_url.
 
 SELECTORES:
 - Prefiere selectores robustos.
-- En SauceDemo usa: #user-name, #password, #login-button, y para "Products" usa span.title (NO uses h1).
+- En SauceDemo usa: #user-name, #password, #login-button, y para "Products" usa span.title.
 
 REGLAS:
 - Si piden "existe/visible" (check-only), NO hagas login ni pasos extra.
-- Si falta información para ejecutar, pide lo mínimo (URL/validación/credenciales si aplica).
+- Si falta info para ejecutar, pide lo mínimo (URL/validación/credenciales si aplica).
 """
 
 SYSTEM_PROMPT_DOC = f"""
 Eres Vanya, QA Lead + QA Automation Engineer (Playwright Python) especializada en {DOC_DEFAULT_DOMAIN}.
 
-OBJETIVO: generar artefactos de QA accionables y superiores:
-1) INVEST: califica 0-2 por criterio + explica brechas + reescribe historia (mejorada) y lista preguntas mínimas.
-2) Gherkin: escenarios claros con positivos/negativos/edge; sin redundancia; con tags útiles (@p0, @neg, @edge, @pos).
-3) Casos de prueba: lista detallada con prioridad P0-P3, automatizable sí/no, datos y notas; incluye POS/retail: caídas de red, reintentos, permisos por rol, fallos de pago.
-4) Automatización: genera Playwright Python con Page Object Model:
-   - pytest + playwright sync
-   - data-driven (json)
-   - assertions robustas
-   - evita sleeps; usa expect/locator + timeouts
-   - recomienda selectores: data-testid, role, aria-label, ids
+OBJETIVO: generar artefactos QA ACCIONABLES y superiores:
+
+1) INVEST:
+- Califica 0-2 por criterio.
+- SIEMPRE detecta brechas reales (aunque la historia sea corta): datos, reglas, errores, límites, seguridad.
+- Reescribe historia mejorada (incluye condiciones y valor).
+- Haz preguntas mínimas (6-10) para cerrar ambigüedad.
+- Declara assumptions cuando falte info.
+
+2) Gherkin:
+- Un solo Feature por funcionalidad (no repitas Feature 5 veces).
+- Incluye: positivo, negativos y edge.
+- Usa tags útiles: @p0 @p1 @neg @edge @security @smoke.
+- Usa Scenario Outline + Examples cuando aplique.
+
+3) Casos de prueba:
+- P0-P3, tipo (positive/negative/edge/security/performance), automatizable, pasos y expected claros.
+- Incluye cosas de retail/POS/ecommerce: caídas de red, reintentos, permisos por rol, fallos de pago, idempotencia (no doble cobro).
+- Máximo {DOC_MAX_TEST_CASES} casos.
+
+4) Automatización:
+- Playwright Python + pytest + Page Object Model + data-driven.
+- asserts robustos, sin sleeps.
+- recomienda selectores: data-testid, get_by_role, aria-label, ids.
 
 REGLAS:
-- No inventes requisitos. Si falta info, colócalo en questions_to_clarify y declara assumptions.
-- No uses casos genéricos tipo "verificar que funciona".
-- Limita test_cases a máximo {DOC_MAX_TEST_CASES}.
-- Devuelve SIEMPRE por tool_call generate_qa_artifacts (JSON).
+- No inventes requisitos: si falta info, ponlo en questions_to_clarify y assumptions.
+- Devuelve SIEMPRE por tool_call generate_qa_artifacts (JSON completo con todos los campos requeridos).
 """
 
 # ============================================================
@@ -286,75 +300,27 @@ REGLAS:
 _URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 
 _EXECUTE_VERBS = [
-    r"\bve a\b",
-    r"\babre\b",
-    r"\bnavega\b",
-    r"\bentra\b",
-    r"\bejecuta\b",
-    r"\bcorre\b",
-    r"\brun\b",
+    r"\bve a\b", r"\babre\b", r"\bnavega\b", r"\bentra\b", r"\bejecuta\b", r"\bcorre\b", r"\brun\b"
 ]
 
 _FOLLOWUP_EXECUTE_HINTS = [
-    r"\bla misma\b",
-    r"\ben la misma\b",
-    r"\bahora valida\b",
-    r"\bvalida\b",
-    r"\bverifica\b",
-    r"\bconfirma\b",
-    r"\brevisa\b",
-    r"\bintenta\b",
+    r"\bla misma\b", r"\ben la misma\b", r"\bahora valida\b", r"\bvalida\b", r"\bverifica\b", r"\bconfirma\b",
+    r"\brevisa\b", r"\bintenta\b"
 ]
 
 _ADVISE_HINTS = [
-    r"\bmatriz\b",
-    r"\bcasos?\b",
-    r"\bescenarios?\b",
-    r"\bcriterios?\b",
-    r"\bchecklist\b",
-    r"\briesgos?\b",
-    r"\brecomendaciones?\b",
-    r"\bqué haces\b",
-    r"\bque haces\b",
-    r"\bqué puedes\b",
-    r"\bque puedes\b",
-    r"\bcuándo\b",
-    r"\bcuando\b",
-    r"\bdeber[ií]a\b",
+    r"\briesgos?\b", r"\brecomendaciones?\b", r"\bqué haces\b", r"\bque haces\b", r"\bqué puedes\b", r"\bque puedes\b",
+    r"\bcuándo\b", r"\bcuando\b", r"\bdeber[ií]a\b"
 ]
 
-# DOC MODE triggers (para superar a Valkiria)
 _DOC_HINTS = [
-    r"\binvest\b",
-    r"\bgherkin\b",
-    r"\bhistoria de usuario\b",
-    r"\buser story\b",
-    r"\bcriterios de aceptaci[oó]n\b",
-    r"\bmatriz\b",
-    r"\bcasos de prueba\b",
-    r"\btest cases\b",
-    r"\bscripts?\b",
-    r"\bautomatizaci[oó]n\b",
-    r"\bselenium\b",
-    r"\bplaywright\b",
+    r"\binvest\b", r"\bgherkin\b", r"\bcriterios de aceptaci[oó]n\b",
+    r"\bmatriz\b", r"\bcasos de prueba\b", r"\btest cases\b",
+    r"\bscripts?\b", r"\bautomatizaci[oó]n\b", r"\bplaywright\b"
 ]
 
-_CHECK_ONLY_HINTS = [
-    r"\bexista\b",
-    r"\bexiste\b",
-    r"\bvisible\b",
-    r"\bpresente\b",
-    r"\bse vea\b",
-]
-
-_FLOW_HINTS = [
-    r"\blogin\b",
-    r"\binicia sesi[oó]n\b",
-    r"\bsign in\b",
-    r"\bcheckout\b",
-    r"\bcomprar\b",
-    r"\bagregar al carrito\b",
-]
+_CHECK_ONLY_HINTS = [r"\bexista\b", r"\bexiste\b", r"\bvisible\b", r"\bpresente\b", r"\bse vea\b"]
+_FLOW_HINTS = [r"\blogin\b", r"\binicia sesi[oó]n\b", r"\bsign in\b", r"\bcheckout\b", r"\bcomprar\b", r"\bcarrito\b"]
 
 def _has_url(text: str) -> bool:
     return bool(_URL_RE.search(text or ""))
@@ -384,8 +350,63 @@ def _is_check_only(prompt: str) -> bool:
     return bool(has_check and not has_flow)
 
 # ============================================================
-# Tool-call parsing
+# DOC helpers: extract story + infer defaults
 # ============================================================
+_QUOTED_STORY_RE = re.compile(
+    r"[“\"'‘](Como\s+.+?quiero\s+.+?)[”\"'’]",
+    re.IGNORECASE | re.DOTALL
+)
+
+_STORY_LABEL_RE = re.compile(r"(historia|user story)\s*:\s*(.+)$", re.IGNORECASE | re.DOTALL)
+
+def _extract_user_story(prompt: str) -> Optional[str]:
+    text = (prompt or "").strip()
+    if not text:
+        return None
+
+    m = _QUOTED_STORY_RE.search(text)
+    if m:
+        return m.group(1).strip()
+
+    m2 = _STORY_LABEL_RE.search(text)
+    if m2:
+        return m2.group(2).strip()
+
+    # Si el prompt entero YA es una historia (comienza con "Como")
+    if re.match(r"^\s*como\s+.+?\s+quiero\s+.+", text, re.IGNORECASE):
+        return text.strip()
+
+    return None
+
+def _infer_story_from_doc_request(prompt: str) -> str:
+    p = (prompt or "").lower()
+    if "login" in p or "iniciar sesión" in p or "sign in" in p:
+        return "Como usuario quiero iniciar sesión para acceder a mi cuenta de forma segura."
+    if "pagar" in p or "checkout" in p or "compra" in p:
+        return "Como usuario quiero pagar mi compra para completar el checkout sin errores ni dobles cargos."
+    return "Como usuario quiero completar una acción clave del sistema para lograr mi objetivo."
+
+def _infer_context(prompt: str) -> str:
+    # contexto corto, opcional
+    p = (prompt or "").strip()
+    # si el usuario puso bullets, lo dejamos como contexto sugerido
+    if "contexto" in p.lower() or "dominio" in p.lower():
+        return p[:600]
+    return ""
+
+# ============================================================
+# Tool-call parsing (tolerante)
+# ============================================================
+def _safe_json_loads(maybe_json: Any) -> Dict[str, Any]:
+    if isinstance(maybe_json, dict):
+        return maybe_json
+    if isinstance(maybe_json, str):
+        try:
+            return json.loads(maybe_json)
+        except Exception:
+            return {}
+    return {}
+
 def _extract_steps_from_tool_calls(tool_calls: Any) -> Optional[List[Dict[str, Any]]]:
     if not tool_calls:
         return None
@@ -395,11 +416,7 @@ def _extract_steps_from_tool_calls(tool_calls: Any) -> Optional[List[Dict[str, A
             continue
         if getattr(fn, "name", None) != "run_qa_test":
             continue
-        args_raw = getattr(fn, "arguments", "") or ""
-        try:
-            args = json.loads(args_raw) if isinstance(args_raw, str) else (args_raw or {})
-        except Exception:
-            args = {}
+        args = _safe_json_loads(getattr(fn, "arguments", "") or "")
         steps = args.get("steps")
         if isinstance(steps, list):
             return steps
@@ -414,14 +431,56 @@ def _extract_doc_from_tool_calls(tool_calls: Any) -> Optional[Dict[str, Any]]:
             continue
         if getattr(fn, "name", None) != "generate_qa_artifacts":
             continue
-        args_raw = getattr(fn, "arguments", "") or ""
-        try:
-            args = json.loads(args_raw) if isinstance(args_raw, str) else (args_raw or {})
-        except Exception:
-            args = {}
-        if isinstance(args, dict) and args.get("invest") and args.get("gherkin") and args.get("test_cases"):
+        args = _safe_json_loads(getattr(fn, "arguments", "") or "")
+        if isinstance(args, dict):
             return args
     return None
+
+def _patch_doc(doc: Dict[str, Any], user_story: str, domain: str, context: str) -> Dict[str, Any]:
+    # Asegura mínimos aunque el modelo deje algo vacío
+    doc = doc or {}
+    doc.setdefault("user_story", user_story)
+    doc.setdefault("domain", domain)
+    doc.setdefault("context", context)
+    doc.setdefault("assumptions", doc.get("assumptions") or [])
+
+    invest = doc.get("invest") or {}
+    invest.setdefault("scores", invest.get("scores") or {
+        "independent": 1, "negotiable": 1, "valuable": 1, "estimable": 1, "small": 1, "testable": 1
+    })
+    invest.setdefault("issues", invest.get("issues") or ["Faltan reglas de negocio / validaciones / mensajes de error."])
+    invest.setdefault("improved_story", invest.get("improved_story") or user_story)
+    invest.setdefault("questions_to_clarify", invest.get("questions_to_clarify") or ["¿Cuáles son las reglas de negocio y mensajes esperados?"])
+    # total/verdict
+    try:
+        total = int(invest.get("total") or sum(int(v) for v in invest["scores"].values()))
+    except Exception:
+        total = 6
+    invest["total"] = total
+    invest.setdefault("verdict", invest.get("verdict") or ("Necesita revisión" if total < 9 else "Aceptable"))
+    doc["invest"] = invest
+
+    gherkin = doc.get("gherkin") or []
+    if not isinstance(gherkin, list):
+        gherkin = []
+    doc["gherkin"] = gherkin[:DOC_MAX_GHERKIN]
+
+    test_cases = doc.get("test_cases") or []
+    if not isinstance(test_cases, list):
+        test_cases = []
+    doc["test_cases"] = test_cases[:DOC_MAX_TEST_CASES]
+
+    scripts = doc.get("automation_scripts") or {}
+    if not isinstance(scripts, dict):
+        scripts = {}
+    scripts.setdefault("framework", "playwright-python")
+    scripts.setdefault("structure", "page-object")
+    scripts.setdefault("files", scripts.get("files") or [])
+    scripts.setdefault("run_instructions", scripts.get("run_instructions") or [])
+    scripts.setdefault("selector_recommendations", scripts.get("selector_recommendations") or [])
+    doc["automation_scripts"] = scripts
+
+    return doc
 
 def _ensure_goto(steps: List[Dict[str, Any]], url: str):
     if not any(str(s.get("action") or "").lower() == "goto" for s in steps):
@@ -467,10 +526,8 @@ def _render_doc_answer(doc: Dict[str, Any]) -> str:
     test_cases = doc.get("test_cases") or []
     scripts = doc.get("automation_scripts") or {}
 
-    # INVEST table
     invest_table = (
-        "| Criterio | Score (0-2) |\n"
-        "|---|---:|\n"
+        "| Criterio | Score (0-2) |\n|---|---:|\n"
         f"| Independent | {scores.get('independent','')} |\n"
         f"| Negotiable | {scores.get('negotiable','')} |\n"
         f"| Valuable | {scores.get('valuable','')} |\n"
@@ -479,9 +536,8 @@ def _render_doc_answer(doc: Dict[str, Any]) -> str:
         f"| Testable | {scores.get('testable','')} |\n"
     )
 
-    # Gherkin blocks
     gherkin_md = []
-    for sc in gherkin[:12]:
+    for sc in gherkin[:DOC_MAX_GHERKIN]:
         feature = _md_escape(sc.get("feature"))
         scenario = _md_escape(sc.get("scenario"))
         tags = sc.get("tags") or []
@@ -501,7 +557,6 @@ def _render_doc_answer(doc: Dict[str, Any]) -> str:
         )
     gherkin_md_str = "\n\n---\n\n".join(gherkin_md) if gherkin_md else "_(sin escenarios)_"
 
-    # Test cases table
     tc_rows = []
     for tc in test_cases[:DOC_MAX_TEST_CASES]:
         tc_rows.append(
@@ -514,22 +569,18 @@ def _render_doc_answer(doc: Dict[str, Any]) -> str:
             )
         )
     tc_table = (
-        "| ID | Prio | Tipo | Auto | Caso |\n"
-        "|---|---|---|---:|---|\n"
+        "| ID | Prio | Tipo | Auto | Caso |\n|---|---|---|---:|---|\n"
         + ("\n".join(tc_rows) if tc_rows else "| — | — | — | — | — |")
     )
 
-    # Scripts summary
     files = scripts.get("files") or []
     run_instructions = scripts.get("run_instructions") or []
     selector_recs = scripts.get("selector_recommendations") or []
-    files_list = "\n".join([f"- `{_md_escape(f.get('path'))}`" for f in files[:12]]) or "- _(sin archivos)_"
 
+    files_list = "\n".join([f"- `{_md_escape(f.get('path'))}`" for f in files[:12]]) or "- _(sin archivos)_"
     run_lines = "\n".join([f"- {_md_escape(x)}" for x in run_instructions]) or "- _(sin instrucciones)_"
     selector_lines = "\n".join([f"- {_md_escape(x)}" for x in selector_recs]) or "- _(sin recomendaciones)_"
 
-    # NOTE: no mandamos el contenido completo de archivos como texto largo por defecto en answer,
-    # pero sí lo devolvemos en JSON aparte (doc_artifacts). El front puede ofrecer "ver archivos".
     return (
         f"## 📌 Historia (original)\n{user_story}\n\n"
         f"## 🧩 Contexto / Dominio\n- **Dominio:** {domain}\n"
@@ -537,10 +588,10 @@ def _render_doc_answer(doc: Dict[str, Any]) -> str:
         f"## ✅ INVEST\n{invest_table}\n"
         f"**Total:** {total}  \n"
         f"**Veredicto:** {verdict}\n\n"
-        f"### Brechas detectadas\n" + ("\n".join([f"- { _md_escape(x) }" for x in issues]) if issues else "- _(sin brechas)_") + "\n\n"
+        f"### Brechas detectadas\n" + ("\n".join([f"- {_md_escape(x)}" for x in issues]) if issues else "- _(sin brechas)_") + "\n\n"
         f"### Historia reescrita (mejorada)\n{improved_story}\n\n"
-        f"### Supuestos (si aplica)\n" + ("\n".join([f"- { _md_escape(x) }" for x in assumptions]) if assumptions else "- _(sin supuestos)_") + "\n\n"
-        f"### Preguntas mínimas para cerrar ambigüedad\n" + ("\n".join([f"- { _md_escape(x) }" for x in questions]) if questions else "- _(sin preguntas)_") + "\n\n"
+        f"### Supuestos (si aplica)\n" + ("\n".join([f"- {_md_escape(x)}" for x in assumptions]) if assumptions else "- _(sin supuestos)_") + "\n\n"
+        f"### Preguntas mínimas para cerrar ambigüedad\n" + ("\n".join([f"- {_md_escape(x)}" for x in questions]) if questions else "- _(sin preguntas)_") + "\n\n"
         f"## 🥒 Criterios de aceptación (Gherkin)\n{gherkin_md_str}\n\n"
         f"## 🧪 Matriz de Casos de Prueba\n{tc_table}\n\n"
         f"## 🤖 Automatización (Playwright Python)\n"
@@ -549,7 +600,7 @@ def _render_doc_answer(doc: Dict[str, Any]) -> str:
         f"### Archivos generados\n{files_list}\n\n"
         f"### Cómo correr\n{run_lines}\n\n"
         f"### Recomendación de selectores\n{selector_lines}\n\n"
-        f"Si quieres, puedo adaptar los scripts a tu app real si me dices: **URL**, y si tienes `data-testid`/IDs en tu UI."
+        f"Si quieres, adapto los scripts a tu app real si me dices: **URL**, y si tienes `data-testid`/IDs."
     )
 
 # ============================================================
@@ -584,33 +635,38 @@ def chat_run(req: ChatRunRequest):
 
     client = _get_client()
 
-    # -----------------------------
-    # Intent routing
-    # -----------------------------
+    wants_execute = _wants_execute_explicit(prompt) or _wants_execute_followup(prompt, session)
     wants_doc = _wants_doc(prompt)
     wants_advise = _wants_advise(prompt)
-    wants_execute = _wants_execute_explicit(prompt) or _wants_execute_followup(prompt, session)
     check_only = _is_check_only(prompt)
 
-    # PRIORIDAD 1: DOC MODE (INVEST/Gherkin/Casos/Scripts)
-    # (aunque también tenga palabras tipo "casos", aquí lo tratamos como artefactos)
+    # ============================================================
+    # PRIORIDAD 1: DOC MODE (si piden INVEST/Gherkin/Casos/Scripts)
+    # Nota: DOC gana incluso si hay palabras "valida/verifica" mientras NO haya verbos de navegación explícitos.
+    # ============================================================
     if wants_doc and not wants_execute:
         try:
-            # Contexto corto (para que sea superior)
+            extracted_story = _extract_user_story(prompt)
+            user_story = extracted_story or _infer_story_from_doc_request(prompt)
+            context = _infer_context(prompt)
+            domain = "ecommerce" if ("ecommerce" in prompt.lower() or "e-commerce" in prompt.lower()) else DOC_DEFAULT_DOMAIN
+
             messages = [{"role": "system", "content": SYSTEM_PROMPT_DOC}]
-            # Si hay historial, ayuda a mantener tono/estándar
-            if session.get("history"):
-                messages.append({"role": "system", "content": "Usa estilo profesional, tablas y listas accionables. Evita texto relleno."})
             messages.extend(session["history"][-6:])
 
-            # Empaquetamos "texto libre" como user_story y contexto vacío si no lo dan.
-            # El modelo igual reescribe en improved_story.
-            # Truco: si el usuario escribió "Contexto:" o "Dominio:" se lo dejamos como parte del prompt.
-            doc_user_story = prompt
-            doc_context = ""
-
-            # Forzamos tool-call para consistencia
-            messages.append({"role": "user", "content": doc_user_story})
+            # Input estructurado para que el modelo no se pierda
+            messages.append({
+                "role": "user",
+                "content": (
+                    "Genera artefactos QA para lo siguiente.\n\n"
+                    f"USER_STORY:\n{user_story}\n\n"
+                    f"CONTEXT:\n{context or '(no provisto)'}\n\n"
+                    f"DOMAIN:\n{domain}\n\n"
+                    "NOTAS:\n"
+                    "- Si faltan datos, decláralos en assumptions y questions_to_clarify.\n"
+                    "- No devuelvas texto libre: devuelve el JSON completo del tool_call.\n"
+                )
+            })
 
             resp = client.chat.completions.create(
                 model=OPENAI_MODEL,
@@ -620,28 +676,33 @@ def chat_run(req: ChatRunRequest):
             )
 
             msg = resp.choices[0].message
-            doc = _extract_doc_from_tool_calls(getattr(msg, "tool_calls", None))
-            if not doc:
-                # fallback seguro
+            doc_raw = _extract_doc_from_tool_calls(getattr(msg, "tool_calls", None))
+            if not doc_raw:
+                # Segundo intento (sin preguntar al usuario): repetimos con presión extra
+                messages.append({"role": "system", "content": "IMPORTANTE: Debes llenar TODOS los campos requeridos del esquema. No omitas test_cases ni automation_scripts."})
+                resp2 = client.chat.completions.create(
+                    model=OPENAI_MODEL,
+                    messages=messages,
+                    tools=[QA_DOC_TOOL],
+                    tool_choice={"type": "function", "function": {"name": "generate_qa_artifacts"}},
+                )
+                msg2 = resp2.choices[0].message
+                doc_raw = _extract_doc_from_tool_calls(getattr(msg2, "tool_calls", None))
+
+            if not doc_raw:
+                # fallback súper corto (ya sin “necesito historia”)
                 answer = (
-                    "Puedo generar INVEST, Gherkin, casos de prueba y scripts Playwright Python, "
-                    "pero necesito una historia de usuario (texto libre) y, si aplica, contexto de negocio."
+                    "Puedo generar INVEST/Gherkin/casos/scripts. "
+                    "No pude estructurar el JSON esta vez. Vuelve a pegar la historia así:\n"
+                    "Historia: Como <rol> quiero <objetivo> para <valor>."
                 )
                 _push_history(session, "user", prompt)
                 _push_history(session, "assistant", answer)
                 return {"mode": "advise", "session_id": sid, "answer": answer}
 
-            # Enriquecer campos mínimos si vienen vacíos (robustez)
-            doc.setdefault("user_story", doc_user_story)
-            doc.setdefault("context", doc_context)
-            doc.setdefault("domain", DOC_DEFAULT_DOMAIN)
-            # recorta test cases por seguridad
-            if isinstance(doc.get("test_cases"), list) and len(doc["test_cases"]) > DOC_MAX_TEST_CASES:
-                doc["test_cases"] = doc["test_cases"][:DOC_MAX_TEST_CASES]
+            doc = _patch_doc(doc_raw, user_story=user_story, domain=domain, context=context)
 
-            # guardamos en sesión para "dame los scripts" en follow-up
             session["doc_last"] = doc
-
             answer = _render_doc_answer(doc)
 
             _push_history(session, "user", prompt)
@@ -650,16 +711,17 @@ def chat_run(req: ChatRunRequest):
             return {
                 "mode": "doc",
                 "session_id": sid,
-                "answer": answer,          # markdown para tu frontend
-                "doc_artifacts": doc,      # JSON completo (incluye content de archivos)
+                "answer": answer,
+                "doc_artifacts": doc,
             }
 
         except Exception as e:
             traceback.print_exc()
             raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")
 
+    # ============================================================
     # PRIORIDAD 2: Asesoría (sin ejecución)
-    # Si es asesoría pura, no ejecutar (como ya tenías)
+    # ============================================================
     if (wants_advise and not _wants_execute_explicit(prompt)) and not wants_execute:
         try:
             messages = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -668,12 +730,10 @@ def chat_run(req: ChatRunRequest):
             messages.extend(session["history"][-6:])
             messages.append({"role": "user", "content": prompt})
 
-            resp = client.chat.completions.create(
-                model=OPENAI_MODEL,
-                messages=messages,
-            )
+            resp = client.chat.completions.create(model=OPENAI_MODEL, messages=messages)
             msg = resp.choices[0].message
             answer = getattr(msg, "content", None) or "Ok. ¿Qué necesitas?"
+
             _push_history(session, "user", prompt)
             _push_history(session, "assistant", answer)
             return {"mode": "advise", "session_id": sid, "answer": answer}
@@ -681,15 +741,13 @@ def chat_run(req: ChatRunRequest):
             traceback.print_exc()
             raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")
 
-    # Si NO hay señal de ejecución, por default asesoría
+    # Default asesoría si no hay ejecución
     if not wants_execute:
         try:
-            # Soporte: si el usuario pide "dame los scripts" y tenemos doc_last
             p_low = prompt.lower()
             if session.get("doc_last") and any(x in p_low for x in ["dame los scripts", "muéstrame los scripts", "archivos", "código", "playwright"]):
                 doc = session["doc_last"]
-                # devolvemos un resumen y el JSON (front puede mostrar archivos)
-                answer = "Tengo los scripts listos en **doc_artifacts.automation_scripts.files**. Si quieres, dime si los empaqueto por carpetas o te los pego aquí por archivo."
+                answer = "Listo. Los scripts están en **doc_artifacts.automation_scripts.files** (path + content)."
                 _push_history(session, "user", prompt)
                 _push_history(session, "assistant", answer)
                 return {"mode": "doc", "session_id": sid, "answer": answer, "doc_artifacts": doc}
@@ -700,10 +758,7 @@ def chat_run(req: ChatRunRequest):
             messages.extend(session["history"][-6:])
             messages.append({"role": "user", "content": prompt})
 
-            resp = client.chat.completions.create(
-                model=OPENAI_MODEL,
-                messages=messages,
-            )
+            resp = client.chat.completions.create(model=OPENAI_MODEL, messages=messages)
             msg = resp.choices[0].message
             answer = getattr(msg, "content", None) or "Ok. ¿Qué necesitas?"
             _push_history(session, "user", prompt)
@@ -713,9 +768,9 @@ def chat_run(req: ChatRunRequest):
             traceback.print_exc()
             raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")
 
-    # -----------------------------
-    # Execution mode: requires URL
-    # -----------------------------
+    # ============================================================
+    # Execution mode
+    # ============================================================
     base_url = _pick_base_url(req, session, prompt)
     if not base_url:
         return {
@@ -727,7 +782,6 @@ def chat_run(req: ChatRunRequest):
             ),
         }
 
-    # Force tool-call when router decides execute
     try:
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         messages.append({"role": "system", "content": f"Contexto: base_url={base_url}; check_only={check_only}"})
@@ -759,7 +813,6 @@ def chat_run(req: ChatRunRequest):
         _update_last_url_from_steps(session, steps)
 
         run_result = execute_test(steps, headless=req.headless)
-
         status = (run_result.get("status") or "").lower()
         resumen = "PASSED" if status in ("passed", "pass", "ok") else "FAILED"
 

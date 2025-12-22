@@ -32,6 +32,7 @@ function App() {
         role: "bot",
         content:
           "Hola, soy **Vanya**, tu Agente de QA inteligente. ¿En qué puedo ayudarte hoy con tus pruebas?",
+        meta: { mode: "welcome" },
       },
     ]);
   }, []);
@@ -64,6 +65,63 @@ function App() {
     if (s === "passed" || s === "pass" || s === "ok") return "✅ PASSED";
     if (s === "fail" || s === "failed" || s === "error") return "❌ FAILED";
     return st || "—";
+  };
+
+  const prettyMode = (mode) => {
+    const m = (mode || "").toLowerCase();
+    if (m === "execute") return "EXECUTE";
+    if (m === "doc") return "DOC";
+    if (m === "advise") return "ADVISE";
+    if (m === "need_info") return "NEED INFO";
+    if (m === "error") return "ERROR";
+    return (mode || "").toUpperCase();
+  };
+
+  const ModeBadge = ({ mode }) => {
+    const m = (mode || "").toLowerCase();
+    const bg =
+      m === "execute"
+        ? "rgba(0, 180, 120, 0.18)"
+        : m === "doc"
+        ? "rgba(80, 140, 255, 0.18)"
+        : m === "need_info"
+        ? "rgba(255, 180, 0, 0.18)"
+        : m === "error"
+        ? "rgba(255, 0, 0, 0.18)"
+        : "rgba(255,255,255,0.10)";
+
+    const bd =
+      m === "execute"
+        ? "rgba(0, 180, 120, 0.35)"
+        : m === "doc"
+        ? "rgba(80, 140, 255, 0.35)"
+        : m === "need_info"
+        ? "rgba(255, 180, 0, 0.35)"
+        : m === "error"
+        ? "rgba(255, 0, 0, 0.35)"
+        : "rgba(255,255,255,0.18)";
+
+    return (
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "4px 8px",
+          borderRadius: 999,
+          border: `1px solid ${bd}`,
+          background: bg,
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: 0.3,
+          marginLeft: 8,
+          opacity: 0.95,
+        }}
+        title={`Modo: ${mode || "—"}`}
+      >
+        {prettyMode(mode)}
+      </span>
+    );
   };
 
   // ------------------------------------------------------------
@@ -198,7 +256,7 @@ function App() {
   };
 
   // ------------------------------------------------------------
-  // DOC (INVEST/Gherkin/Casos/Scripts) UI
+  // DOC UI
   // ------------------------------------------------------------
   const copyToClipboard = async (text) => {
     try {
@@ -207,6 +265,33 @@ function App() {
     } catch {
       return false;
     }
+  };
+
+  const renderNeedInfoHint = (answer) => {
+    if (!answer) return null;
+    return (
+      <div
+        style={{
+          marginTop: 12,
+          padding: 10,
+          borderRadius: 10,
+          border: "1px solid rgba(255,180,0,0.35)",
+          background: "rgba(255,180,0,0.10)",
+          fontSize: 12,
+          lineHeight: 1.4,
+        }}
+      >
+        <b>Faltan datos para ejecutar:</b>
+        <ul style={{ margin: "8px 0 0 18px" }}>
+          <li>URL (o di “la misma”)</li>
+          <li>Qué validar (botón/campo/texto esperado)</li>
+          <li>Credenciales (si aplica)</li>
+        </ul>
+        <div style={{ marginTop: 8, opacity: 0.9 }}>
+          {answer}
+        </div>
+      </div>
+    );
   };
 
   const renderDocArtifacts = (doc) => {
@@ -250,9 +335,7 @@ function App() {
                       marginBottom: 8,
                     }}
                   >
-                    <div style={{ fontWeight: 700, fontSize: 13 }}>
-                      {path}
-                    </div>
+                    <div style={{ fontWeight: 700, fontSize: 13 }}>{path}</div>
                     <button
                       style={{
                         padding: "6px 10px",
@@ -297,8 +380,8 @@ function App() {
   // ------------------------------------------------------------
   const addMessage = (msg) => setMessages((prev) => [...prev, msg]);
 
-  const addBotMessage = (content, runner = null, docArtifacts = null) =>
-    addMessage({ role: "bot", content, runner, docArtifacts });
+  const addBotMessage = (content, meta = {}, runner = null, docArtifacts = null) =>
+    addMessage({ role: "bot", content, meta, runner, docArtifacts });
 
   // ------------------------------------------------------------
   // Main send
@@ -345,42 +428,51 @@ function App() {
         const scope = data.scope ? ` (${data.scope})` : "";
         addBotMessage(
           `✅ Ejecuté la prueba${scope}. Aquí tienes los resultados:`,
+          { mode: "execute" },
           runner,
           null
         );
         return;
       }
 
-      // ✅ DOC (INVEST/Gherkin/Casos/Scripts)
+      // ✅ DOC
       if (mode === "doc") {
         addBotMessage(
           data.answer || "Generé artefactos QA.",
+          { mode: "doc" },
           null,
           data.doc_artifacts || null
         );
         return;
       }
 
-      // ✅ ASESORÍA / NEED INFO
-      if (
-        mode === "advise" ||
-        mode === "need_info" ||
-        mode === "info" ||
-        mode === "plan"
-      ) {
-        addBotMessage(data.answer || "Ok. ¿Qué quieres validar?");
+      // ✅ NEED INFO
+      if (mode === "need_info") {
+        addBotMessage(
+          data.answer || "Me falta información para ejecutar.",
+          { mode: "need_info" },
+          null,
+          null
+        );
+        return;
+      }
+
+      // ✅ ASESORÍA
+      if (mode === "advise" || mode === "info" || mode === "plan") {
+        addBotMessage(data.answer || "Ok. ¿Qué quieres validar?", { mode: "advise" });
         return;
       }
 
       // Fallback
-      addBotMessage(data.answer || "Ok.");
+      addBotMessage(data.answer || "Ok.", { mode });
     } catch (error) {
       console.error("Error en la petición:", error);
       addBotMessage(
         "❌ **Error de conexión con Vanya.**\n\n" +
           "El servidor no respondió correctamente. " +
           "Si estás en Render, revisa que el deploy esté Live y vuelve a intentar.\n\n" +
-          `Detalle: ${String(error?.message || error)}`
+          `Detalle: ${String(error?.message || error)}`,
+        { mode: "error" }
       );
     } finally {
       setIsLoading(false);
@@ -402,11 +494,23 @@ function App() {
             <div className="message-label">
               {msg.role === "user" ? "Tú" : "Vanya"}
             </div>
+
             <div className="bubble">
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                {msg.role === "bot" && <ModeBadge mode={msg.meta?.mode} />}
+                {msg.role === "bot" && sessionId && (
+                  <span style={{ fontSize: 10, opacity: 0.45 }}>
+                    session: {String(sessionId).slice(0, 8)}…
+                  </span>
+                )}
+              </div>
+
               <div
                 className="text-content"
                 dangerouslySetInnerHTML={{ __html: formatText(msg.content) }}
               />
+
+              {msg.meta?.mode === "need_info" && renderNeedInfoHint(msg.content)}
 
               {/* Reporte Runner */}
               {msg.runner && renderRunnerReport(msg.runner)}
@@ -430,13 +534,7 @@ function App() {
                       );
                     }}
                   />
-                  <p
-                    style={{
-                      fontSize: "10px",
-                      marginTop: "5px",
-                      opacity: 0.5,
-                    }}
-                  >
+                  <p style={{ fontSize: "10px", marginTop: "5px", opacity: 0.5 }}>
                     Click para ampliar
                   </p>
                 </div>
@@ -451,6 +549,7 @@ function App() {
             <div className="bubble loading">Vanya está procesando tu solicitud...</div>
           </div>
         )}
+
         <div ref={chatEndRef} />
       </main>
 
