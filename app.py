@@ -185,17 +185,29 @@ def _update_last_url_from_steps(session: Dict[str, Any], steps: List[Dict[str, A
         session["last_url"] = fallback
 
 
-def _parse_tool_args(raw_args: str) -> Dict[str, Any]:
+def _parse_tool_args(raw_args: str) -> Optional[Dict[str, Any]]:
     """
-    Parse robusto para evitar 500 cuando el modelo devuelve JSON mal formado.
+    Parse robusto: si el JSON viene inválido, NO truenes 500.
+    Regresa dict si se pudo, o None si no.
     """
+    if not raw_args:
+        return None
+
+    # 1) intento directo
     try:
         return json.loads(raw_args)
     except json.JSONDecodeError:
-        m = re.search(r"\{.*\}", raw_args or "", flags=re.S)
-        if m:
+        pass
+
+    # 2) intento: rescatar el bloque { ... } más grande
+    m = re.search(r"\{.*\}", raw_args, flags=re.S)
+    if m:
+        try:
             return json.loads(m.group(0))
-        raise
+        except json.JSONDecodeError:
+            return None
+
+    return None
 
 
 # ============================================================
@@ -714,154 +726,177 @@ def chat_run(req: ChatRunRequest):
     wants_execute = _wants_execute_explicit(prompt, session) or _wants_execute_followup(prompt, session)
 
     # ============================================================
-    # PRIORIDAD 1: DOC MODE (rápido y solo lo pedido)
-    # ============================================================
-    if wants_doc and not wants_execute:
-        try:
-            requested = _doc_requested_parts(prompt)
-            domain = _infer_domain(prompt)
-            story = _extract_user_story(prompt) or prompt
-            context = ""  # opcional
+# PRIORIDAD 1: DOC MODE (rápido y solo lo pedido)
+# ============================================================
+if wants_doc and not wants_execute:
+    try:
+        requested = _doc_requested_parts(prompt)
+        domain = _infer_domain(prompt)
+        story = _extract_user_story(prompt) or prompt
+        context = ""  # opcional
 
-            def _norm_cache_text(s: str, limit: int = 1200) -> str:
-                s = (s or "").strip()
-                s = " ".join(s.split())
-                return s[:limit]
+        def _norm_cache_text(s: str, limit: int = 1200) -> str:
+            s = (s or "").strip()
+            s = " ".join(s.split())
+            return s[:limit]
 
-            cache_key = "v2|doc|" + "|".join([
-                _norm_cache_text(domain, 120),
-                json.dumps(requested, sort_keys=True),
-                _norm_cache_text(story, 1200),
-            ])
+        cache_key = "v2|doc|" + "|".join([
+            _norm_cache_text(domain, 120),
+            json.dumps(requested, sort_keys=True),
+            _norm_cache_text(story, 1200),
+        ])
 
-            cached = _cache_get(cache_key)
-            if cached:
-                session["doc_last"] = cached
-                answer = _render_doc_answer(cached)
-                _push_history(session, "user", prompt)
-                _push_history(session, "assistant", "Usé cache de artefactos QA (DOC).")
-                return {"mode": "doc", "session_id": sid, "answer": answer, "doc_artifacts": cached, "cached": True}
+        cached = _cache_get(cache_key)
+        if cached:
+            session["doc_last"] = cached
+            answer = _render_doc_answer(cached)
+            _push_history(session, "user", prompt)
+            _push_history(session, "assistant", "Usé cache de artefactos QA (DOC).")
+            return {"mode": "doc", "session_id": sid, "answer": answer, "doc_artifacts": cached, "cached": True}
 
-            def _doc_history_filter(msgs):
-                bad = ("NEED INFO", "Para ejecutar", "URL", "credenciales", "run_qa_test", "playwright")
-                out = []
-                for m in msgs:
-                    c = (m.get("content") or "")
-                    if any(b.lower() in c.lower() for b in bad):
-                        continue
-                    out.append(m)
-                return out
+        def _doc_history_filter(msgs):
+            bad = ("NEED INFO", "Para ejecutar", "URL", "credenciales", "run_qa_test", "playwright")
+            out = []
+            for m in msgs:
+                c = (m.get("content") or "")
+                if any(b.lower() in c.lower() for b in bad):
+                    continue
+                out.append(m)
+            return out
 
-            messages = [{"role": "system", "content": SYSTEM_PROMPT_DOC}]
-            hist = _doc_history_filter(session["history"][-DOC_HISTORY_MSGS:])
-            messages.extend(hist)
+        messages = [{"role": "system", "content": SYSTEM_PROMPT_DOC}]
+        hist = _doc_history_filter(session["history"][-DOC_HISTORY_MSGS:])
+        messages.extend(hist)
 
-            user_payload = (
-                "Tarea: Genera artefactos QA **solo de documentación** (NO ejecutes, NO pidas URL).\n"
-                "Entrega: Debes devolver **un tool-call** a generate_qa_artifacts con TODOS los campos.\n\n"
-                f"REQUESTED: {requested}\n"
-                f"DOMAIN: {domain}\n"
-                f"USER_STORY_OR_REQUEST:\n{story}\n\n"
-                "Reglas:\n"
-                "- NO incluyas texto fuera del tool-call.\n"
-                "- Si el usuario NO pidió ejecución, NO menciones URL/credenciales como requisito.\n"
-                "- Si falta info, llena assumptions y questions_to_clarify (sin bloquear la entrega).\n"
-                f"- Máximo {DOC_MAX_GHERKIN} escenarios Gherkin.\n"
-                f"- Máximo {DOC_MAX_TEST_CASES} casos de prueba.\n"
-                f"- Máximo {DOC_MAX_FILES} archivos de código, y cada uno <= {DOC_MAX_CODE_CHARS} chars.\n"
-                "- Si REQUESTED.gherkin es false, gherkin debe ser [].\n"
-                "- Si REQUESTED.cases es false, test_cases debe ser [].\n"
-                "- Si REQUESTED.scripts es false: automation_scripts.files DEBE ser [] y NO incluyas ningún código.\n"
-                "- Si REQUESTED.scripts es false: automation_scripts.framework/structure pueden ser vacíos.\n"
-            )
-            messages.append({"role": "user", "content": user_payload})
+        user_payload = (
+            "Tarea: Genera artefactos QA **solo de documentación** (NO ejecutes, NO pidas URL).\n"
+            "Entrega: Debes devolver **un tool-call** a generate_qa_artifacts con TODOS los campos.\n\n"
+            f"REQUESTED: {requested}\n"
+            f"DOMAIN: {domain}\n"
+            f"USER_STORY_OR_REQUEST:\n{story}\n\n"
+            "Reglas:\n"
+            "- NO incluyas texto fuera del tool-call.\n"
+            "- El tool-call DEBE ser JSON válido.\n"
+            "- Si el usuario NO pidió ejecución, NO menciones URL/credenciales como requisito.\n"
+            "- Si falta info, llena assumptions y questions_to_clarify (sin bloquear la entrega).\n"
+            f"- Máximo {DOC_MAX_GHERKIN} escenarios Gherkin.\n"
+            f"- Máximo {DOC_MAX_TEST_CASES} casos de prueba.\n"
+            f"- Máximo {DOC_MAX_FILES} archivos de código, y cada uno <= {DOC_MAX_CODE_CHARS} chars.\n"
+            "- Si REQUESTED.gherkin es false, gherkin debe ser [].\n"
+            "- Si REQUESTED.cases es false, test_cases debe ser [].\n"
+            "- Si REQUESTED.scripts es false: automation_scripts.files DEBE ser [] y NO incluyas ningún código.\n"
+            "- Si REQUESTED.scripts es false: automation_scripts.framework/structure pueden ser vacíos.\n"
+        )
+        messages.append({"role": "user", "content": user_payload})
 
-            resp = client.chat.completions.create(
-                model=OPENAI_MODEL,
-                messages=messages,
-                tools=[QA_DOC_TOOL],
-                tool_choice={"type": "function", "function": {"name": "generate_qa_artifacts"}},
-                temperature=DOC_TEMPERATURE,
-                max_tokens=DOC_MAX_TOKENS,
-            )
+        resp = client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=messages,
+            tools=[QA_DOC_TOOL],
+            tool_choice={"type": "function", "function": {"name": "generate_qa_artifacts"}},
+            temperature=DOC_TEMPERATURE,
+            max_tokens=DOC_MAX_TOKENS,
+        )
 
-            msg = resp.choices[0].message
-            tool_calls = getattr(msg, "tool_calls", None) or []
+        msg = resp.choices[0].message
+        tool_calls = getattr(msg, "tool_calls", None) or []
 
-            if not tool_calls:
-                minimal_doc = {
-                    "requested": requested,
-                    "domain": domain,
-                    "context": context,
-                    "user_story": story,
-                    "assumptions": ["No se proporcionaron reglas de password/lockout específicas."],
-                    "questions_to_clarify": ["¿Qué políticas de seguridad aplican? (MFA, lockout, rate-limit, captcha)"],
-                    "invest": {},
-                    "gherkin": [],
-                    "test_cases": [
-                        {
-                            "id": "TC-LOGIN-001",
-                            "title": "Login exitoso",
-                            "priority": "P0",
-                            "type": "pos",
-                            "automatable": True,
-                            "preconditions": ["Usuario registrado y activo"],
-                            "steps": ["Abrir login", "Capturar email válido", "Capturar password válida", "Click ingresar"],
-                            "expected": "Redirige a home/cuenta y muestra sesión iniciada",
-                        },
-                        {
-                            "id": "TC-LOGIN-002",
-                            "title": "Password incorrecta",
-                            "priority": "P0",
-                            "type": "neg",
-                            "automatable": True,
-                            "preconditions": ["Usuario registrado"],
-                            "steps": ["Abrir login", "Email válido", "Password inválida", "Click ingresar"],
-                            "expected": "Mensaje de error y no inicia sesión",
-                        },
-                    ],
-                    "automation_scripts": {
-                        "framework": "",
-                        "structure": "",
-                        "notes": [],
-                        "selectors_recommendation": [],
-                        "how_to_run": [],
-                        "files": [],
+        # ------------------------------
+        # Fallback mínimo si NO hay toolcall
+        # ------------------------------
+        def _fallback_minimal_doc(reason: str):
+            minimal_doc = {
+                "requested": requested,
+                "domain": domain,
+                "context": context,
+                "user_story": story,
+                "assumptions": ["No se proporcionaron reglas de password/lockout específicas."],
+                "questions_to_clarify": ["¿Qué políticas de seguridad aplican? (MFA, lockout, rate-limit, captcha)"],
+                "invest": {},
+                "gherkin": [],
+                "test_cases": [
+                    {
+                        "id": "TC-LOGIN-001",
+                        "title": "Login exitoso",
+                        "priority": "P0",
+                        "type": "pos",
+                        "automatable": True,
+                        "preconditions": ["Usuario registrado y activo"],
+                        "steps": ["Abrir login", "Capturar email válido", "Capturar password válida", "Click ingresar"],
+                        "expected": "Redirige a home/cuenta y muestra sesión iniciada",
                     },
-                }
-                minimal_doc = _trim_doc(minimal_doc)
-                session["doc_last"] = minimal_doc
-                _cache_set(cache_key, minimal_doc)
-
-                answer = _render_doc_answer(minimal_doc)
-                _push_history(session, "user", prompt)
-                _push_history(session, "assistant", "Fallback DOC mínimo (sin tool-call).")
-                return {"mode": "doc", "session_id": sid, "answer": answer, "doc_artifacts": minimal_doc, "cached": False}
-
-            raw_args = tool_calls[0].function.arguments
-            args = _parse_tool_args(raw_args)
-
-            args.setdefault("requested", requested)
-            args.setdefault("user_story", story)
-            args.setdefault("domain", domain)
-            args.setdefault("context", context)
-            args.setdefault("assumptions", [])
-            args.setdefault("questions_to_clarify", [])
-            args.setdefault("invest", {})
-            args.setdefault("gherkin", [])
-            args.setdefault("test_cases", [])
-            args.setdefault("automation_scripts", {
-                "framework": "",
-                "structure": "",
-                "notes": [],
-                "selectors_recommendation": [],
-                "how_to_run": [],
-                "files": []
-            })
+                    {
+                        "id": "TC-LOGIN-002",
+                        "title": "Password incorrecta",
+                        "priority": "P0",
+                        "type": "neg",
+                        "automatable": True,
+                        "preconditions": ["Usuario registrado"],
+                        "steps": ["Abrir login", "Email válido", "Password inválida", "Click ingresar"],
+                        "expected": "Mensaje de error y no inicia sesión",
+                    },
+                    {
+                        "id": "TC-LOGIN-003",
+                        "title": "Usuario inexistente",
+                        "priority": "P1",
+                        "type": "neg",
+                        "automatable": True,
+                        "preconditions": [],
+                        "steps": ["Abrir login", "Email no registrado", "Password cualquiera", "Click ingresar"],
+                        "expected": "Mensaje de error y no inicia sesión",
+                    },
+                    {
+                        "id": "TC-LOGIN-004",
+                        "title": "Campos vacíos",
+                        "priority": "P1",
+                        "type": "neg",
+                        "automatable": True,
+                        "preconditions": [],
+                        "steps": ["Abrir login", "Dejar email vacío", "Dejar password vacío", "Click ingresar"],
+                        "expected": "Validaciones de campos requeridos",
+                    },
+                    {
+                        "id": "TC-LOGIN-005",
+                        "title": "Email con formato inválido",
+                        "priority": "P1",
+                        "type": "neg",
+                        "automatable": True,
+                        "preconditions": [],
+                        "steps": ["Abrir login", "Email inválido", "Password cualquiera", "Click ingresar"],
+                        "expected": "Validación de formato de email",
+                    },
+                    {
+                        "id": "TC-LOGIN-006",
+                        "title": "Toggle mostrar/ocultar password",
+                        "priority": "P2",
+                        "type": "edge",
+                        "automatable": True,
+                        "preconditions": [],
+                        "steps": ["Abrir login", "Escribir password", "Click ícono ojo", "Verificar visible", "Click ícono ojo", "Verificar oculta"],
+                        "expected": "La contraseña alterna visible/oculta correctamente",
+                    },
+                ],
+                "automation_scripts": {
+                    "framework": "",
+                    "structure": "",
+                    "notes": [],
+                    "selectors_recommendation": [],
+                    "how_to_run": [],
+                    "files": [],
+                },
+            }
 
             # hard clamp según requested
+            if not bool(requested.get("cases", False)):
+                minimal_doc["test_cases"] = []
+            if bool(requested.get("gherkin", False)):
+                # si pidieron gherkin pero el fallback no lo incluye, se queda vacío; ok
+                pass
+            if bool(requested.get("invest", False)):
+                # invest vacío; ok
+                pass
             if not bool(requested.get("scripts", False)):
-                args["automation_scripts"] = {
+                minimal_doc["automation_scripts"] = {
                     "framework": "",
                     "structure": "",
                     "notes": [],
@@ -869,24 +904,75 @@ def chat_run(req: ChatRunRequest):
                     "how_to_run": [],
                     "files": [],
                 }
-            if not bool(requested.get("gherkin", False)):
-                args["gherkin"] = []
-            if not bool(requested.get("cases", False)):
-                args["test_cases"] = []
 
-            doc = _trim_doc(args)
+            minimal_doc = _trim_doc(minimal_doc)
+            session["doc_last"] = minimal_doc
+            _cache_set(cache_key, minimal_doc)
 
-            session["doc_last"] = doc
-            _cache_set(cache_key, doc)
-
-            answer = _render_doc_answer(doc)
+            answer = _render_doc_answer(minimal_doc)
             _push_history(session, "user", prompt)
-            _push_history(session, "assistant", "Generé artefactos QA (DOC).")
-            return {"mode": "doc", "session_id": sid, "answer": answer, "doc_artifacts": doc, "cached": False}
+            _push_history(session, "assistant", f"Fallback DOC ({reason}).")
+            return {"mode": "doc", "session_id": sid, "answer": answer, "doc_artifacts": minimal_doc, "cached": False}
 
-        except Exception as e:
-            traceback.print_exc()
-            raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")
+        if not tool_calls:
+            return _fallback_minimal_doc("sin tool-call")
+
+        # ------------------------------
+        # Parse robusto: si JSON inválido => fallback (NO 500)
+        # ------------------------------
+        raw_args = tool_calls[0].function.arguments
+        args = _parse_tool_args(raw_args)
+
+        if not isinstance(args, dict):
+            return _fallback_minimal_doc("JSON inválido en tool-call")
+
+        # patch mínimos
+        args.setdefault("requested", requested)
+        args.setdefault("user_story", story)
+        args.setdefault("domain", domain)
+        args.setdefault("context", context)
+        args.setdefault("assumptions", [])
+        args.setdefault("questions_to_clarify", [])
+        args.setdefault("invest", {})
+        args.setdefault("gherkin", [])
+        args.setdefault("test_cases", [])
+        args.setdefault("automation_scripts", {
+            "framework": "",
+            "structure": "",
+            "notes": [],
+            "selectors_recommendation": [],
+            "how_to_run": [],
+            "files": []
+        })
+
+        # hard clamp según requested
+        if not bool(requested.get("scripts", False)):
+            args["automation_scripts"] = {
+                "framework": "",
+                "structure": "",
+                "notes": [],
+                "selectors_recommendation": [],
+                "how_to_run": [],
+                "files": [],
+            }
+        if not bool(requested.get("gherkin", False)):
+            args["gherkin"] = []
+        if not bool(requested.get("cases", False)):
+            args["test_cases"] = []
+
+        doc = _trim_doc(args)
+
+        session["doc_last"] = doc
+        _cache_set(cache_key, doc)
+
+        answer = _render_doc_answer(doc)
+        _push_history(session, "user", prompt)
+        _push_history(session, "assistant", "Generé artefactos QA (DOC).")
+        return {"mode": "doc", "session_id": sid, "answer": answer, "doc_artifacts": doc, "cached": False}
+
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")
 
     # ============================================================
     # PRIORIDAD 2: Asesoría (rápida)
