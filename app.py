@@ -1,4 +1,5 @@
 import os
+import json
 import traceback
 from typing import List, Optional, Dict, Any
 
@@ -22,7 +23,7 @@ app = FastAPI()
 # ============================================================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # luego puedes cerrarlo a tu dominio Vercel
+    allow_origins=["*"],  # luego puedes cerrar a tu dominio Vercel
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -48,7 +49,7 @@ def get_client() -> OpenAI:
     return OpenAI(api_key=OPENAI_API_KEY)
 
 # ============================================================
-# TOOL DEFINICIÓN (CLAVE FASE 1)
+# TOOL DEFINICIÓN (Function Calling)
 # ============================================================
 QA_TOOL = {
     "type": "function",
@@ -84,7 +85,6 @@ Eres Vanya, un QA Automation Agent.
 
 Si el usuario quiere EJECUTAR una prueba:
 - LLAMA a la herramienta run_qa_test
-- Devuelve SOLO la llamada a la herramienta
 - Usa pasos Playwright válidos
 
 Acciones permitidas:
@@ -100,45 +100,45 @@ Acciones permitidas:
 Reglas:
 - NO generes acciones screenshot
 - Si hay URL, el primer paso debe ser goto
-- Si el usuario solo pregunta capacidades, NO ejecutes
+- Si el usuario solo pregunta capacidades, NO ejecutes (responde texto breve)
 """
 
 # ============================================================
 # HELPERS
 # ============================================================
-def _get_attr(obj: Any, key: str, default=None):
-    if isinstance(obj, dict):
-        return obj.get(key, default)
-    return getattr(obj, key, default)
-
-def _safe_output_text(resp: Any) -> str:
-    return _get_attr(resp, "output_text", "") or ""
-
-def _extract_tool_calls(resp: Any) -> List[Dict[str, Any]]:
-    out = _get_attr(resp, "output", []) or []
-    calls = []
-
-    for item in out:
-        if _get_attr(item, "type") != "tool_call":
-            continue
-
-        name = _get_attr(item, "name")
-        arguments = _get_attr(item, "arguments", {})
-
-        if isinstance(arguments, str):
-            import json
-            try:
-                arguments = json.loads(arguments)
-            except Exception:
-                arguments = {}
-
-        calls.append({"name": name, "arguments": arguments})
-
-    return calls
-
 def _ensure_goto(steps: List[Dict[str, Any]], fallback_url: str):
     if not any((s.get("action") or "").lower() == "goto" for s in steps):
         steps.insert(0, {"action": "goto", "url": fallback_url})
+
+def _extract_steps_from_tool_calls(tool_calls: Any) -> Optional[List[Dict[str, Any]]]:
+    """
+    tool_calls en openai SDK suele venir como lista de objetos con:
+      tc.function.name
+      tc.function.arguments (string JSON)
+    """
+    if not tool_calls:
+        return None
+
+    for tc in tool_calls:
+        fn = getattr(tc, "function", None)
+        if not fn:
+            continue
+
+        name = getattr(fn, "name", None)
+        if name != "run_qa_test":
+            continue
+
+        args_raw = getattr(fn, "arguments", "") or ""
+        try:
+            args = json.loads(args_raw) if isinstance(args_raw, str) else (args_raw or {})
+        except Exception:
+            args = {}
+
+        steps = args.get("steps")
+        if isinstance(steps, list):
+            return steps
+
+    return None
 
 # ============================================================
 # ENDPOINTS
@@ -154,6 +154,7 @@ def meta():
         "render_git_commit": os.getenv("RENDER_GIT_COMMIT"),
         "model": MODEL,
         "has_openai_key": bool(OPENAI_API_KEY),
+        "openai_sdk": "chat.completions (no responses)",
     }
 
 @app.post("/chat_run")
@@ -161,9 +162,9 @@ def chat_run(req: ChatRunRequest):
     client = get_client()
 
     try:
-        resp = client.responses.create(
+        completion = client.chat.completions.create(
             model=MODEL,
-            input=[
+            messages=[
                 {"role": "system", "content": SYSTEM_PROMPT_EXECUTE},
                 {"role": "user", "content": req.prompt},
             ],
@@ -171,39 +172,30 @@ def chat_run(req: ChatRunRequest):
             tool_choice="auto",
         )
 
-        tool_calls = _extract_tool_calls(resp)
+        msg = completion.choices[0].message
 
-        # EJECUCIÓN
-        for call in tool_calls:
-            if call.get("name") == "run_qa_test":
-                steps = call.get("arguments", {}).get("steps", [])
-                if not isinstance(steps, list):
-                    steps = []
+        # 1) ¿Hay tool call?
+        steps = _extract_steps_from_tool_calls(getattr(msg, "tool_calls", None))
 
-                fallback = req.base_url or "https://example.com"
-                _ensure_goto(steps, fallback)
+        if steps is not None:
+            fallback = req.base_url or "https://example.com"
+            _ensure_goto(steps, fallback)
 
-                run_result = execute_test(steps, headless=req.headless)
+            run_result = execute_test(steps, headless=req.headless)
 
-                return {
-                    "mode": "execute",
-                    "generated_steps": steps,
-                    "run_result": run_result,
-                }
+            return {
+                "mode": "execute",
+                "generated_steps": steps,
+                "run_result": run_result,
+            }
 
-        # INFO / NO EJECUTA
-        return {
-            "mode": "info",
-            "answer": _safe_output_text(resp)
-            or "Puedo ejecutar pruebas web (login, navegación, validaciones) o ayudarte a diseñar casos de prueba. ¿Qué te gustaría hacer?",
-        }
+        # 2) Si no hay tool call => modo info
+        answer = getattr(msg, "content", None) or "Puedo ejecutar una prueba web o ayudarte a planear casos. ¿Qué quieres hacer?"
+        return {"mode": "info", "answer": answer}
 
     except Exception as e:
         traceback.print_exc()
-        raise HTTPException(
-            status_code=500,
-            detail=f"{type(e).__name__}: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")
 
 # ============================================================
 # FRONT (opcional)
