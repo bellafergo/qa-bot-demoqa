@@ -39,18 +39,18 @@ MAX_HISTORY_MSGS = int(os.getenv("MAX_HISTORY_MSGS", "10"))
 
 # DOC tuning (velocidad)
 DOC_DEFAULT_DOMAIN = (os.getenv("DOC_DEFAULT_DOMAIN") or "retail").strip()
-DOC_MAX_TEST_CASES = int(os.getenv("DOC_MAX_TEST_CASES", "14"))   # baja para velocidad
-DOC_MAX_GHERKIN = int(os.getenv("DOC_MAX_GHERKIN", "8"))          # baja para velocidad
-DOC_MAX_FILES = int(os.getenv("DOC_MAX_FILES", "3"))              # baja para velocidad
-DOC_MAX_CODE_CHARS = int(os.getenv("DOC_MAX_CODE_CHARS", "3500")) # evita scripts enormes
-DOC_HISTORY_MSGS = int(os.getenv("DOC_HISTORY_MSGS", "4"))        # menos contexto = más rápido
-DOC_CACHE_MAX = int(os.getenv("DOC_CACHE_MAX", "80"))             # cache simple en memoria
+DOC_MAX_TEST_CASES = int(os.getenv("DOC_MAX_TEST_CASES", "14"))
+DOC_MAX_GHERKIN = int(os.getenv("DOC_MAX_GHERKIN", "8"))
+DOC_MAX_FILES = int(os.getenv("DOC_MAX_FILES", "3"))
+DOC_MAX_CODE_CHARS = int(os.getenv("DOC_MAX_CODE_CHARS", "3500"))
+DOC_HISTORY_MSGS = int(os.getenv("DOC_HISTORY_MSGS", "4"))
+DOC_CACHE_MAX = int(os.getenv("DOC_CACHE_MAX", "80"))
 
 # Model knobs
 DOC_TEMPERATURE = float(os.getenv("DOC_TEMPERATURE", "0.2"))
 ADV_TEMPERATURE = float(os.getenv("ADV_TEMPERATURE", "0.4"))
 EXEC_TEMPERATURE = float(os.getenv("EXEC_TEMPERATURE", "0.2"))
-DOC_MAX_TOKENS = int(os.getenv("DOC_MAX_TOKENS", "1100"))         # cap tokens = cap tiempo
+DOC_MAX_TOKENS = int(os.getenv("DOC_MAX_TOKENS", "1100"))
 ADV_MAX_TOKENS = int(os.getenv("ADV_MAX_TOKENS", "700"))
 EXEC_MAX_TOKENS = int(os.getenv("EXEC_MAX_TOKENS", "700"))
 
@@ -62,6 +62,7 @@ class ChatRunRequest(BaseModel):
     session_id: Optional[str] = None
     headless: bool = True
     base_url: Optional[str] = None  # opcional
+
 
 # ============================================================
 # SESSION MEMORY (history + last_url + ttl + doc_last)
@@ -133,17 +134,19 @@ def _looks_like_url(s: str) -> bool:
 def _pick_base_url(req: ChatRunRequest, session: Dict[str, Any], prompt: str) -> Optional[str]:
     if req.base_url and req.base_url.strip():
         return req.base_url.strip()
+
     if _looks_like_url(prompt):
-        # si el prompt trae URL, el modelo también la verá; aquí solo dejamos last_url si la detectamos
         m = re.search(r"(https?://[^\s]+)", prompt)
         if m:
             return m.group(1).strip().rstrip(").,")
-    if session.get("last_url") and any(x in _low(prompt) for x in ["la misma", "mismo sitio", "misma página", "ahí", "en esa página"]):
+
+    p = _low(prompt)
+    if session.get("last_url") and any(x in p for x in ["la misma", "mismo sitio", "misma página", "ahí", "en esa página"]):
         return str(session["last_url"])
-    if session.get("last_url"):
-        # fallback: si está siguiendo flujo, reusar
-        if any(x in _low(prompt) for x in ["ahora", "también", "en la misma", "en esa", "siguiente", "luego", "después"]):
-            return str(session["last_url"])
+
+    if session.get("last_url") and any(x in p for x in ["ahora", "también", "en la misma", "en esa", "siguiente", "luego", "después"]):
+        return str(session["last_url"])
+
     return None
 
 
@@ -167,21 +170,25 @@ def _update_last_url_from_steps(session: Dict[str, Any], steps: List[Dict[str, A
 # ============================================================
 # INTENT ROUTING
 # ============================================================
+# Nota: NO incluyas "login" solo como trigger de ejecución.
 _EXEC_VERBS = [
     "ve a", "ir a", "entra a", "abrir", "abre", "navega",
-    "click", "clic", "haz click", "presiona", "inicia sesión",
-    "log in", "login", "valida", "verifica", "comprueba",
-    "llenar", "fill", "escribe", "selecciona"
+    "click", "clic", "haz click", "presiona",
+    "inicia sesión", "haz login", "logueate", "log in",
+    "valida en la página", "valida en la web", "verifica en la página",
+    "llenar", "fill", "escribe", "selecciona",
+    "ejecuta", "corre", "run", "playwright",
 ]
 
 _DOC_HINTS = [
     "invest", "gherkin", "criterios de aceptación", "casos de prueba",
-    "matriz", "scripts", "automatización", "playwright", "p.o.m", "page object"
+    "matriz", "test cases", "matriz de casos",
+    "scripts", "automatización", "page object", "p.o.m",
 ]
 
 _ADVISE_HINTS = [
     "qué haces", "que haces", "qué puedes", "que puedes", "recomiendas",
-    "riesgos", "mejor práctica", "best practice", "ayúdame a", "explica"
+    "riesgos", "mejor práctica", "best practice", "ayúdame a", "explica",
 ]
 
 
@@ -192,17 +199,24 @@ def _wants_doc(prompt: str) -> bool:
 
 def _wants_execute_explicit(prompt: str) -> bool:
     p = _low(prompt)
-    # ejecución explícita: verbos de navegación/acción + url o elemento
-    if any(v in p for v in _EXEC_VERBS):
-        return True
-    return False
+
+    # si no hay ningún verbo de ejecución, no ejecutar
+    if not any(v in p for v in _EXEC_VERBS):
+        return False
+
+    # Para que sea "explícito", pedimos al menos UNA de estas señales:
+    # - trae URL
+    # - o menciona una acción UI concreta (click/llenar/presiona)
+    has_url = _looks_like_url(prompt)
+    has_ui_action = any(x in p for x in ["click", "clic", "haz click", "presiona", "fill", "llenar", "escribe", "selecciona"])
+    has_exec_word = any(x in p for x in ["ejecuta", "corre", "run", "playwright", "navega", "abre", "entra a"])
+
+    return has_url or has_ui_action or has_exec_word
 
 
 def _wants_execute_followup(prompt: str, session: Dict[str, Any]) -> bool:
     p = _low(prompt)
-    # follow-up típico si ya hay last_url
     if session.get("last_url") and any(x in p for x in ["ahora", "también", "en la misma", "en esa", "luego", "después", "siguiente"]):
-        # si menciona algo validable
         if any(x in p for x in ["valida", "verifica", "que exista", "visible", "texto", "aparezca", "error", "mensaje", "botón", "campo"]):
             return True
     return False
@@ -210,6 +224,7 @@ def _wants_execute_followup(prompt: str, session: Dict[str, Any]) -> bool:
 
 def _wants_advise(prompt: str) -> bool:
     p = _low(prompt)
+    # si es doc o execute, no es advise
     if _wants_doc(prompt):
         return False
     if _wants_execute_explicit(prompt):
@@ -219,7 +234,6 @@ def _wants_advise(prompt: str) -> bool:
 
 def _is_check_only(prompt: str) -> bool:
     p = _low(prompt)
-    # "solo valida" sin clicks/inputs
     return any(x in p for x in ["solo valida", "solo verificar", "solo comprueba", "únicamente valida", "sin hacer click", "sin iniciar sesión"])
 
 
@@ -245,7 +259,6 @@ def _doc_requested_parts(prompt: str) -> Dict[str, bool]:
 
 
 def _extract_user_story(prompt: str) -> Optional[str]:
-    # intenta extraer texto entre comillas o después de “Historia:”
     m = re.search(r"[“\"'](.+?)[”\"']", prompt)
     if m:
         return m.group(1).strip()
@@ -276,7 +289,6 @@ def _cache_set(key: str, value: Dict[str, Any]):
         return
     _DOC_CACHE[key] = value
     _DOC_CACHE_ORDER.append(key)
-    # evict
     while len(_DOC_CACHE_ORDER) > DOC_CACHE_MAX:
         old = _DOC_CACHE_ORDER.pop(0)
         _DOC_CACHE.pop(old, None)
@@ -285,11 +297,10 @@ def _cache_set(key: str, value: Dict[str, Any]):
 # ============================================================
 # SYSTEM PROMPTS (compactos para velocidad, + robust locators)
 # ============================================================
-
 SYSTEM_PROMPT = """Eres Vanya, un Agente de QA. Responde claro y directo.
 Modos:
 - ADVISE: si el usuario hace preguntas teóricas o pide ejemplos (INVEST, Gherkin, casos, scripts).
-- EXECUTE: si el usuario pide acciones/validaciones en una web real (ve a, valida, click, login, etc.), debes generar pasos y ejecutar con run_qa_test.
+- EXECUTE: si el usuario pide acciones/validaciones en una web real (ve a, valida en la página, click, etc.), debes generar pasos y ejecutar con run_qa_test.
 No te contradigas: sí puedes ejecutar pruebas web cuando el usuario lo pide claramente.
 """
 
@@ -326,6 +337,7 @@ Si faltan datos:
 - agrega questions_to_clarify (preguntas mínimas)
 Devuelve SIEMPRE un tool-call generate_qa_artifacts con campos completos (vacíos si no aplican).
 Manténlo concreto, sin relleno.
+NO pidas URL/credenciales cuando el usuario pidió documentación (matriz/gherkin/casos).
 """
 
 # ============================================================
@@ -357,22 +369,13 @@ QA_TOOL = {
                                 ],
                             },
                             "url": {"type": "string"},
-
-                            # CSS o XPath (fallback)
                             "selector": {"type": "string"},
-
-                            # Texto visible (sirve para get_by_text o label)
                             "text": {"type": "string"},
-
-                            # Rol accesible (mejor práctica: button, textbox, link, heading...)
                             "role": {
                                 "type": "string",
                                 "description": "Accessible role (e.g., button, textbox, link, heading, checkbox). Preferir role+text para estabilidad."
                             },
-
-                            # Para inputs
                             "value": {"type": "string"},
-
                             "timeout_ms": {"type": "integer"},
                         },
                         "required": ["action"],
@@ -385,7 +388,7 @@ QA_TOOL = {
 }
 
 # ============================================================
-# TOOL: QA DOC ARTIFACTS (más compacto + “solo lo pedido”)
+# TOOL: QA DOC ARTIFACTS
 # ============================================================
 QA_DOC_TOOL = {
     "type": "function",
@@ -487,11 +490,20 @@ QA_DOC_TOOL = {
                     },
                 },
             },
-            "required": ["requested", "user_story", "domain", "context", "assumptions", "questions_to_clarify", "gherkin", "test_cases", "automation_scripts"],
+            "required": [
+                "requested",
+                "user_story",
+                "domain",
+                "context",
+                "assumptions",
+                "questions_to_clarify",
+                "gherkin",
+                "test_cases",
+                "automation_scripts",
+            ],
         },
     },
 }
-
 
 # ============================================================
 # DOC renderer (markdown para frontend)
@@ -587,7 +599,6 @@ def _truncate_code(s: str) -> str:
 
 
 def _trim_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
-    # enforce limits to keep it fast & safe
     gherkin = doc.get("gherkin") or []
     if isinstance(gherkin, list) and len(gherkin) > DOC_MAX_GHERKIN:
         doc["gherkin"] = gherkin[:DOC_MAX_GHERKIN]
@@ -600,10 +611,11 @@ def _trim_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
     files = scr.get("files") or []
     if isinstance(files, list) and len(files) > DOC_MAX_FILES:
         files = files[:DOC_MAX_FILES]
-    # truncate code
+
     for f in files:
         if isinstance(f, dict) and "content" in f:
             f["content"] = _truncate_code(f.get("content", ""))
+
     scr["files"] = files
     doc["automation_scripts"] = scr
     return doc
@@ -654,37 +666,58 @@ def chat_run(req: ChatRunRequest):
             requested = _doc_requested_parts(prompt)
             domain = _infer_domain(prompt)
             story = _extract_user_story(prompt) or prompt
-            context = ""  # opcional: si quieres, parsea "Contexto:" aquí
+            context = ""  # opcional
 
-            cache_key = f"v1|{domain}|{json.dumps(requested, sort_keys=True)}|{story}"
+            def _norm_cache_text(s: str, limit: int = 1200) -> str:
+                s = (s or "").strip()
+                s = " ".join(s.split())
+                return s[:limit]
+
+            cache_key = "v2|doc|" + "|".join([
+                _norm_cache_text(domain, 120),
+                json.dumps(requested, sort_keys=True),
+                _norm_cache_text(story, 1200),
+            ])
+
             cached = _cache_get(cache_key)
             if cached:
                 session["doc_last"] = cached
                 answer = _render_doc_answer(cached)
                 _push_history(session, "user", prompt)
-                _push_history(session, "assistant", "Usé cache de artefactos QA.")
+                _push_history(session, "assistant", "Usé cache de artefactos QA (DOC).")
                 return {"mode": "doc", "session_id": sid, "answer": answer, "doc_artifacts": cached, "cached": True}
 
-            messages = [{"role": "system", "content": SYSTEM_PROMPT_DOC}]
-            # menos historial para velocidad
-            messages.extend(session["history"][-DOC_HISTORY_MSGS:])
+            def _doc_history_filter(msgs):
+                bad = ("NEED INFO", "Para ejecutar", "URL", "credenciales", "run_qa_test")
+                out = []
+                for m in msgs:
+                    c = (m.get("content") or "")
+                    if any(b.lower() in c.lower() for b in bad):
+                        continue
+                    out.append(m)
+                return out
 
-            messages.append({
-                "role": "user",
-                "content": (
-                    "Genera artefactos QA SOLO para lo solicitado.\n\n"
-                    f"REQUESTED: {requested}\n"
-                    f"DOMAIN: {domain}\n"
-                    f"USER_STORY_OR_REQUEST:\n{story}\n\n"
-                    "Reglas:\n"
-                    f"- Máximo {DOC_MAX_GHERKIN} escenarios Gherkin.\n"
-                    f"- Máximo {DOC_MAX_TEST_CASES} casos de prueba.\n"
-                    f"- Máximo {DOC_MAX_FILES} archivos de código, y cada uno <= {DOC_MAX_CODE_CHARS} chars.\n"
-                    "- Si el usuario pidió solo Gherkin, no inventes scripts.\n"
-                    "- Si falta info: pon assumptions y questions_to_clarify.\n"
-                    "- Devuelve SIEMPRE el tool-call con TODOS los campos requeridos (vacíos si no aplican).\n"
-                )
-            })
+            messages = [{"role": "system", "content": SYSTEM_PROMPT_DOC}]
+            hist = _doc_history_filter(session["history"][-DOC_HISTORY_MSGS:])
+            messages.extend(hist)
+
+            user_payload = (
+                "Tarea: Genera artefactos QA **solo de documentación** (NO ejecutes, NO pidas URL).\n"
+                "Entrega: Debes devolver **un tool-call** a generate_qa_artifacts con TODOS los campos.\n\n"
+                f"REQUESTED: {requested}\n"
+                f"DOMAIN: {domain}\n"
+                f"USER_STORY_OR_REQUEST:\n{story}\n\n"
+                "Reglas:\n"
+                "- Si el usuario NO pidió ejecución, NO menciones URL/credenciales como requisito.\n"
+                "- Si falta info, llena assumptions y questions_to_clarify (sin bloquear la entrega).\n"
+                f"- Máximo {DOC_MAX_GHERKIN} escenarios Gherkin.\n"
+                f"- Máximo {DOC_MAX_TEST_CASES} casos de prueba.\n"
+                f"- Máximo {DOC_MAX_FILES} archivos de código, y cada uno <= {DOC_MAX_CODE_CHARS} chars.\n"
+                "- Si el usuario pidió solo Gherkin, NO generes scripts.\n"
+                "- Si el usuario pidió solo matriz/casos, NO generes Gherkin.\n"
+                "- Evita texto extra fuera del tool-call.\n"
+            )
+            messages.append({"role": "user", "content": user_payload})
 
             resp = client.chat.completions.create(
                 model=OPENAI_MODEL,
@@ -697,12 +730,57 @@ def chat_run(req: ChatRunRequest):
 
             msg = resp.choices[0].message
             tool_calls = getattr(msg, "tool_calls", None) or []
+
+            # fallback DOC mínimo (sin toolcall)
             if not tool_calls:
-                # fallback mínimo: no reintentar (para velocidad)
-                answer = "No pude estructurar los artefactos en esta llamada. Pega la historia así: “Como <rol> quiero <objetivo> para <valor>” y dime si quieres INVEST/Gherkin/Casos/Scripts."
+                minimal_doc = {
+                    "requested": requested,
+                    "domain": domain,
+                    "context": context,
+                    "user_story": story,
+                    "assumptions": ["No se proporcionaron reglas de password/lockout específicas."],
+                    "questions_to_clarify": ["¿Qué políticas de seguridad aplican? (MFA, lockout, rate-limit, captcha)"],
+                    "invest": {},
+                    "gherkin": [],
+                    "test_cases": [
+                        {
+                            "id": "TC-LOGIN-001",
+                            "title": "Login exitoso",
+                            "priority": "P0",
+                            "type": "pos",
+                            "automatable": True,
+                            "preconditions": ["Usuario registrado y activo"],
+                            "steps": ["Abrir login", "Capturar email válido", "Capturar password válida", "Click ingresar"],
+                            "expected": "Redirige a home/cuenta y muestra sesión iniciada"
+                        },
+                        {
+                            "id": "TC-LOGIN-002",
+                            "title": "Password incorrecta",
+                            "priority": "P0",
+                            "type": "neg",
+                            "automatable": True,
+                            "preconditions": ["Usuario registrado"],
+                            "steps": ["Abrir login", "Email válido", "Password inválida", "Click ingresar"],
+                            "expected": "Mensaje de error y no inicia sesión"
+                        },
+                    ],
+                    "automation_scripts": {
+                        "framework": "",
+                        "structure": "",
+                        "notes": [],
+                        "selectors_recommendation": [],
+                        "how_to_run": [],
+                        "files": []
+                    }
+                }
+                minimal_doc = _trim_doc(minimal_doc)
+                session["doc_last"] = minimal_doc
+                _cache_set(cache_key, minimal_doc)
+
+                answer = _render_doc_answer(minimal_doc)
                 _push_history(session, "user", prompt)
-                _push_history(session, "assistant", answer)
-                return {"mode": "advise", "session_id": sid, "answer": answer}
+                _push_history(session, "assistant", "Fallback DOC mínimo (sin tool-call).")
+                return {"mode": "doc", "session_id": sid, "answer": answer, "doc_artifacts": minimal_doc, "cached": False}
 
             args = json.loads(tool_calls[0].function.arguments)
 
@@ -713,13 +791,37 @@ def chat_run(req: ChatRunRequest):
             args.setdefault("context", context)
             args.setdefault("assumptions", [])
             args.setdefault("questions_to_clarify", [])
+            args.setdefault("invest", {})
             args.setdefault("gherkin", [])
             args.setdefault("test_cases", [])
-            args.setdefault("automation_scripts", {"framework": "pytest + playwright", "structure": "Page Object Model", "notes": [], "selectors_recommendation": [], "how_to_run": [], "files": []})
+            args.setdefault("automation_scripts", {
+                "framework": "pytest + playwright",
+                "structure": "Page Object Model",
+                "notes": [],
+                "selectors_recommendation": [],
+                "how_to_run": [],
+                "files": []
+            })
+
+            # Anti-alucinación: si NO pidieron scripts, vacía scripts
+            if not bool(requested.get("scripts", False)):
+                args["automation_scripts"] = {
+                    "framework": "",
+                    "structure": "",
+                    "notes": [],
+                    "selectors_recommendation": [],
+                    "how_to_run": [],
+                    "files": []
+                }
+
+            # Si NO pidieron gherkin/cases, limpia para no inventar
+            if not bool(requested.get("gherkin", False)):
+                args["gherkin"] = []
+            if not bool(requested.get("cases", False)):
+                args["test_cases"] = []
 
             doc = _trim_doc(args)
 
-            # guarda
             session["doc_last"] = doc
             _cache_set(cache_key, doc)
 
@@ -737,8 +839,9 @@ def chat_run(req: ChatRunRequest):
     # ============================================================
     if not wants_execute:
         try:
-            # soporte “dame los scripts” desde doc_last
             p_low = _low(prompt)
+
+            # soporte “dame los scripts” desde doc_last
             if session.get("doc_last") and any(x in p_low for x in ["dame los scripts", "muéstrame los scripts", "archivos", "código", "playwright"]):
                 doc = session["doc_last"]
                 answer = "Listo. Los scripts están en **doc_artifacts.automation_scripts.files** (path + content)."
