@@ -1,32 +1,62 @@
-import React, { useState, useEffect, useRef } from 'react';
-import './App.css';
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import "./App.css";
 
 function App() {
   const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [sessionId, setSessionId] = useState(() => {
+    try {
+      return localStorage.getItem("vanya_session_id") || null;
+    } catch {
+      return null;
+    }
+  });
   const chatEndRef = useRef(null);
 
-  const API_BASE = "https://qa-bot-demoqa.onrender.com";
+  // ✅ Mejor: API por env (Vite) y fallback al tuyo
+  const API_BASE = useMemo(() => {
+    const fromEnv = (import.meta?.env?.VITE_API_BASE || "").trim();
+    return fromEnv || "https://qa-bot-demoqa.onrender.com";
+  }, []);
 
   const scrollToBottom = () => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
   useEffect(() => {
-    setMessages([{
-      role: 'bot',
-      content: 'Hola, soy **Vanya**, tu Agente de QA inteligente. ¿En qué puedo ayudarte hoy con tus pruebas?'
-    }]);
+    setMessages([
+      {
+        role: "bot",
+        content:
+          "Hola, soy **Vanya**, tu Agente de QA inteligente. ¿En qué puedo ayudarte hoy con tus pruebas?",
+      },
+    ]);
   }, []);
 
   useEffect(scrollToBottom, [messages]);
 
+  // ------------------------------------------------------------
+  // Formatting (sin librerías)
+  // ------------------------------------------------------------
+  const escapeHtml = (s) => {
+    if (s == null) return "";
+    return String(s)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  };
+
   const formatText = (text) => {
     if (!text) return "";
-    return text
-      .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
-      .replace(/\n/g, '<br/>');
+    // Escapamos primero para evitar inyecciones
+    const safe = escapeHtml(text);
+    // Luego aplicamos markdown simple
+    return safe
+      .replace(/\*\*(.*?)\*\*/g, "<b>$1</b>")
+      .replace(/\n/g, "<br/>");
   };
 
   const prettyStatus = (st) => {
@@ -36,6 +66,9 @@ function App() {
     return st || "—";
   };
 
+  // ------------------------------------------------------------
+  // Runner report UI
+  // ------------------------------------------------------------
   const renderRunnerReport = (runner) => {
     if (!runner) return null;
 
@@ -44,6 +77,7 @@ function App() {
     const steps = Array.isArray(runner.steps) ? runner.steps : [];
     const logs = Array.isArray(runner.logs) ? runner.logs : [];
     const duration = runner.duration_ms;
+    const evidenceId = runner.evidence_id;
 
     return (
       <div className="runner-report" style={{ marginTop: 12 }}>
@@ -56,55 +90,83 @@ function App() {
           )}
         </div>
 
+        {evidenceId && (
+          <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 10 }}>
+            <b>Evidencia ID:</b> {evidenceId}
+          </div>
+        )}
+
         {error && (
-          <div style={{
-            padding: 10,
-            borderRadius: 10,
-            background: "rgba(255, 0, 0, 0.08)",
-            border: "1px solid rgba(255, 0, 0, 0.25)",
-            marginBottom: 10
-          }}>
+          <div
+            style={{
+              padding: 10,
+              borderRadius: 10,
+              background: "rgba(255, 0, 0, 0.08)",
+              border: "1px solid rgba(255, 0, 0, 0.25)",
+              marginBottom: 10,
+            }}
+          >
             <b>Error:</b> {String(error)}
           </div>
         )}
 
         {steps.length > 0 && (
           <div style={{ marginTop: 10 }}>
-            <div style={{ fontWeight: 700, marginBottom: 6 }}>Pasos ejecutados:</div>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>
+              Pasos ejecutados:
+            </div>
 
-            <div style={{
-              overflowX: "auto",
-              borderRadius: 10,
-              border: "1px solid rgba(255,255,255,0.12)"
-            }}>
-              <table style={{
-                width: "100%",
-                borderCollapse: "collapse",
-                fontSize: 12
-              }}>
+            <div
+              style={{
+                overflowX: "auto",
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.12)",
+              }}
+            >
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: 12,
+                }}
+              >
                 <thead>
                   <tr style={{ background: "rgba(255,255,255,0.06)" }}>
                     <th style={{ textAlign: "left", padding: 8 }}>#</th>
                     <th style={{ textAlign: "left", padding: 8 }}>Acción</th>
-                    <th style={{ textAlign: "left", padding: 8 }}>Selector/URL</th>
+                    <th style={{ textAlign: "left", padding: 8 }}>
+                      Selector/Text/URL
+                    </th>
                     <th style={{ textAlign: "left", padding: 8 }}>Status</th>
                     <th style={{ textAlign: "left", padding: 8 }}>ms</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {steps.map((s, idx) => (
-                    <tr key={idx} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-                      <td style={{ padding: 8, opacity: 0.9 }}>{s.i ?? s.step ?? (idx + 1)}</td>
-                      <td style={{ padding: 8 }}>{s.action || "—"}</td>
-                      <td style={{ padding: 8, opacity: 0.9 }}>
-                        {s.url || s.selector || "—"}
-                      </td>
-                      <td style={{ padding: 8 }}>
-                        {(String(s.status || "").toLowerCase().includes("pass")) ? "✅" : "❌"} {s.status || "—"}
-                      </td>
-                      <td style={{ padding: 8, opacity: 0.9 }}>{s.duration_ms ?? "—"}</td>
-                    </tr>
-                  ))}
+                  {steps.map((s, idx) => {
+                    const st = String(s.status || "").toLowerCase();
+                    const ok = st.includes("pass") || st === "ok";
+                    const target = s.url || s.selector || s.text || "—";
+                    return (
+                      <tr
+                        key={idx}
+                        style={{
+                          borderTop: "1px solid rgba(255,255,255,0.08)",
+                        }}
+                      >
+                        <td style={{ padding: 8, opacity: 0.9 }}>
+                          {s.i ?? s.step ?? idx + 1}
+                        </td>
+                        <td style={{ padding: 8 }}>{s.action || "—"}</td>
+                        <td style={{ padding: 8, opacity: 0.9 }}>{target}</td>
+                        <td style={{ padding: 8 }}>
+                          {ok ? "✅" : "❌"} {s.status || "—"}
+                        </td>
+                        <td style={{ padding: 8, opacity: 0.9 }}>
+                          {s.duration_ms ?? "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -114,17 +176,19 @@ function App() {
         {logs.length > 0 && (
           <div style={{ marginTop: 12 }}>
             <div style={{ fontWeight: 700, marginBottom: 6 }}>Logs:</div>
-            <pre style={{
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-              padding: 10,
-              borderRadius: 10,
-              background: "rgba(0,0,0,0.25)",
-              border: "1px solid rgba(255,255,255,0.12)",
-              fontSize: 12,
-              maxHeight: 220,
-              overflow: "auto"
-            }}>
+            <pre
+              style={{
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                padding: 10,
+                borderRadius: 10,
+                background: "rgba(0,0,0,0.25)",
+                border: "1px solid rgba(255,255,255,0.12)",
+                fontSize: 12,
+                maxHeight: 220,
+                overflow: "auto",
+              }}
+            >
               {logs.join("\n")}
             </pre>
           </div>
@@ -133,52 +197,80 @@ function App() {
     );
   };
 
+  // ------------------------------------------------------------
+  // Message helpers
+  // ------------------------------------------------------------
+  const addMessage = (msg) => setMessages((prev) => [...prev, msg]);
+
+  const addBotMessage = (content, runner = null) =>
+    addMessage({ role: "bot", content, runner });
+
+  // ------------------------------------------------------------
+  // Main send
+  // ------------------------------------------------------------
   const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
+    const text = input.trim();
+    if (!text || isLoading) return;
 
-    const userMsg = { role: 'user', content: input };
-    setMessages(prev => [...prev, userMsg]);
-
-    const currentInput = input;
-    setInput('');
+    addMessage({ role: "user", content: text });
+    setInput("");
     setIsLoading(true);
 
     try {
       const resp = await fetch(`${API_BASE}/chat_run`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          prompt: currentInput,
+          prompt: text,
           headless: true,
-        })
+          session_id: sessionId,
+        }),
       });
 
-      if (!resp.ok) throw new Error(`Error server: ${resp.status}`);
+      const data = await resp.json().catch(() => ({}));
 
-      const data = await resp.json();
-
-      // ✅ Si es INFO o PLAN: solo texto
-      if (data.mode === "info" || data.mode === "plan") {
-        setMessages(prev => [...prev, {
-          role: 'bot',
-          content: data.answer || "Listo.",
-          runner: null
-        }]);
-      } else {
-        // ✅ EXECUTE: muestra reporte + screenshot
-        setMessages(prev => [...prev, {
-          role: 'bot',
-          content: "He procesado tu solicitud. Aquí tienes los resultados de la ejecución:",
-          runner: data.run_result
-        }]);
+      // Guarda session_id (para "la misma URL")
+      if (data.session_id) {
+        setSessionId(data.session_id);
+        try {
+          localStorage.setItem("vanya_session_id", data.session_id);
+        } catch {}
       }
 
+      if (!resp.ok) {
+        const detail = data?.detail ? `\n\nDetalle: ${data.detail}` : "";
+        throw new Error(`Error server: ${resp.status}${detail}`);
+      }
+
+      const mode = (data.mode || "").toLowerCase();
+
+      // ✅ MODO EJECUCIÓN
+      if (mode === "execute") {
+        const runner = data.run_result || null;
+        const scope = data.scope ? ` (${data.scope})` : "";
+        addBotMessage(
+          `✅ Ejecuté la prueba${scope}. Aquí tienes los resultados:`,
+          runner
+        );
+        return;
+      }
+
+      // ✅ MODO ASESOR / PEDIR INFO
+      if (mode === "advise" || mode === "need_info" || mode === "info" || mode === "plan") {
+        addBotMessage(data.answer || "Ok. ¿Qué quieres validar?");
+        return;
+      }
+
+      // Fallback
+      addBotMessage(data.answer || "Ok.");
     } catch (error) {
       console.error("Error en la petición:", error);
-      setMessages(prev => [...prev, {
-        role: 'bot',
-        content: "❌ **Error de conexión con Vanya.**\n\nEl servidor en Render no respondió correctamente. Revisa el deploy y vuelve a intentar."
-      }]);
+      addBotMessage(
+        "❌ **Error de conexión con Vanya.**\n\n" +
+          "El servidor no respondió correctamente. " +
+          "Si estás en Render, revisa que el deploy esté Live y vuelve a intentar.\n\n" +
+          `Detalle: ${String(error?.message || error)}`
+      );
     } finally {
       setIsLoading(false);
     }
@@ -188,13 +280,15 @@ function App() {
     <div className="vanya-wrap">
       <header className="vanya-header">
         <div className="logo-dot"></div>
-        <h1>Vanya <small>| QA Intelligence Agent</small></h1>
+        <h1>
+          Vanya <small>| QA Intelligence Agent</small>
+        </h1>
       </header>
 
       <main className="chat-area">
         {messages.map((msg, i) => (
           <div key={i} className={`message-row ${msg.role}`}>
-            <div className="message-label">{msg.role === 'user' ? 'Tú' : 'Vanya'}</div>
+            <div className="message-label">{msg.role === "user" ? "Tú" : "Vanya"}</div>
             <div className="bubble">
               <div
                 className="text-content"
@@ -220,7 +314,7 @@ function App() {
                       );
                     }}
                   />
-                  <p style={{ fontSize: '10px', marginTop: '5px', opacity: 0.5 }}>
+                  <p style={{ fontSize: "10px", marginTop: "5px", opacity: 0.5 }}>
                     Click para ampliar
                   </p>
                 </div>
@@ -245,14 +339,14 @@ function App() {
           placeholder="Escribe una orden de QA o pregunta algo..."
           disabled={isLoading}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
+            if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               handleSend();
             }
           }}
         />
         <button onClick={handleSend} disabled={isLoading || !input.trim()}>
-          {isLoading ? '...' : 'Enviar'}
+          {isLoading ? "..." : "Enviar"}
         </button>
       </footer>
     </div>
