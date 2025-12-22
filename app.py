@@ -9,10 +9,9 @@ from typing import List, Optional, Dict, Any, Tuple
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-
 from openai import OpenAI
+
 from runner import execute_test
 
 # ============================================================
@@ -21,72 +20,82 @@ from runner import execute_test
 load_dotenv()
 app = FastAPI()
 
-# ============================================================
-# CORS
-# ============================================================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # luego puedes cerrar a tu dominio Vercel
+    allow_origins=["*"],  # luego ciérralo a tu dominio
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # ============================================================
-# MODELOS
-# ============================================================
-class ChatRunRequest(BaseModel):
-    prompt: str
-    base_url: Optional[str] = None
-    headless: bool = True
-    session_id: Optional[str] = None  # memoria corta (última URL)
-
-# ============================================================
-# OPENAI
+# ENV
 # ============================================================
 OPENAI_API_KEY = (os.getenv("OPENAI_API_KEY") or "").strip()
-MODEL = (os.getenv("OPENAI_MODEL") or "gpt-4o-mini").strip()
+OPENAI_MODEL = (os.getenv("OPENAI_MODEL") or "gpt-4o-mini").strip()
+SESSION_TTL_S = int(os.getenv("SESSION_TTL_S", "3600"))
+MAX_HISTORY_MSGS = int(os.getenv("MAX_HISTORY_MSGS", "10"))  # para no saturar
 
-def get_client() -> OpenAI:
+def _now() -> int:
+    return int(time.time())
+
+def _get_client() -> OpenAI:
     if not OPENAI_API_KEY:
         raise HTTPException(status_code=500, detail="Falta OPENAI_API_KEY")
     return OpenAI(api_key=OPENAI_API_KEY)
 
 # ============================================================
-# SESSION STORE (memoria corta in-memory)
+# REQUEST MODEL
+# ============================================================
+class ChatRunRequest(BaseModel):
+    prompt: str
+    session_id: Optional[str] = None
+    headless: bool = True
+    base_url: Optional[str] = None  # opcional
+
+# ============================================================
+# SESSION MEMORY (history + last_url + ttl)
 # ============================================================
 _SESSIONS: Dict[str, Dict[str, Any]] = {}
-SESSION_TTL_S = int(os.getenv("SESSION_TTL_S", "3600"))
-
-def _now() -> int:
-    return int(time.time())
-
-def _get_session(session_id: Optional[str]) -> Tuple[str, Dict[str, Any]]:
-    sid = (session_id or "").strip() or str(uuid.uuid4())
-    s = _SESSIONS.get(sid)
-    if not s:
-        s = {"created_at": _now(), "last_seen": _now(), "last_url": None}
-        _SESSIONS[sid] = s
-    s["last_seen"] = _now()
-    return sid, s
 
 def _cleanup_sessions():
     t = _now()
     dead = []
     for sid, s in _SESSIONS.items():
-        if t - int(s.get("last_seen", t)) > SESSION_TTL_S:
+        last_seen = int(s.get("last_seen", t))
+        if t - last_seen > SESSION_TTL_S:
             dead.append(sid)
     for sid in dead:
         _SESSIONS.pop(sid, None)
 
+def _get_session(session_id: Optional[str]) -> Tuple[str, Dict[str, Any]]:
+    sid = (session_id or "").strip() or str(uuid.uuid4())
+    s = _SESSIONS.get(sid)
+    if not s:
+        s = {
+            "history": [],     # list[{role, content}]
+            "last_url": None,
+            "last_seen": _now(),
+        }
+        _SESSIONS[sid] = s
+    s["last_seen"] = _now()
+    return sid, s
+
+def _push_history(session: Dict[str, Any], role: str, content: str):
+    session["history"].append({"role": role, "content": content})
+    # recorta
+    if len(session["history"]) > MAX_HISTORY_MSGS:
+        session["history"] = session["history"][-MAX_HISTORY_MSGS:]
+
 # ============================================================
-# TOOL DEFINICIÓN (Function Calling)
+# TOOL (Function Calling)
+# Nota: mantenemos selector/text/value; runner usa selector hoy.
 # ============================================================
 QA_TOOL = {
     "type": "function",
     "function": {
         "name": "run_qa_test",
-        "description": "Ejecuta una prueba automatizada de QA en navegador con Playwright",
+        "description": "Ejecuta acciones en un navegador real para validar una web.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -95,11 +104,22 @@ QA_TOOL = {
                     "items": {
                         "type": "object",
                         "properties": {
-                            "action": {"type": "string"},
+                            "action": {
+                                "type": "string",
+                                "enum": [
+                                    "goto",
+                                    "wait_for_selector",
+                                    "fill",
+                                    "click",
+                                    "press",
+                                    "assert_visible",
+                                    "assert_text_contains",
+                                    "wait_ms",
+                                ],
+                            },
                             "url": {"type": "string"},
-                            "selector": {"type": "string"},  # opcional
-                            "text": {"type": "string"},      # opcional (auto-detección)
-                            "role": {"type": "string"},      # opcional (auto-detección)
+                            "selector": {"type": "string"},
+                            "text": {"type": "string"},
                             "value": {"type": "string"},
                             "timeout_ms": {"type": "integer"},
                         },
@@ -113,55 +133,121 @@ QA_TOOL = {
 }
 
 # ============================================================
-# PROMPTS
+# PROMPTS (unificado pero con reglas fuertes)
 # ============================================================
-SYSTEM_PROMPT_EXECUTE = """
-Eres Vanya, un Agente Virtual de QA.
+SYSTEM_PROMPT = """
+Eres Vanya, una Agente de QA Inteligente capaz de ASESORAR y EJECUTAR pruebas.
 
-CAPACIDADES (consistente):
-- Modo Asesor (sin ejecución): análisis, casos, matrices, criterios, recomendaciones.
-- Modo Runner (con ejecución): SOLO si el usuario pide ejecutar de forma clara.
+DOS MODOS:
+A) Modo Asesor (sin ejecutar):
+- Respondes preguntas, matrices de casos, criterios, riesgos, recomendaciones.
+- No ejecutes nada si el usuario solo pregunta teoría o pide casos.
 
-REGLA CRÍTICA:
-- Solo llama a run_qa_test cuando el usuario pida EJECUTAR explícitamente (por ejemplo: "ve a", "abre", "navega", "ejecuta", "corre").
-- Si el usuario pide casos/matriz/estrategia o pregunta "qué puedes / qué haces / cuándo", NO ejecutes; responde texto.
+B) Modo Runner (con ejecución):
+- SOLO ejecutas cuando el usuario lo pide explícitamente (ej. "ve a", "abre", "navega", "ejecuta", "corre")
+  o cuando es un FOLLOW-UP de validación y ya existe una última URL en sesión.
 
-ACCIONES PERMITIDAS EN STEPS:
-- goto (url)
-- wait_for (selector o text/role, timeout_ms opcional)
-- fill (selector o text/role, value)
-- click (selector o text/role)
-- press (selector o text/role, text="Enter")
-- assert_visible (selector o text/role)
-- assert_text_contains (selector o text/role, text)
-- wait_ms (value en ms)
+MEMORIA:
+- Si el usuario no menciona URL pero dice "la misma" y hay last_url, reusa last_url.
 
-REGLAS DE EJECUCIÓN:
-- Si hay URL, el primer paso debe ser goto.
-- NO agregues pasos extra no solicitados. Si solo piden "existe/visible", no hagas login.
-- Evita pedir selectores como requisito inicial; usa text/role cuando no tengas selector.
-"""
+SELECTORES:
+- Prefiere selectores robustos. En SauceDemo usa: #user-name, #password, #login-button.
+- Para "Login" también es válido usar selector por texto simple si no hay CSS claro.
 
-SYSTEM_PROMPT_ADVISE = """
-Eres Vanya, un Agente Virtual de QA en Modo Asesor (sin ejecutar nada).
-Responde claro y práctico.
-Si el usuario quiere ejecución, pídele:
-- URL (o confirma la última URL si existe)
-- qué validar exactamente
-- credenciales/datos solo si aplica
-Nunca pidas selectores como requisito inicial.
+REGLAS:
+- Si piden "existe/visible" (check-only), NO hagas login ni pasos extra.
+- Si falta información para ejecutar, pide lo mínimo (URL/validación/credenciales si aplica).
 """
 
 # ============================================================
-# HELPERS
+# INTENT (evita ejecutar por accidente + soporta follow-ups)
 # ============================================================
-def _norm(s: str) -> str:
-    return (s or "").strip()
+_URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 
-def _ensure_goto(steps: List[Dict[str, Any]], fallback_url: str):
-    if not any((str(s.get("action") or "").lower() == "goto") for s in steps):
-        steps.insert(0, {"action": "goto", "url": fallback_url})
+# Ejecutar solo con verbos claros
+_EXECUTE_VERBS = [
+    r"\bve a\b",
+    r"\babre\b",
+    r"\bnavega\b",
+    r"\bentra\b",
+    r"\bejecuta\b",
+    r"\bcorre\b",
+    r"\brun\b",
+]
 
+# Follow-up ejecutable si ya hay last_url (clave para tu demo)
+_FOLLOWUP_EXECUTE_HINTS = [
+    r"\bla misma\b",
+    r"\ben la misma\b",
+    r"\bahora valida\b",
+    r"\bvalida\b",
+    r"\bverifica\b",
+    r"\bconfirma\b",
+    r"\brevisa\b",
+    r"\bintenta\b",
+]
+
+# Palabras de asesoría/contenido
+_ADVISE_HINTS = [
+    r"\bmatriz\b",
+    r"\bcasos?\b",
+    r"\bescenarios?\b",
+    r"\bcriterios?\b",
+    r"\bchecklist\b",
+    r"\briesgos?\b",
+    r"\brecomendaciones?\b",
+    r"\bqué haces\b",
+    r"\bque haces\b",
+    r"\bqué puedes\b",
+    r"\bque puedes\b",
+    r"\bcuándo\b",
+    r"\bcuando\b",
+    r"\bdeber[ií]a\b",
+]
+
+_CHECK_ONLY_HINTS = [
+    r"\bexista\b",
+    r"\bexiste\b",
+    r"\bvisible\b",
+    r"\bpresente\b",
+    r"\bse vea\b",
+]
+
+_FLOW_HINTS = [
+    r"\blogin\b",
+    r"\binicia sesi[oó]n\b",
+    r"\bsign in\b",
+    r"\bcheckout\b",
+    r"\bcomprar\b",
+    r"\bagregar al carrito\b",
+]
+
+def _has_url(text: str) -> bool:
+    return bool(_URL_RE.search(text or ""))
+
+def _wants_advise(prompt: str) -> bool:
+    p = (prompt or "").lower()
+    return any(re.search(h, p) for h in _ADVISE_HINTS)
+
+def _wants_execute_explicit(prompt: str) -> bool:
+    p = (prompt or "").lower()
+    return any(re.search(h, p) for h in _EXECUTE_VERBS)
+
+def _wants_execute_followup(prompt: str, session: Dict[str, Any]) -> bool:
+    if not session.get("last_url"):
+        return False
+    p = (prompt or "").lower()
+    return any(re.search(h, p) for h in _FOLLOWUP_EXECUTE_HINTS)
+
+def _is_check_only(prompt: str) -> bool:
+    p = (prompt or "").lower()
+    has_check = any(re.search(h, p) for h in _CHECK_ONLY_HINTS)
+    has_flow = any(re.search(h, p) for h in _FLOW_HINTS)
+    return bool(has_check and not has_flow)
+
+# ============================================================
+# TOOL-CALL parsing
+# ============================================================
 def _extract_steps_from_tool_calls(tool_calls: Any) -> Optional[List[Dict[str, Any]]]:
     if not tool_calls:
         return None
@@ -169,8 +255,7 @@ def _extract_steps_from_tool_calls(tool_calls: Any) -> Optional[List[Dict[str, A
         fn = getattr(tc, "function", None)
         if not fn:
             continue
-        name = getattr(fn, "name", None)
-        if name != "run_qa_test":
+        if getattr(fn, "name", None) != "run_qa_test":
             continue
         args_raw = getattr(fn, "arguments", "") or ""
         try:
@@ -182,224 +267,140 @@ def _extract_steps_from_tool_calls(tool_calls: Any) -> Optional[List[Dict[str, A
             return steps
     return None
 
-# ============================================================
-# INTENT (MEJORA CLAVE)
-# ============================================================
-_URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
+def _ensure_goto(steps: List[Dict[str, Any]], url: str):
+    if not any(str(s.get("action") or "").lower() == "goto" for s in steps):
+        steps.insert(0, {"action": "goto", "url": url})
 
-# ✅ SOLO verbos claros de ejecución (se quitaron “prueba/test/valida” porque son ambiguos)
-_EXECUTE_VERBS = [
-    r"\bve a\b",
-    r"\babre\b",
-    r"\bnavega\b",
-    r"\bentra\b",
-    r"\bejecuta\b",
-    r"\bcorre\b",
-    r"\bcorrer\b",
-    r"\brun\b",
-    r"\bla misma\b",  # permite reusar last_url
-]
-
-# ✅ Keywords de asesoría / contenido (casos, matrices, estrategia)
-_ADVISE_KEYWORDS = [
-    r"\bcasos?\b",
-    r"\bmatriz\b",
-    r"\bescenarios?\b",
-    r"\bcriterios?\b",
-    r"\bchecklist\b",
-    r"\bestrategia\b",
-    r"\bplan\b",
-    r"\briesgos?\b",
-    r"\brecomendaciones?\b",
-    r"\bmejoras?\b",
-    r"\bexplica\b",
-    r"\bqué puedes\b",
-    r"\bque puedes\b",
-    r"\bqué haces\b",
-    r"\bque haces\b",
-    r"\bcuándo\b",
-    r"\bcuando\b",
-    r"\bdeber[ií]a\b",
-    r"\bshould\b",
-    r"\bhow\b",
-    r"\bwhat can you\b",
-]
-
-# ✅ Check-only: sigue igual
-_CHECK_ONLY_HINTS = [
-    r"\bexista\b", r"\bexiste\b", r"\bvisible\b", r"\bpresente\b", r"\bse vea\b",
-    r"\bhabilitado\b", r"\bdisabled\b", r"\benabled\b"
-]
-_FLOW_HINTS = [
-    r"\blogin\b", r"\binicia sesi[oó]n\b", r"\bsign in\b", r"\bsignin\b",
-    r"\bcomprar\b", r"\bcheckout\b", r"\bagregar al carrito\b", r"\badd to cart\b"
-]
-
-def _has_url(prompt: str) -> bool:
-    return bool(_URL_RE.search(prompt or ""))
-
-def _wants_advise(prompt: str) -> bool:
-    p = (prompt or "").lower()
-    return any(re.search(h, p) for h in _ADVISE_KEYWORDS)
-
-def _wants_execute(prompt: str) -> bool:
-    p = (prompt or "").lower()
-    return any(re.search(h, p) for h in _EXECUTE_VERBS)
-
-def _intent_is_check_only(prompt: str) -> bool:
-    p = (prompt or "").lower()
-    has_check = any(re.search(h, p) for h in _CHECK_ONLY_HINTS)
-    has_flow = any(re.search(h, p) for h in _FLOW_HINTS)
-    return bool(has_check and not has_flow)
-
-def _filter_steps_by_scope(steps: List[Dict[str, Any]], check_only: bool) -> List[Dict[str, Any]]:
-    if not check_only:
-        return steps
-
-    allowed = {"goto", "wait_for", "assert_visible", "assert_text_contains", "wait_ms"}
-    filtered: List[Dict[str, Any]] = []
-    for s in steps:
-        act = str(s.get("action") or "").lower()
-        if act in allowed:
-            filtered.append(s)
-
-    # Si el modelo no generó asserts, metemos uno mínimo
-    if not any(str(s.get("action", "")).lower().startswith("assert_") for s in filtered):
-        hint = None
-        for s in steps:
-            if s.get("selector") or s.get("text") or s.get("role"):
-                hint = {"selector": s.get("selector"), "text": s.get("text"), "role": s.get("role")}
-                break
-        filtered.append({"action": "assert_visible", **(hint or {"text": "Login"})})
-
-    return filtered
-
-def _resolve_base_url(req: ChatRunRequest, session: Dict[str, Any], prompt: str) -> str:
-    # prioridad: req.base_url -> last_url (si usuario dice "la misma") -> last_url -> default
-    if req.base_url:
-        return req.base_url.strip()
-    if session.get("last_url"):
-        return str(session["last_url"])
-    return "https://example.com"
-
-def _maybe_update_last_url(steps: List[Dict[str, Any]], session: Dict[str, Any], fallback_url: str):
+def _update_last_url_from_steps(session: Dict[str, Any], steps: List[Dict[str, Any]]):
     for s in steps:
         if str(s.get("action") or "").lower() == "goto" and s.get("url"):
             session["last_url"] = s["url"]
             return
-    session["last_url"] = fallback_url
+
+def _pick_base_url(req: ChatRunRequest, session: Dict[str, Any], prompt: str) -> Optional[str]:
+    # prioridad: URL explícita en prompt
+    m = _URL_RE.search(prompt or "")
+    if m:
+        return m.group(0)
+    # luego base_url enviada por el front
+    if req.base_url:
+        return req.base_url.strip()
+    # luego last_url en sesión
+    if session.get("last_url"):
+        return str(session["last_url"])
+    return None
 
 # ============================================================
 # ENDPOINTS
 # ============================================================
+@app.get("/meta")
+def meta():
+    _cleanup_sessions()
+    return {
+        "ok": True,
+        "render_git_commit": os.getenv("RENDER_GIT_COMMIT"),
+        "model": OPENAI_MODEL,
+        "has_openai_key": bool(OPENAI_API_KEY),
+        "session_ttl_s": SESSION_TTL_S,
+        "sessions_in_memory": len(_SESSIONS),
+    }
+
 @app.get("/health")
 def health():
     _cleanup_sessions()
     return {"ok": True}
 
-@app.get("/meta")
-def meta():
-    return {
-        "ok": True,
-        "render_git_commit": os.getenv("RENDER_GIT_COMMIT"),
-        "model": MODEL,
-        "has_openai_key": bool(OPENAI_API_KEY),
-        "openai_sdk": "chat.completions",
-        "session_ttl_s": SESSION_TTL_S,
-    }
-
 @app.post("/chat_run")
 def chat_run(req: ChatRunRequest):
-    client = get_client()
     _cleanup_sessions()
-
     sid, session = _get_session(req.session_id)
-    prompt = _norm(req.prompt)
 
+    prompt = (req.prompt or "").strip()
     if not prompt:
         raise HTTPException(status_code=400, detail="prompt vacío")
 
-    # ✅ Decisión robusta:
-    # - Si parece asesoría (casos/matriz/pregunta meta) => advise
-    # - Si parece ejecución (verbos claros) => execute
-    # - Si no, por default => advise
-    wants_advise = _wants_advise(prompt)
-    wants_execute = _wants_execute(prompt)
-    check_only = _intent_is_check_only(prompt)
+    client = _get_client()
 
-    # Si el usuario está preguntando / pidiendo contenido -> NO ejecutar
-    if wants_advise and not wants_execute:
+    # 1) Intent routing
+    wants_advise = _wants_advise(prompt)
+    wants_execute = _wants_execute_explicit(prompt) or _wants_execute_followup(prompt, session)
+    check_only = _is_check_only(prompt)
+
+    # Si es asesoría pura, NO ejecutar
+    if wants_advise and not _wants_execute_explicit(prompt):
         try:
-            completion = client.chat.completions.create(
-                model=MODEL,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT_ADVISE},
-                    {"role": "user", "content": prompt},
-                ],
+            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            # contexto de last_url
+            if session.get("last_url"):
+                messages.append({"role": "system", "content": f"Contexto: last_url={session['last_url']}"})
+            # historial corto
+            messages.extend(session["history"][-6:])
+            messages.append({"role": "user", "content": prompt})
+
+            resp = client.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=messages,
             )
-            msg = completion.choices[0].message
-            answer = getattr(msg, "content", None) or (
-                "Puedo ayudarte a definir casos de prueba o ejecutar una prueba si me dices URL y qué validar."
-            )
+            msg = resp.choices[0].message
+            answer = getattr(msg, "content", None) or "Ok. ¿Qué necesitas?"
+            _push_history(session, "user", prompt)
+            _push_history(session, "assistant", answer)
             return {"mode": "advise", "session_id": sid, "answer": answer}
         except Exception as e:
             traceback.print_exc()
             raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")
 
-    # Si NO hay verbos claros de ejecución -> advise
+    # Si NO hay señal de ejecución, por default asesoría
     if not wants_execute:
         try:
-            completion = client.chat.completions.create(
-                model=MODEL,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT_ADVISE},
-                    {"role": "user", "content": prompt},
-                ],
+            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            if session.get("last_url"):
+                messages.append({"role": "system", "content": f"Contexto: last_url={session['last_url']}"})
+            messages.extend(session["history"][-6:])
+            messages.append({"role": "user", "content": prompt})
+
+            resp = client.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=messages,
             )
-            msg = completion.choices[0].message
-            answer = getattr(msg, "content", None) or (
-                "Puedo ayudarte a definir casos de prueba o ejecutar una prueba si me dices URL y qué validar."
-            )
+            msg = resp.choices[0].message
+            answer = getattr(msg, "content", None) or "Ok. ¿Qué necesitas?"
+            _push_history(session, "user", prompt)
+            _push_history(session, "assistant", answer)
             return {"mode": "advise", "session_id": sid, "answer": answer}
         except Exception as e:
             traceback.print_exc()
             raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")
 
-    # ✅ Si pidió ejecutar, validamos si tenemos URL o memoria
-    has_url = _has_url(prompt) or bool(req.base_url) or bool(session.get("last_url")) or ("la misma" in prompt.lower())
-    if not has_url:
+    # 2) Execution requires URL or last_url
+    base_url = _pick_base_url(req, session, prompt)
+    if not base_url:
         return {
             "mode": "need_info",
             "session_id": sid,
             "answer": (
-                "Para ejecutar necesito:\n"
-                "1) La URL (o dime 'la misma' si quieres usar la última)\n"
-                "2) Qué validar exactamente (ej: 'el botón Login es visible')\n"
-                "Si hay login, también usuario/contraseña."
+                "Para ejecutar necesito la URL (o dime 'la misma' si quieres usar la última). "
+                "También dime qué validar exactamente."
             ),
         }
 
-    # ============================================================
-    # EJECUCIÓN con tools
-    # ============================================================
+    # 3) Execution: force tool-call when router decides execute
     try:
-        base_url = _resolve_base_url(req, session, prompt)
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        # contexto fuerte
+        messages.append({"role": "system", "content": f"Contexto: base_url={base_url}; check_only={check_only}"})
+        messages.extend(session["history"][-6:])
+        messages.append({"role": "user", "content": prompt})
 
-        completion = client.chat.completions.create(
-            model=MODEL,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT_EXECUTE},
-                {"role": "user", "content": (
-                    f"Contexto:\n- base_url: {base_url}\n"
-                    f"- nota: si el usuario dice 'la misma', usa base_url\n\n"
-                    f"Usuario:\n{prompt}"
-                )},
-            ],
+        resp = client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=messages,
             tools=[QA_TOOL],
-            tool_choice="auto",
+            # 🔥 CLAVE: cuando decidimos ejecutar, lo forzamos
+            tool_choice={"type": "function", "function": {"name": "run_qa_test"}},
         )
 
-        msg = completion.choices[0].message
+        msg = resp.choices[0].message
         steps = _extract_steps_from_tool_calls(getattr(msg, "tool_calls", None))
 
         if steps is None:
@@ -407,17 +408,26 @@ def chat_run(req: ChatRunRequest):
                 "mode": "need_info",
                 "session_id": sid,
                 "answer": (
-                    "Puedo ejecutar, pero me falta claridad.\n"
-                    "Dime exactamente qué quieres validar (ej: 'Login visible' o 'texto Products aparece') "
-                    "y si uso la URL actual o me das otra."
+                    "Puedo ejecutar, pero necesito más claridad. "
+                    "Dime qué elemento validar (ej: 'campo password visible') "
+                    "o qué texto debe aparecer."
                 ),
             }
 
-        steps = _filter_steps_by_scope(steps, check_only=check_only)
+        # asegurar goto
         _ensure_goto(steps, base_url)
-        _maybe_update_last_url(steps, session, base_url)
 
+        # guarda last_url
+        _update_last_url_from_steps(session, steps)
+
+        # ejecuta
         run_result = execute_test(steps, headless=req.headless)
+
+        # registra historial (correcto con status)
+        status = (run_result.get("status") or "").lower()
+        resumen = "PASSED" if status in ("passed", "pass", "ok") else "FAILED"
+        _push_history(session, "user", prompt)
+        _push_history(session, "assistant", f"Ejecuté la prueba. Resultado: {resumen}")
 
         return {
             "mode": "execute",
@@ -430,13 +440,3 @@ def chat_run(req: ChatRunRequest):
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")
-
-# ============================================================
-# FRONT (opcional)
-# ============================================================
-if os.path.exists("frontend"):
-    app.mount("/client", StaticFiles(directory="frontend", html=True), name="frontend")
-
-@app.get("/")
-def home():
-    return {"ok": True, "message": "Vanya Fase 1 activa"}
