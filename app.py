@@ -37,17 +37,22 @@ OPENAI_MODEL = (os.getenv("OPENAI_MODEL") or "gpt-4o-mini").strip()
 SESSION_TTL_S = int(os.getenv("SESSION_TTL_S", "3600"))
 MAX_HISTORY_MSGS = int(os.getenv("MAX_HISTORY_MSGS", "10"))
 
+# DOC tuning (velocidad)
 DOC_DEFAULT_DOMAIN = (os.getenv("DOC_DEFAULT_DOMAIN") or "retail").strip()
-DOC_MAX_TEST_CASES = int(os.getenv("DOC_MAX_TEST_CASES", "18"))  # límite para no explotar tokens
-DOC_MAX_GHERKIN = int(os.getenv("DOC_MAX_GHERKIN", "10"))
+DOC_MAX_TEST_CASES = int(os.getenv("DOC_MAX_TEST_CASES", "14"))   # baja para velocidad
+DOC_MAX_GHERKIN = int(os.getenv("DOC_MAX_GHERKIN", "8"))          # baja para velocidad
+DOC_MAX_FILES = int(os.getenv("DOC_MAX_FILES", "3"))              # baja para velocidad
+DOC_MAX_CODE_CHARS = int(os.getenv("DOC_MAX_CODE_CHARS", "3500")) # evita scripts enormes
+DOC_HISTORY_MSGS = int(os.getenv("DOC_HISTORY_MSGS", "4"))        # menos contexto = más rápido
+DOC_CACHE_MAX = int(os.getenv("DOC_CACHE_MAX", "80"))             # cache simple en memoria
 
-def _now() -> int:
-    return int(time.time())
-
-def _get_client() -> OpenAI:
-    if not OPENAI_API_KEY:
-        raise HTTPException(status_code=500, detail="Falta OPENAI_API_KEY")
-    return OpenAI(api_key=OPENAI_API_KEY)
+# Model knobs
+DOC_TEMPERATURE = float(os.getenv("DOC_TEMPERATURE", "0.2"))
+ADV_TEMPERATURE = float(os.getenv("ADV_TEMPERATURE", "0.4"))
+EXEC_TEMPERATURE = float(os.getenv("EXEC_TEMPERATURE", "0.2"))
+DOC_MAX_TOKENS = int(os.getenv("DOC_MAX_TOKENS", "1100"))         # cap tokens = cap tiempo
+ADV_MAX_TOKENS = int(os.getenv("ADV_MAX_TOKENS", "700"))
+EXEC_MAX_TOKENS = int(os.getenv("EXEC_MAX_TOKENS", "700"))
 
 # ============================================================
 # REQUEST MODEL
@@ -59,9 +64,24 @@ class ChatRunRequest(BaseModel):
     base_url: Optional[str] = None  # opcional
 
 # ============================================================
-# SESSION MEMORY (history + last_url + ttl + doc_artifacts)
+# SESSION MEMORY (history + last_url + ttl + doc_last)
 # ============================================================
 _SESSIONS: Dict[str, Dict[str, Any]] = {}
+
+# DOC cache (mismo prompt => respuesta instant)
+_DOC_CACHE: Dict[str, Dict[str, Any]] = {}
+_DOC_CACHE_ORDER: List[str] = []
+
+
+def _now() -> int:
+    return int(time.time())
+
+
+def _get_client() -> OpenAI:
+    if not OPENAI_API_KEY:
+        raise HTTPException(status_code=500, detail="Falta OPENAI_API_KEY")
+    return OpenAI(api_key=OPENAI_API_KEY)
+
 
 def _cleanup_sessions():
     t = _now()
@@ -73,24 +93,211 @@ def _cleanup_sessions():
     for sid in dead:
         _SESSIONS.pop(sid, None)
 
+
 def _get_session(session_id: Optional[str]) -> Tuple[str, Dict[str, Any]]:
     sid = (session_id or "").strip() or str(uuid.uuid4())
     s = _SESSIONS.get(sid)
     if not s:
         s = {
-            "history": [],          # list[{role, content}]
-            "last_url": None,       # last used url
+            "history": [],
+            "last_url": None,
             "last_seen": _now(),
-            "doc_last": None,       # last generated doc artifacts (dict)
+            "doc_last": None,
         }
         _SESSIONS[sid] = s
     s["last_seen"] = _now()
     return sid, s
 
+
 def _push_history(session: Dict[str, Any], role: str, content: str):
     session["history"].append({"role": role, "content": content})
     if len(session["history"]) > MAX_HISTORY_MSGS:
         session["history"] = session["history"][-MAX_HISTORY_MSGS:]
+
+
+# ============================================================
+# NORMALIZE / HELPERS
+# ============================================================
+def _norm(s: str) -> str:
+    return re.sub(r"\s+", " ", (s or "").strip())
+
+
+def _low(s: str) -> str:
+    return (s or "").lower()
+
+
+def _looks_like_url(s: str) -> bool:
+    return bool(re.search(r"https?://", s or ""))
+
+
+def _pick_base_url(req: ChatRunRequest, session: Dict[str, Any], prompt: str) -> Optional[str]:
+    if req.base_url and req.base_url.strip():
+        return req.base_url.strip()
+    if _looks_like_url(prompt):
+        # si el prompt trae URL, el modelo también la verá; aquí solo dejamos last_url si la detectamos
+        m = re.search(r"(https?://[^\s]+)", prompt)
+        if m:
+            return m.group(1).strip().rstrip(").,")
+    if session.get("last_url") and any(x in _low(prompt) for x in ["la misma", "mismo sitio", "misma página", "ahí", "en esa página"]):
+        return str(session["last_url"])
+    if session.get("last_url"):
+        # fallback: si está siguiendo flujo, reusar
+        if any(x in _low(prompt) for x in ["ahora", "también", "en la misma", "en esa", "siguiente", "luego", "después"]):
+            return str(session["last_url"])
+    return None
+
+
+def _ensure_goto(steps: List[Dict[str, Any]], base_url: str):
+    if not steps:
+        return
+    has_goto = any(str(s.get("action", "")).lower() == "goto" for s in steps)
+    if not has_goto:
+        steps.insert(0, {"action": "goto", "url": base_url})
+
+
+def _update_last_url_from_steps(session: Dict[str, Any], steps: List[Dict[str, Any]], fallback: Optional[str] = None):
+    for s in steps:
+        if str(s.get("action") or "").lower() == "goto" and s.get("url"):
+            session["last_url"] = s["url"]
+            return
+    if fallback:
+        session["last_url"] = fallback
+
+
+# ============================================================
+# INTENT ROUTING
+# ============================================================
+_EXEC_VERBS = [
+    "ve a", "ir a", "entra a", "abrir", "abre", "navega",
+    "click", "clic", "haz click", "presiona", "inicia sesión",
+    "log in", "login", "valida", "verifica", "comprueba",
+    "llenar", "fill", "escribe", "selecciona"
+]
+
+_DOC_HINTS = [
+    "invest", "gherkin", "criterios de aceptación", "casos de prueba",
+    "matriz", "scripts", "automatización", "playwright", "p.o.m", "page object"
+]
+
+_ADVISE_HINTS = [
+    "qué haces", "que haces", "qué puedes", "que puedes", "recomiendas",
+    "riesgos", "mejor práctica", "best practice", "ayúdame a", "explica"
+]
+
+
+def _wants_doc(prompt: str) -> bool:
+    p = _low(prompt)
+    return any(k in p for k in _DOC_HINTS)
+
+
+def _wants_execute_explicit(prompt: str) -> bool:
+    p = _low(prompt)
+    # ejecución explícita: verbos de navegación/acción + url o elemento
+    if any(v in p for v in _EXEC_VERBS):
+        return True
+    return False
+
+
+def _wants_execute_followup(prompt: str, session: Dict[str, Any]) -> bool:
+    p = _low(prompt)
+    # follow-up típico si ya hay last_url
+    if session.get("last_url") and any(x in p for x in ["ahora", "también", "en la misma", "en esa", "luego", "después", "siguiente"]):
+        # si menciona algo validable
+        if any(x in p for x in ["valida", "verifica", "que exista", "visible", "texto", "aparezca", "error", "mensaje", "botón", "campo"]):
+            return True
+    return False
+
+
+def _wants_advise(prompt: str) -> bool:
+    p = _low(prompt)
+    if _wants_doc(prompt):
+        return False
+    if _wants_execute_explicit(prompt):
+        return False
+    return any(k in p for k in _ADVISE_HINTS) or True  # default advise si no hay otra intención
+
+
+def _is_check_only(prompt: str) -> bool:
+    p = _low(prompt)
+    # "solo valida" sin clicks/inputs
+    return any(x in p for x in ["solo valida", "solo verificar", "solo comprueba", "únicamente valida", "sin hacer click", "sin iniciar sesión"])
+
+
+# ============================================================
+# DOC: “solo lo pedido” (para velocidad)
+# ============================================================
+def _doc_requested_parts(prompt: str) -> Dict[str, bool]:
+    p = _low(prompt)
+    wants_invest = ("invest" in p) or ("evalúa" in p and "historia" in p) or ("brechas" in p)
+    wants_gherkin = ("gherkin" in p) or ("criterios de aceptación" in p)
+    wants_cases = ("casos de prueba" in p) or ("matriz" in p) or ("test cases" in p)
+    wants_scripts = ("script" in p) or ("automat" in p) or ("playwright" in p) or ("p.o.m" in p) or ("page object" in p)
+
+    # si pide “artefactos” sin especificar, damos todo (pero limitado)
+    if any(x in p for x in ["artefactos", "todo", "completo", "full"]):
+        return {"invest": True, "gherkin": True, "cases": True, "scripts": True}
+
+    # si no detectamos nada, por seguridad: gherkin + cases
+    if not any([wants_invest, wants_gherkin, wants_cases, wants_scripts]):
+        return {"invest": False, "gherkin": True, "cases": True, "scripts": False}
+
+    return {"invest": wants_invest, "gherkin": wants_gherkin, "cases": wants_cases, "scripts": wants_scripts}
+
+
+def _extract_user_story(prompt: str) -> Optional[str]:
+    # intenta extraer texto entre comillas o después de “Historia:”
+    m = re.search(r"[“\"'](.+?)[”\"']", prompt)
+    if m:
+        return m.group(1).strip()
+    m2 = re.search(r"(historia|user story)\s*:\s*(.+)$", prompt, flags=re.I)
+    if m2:
+        return m2.group(2).strip()
+    return None
+
+
+def _infer_domain(prompt: str) -> str:
+    p = _low(prompt)
+    if "pos" in p or "punto de venta" in p:
+        return "pos"
+    if "ecommerce" in p or "e-commerce" in p or "tienda en línea" in p:
+        return "ecommerce"
+    if "erp" in p or "oracle" in p or "sap" in p:
+        return "erp"
+    return DOC_DEFAULT_DOMAIN
+
+
+def _cache_get(key: str) -> Optional[Dict[str, Any]]:
+    return _DOC_CACHE.get(key)
+
+
+def _cache_set(key: str, value: Dict[str, Any]):
+    if key in _DOC_CACHE:
+        _DOC_CACHE[key] = value
+        return
+    _DOC_CACHE[key] = value
+    _DOC_CACHE_ORDER.append(key)
+    # evict
+    while len(_DOC_CACHE_ORDER) > DOC_CACHE_MAX:
+        old = _DOC_CACHE_ORDER.pop(0)
+        _DOC_CACHE.pop(old, None)
+
+
+# ============================================================
+# SYSTEM PROMPTS (compactos para velocidad)
+# ============================================================
+SYSTEM_PROMPT = """Eres Vanya, agente de QA. Responde claro y corto. Si piden ejecutar en web, genera pasos para Playwright via tool run_qa_test. Si es teoría, asesora."""
+
+SYSTEM_PROMPT_EXECUTE = """Eres Vanya. Si el usuario pide validar/navegar/click/login, DEBES devolver tool-call run_qa_test con pasos simples y estables.
+Reglas:
+- Usa selectores robustos: ids (#id), name, data-testid. Si no hay, usa texto (text) y luego el runner resolverá.
+- Si falta URL usa base_url del contexto.
+- Pasos: goto, fill, click, press, assert_visible, assert_text_contains, wait_ms.
+- No pidas permiso extra si ya es instrucción clara.
+"""
+
+SYSTEM_PROMPT_DOC = """Eres Vanya. Generas artefactos QA (INVEST, Gherkin, casos de prueba, scripts Playwright Python).
+Objetivo: útil, concreto, sin relleno. Si faltan datos, pon assumptions y questions_to_clarify.
+Devuelve SIEMPRE un tool-call generate_qa_artifacts con campos completos (aunque algunos vacíos)."""
 
 # ============================================================
 # TOOL: RUNNER (Playwright steps)
@@ -112,7 +319,6 @@ QA_TOOL = {
                                 "type": "string",
                                 "enum": [
                                     "goto",
-                                    "wait_for_selector",
                                     "fill",
                                     "click",
                                     "press",
@@ -137,475 +343,239 @@ QA_TOOL = {
 }
 
 # ============================================================
-# TOOL: QA DOC ARTIFACTS (INVEST + Gherkin + TestCases + Scripts)
+# TOOL: QA DOC ARTIFACTS (más compacto + “solo lo pedido”)
 # ============================================================
 QA_DOC_TOOL = {
     "type": "function",
     "function": {
         "name": "generate_qa_artifacts",
-        "description": "Genera artefactos QA (INVEST, Gherkin, casos, scripts Playwright Python) desde una historia de usuario.",
+        "description": "Genera artefactos QA desde una historia o requerimiento textual.",
         "parameters": {
             "type": "object",
             "properties": {
+                "requested": {
+                    "type": "object",
+                    "properties": {
+                        "invest": {"type": "boolean"},
+                        "gherkin": {"type": "boolean"},
+                        "cases": {"type": "boolean"},
+                        "scripts": {"type": "boolean"},
+                    },
+                    "required": ["invest", "gherkin", "cases", "scripts"],
+                },
                 "user_story": {"type": "string"},
+                "domain": {"type": "string"},
                 "context": {"type": "string"},
-                "domain": {"type": "string", "description": "Ej: retail, POS, ecommerce, ERP"},
                 "assumptions": {"type": "array", "items": {"type": "string"}},
+                "questions_to_clarify": {"type": "array", "items": {"type": "string"}},
+
                 "invest": {
                     "type": "object",
                     "properties": {
                         "scores": {
                             "type": "object",
                             "properties": {
-                                "independent": {"type": "integer", "minimum": 0, "maximum": 2},
-                                "negotiable": {"type": "integer", "minimum": 0, "maximum": 2},
-                                "valuable": {"type": "integer", "minimum": 0, "maximum": 2},
-                                "estimable": {"type": "integer", "minimum": 0, "maximum": 2},
-                                "small": {"type": "integer", "minimum": 0, "maximum": 2},
-                                "testable": {"type": "integer", "minimum": 0, "maximum": 2},
+                                "independent": {"type": "integer"},
+                                "negotiable": {"type": "integer"},
+                                "valuable": {"type": "integer"},
+                                "estimable": {"type": "integer"},
+                                "small": {"type": "integer"},
+                                "testable": {"type": "integer"},
                             },
-                            "required": ["independent","negotiable","valuable","estimable","small","testable"]
                         },
                         "total": {"type": "integer"},
                         "verdict": {"type": "string"},
-                        "issues": {"type": "array", "items": {"type": "string"}},
+                        "gaps": {"type": "array", "items": {"type": "string"}},
                         "improved_story": {"type": "string"},
-                        "questions_to_clarify": {"type": "array", "items": {"type": "string"}},
                     },
-                    "required": ["scores","total","verdict","issues","improved_story","questions_to_clarify"]
                 },
+
                 "gherkin": {
                     "type": "array",
                     "items": {
                         "type": "object",
                         "properties": {
-                            "feature": {"type": "string"},
+                            "tag": {"type": "string"},
                             "scenario": {"type": "string"},
-                            "tags": {"type": "array", "items": {"type": "string"}},
                             "given": {"type": "array", "items": {"type": "string"}},
                             "when": {"type": "array", "items": {"type": "string"}},
                             "then": {"type": "array", "items": {"type": "string"}},
                         },
-                        "required": ["feature","scenario","given","when","then"]
-                    }
+                        "required": ["scenario", "given", "when", "then"],
+                    },
                 },
+
                 "test_cases": {
                     "type": "array",
                     "items": {
                         "type": "object",
                         "properties": {
                             "id": {"type": "string"},
+                            "priority": {"type": "string"},
+                            "type": {"type": "string"},
+                            "automatable": {"type": "boolean"},
                             "title": {"type": "string"},
-                            "type": {"type": "string", "description": "positive|negative|edge|security|performance"},
-                            "priority": {"type": "string", "description": "P0|P1|P2|P3"},
                             "preconditions": {"type": "array", "items": {"type": "string"}},
                             "steps": {"type": "array", "items": {"type": "string"}},
-                            "expected": {"type": "array", "items": {"type": "string"}},
-                            "automation_candidate": {"type": "boolean"},
-                            "notes": {"type": "string"},
+                            "expected": {"type": "string"},
                         },
-                        "required": ["id","title","type","priority","preconditions","steps","expected","automation_candidate"]
-                    }
+                        "required": ["id", "priority", "type", "automatable", "title", "steps", "expected"],
+                    },
                 },
+
                 "automation_scripts": {
                     "type": "object",
                     "properties": {
-                        "framework": {"type": "string", "description": "playwright-python"},
-                        "structure": {"type": "string", "description": "page-object"},
+                        "framework": {"type": "string"},
+                        "structure": {"type": "string"},
+                        "notes": {"type": "array", "items": {"type": "string"}},
+                        "selectors_recommendation": {"type": "array", "items": {"type": "string"}},
+                        "how_to_run": {"type": "array", "items": {"type": "string"}},
                         "files": {
                             "type": "array",
                             "items": {
                                 "type": "object",
                                 "properties": {
                                     "path": {"type": "string"},
-                                    "content": {"type": "string"}
+                                    "content": {"type": "string"},
                                 },
-                                "required": ["path","content"]
-                            }
+                                "required": ["path", "content"],
+                            },
                         },
-                        "run_instructions": {"type": "array", "items": {"type": "string"}},
-                        "selector_recommendations": {"type": "array", "items": {"type": "string"}}
                     },
-                    "required": ["framework","structure","files","run_instructions","selector_recommendations"]
-                }
+                },
             },
-            "required": ["user_story","context","domain","assumptions","invest","gherkin","test_cases","automation_scripts"],
+            "required": ["requested", "user_story", "domain", "context", "assumptions", "questions_to_clarify", "gherkin", "test_cases", "automation_scripts"],
         },
     },
 }
 
-# ============================================================
-# PROMPTS
-# ============================================================
-SYSTEM_PROMPT = """
-Eres Vanya, una Agente de QA Inteligente capaz de ASESORAR y EJECUTAR pruebas.
-
-DOS MODOS:
-A) Asesor (sin ejecutar):
-- Respondes teoría, riesgos, recomendaciones.
-- NO ejecutes si el usuario no lo pide explícitamente.
-
-B) Runner (con ejecución Playwright):
-- Ejecuta SOLO si el usuario lo pide explícitamente (ve a/abre/navega/entra/ejecuta/corre)
-  o si es follow-up de validación y existe last_url.
-
-MEMORIA:
-- Si el usuario no menciona URL pero dice "la misma" y hay last_url, reusa last_url.
-
-SELECTORES:
-- Prefiere selectores robustos.
-- En SauceDemo usa: #user-name, #password, #login-button, y para "Products" usa span.title.
-
-REGLAS:
-- Si piden "existe/visible" (check-only), NO hagas login ni pasos extra.
-- Si falta info para ejecutar, pide lo mínimo (URL/validación/credenciales si aplica).
-"""
-
-SYSTEM_PROMPT_DOC = f"""
-Eres Vanya, QA Lead + QA Automation Engineer (Playwright Python) especializada en {DOC_DEFAULT_DOMAIN}.
-
-OBJETIVO: generar artefactos QA ACCIONABLES y superiores:
-
-1) INVEST:
-- Califica 0-2 por criterio.
-- SIEMPRE detecta brechas reales (aunque la historia sea corta): datos, reglas, errores, límites, seguridad.
-- Reescribe historia mejorada (incluye condiciones y valor).
-- Haz preguntas mínimas (6-10) para cerrar ambigüedad.
-- Declara assumptions cuando falte info.
-
-2) Gherkin:
-- Un solo Feature por funcionalidad (no repitas Feature 5 veces).
-- Incluye: positivo, negativos y edge.
-- Usa tags útiles: @p0 @p1 @neg @edge @security @smoke.
-- Usa Scenario Outline + Examples cuando aplique.
-
-3) Casos de prueba:
-- P0-P3, tipo (positive/negative/edge/security/performance), automatizable, pasos y expected claros.
-- Incluye cosas de retail/POS/ecommerce: caídas de red, reintentos, permisos por rol, fallos de pago, idempotencia (no doble cobro).
-- Máximo {DOC_MAX_TEST_CASES} casos.
-
-4) Automatización:
-- Playwright Python + pytest + Page Object Model + data-driven.
-- asserts robustos, sin sleeps.
-- recomienda selectores: data-testid, get_by_role, aria-label, ids.
-
-REGLAS:
-- No inventes requisitos: si falta info, ponlo en questions_to_clarify y assumptions.
-- Devuelve SIEMPRE por tool_call generate_qa_artifacts (JSON completo con todos los campos requeridos).
-"""
 
 # ============================================================
-# INTENT (routing)
+# DOC renderer (markdown para frontend)
 # ============================================================
-_URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
+def _md_escape(s: str) -> str:
+    return (s or "").replace("|", "\\|").replace("`", "\\`")
 
-_EXECUTE_VERBS = [
-    r"\bve a\b", r"\babre\b", r"\bnavega\b", r"\bentra\b", r"\bejecuta\b", r"\bcorre\b", r"\brun\b"
-]
-
-_FOLLOWUP_EXECUTE_HINTS = [
-    r"\bla misma\b", r"\ben la misma\b", r"\bahora valida\b", r"\bvalida\b", r"\bverifica\b", r"\bconfirma\b",
-    r"\brevisa\b", r"\bintenta\b"
-]
-
-_ADVISE_HINTS = [
-    r"\briesgos?\b", r"\brecomendaciones?\b", r"\bqué haces\b", r"\bque haces\b", r"\bqué puedes\b", r"\bque puedes\b",
-    r"\bcuándo\b", r"\bcuando\b", r"\bdeber[ií]a\b"
-]
-
-_DOC_HINTS = [
-    r"\binvest\b", r"\bgherkin\b", r"\bcriterios de aceptaci[oó]n\b",
-    r"\bmatriz\b", r"\bcasos de prueba\b", r"\btest cases\b",
-    r"\bscripts?\b", r"\bautomatizaci[oó]n\b", r"\bplaywright\b"
-]
-
-_CHECK_ONLY_HINTS = [r"\bexista\b", r"\bexiste\b", r"\bvisible\b", r"\bpresente\b", r"\bse vea\b"]
-_FLOW_HINTS = [r"\blogin\b", r"\binicia sesi[oó]n\b", r"\bsign in\b", r"\bcheckout\b", r"\bcomprar\b", r"\bcarrito\b"]
-
-def _has_url(text: str) -> bool:
-    return bool(_URL_RE.search(text or ""))
-
-def _wants_doc(prompt: str) -> bool:
-    p = (prompt or "").lower()
-    return any(re.search(h, p) for h in _DOC_HINTS)
-
-def _wants_advise(prompt: str) -> bool:
-    p = (prompt or "").lower()
-    return any(re.search(h, p) for h in _ADVISE_HINTS)
-
-def _wants_execute_explicit(prompt: str) -> bool:
-    p = (prompt or "").lower()
-    return any(re.search(h, p) for h in _EXECUTE_VERBS)
-
-def _wants_execute_followup(prompt: str, session: Dict[str, Any]) -> bool:
-    if not session.get("last_url"):
-        return False
-    p = (prompt or "").lower()
-    return any(re.search(h, p) for h in _FOLLOWUP_EXECUTE_HINTS)
-
-def _is_check_only(prompt: str) -> bool:
-    p = (prompt or "").lower()
-    has_check = any(re.search(h, p) for h in _CHECK_ONLY_HINTS)
-    has_flow = any(re.search(h, p) for h in _FLOW_HINTS)
-    return bool(has_check and not has_flow)
-
-# ============================================================
-# DOC helpers: extract story + infer defaults
-# ============================================================
-_QUOTED_STORY_RE = re.compile(
-    r"[“\"'‘](Como\s+.+?quiero\s+.+?)[”\"'’]",
-    re.IGNORECASE | re.DOTALL
-)
-
-_STORY_LABEL_RE = re.compile(r"(historia|user story)\s*:\s*(.+)$", re.IGNORECASE | re.DOTALL)
-
-def _extract_user_story(prompt: str) -> Optional[str]:
-    text = (prompt or "").strip()
-    if not text:
-        return None
-
-    m = _QUOTED_STORY_RE.search(text)
-    if m:
-        return m.group(1).strip()
-
-    m2 = _STORY_LABEL_RE.search(text)
-    if m2:
-        return m2.group(2).strip()
-
-    # Si el prompt entero YA es una historia (comienza con "Como")
-    if re.match(r"^\s*como\s+.+?\s+quiero\s+.+", text, re.IGNORECASE):
-        return text.strip()
-
-    return None
-
-def _infer_story_from_doc_request(prompt: str) -> str:
-    p = (prompt or "").lower()
-    if "login" in p or "iniciar sesión" in p or "sign in" in p:
-        return "Como usuario quiero iniciar sesión para acceder a mi cuenta de forma segura."
-    if "pagar" in p or "checkout" in p or "compra" in p:
-        return "Como usuario quiero pagar mi compra para completar el checkout sin errores ni dobles cargos."
-    return "Como usuario quiero completar una acción clave del sistema para lograr mi objetivo."
-
-def _infer_context(prompt: str) -> str:
-    # contexto corto, opcional
-    p = (prompt or "").strip()
-    # si el usuario puso bullets, lo dejamos como contexto sugerido
-    if "contexto" in p.lower() or "dominio" in p.lower():
-        return p[:600]
-    return ""
-
-# ============================================================
-# Tool-call parsing (tolerante)
-# ============================================================
-def _safe_json_loads(maybe_json: Any) -> Dict[str, Any]:
-    if isinstance(maybe_json, dict):
-        return maybe_json
-    if isinstance(maybe_json, str):
-        try:
-            return json.loads(maybe_json)
-        except Exception:
-            return {}
-    return {}
-
-def _extract_steps_from_tool_calls(tool_calls: Any) -> Optional[List[Dict[str, Any]]]:
-    if not tool_calls:
-        return None
-    for tc in tool_calls:
-        fn = getattr(tc, "function", None)
-        if not fn:
-            continue
-        if getattr(fn, "name", None) != "run_qa_test":
-            continue
-        args = _safe_json_loads(getattr(fn, "arguments", "") or "")
-        steps = args.get("steps")
-        if isinstance(steps, list):
-            return steps
-    return None
-
-def _extract_doc_from_tool_calls(tool_calls: Any) -> Optional[Dict[str, Any]]:
-    if not tool_calls:
-        return None
-    for tc in tool_calls:
-        fn = getattr(tc, "function", None)
-        if not fn:
-            continue
-        if getattr(fn, "name", None) != "generate_qa_artifacts":
-            continue
-        args = _safe_json_loads(getattr(fn, "arguments", "") or "")
-        if isinstance(args, dict):
-            return args
-    return None
-
-def _patch_doc(doc: Dict[str, Any], user_story: str, domain: str, context: str) -> Dict[str, Any]:
-    # Asegura mínimos aunque el modelo deje algo vacío
-    doc = doc or {}
-    doc.setdefault("user_story", user_story)
-    doc.setdefault("domain", domain)
-    doc.setdefault("context", context)
-    doc.setdefault("assumptions", doc.get("assumptions") or [])
-
-    invest = doc.get("invest") or {}
-    invest.setdefault("scores", invest.get("scores") or {
-        "independent": 1, "negotiable": 1, "valuable": 1, "estimable": 1, "small": 1, "testable": 1
-    })
-    invest.setdefault("issues", invest.get("issues") or ["Faltan reglas de negocio / validaciones / mensajes de error."])
-    invest.setdefault("improved_story", invest.get("improved_story") or user_story)
-    invest.setdefault("questions_to_clarify", invest.get("questions_to_clarify") or ["¿Cuáles son las reglas de negocio y mensajes esperados?"])
-    # total/verdict
-    try:
-        total = int(invest.get("total") or sum(int(v) for v in invest["scores"].values()))
-    except Exception:
-        total = 6
-    invest["total"] = total
-    invest.setdefault("verdict", invest.get("verdict") or ("Necesita revisión" if total < 9 else "Aceptable"))
-    doc["invest"] = invest
-
-    gherkin = doc.get("gherkin") or []
-    if not isinstance(gherkin, list):
-        gherkin = []
-    doc["gherkin"] = gherkin[:DOC_MAX_GHERKIN]
-
-    test_cases = doc.get("test_cases") or []
-    if not isinstance(test_cases, list):
-        test_cases = []
-    doc["test_cases"] = test_cases[:DOC_MAX_TEST_CASES]
-
-    scripts = doc.get("automation_scripts") or {}
-    if not isinstance(scripts, dict):
-        scripts = {}
-    scripts.setdefault("framework", "playwright-python")
-    scripts.setdefault("structure", "page-object")
-    scripts.setdefault("files", scripts.get("files") or [])
-    scripts.setdefault("run_instructions", scripts.get("run_instructions") or [])
-    scripts.setdefault("selector_recommendations", scripts.get("selector_recommendations") or [])
-    doc["automation_scripts"] = scripts
-
-    return doc
-
-def _ensure_goto(steps: List[Dict[str, Any]], url: str):
-    if not any(str(s.get("action") or "").lower() == "goto" for s in steps):
-        steps.insert(0, {"action": "goto", "url": url})
-
-def _update_last_url_from_steps(session: Dict[str, Any], steps: List[Dict[str, Any]]):
-    for s in steps:
-        if str(s.get("action") or "").lower() == "goto" and s.get("url"):
-            session["last_url"] = s["url"]
-            return
-
-def _pick_base_url(req: ChatRunRequest, session: Dict[str, Any], prompt: str) -> Optional[str]:
-    m = _URL_RE.search(prompt or "")
-    if m:
-        return m.group(0)
-    if req.base_url:
-        return req.base_url.strip()
-    if session.get("last_url"):
-        return str(session["last_url"])
-    return None
-
-# ============================================================
-# Formatting helpers (backend -> frontend text)
-# ============================================================
-def _md_escape(s: Any) -> str:
-    return str(s or "").replace("\r\n", "\n").strip()
 
 def _render_doc_answer(doc: Dict[str, Any]) -> str:
-    user_story = _md_escape(doc.get("user_story"))
-    context = _md_escape(doc.get("context"))
-    domain = _md_escape(doc.get("domain"))
-
-    invest = doc.get("invest") or {}
-    scores = (invest.get("scores") or {})
-    total = invest.get("total")
-    verdict = _md_escape(invest.get("verdict"))
-    issues = invest.get("issues") or []
-    improved_story = _md_escape(invest.get("improved_story"))
-    questions = invest.get("questions_to_clarify") or []
+    req = doc.get("requested") or {}
+    story = doc.get("user_story") or ""
+    domain = doc.get("domain") or ""
+    context = doc.get("context") or ""
     assumptions = doc.get("assumptions") or []
+    questions = doc.get("questions_to_clarify") or []
 
-    gherkin = doc.get("gherkin") or []
-    test_cases = doc.get("test_cases") or []
-    scripts = doc.get("automation_scripts") or {}
+    out = []
+    out.append(f"## 📌 Input\n**Dominio:** `{_md_escape(domain)}`  \n**Historia / Requerimiento:** {_md_escape(story)}")
+    if context:
+        out.append(f"\n**Contexto:** {_md_escape(context)}")
 
-    invest_table = (
-        "| Criterio | Score (0-2) |\n|---|---:|\n"
-        f"| Independent | {scores.get('independent','')} |\n"
-        f"| Negotiable | {scores.get('negotiable','')} |\n"
-        f"| Valuable | {scores.get('valuable','')} |\n"
-        f"| Estimable | {scores.get('estimable','')} |\n"
-        f"| Small | {scores.get('small','')} |\n"
-        f"| Testable | {scores.get('testable','')} |\n"
-    )
+    if assumptions:
+        out.append("\n## 🧩 Assumptions\n" + "\n".join([f"- {_md_escape(a)}" for a in assumptions]))
+    if questions:
+        out.append("\n## ❓ Preguntas mínimas\n" + "\n".join([f"- {_md_escape(q)}" for q in questions]))
 
-    gherkin_md = []
-    for sc in gherkin[:DOC_MAX_GHERKIN]:
-        feature = _md_escape(sc.get("feature"))
-        scenario = _md_escape(sc.get("scenario"))
-        tags = sc.get("tags") or []
-        given = sc.get("given") or []
-        when = sc.get("when") or []
-        then = sc.get("then") or []
-        tag_line = " ".join(tags) if tags else ""
-        gherkin_md.append(
-            f"**Feature:** {feature}\n\n"
-            f"{(tag_line + '\\n') if tag_line else ''}"
-            f"Scenario: {scenario}\n"
-            + "\n".join([f"  Given {x}" for x in given])
-            + ("\n" if given else "")
-            + "\n".join([f"  When {x}" for x in when])
-            + ("\n" if when else "")
-            + "\n".join([f"  Then {x}" for x in then])
+    if req.get("invest"):
+        inv = doc.get("invest") or {}
+        scores = (inv.get("scores") or {})
+        out.append("\n## ✅ INVEST")
+        out.append(
+            "| Criterio | Score (0-2) |\n|---|---:|\n"
+            f"| Independent | {scores.get('independent','—')} |\n"
+            f"| Negotiable | {scores.get('negotiable','—')} |\n"
+            f"| Valuable | {scores.get('valuable','—')} |\n"
+            f"| Estimable | {scores.get('estimable','—')} |\n"
+            f"| Small | {scores.get('small','—')} |\n"
+            f"| Testable | {scores.get('testable','—')} |\n"
         )
-    gherkin_md_str = "\n\n---\n\n".join(gherkin_md) if gherkin_md else "_(sin escenarios)_"
+        out.append(f"\n**Total:** {inv.get('total','—')}  \n**Veredicto:** {inv.get('verdict','—')}")
+        gaps = inv.get("gaps") or []
+        out.append("\n### Brechas\n" + ("\n".join([f"- {_md_escape(g)}" for g in gaps]) if gaps else "- _(sin brechas)_"))
+        if inv.get("improved_story"):
+            out.append("\n### Historia reescrita\n" + _md_escape(inv["improved_story"]))
 
-    tc_rows = []
-    for tc in test_cases[:DOC_MAX_TEST_CASES]:
-        tc_rows.append(
-            "| {id} | {prio} | {typ} | {auto} | {title} |".format(
-                id=_md_escape(tc.get("id")),
-                prio=_md_escape(tc.get("priority")),
-                typ=_md_escape(tc.get("type")),
-                auto="✅" if tc.get("automation_candidate") else "—",
-                title=_md_escape(tc.get("title")),
+    if req.get("gherkin"):
+        gherkin = doc.get("gherkin") or []
+        out.append("\n## 🥒 Criterios de aceptación (Gherkin)")
+        for sc in gherkin:
+            tag = sc.get("tag")
+            if tag:
+                out.append(f"\n@{_md_escape(tag)}")
+            out.append(f"Scenario: {_md_escape(sc.get('scenario',''))}")
+            for x in sc.get("given", [])[:8]:
+                out.append(f"  Given {_md_escape(x)}")
+            for x in sc.get("when", [])[:8]:
+                out.append(f"  When {_md_escape(x)}")
+            for x in sc.get("then", [])[:10]:
+                out.append(f"  Then {_md_escape(x)}")
+
+    if req.get("cases"):
+        tcs = doc.get("test_cases") or []
+        out.append("\n## 🧪 Matriz de casos de prueba")
+        out.append("| ID | Prio | Tipo | Auto | Caso |\n|---|---|---|---:|---|")
+        for tc in tcs:
+            out.append(
+                f"| {_md_escape(tc.get('id',''))} | {_md_escape(tc.get('priority',''))} | {_md_escape(tc.get('type',''))} | "
+                f"{'✅' if tc.get('automatable') else '—'} | {_md_escape(tc.get('title',''))} |"
             )
-        )
-    tc_table = (
-        "| ID | Prio | Tipo | Auto | Caso |\n|---|---|---|---:|---|\n"
-        + ("\n".join(tc_rows) if tc_rows else "| — | — | — | — | — |")
-    )
 
-    files = scripts.get("files") or []
-    run_instructions = scripts.get("run_instructions") or []
-    selector_recs = scripts.get("selector_recommendations") or []
+    if req.get("scripts"):
+        scr = doc.get("automation_scripts") or {}
+        out.append("\n## 🤖 Automatización (Playwright Python)")
+        out.append(f"**Framework:** `{_md_escape(scr.get('framework','pytest + playwright'))}`  \n**Estructura:** `{_md_escape(scr.get('structure','Page Object Model'))}`")
+        if scr.get("how_to_run"):
+            out.append("\n### Cómo correr\n" + "\n".join([f"- {_md_escape(x)}" for x in scr["how_to_run"]]))
+        if scr.get("selectors_recommendation"):
+            out.append("\n### Recomendación de selectores\n" + "\n".join([f"- `{_md_escape(x)}`" for x in scr["selectors_recommendation"]]))
+        files = scr.get("files") or []
+        if files:
+            out.append("\n### Archivos generados")
+            for f in files:
+                out.append(f"- `{_md_escape(f.get('path',''))}`")
 
-    files_list = "\n".join([f"- `{_md_escape(f.get('path'))}`" for f in files[:12]]) or "- _(sin archivos)_"
-    run_lines = "\n".join([f"- {_md_escape(x)}" for x in run_instructions]) or "- _(sin instrucciones)_"
-    selector_lines = "\n".join([f"- {_md_escape(x)}" for x in selector_recs]) or "- _(sin recomendaciones)_"
+    return "\n".join(out).strip()
 
-    return (
-        f"## 📌 Historia (original)\n{user_story}\n\n"
-        f"## 🧩 Contexto / Dominio\n- **Dominio:** {domain}\n"
-        f"{('- ' + context) if context else ''}\n\n"
-        f"## ✅ INVEST\n{invest_table}\n"
-        f"**Total:** {total}  \n"
-        f"**Veredicto:** {verdict}\n\n"
-        f"### Brechas detectadas\n" + ("\n".join([f"- {_md_escape(x)}" for x in issues]) if issues else "- _(sin brechas)_") + "\n\n"
-        f"### Historia reescrita (mejorada)\n{improved_story}\n\n"
-        f"### Supuestos (si aplica)\n" + ("\n".join([f"- {_md_escape(x)}" for x in assumptions]) if assumptions else "- _(sin supuestos)_") + "\n\n"
-        f"### Preguntas mínimas para cerrar ambigüedad\n" + ("\n".join([f"- {_md_escape(x)}" for x in questions]) if questions else "- _(sin preguntas)_") + "\n\n"
-        f"## 🥒 Criterios de aceptación (Gherkin)\n{gherkin_md_str}\n\n"
-        f"## 🧪 Matriz de Casos de Prueba\n{tc_table}\n\n"
-        f"## 🤖 Automatización (Playwright Python)\n"
-        f"**Estructura:** `{_md_escape(scripts.get('structure'))}`  \n"
-        f"**Framework:** `{_md_escape(scripts.get('framework'))}`\n\n"
-        f"### Archivos generados\n{files_list}\n\n"
-        f"### Cómo correr\n{run_lines}\n\n"
-        f"### Recomendación de selectores\n{selector_lines}\n\n"
-        f"Si quieres, adapto los scripts a tu app real si me dices: **URL**, y si tienes `data-testid`/IDs."
-    )
+
+def _truncate_code(s: str) -> str:
+    s = s or ""
+    if len(s) <= DOC_MAX_CODE_CHARS:
+        return s
+    return s[:DOC_MAX_CODE_CHARS] + "\n# ... (truncado por límite de tamaño)\n"
+
+
+def _trim_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
+    # enforce limits to keep it fast & safe
+    gherkin = doc.get("gherkin") or []
+    if isinstance(gherkin, list) and len(gherkin) > DOC_MAX_GHERKIN:
+        doc["gherkin"] = gherkin[:DOC_MAX_GHERKIN]
+
+    tcs = doc.get("test_cases") or []
+    if isinstance(tcs, list) and len(tcs) > DOC_MAX_TEST_CASES:
+        doc["test_cases"] = tcs[:DOC_MAX_TEST_CASES]
+
+    scr = doc.get("automation_scripts") or {}
+    files = scr.get("files") or []
+    if isinstance(files, list) and len(files) > DOC_MAX_FILES:
+        files = files[:DOC_MAX_FILES]
+    # truncate code
+    for f in files:
+        if isinstance(f, dict) and "content" in f:
+            f["content"] = _truncate_code(f.get("content", ""))
+    scr["files"] = files
+    doc["automation_scripts"] = scr
+    return doc
+
 
 # ============================================================
 # ENDPOINTS
 # ============================================================
+@app.get("/health")
+def health():
+    _cleanup_sessions()
+    return {"ok": True}
+
+
 @app.get("/meta")
 def meta():
     _cleanup_sessions()
@@ -616,20 +586,16 @@ def meta():
         "has_openai_key": bool(OPENAI_API_KEY),
         "session_ttl_s": SESSION_TTL_S,
         "sessions_in_memory": len(_SESSIONS),
-        "doc_default_domain": DOC_DEFAULT_DOMAIN,
+        "doc_cache_items": len(_DOC_CACHE),
     }
 
-@app.get("/health")
-def health():
-    _cleanup_sessions()
-    return {"ok": True}
 
 @app.post("/chat_run")
 def chat_run(req: ChatRunRequest):
     _cleanup_sessions()
     sid, session = _get_session(req.session_id)
 
-    prompt = (req.prompt or "").strip()
+    prompt = _norm(req.prompt)
     if not prompt:
         raise HTTPException(status_code=400, detail="prompt vacío")
 
@@ -637,34 +603,44 @@ def chat_run(req: ChatRunRequest):
 
     wants_execute = _wants_execute_explicit(prompt) or _wants_execute_followup(prompt, session)
     wants_doc = _wants_doc(prompt)
-    wants_advise = _wants_advise(prompt)
-    check_only = _is_check_only(prompt)
 
     # ============================================================
-    # PRIORIDAD 1: DOC MODE (si piden INVEST/Gherkin/Casos/Scripts)
-    # Nota: DOC gana incluso si hay palabras "valida/verifica" mientras NO haya verbos de navegación explícitos.
+    # PRIORIDAD 1: DOC MODE (rápido y solo lo pedido)
     # ============================================================
     if wants_doc and not wants_execute:
         try:
-            extracted_story = _extract_user_story(prompt)
-            user_story = extracted_story or _infer_story_from_doc_request(prompt)
-            context = _infer_context(prompt)
-            domain = "ecommerce" if ("ecommerce" in prompt.lower() or "e-commerce" in prompt.lower()) else DOC_DEFAULT_DOMAIN
+            requested = _doc_requested_parts(prompt)
+            domain = _infer_domain(prompt)
+            story = _extract_user_story(prompt) or prompt
+            context = ""  # opcional: si quieres, parsea "Contexto:" aquí
+
+            cache_key = f"v1|{domain}|{json.dumps(requested, sort_keys=True)}|{story}"
+            cached = _cache_get(cache_key)
+            if cached:
+                session["doc_last"] = cached
+                answer = _render_doc_answer(cached)
+                _push_history(session, "user", prompt)
+                _push_history(session, "assistant", "Usé cache de artefactos QA.")
+                return {"mode": "doc", "session_id": sid, "answer": answer, "doc_artifacts": cached, "cached": True}
 
             messages = [{"role": "system", "content": SYSTEM_PROMPT_DOC}]
-            messages.extend(session["history"][-6:])
+            # menos historial para velocidad
+            messages.extend(session["history"][-DOC_HISTORY_MSGS:])
 
-            # Input estructurado para que el modelo no se pierda
             messages.append({
                 "role": "user",
                 "content": (
-                    "Genera artefactos QA para lo siguiente.\n\n"
-                    f"USER_STORY:\n{user_story}\n\n"
-                    f"CONTEXT:\n{context or '(no provisto)'}\n\n"
-                    f"DOMAIN:\n{domain}\n\n"
-                    "NOTAS:\n"
-                    "- Si faltan datos, decláralos en assumptions y questions_to_clarify.\n"
-                    "- No devuelvas texto libre: devuelve el JSON completo del tool_call.\n"
+                    "Genera artefactos QA SOLO para lo solicitado.\n\n"
+                    f"REQUESTED: {requested}\n"
+                    f"DOMAIN: {domain}\n"
+                    f"USER_STORY_OR_REQUEST:\n{story}\n\n"
+                    "Reglas:\n"
+                    f"- Máximo {DOC_MAX_GHERKIN} escenarios Gherkin.\n"
+                    f"- Máximo {DOC_MAX_TEST_CASES} casos de prueba.\n"
+                    f"- Máximo {DOC_MAX_FILES} archivos de código, y cada uno <= {DOC_MAX_CODE_CHARS} chars.\n"
+                    "- Si el usuario pidió solo Gherkin, no inventes scripts.\n"
+                    "- Si falta info: pon assumptions y questions_to_clarify.\n"
+                    "- Devuelve SIEMPRE el tool-call con TODOS los campos requeridos (vacíos si no aplican).\n"
                 )
             })
 
@@ -673,78 +649,54 @@ def chat_run(req: ChatRunRequest):
                 messages=messages,
                 tools=[QA_DOC_TOOL],
                 tool_choice={"type": "function", "function": {"name": "generate_qa_artifacts"}},
+                temperature=DOC_TEMPERATURE,
+                max_tokens=DOC_MAX_TOKENS,
             )
 
             msg = resp.choices[0].message
-            doc_raw = _extract_doc_from_tool_calls(getattr(msg, "tool_calls", None))
-            if not doc_raw:
-                # Segundo intento (sin preguntar al usuario): repetimos con presión extra
-                messages.append({"role": "system", "content": "IMPORTANTE: Debes llenar TODOS los campos requeridos del esquema. No omitas test_cases ni automation_scripts."})
-                resp2 = client.chat.completions.create(
-                    model=OPENAI_MODEL,
-                    messages=messages,
-                    tools=[QA_DOC_TOOL],
-                    tool_choice={"type": "function", "function": {"name": "generate_qa_artifacts"}},
-                )
-                msg2 = resp2.choices[0].message
-                doc_raw = _extract_doc_from_tool_calls(getattr(msg2, "tool_calls", None))
-
-            if not doc_raw:
-                # fallback súper corto (ya sin “necesito historia”)
-                answer = (
-                    "Puedo generar INVEST/Gherkin/casos/scripts. "
-                    "No pude estructurar el JSON esta vez. Vuelve a pegar la historia así:\n"
-                    "Historia: Como <rol> quiero <objetivo> para <valor>."
-                )
+            tool_calls = getattr(msg, "tool_calls", None) or []
+            if not tool_calls:
+                # fallback mínimo: no reintentar (para velocidad)
+                answer = "No pude estructurar los artefactos en esta llamada. Pega la historia así: “Como <rol> quiero <objetivo> para <valor>” y dime si quieres INVEST/Gherkin/Casos/Scripts."
                 _push_history(session, "user", prompt)
                 _push_history(session, "assistant", answer)
                 return {"mode": "advise", "session_id": sid, "answer": answer}
 
-            doc = _patch_doc(doc_raw, user_story=user_story, domain=domain, context=context)
+            args = json.loads(tool_calls[0].function.arguments)
 
+            # patch mínimos
+            args.setdefault("requested", requested)
+            args.setdefault("user_story", story)
+            args.setdefault("domain", domain)
+            args.setdefault("context", context)
+            args.setdefault("assumptions", [])
+            args.setdefault("questions_to_clarify", [])
+            args.setdefault("gherkin", [])
+            args.setdefault("test_cases", [])
+            args.setdefault("automation_scripts", {"framework": "pytest + playwright", "structure": "Page Object Model", "notes": [], "selectors_recommendation": [], "how_to_run": [], "files": []})
+
+            doc = _trim_doc(args)
+
+            # guarda
             session["doc_last"] = doc
+            _cache_set(cache_key, doc)
+
             answer = _render_doc_answer(doc)
-
             _push_history(session, "user", prompt)
-            _push_history(session, "assistant", "Generé artefactos QA (INVEST/Gherkin/Casos/Scripts).")
-
-            return {
-                "mode": "doc",
-                "session_id": sid,
-                "answer": answer,
-                "doc_artifacts": doc,
-            }
+            _push_history(session, "assistant", "Generé artefactos QA (DOC).")
+            return {"mode": "doc", "session_id": sid, "answer": answer, "doc_artifacts": doc, "cached": False}
 
         except Exception as e:
             traceback.print_exc()
             raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")
 
     # ============================================================
-    # PRIORIDAD 2: Asesoría (sin ejecución)
+    # PRIORIDAD 2: Asesoría (rápida)
     # ============================================================
-    if (wants_advise and not _wants_execute_explicit(prompt)) and not wants_execute:
-        try:
-            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-            if session.get("last_url"):
-                messages.append({"role": "system", "content": f"Contexto: last_url={session['last_url']}"})
-            messages.extend(session["history"][-6:])
-            messages.append({"role": "user", "content": prompt})
-
-            resp = client.chat.completions.create(model=OPENAI_MODEL, messages=messages)
-            msg = resp.choices[0].message
-            answer = getattr(msg, "content", None) or "Ok. ¿Qué necesitas?"
-
-            _push_history(session, "user", prompt)
-            _push_history(session, "assistant", answer)
-            return {"mode": "advise", "session_id": sid, "answer": answer}
-        except Exception as e:
-            traceback.print_exc()
-            raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")
-
-    # Default asesoría si no hay ejecución
     if not wants_execute:
         try:
-            p_low = prompt.lower()
+            # soporte “dame los scripts” desde doc_last
+            p_low = _low(prompt)
             if session.get("doc_last") and any(x in p_low for x in ["dame los scripts", "muéstrame los scripts", "archivos", "código", "playwright"]):
                 doc = session["doc_last"]
                 answer = "Listo. Los scripts están en **doc_artifacts.automation_scripts.files** (path + content)."
@@ -755,37 +707,40 @@ def chat_run(req: ChatRunRequest):
             messages = [{"role": "system", "content": SYSTEM_PROMPT}]
             if session.get("last_url"):
                 messages.append({"role": "system", "content": f"Contexto: last_url={session['last_url']}"})
-            messages.extend(session["history"][-6:])
+            messages.extend(session["history"][-4:])
             messages.append({"role": "user", "content": prompt})
 
-            resp = client.chat.completions.create(model=OPENAI_MODEL, messages=messages)
+            resp = client.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=messages,
+                temperature=ADV_TEMPERATURE,
+                max_tokens=ADV_MAX_TOKENS,
+            )
             msg = resp.choices[0].message
             answer = getattr(msg, "content", None) or "Ok. ¿Qué necesitas?"
             _push_history(session, "user", prompt)
             _push_history(session, "assistant", answer)
             return {"mode": "advise", "session_id": sid, "answer": answer}
+
         except Exception as e:
             traceback.print_exc()
             raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")
 
     # ============================================================
-    # Execution mode
+    # PRIORIDAD 3: EXECUTION MODE (Playwright)
     # ============================================================
     base_url = _pick_base_url(req, session, prompt)
     if not base_url:
         return {
             "mode": "need_info",
             "session_id": sid,
-            "answer": (
-                "Para ejecutar necesito la URL (o dime 'la misma' si quieres usar la última). "
-                "También dime qué validar exactamente."
-            ),
+            "answer": "Para ejecutar necesito la URL (o dime “la misma” si quieres usar la última) y qué validar exactamente.",
         }
 
     try:
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-        messages.append({"role": "system", "content": f"Contexto: base_url={base_url}; check_only={check_only}"})
-        messages.extend(session["history"][-6:])
+        messages = [{"role": "system", "content": SYSTEM_PROMPT_EXECUTE}]
+        messages.append({"role": "system", "content": f"Contexto: base_url={base_url}; check_only={_is_check_only(prompt)}"})
+        messages.extend(session["history"][-4:])
         messages.append({"role": "user", "content": prompt})
 
         resp = client.chat.completions.create(
@@ -793,24 +748,30 @@ def chat_run(req: ChatRunRequest):
             messages=messages,
             tools=[QA_TOOL],
             tool_choice={"type": "function", "function": {"name": "run_qa_test"}},
+            temperature=EXEC_TEMPERATURE,
+            max_tokens=EXEC_MAX_TOKENS,
         )
 
         msg = resp.choices[0].message
-        steps = _extract_steps_from_tool_calls(getattr(msg, "tool_calls", None))
-
-        if steps is None:
+        tool_calls = getattr(msg, "tool_calls", None) or []
+        if not tool_calls:
             return {
                 "mode": "need_info",
                 "session_id": sid,
-                "answer": (
-                    "Puedo ejecutar, pero necesito más claridad. "
-                    "Dime qué elemento validar (ej: 'campo password visible') "
-                    "o qué texto debe aparecer."
-                ),
+                "answer": "Puedo ejecutar, pero necesito más claridad. Dime qué elemento validar (ej: “campo password visible”) o qué texto debe aparecer.",
+            }
+
+        args = json.loads(tool_calls[0].function.arguments)
+        steps = args.get("steps", [])
+        if not isinstance(steps, list) or not steps:
+            return {
+                "mode": "need_info",
+                "session_id": sid,
+                "answer": "Entendí que quieres ejecutar, pero no pude generar pasos. Repite indicando URL + validación concreta.",
             }
 
         _ensure_goto(steps, base_url)
-        _update_last_url_from_steps(session, steps)
+        _update_last_url_from_steps(session, steps, fallback=base_url)
 
         run_result = execute_test(steps, headless=req.headless)
         status = (run_result.get("status") or "").lower()
@@ -822,7 +783,6 @@ def chat_run(req: ChatRunRequest):
         return {
             "mode": "execute",
             "session_id": sid,
-            "scope": "check_only" if check_only else "general",
             "generated_steps": steps,
             "run_result": run_result,
         }
