@@ -39,7 +39,7 @@ class ChatRunRequest(BaseModel):
     prompt: str
     base_url: Optional[str] = None
     headless: bool = True
-    session_id: Optional[str] = None  # para memoria corta (última URL)
+    session_id: Optional[str] = None  # memoria corta (última URL)
 
 # ============================================================
 # OPENAI
@@ -82,7 +82,6 @@ def _cleanup_sessions():
 # ============================================================
 # TOOL DEFINICIÓN (Function Calling)
 # ============================================================
-# Importante: permitimos selector OR text/role para NO pedir selectores (Cambio #2)
 QA_TOOL = {
     "type": "function",
     "function": {
@@ -98,11 +97,9 @@ QA_TOOL = {
                         "properties": {
                             "action": {"type": "string"},
                             "url": {"type": "string"},
-                            # selector CSS/XPath (opcional)
-                            "selector": {"type": "string"},
-                            # para auto-detección (opcional)
-                            "text": {"type": "string"},
-                            "role": {"type": "string"},
+                            "selector": {"type": "string"},  # opcional
+                            "text": {"type": "string"},      # opcional (auto-detección)
+                            "role": {"type": "string"},      # opcional (auto-detección)
                             "value": {"type": "string"},
                             "timeout_ms": {"type": "integer"},
                         },
@@ -116,18 +113,18 @@ QA_TOOL = {
 }
 
 # ============================================================
-# PROMPTS (Cambios 1,2,3)
+# PROMPTS
 # ============================================================
 SYSTEM_PROMPT_EXECUTE = """
 Eres Vanya, un Agente Virtual de QA.
 
 CAPACIDADES (consistente):
-- Modo Asesor (sin ejecución): análisis, casos, matrices, criterios.
+- Modo Asesor (sin ejecución): análisis, casos, matrices, criterios, recomendaciones.
 - Modo Runner (con ejecución): SOLO si el usuario pide ejecutar de forma clara.
 
 REGLA CRÍTICA:
-- Solo llama a run_qa_test cuando el usuario pida EJECUTAR (por ejemplo: "ve a", "abre", "ejecuta", "valida en la página", "corre la prueba").
-- Si el usuario solo pregunta o pide documentos/casos, NO ejecutes y responde en texto.
+- Solo llama a run_qa_test cuando el usuario pida EJECUTAR explícitamente (por ejemplo: "ve a", "abre", "navega", "ejecuta", "corre").
+- Si el usuario pide casos/matriz/estrategia o pregunta "qué puedes / qué haces / cuándo", NO ejecutes; responde texto.
 
 ACCIONES PERMITIDAS EN STEPS:
 - goto (url)
@@ -142,13 +139,14 @@ ACCIONES PERMITIDAS EN STEPS:
 REGLAS DE EJECUCIÓN:
 - Si hay URL, el primer paso debe ser goto.
 - NO agregues pasos extra no solicitados. Si solo piden "existe/visible", no hagas login.
-- Evita pedir "selectores" al usuario; usa text/role cuando no tengas selector.
+- Evita pedir selectores como requisito inicial; usa text/role cuando no tengas selector.
 """
 
 SYSTEM_PROMPT_ADVISE = """
 Eres Vanya, un Agente Virtual de QA en Modo Asesor (sin ejecutar nada).
-Responde claro y práctico. Si el usuario quiere ejecución, pídele:
-- URL (o confirma la última URL)
+Responde claro y práctico.
+Si el usuario quiere ejecución, pídele:
+- URL (o confirma la última URL si existe)
 - qué validar exactamente
 - credenciales/datos solo si aplica
 Nunca pidas selectores como requisito inicial.
@@ -184,58 +182,100 @@ def _extract_steps_from_tool_calls(tool_calls: Any) -> Optional[List[Dict[str, A
             return steps
     return None
 
-# ---------- INTENT (Cambio #1 + #3) ----------
-_EXECUTE_HINTS = [
-    r"\bejecuta\b", r"\bcorre\b", r"\bcorrer\b", r"\brun\b", r"\bve a\b", r"\babre\b",
-    r"\bnavega\b", r"\bvalida en\b", r"\bvalida\b", r"\bprueba\b", r"\btest\b"
+# ============================================================
+# INTENT (MEJORA CLAVE)
+# ============================================================
+_URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
+
+# ✅ SOLO verbos claros de ejecución (se quitaron “prueba/test/valida” porque son ambiguos)
+_EXECUTE_VERBS = [
+    r"\bve a\b",
+    r"\babre\b",
+    r"\bnavega\b",
+    r"\bentra\b",
+    r"\bejecuta\b",
+    r"\bcorre\b",
+    r"\bcorrer\b",
+    r"\brun\b",
+    r"\bla misma\b",  # permite reusar last_url
 ]
+
+# ✅ Keywords de asesoría / contenido (casos, matrices, estrategia)
+_ADVISE_KEYWORDS = [
+    r"\bcasos?\b",
+    r"\bmatriz\b",
+    r"\bescenarios?\b",
+    r"\bcriterios?\b",
+    r"\bchecklist\b",
+    r"\bestrategia\b",
+    r"\bplan\b",
+    r"\briesgos?\b",
+    r"\brecomendaciones?\b",
+    r"\bmejoras?\b",
+    r"\bexplica\b",
+    r"\bqué puedes\b",
+    r"\bque puedes\b",
+    r"\bqué haces\b",
+    r"\bque haces\b",
+    r"\bcuándo\b",
+    r"\bcuando\b",
+    r"\bdeber[ií]a\b",
+    r"\bshould\b",
+    r"\bhow\b",
+    r"\bwhat can you\b",
+]
+
+# ✅ Check-only: sigue igual
 _CHECK_ONLY_HINTS = [
     r"\bexista\b", r"\bexiste\b", r"\bvisible\b", r"\bpresente\b", r"\bse vea\b",
     r"\bhabilitado\b", r"\bdisabled\b", r"\benabled\b"
 ]
 _FLOW_HINTS = [
-    r"\blogin\b", r"\binicia sesi[oó]n\b", r"\bcomprar\b", r"\bcheckout\b",
-    r"\bagregar al carrito\b", r"\badd to cart\b"
+    r"\blogin\b", r"\binicia sesi[oó]n\b", r"\bsign in\b", r"\bsignin\b",
+    r"\bcomprar\b", r"\bcheckout\b", r"\bagregar al carrito\b", r"\badd to cart\b"
 ]
 
+def _has_url(prompt: str) -> bool:
+    return bool(_URL_RE.search(prompt or ""))
+
+def _wants_advise(prompt: str) -> bool:
+    p = (prompt or "").lower()
+    return any(re.search(h, p) for h in _ADVISE_KEYWORDS)
+
 def _wants_execute(prompt: str) -> bool:
-    p = prompt.lower()
-    return any(re.search(h, p) for h in _EXECUTE_HINTS)
+    p = (prompt or "").lower()
+    return any(re.search(h, p) for h in _EXECUTE_VERBS)
 
 def _intent_is_check_only(prompt: str) -> bool:
-    p = prompt.lower()
+    p = (prompt or "").lower()
     has_check = any(re.search(h, p) for h in _CHECK_ONLY_HINTS)
     has_flow = any(re.search(h, p) for h in _FLOW_HINTS)
-    # check-only si habla de "exist/visible" y NO pide explícitamente flujo
     return bool(has_check and not has_flow)
 
 def _filter_steps_by_scope(steps: List[Dict[str, Any]], check_only: bool) -> List[Dict[str, Any]]:
-    """
-    Cambio #3: si el usuario solo pidió validar existencia/visibilidad,
-    bloqueamos acciones que ejecutan un flujo (fill/click/press) salvo que sea estrictamente para el check.
-    """
     if not check_only:
         return steps
 
     allowed = {"goto", "wait_for", "assert_visible", "assert_text_contains", "wait_ms"}
-    filtered = []
+    filtered: List[Dict[str, Any]] = []
     for s in steps:
         act = str(s.get("action") or "").lower()
         if act in allowed:
             filtered.append(s)
-    # Si el modelo no generó aserciones, metemos una aserción mínima guiada por texto
-    if not any(str(s.get("action","")).lower().startswith("assert_") for s in filtered):
-        # intentamos usar algo que el modelo haya puesto como selector/text
+
+    # Si el modelo no generó asserts, metemos uno mínimo
+    if not any(str(s.get("action", "")).lower().startswith("assert_") for s in filtered):
         hint = None
         for s in steps:
             if s.get("selector") or s.get("text") or s.get("role"):
                 hint = {"selector": s.get("selector"), "text": s.get("text"), "role": s.get("role")}
                 break
         filtered.append({"action": "assert_visible", **(hint or {"text": "Login"})})
+
     return filtered
 
-def _resolve_base_url(req: ChatRunRequest, session: Dict[str, Any]) -> str:
-    # prioridad: req.base_url -> última URL -> default
+def _resolve_base_url(req: ChatRunRequest, session: Dict[str, Any], prompt: str) -> str:
+    # prioridad: req.base_url -> last_url (si usuario dice "la misma") -> last_url -> default
     if req.base_url:
         return req.base_url.strip()
     if session.get("last_url"):
@@ -243,7 +283,6 @@ def _resolve_base_url(req: ChatRunRequest, session: Dict[str, Any]) -> str:
     return "https://example.com"
 
 def _maybe_update_last_url(steps: List[Dict[str, Any]], session: Dict[str, Any], fallback_url: str):
-    # si hay goto, guardamos url; si no, guardamos fallback
     for s in steps:
         if str(s.get("action") or "").lower() == "goto" and s.get("url"):
             session["last_url"] = s["url"]
@@ -280,11 +319,34 @@ def chat_run(req: ChatRunRequest):
     if not prompt:
         raise HTTPException(status_code=400, detail="prompt vacío")
 
-    # Cambio #1: solo ejecuta si es instrucción clara
+    # ✅ Decisión robusta:
+    # - Si parece asesoría (casos/matriz/pregunta meta) => advise
+    # - Si parece ejecución (verbos claros) => execute
+    # - Si no, por default => advise
+    wants_advise = _wants_advise(prompt)
     wants_execute = _wants_execute(prompt)
     check_only = _intent_is_check_only(prompt)
 
-    # Si NO pide ejecutar => modo asesor
+    # Si el usuario está preguntando / pidiendo contenido -> NO ejecutar
+    if wants_advise and not wants_execute:
+        try:
+            completion = client.chat.completions.create(
+                model=MODEL,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT_ADVISE},
+                    {"role": "user", "content": prompt},
+                ],
+            )
+            msg = completion.choices[0].message
+            answer = getattr(msg, "content", None) or (
+                "Puedo ayudarte a definir casos de prueba o ejecutar una prueba si me dices URL y qué validar."
+            )
+            return {"mode": "advise", "session_id": sid, "answer": answer}
+        except Exception as e:
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")
+
+    # Si NO hay verbos claros de ejecución -> advise
     if not wants_execute:
         try:
             completion = client.chat.completions.create(
@@ -303,9 +365,25 @@ def chat_run(req: ChatRunRequest):
             traceback.print_exc()
             raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")
 
-    # Si SÍ pide ejecutar, usamos tools
+    # ✅ Si pidió ejecutar, validamos si tenemos URL o memoria
+    has_url = _has_url(prompt) or bool(req.base_url) or bool(session.get("last_url")) or ("la misma" in prompt.lower())
+    if not has_url:
+        return {
+            "mode": "need_info",
+            "session_id": sid,
+            "answer": (
+                "Para ejecutar necesito:\n"
+                "1) La URL (o dime 'la misma' si quieres usar la última)\n"
+                "2) Qué validar exactamente (ej: 'el botón Login es visible')\n"
+                "Si hay login, también usuario/contraseña."
+            ),
+        }
+
+    # ============================================================
+    # EJECUCIÓN con tools
+    # ============================================================
     try:
-        base_url = _resolve_base_url(req, session)
+        base_url = _resolve_base_url(req, session, prompt)
 
         completion = client.chat.completions.create(
             model=MODEL,
@@ -325,25 +403,18 @@ def chat_run(req: ChatRunRequest):
         steps = _extract_steps_from_tool_calls(getattr(msg, "tool_calls", None))
 
         if steps is None:
-            # pidió ejecutar pero el modelo no llamó tool -> respondemos pidiendo info mínima (sin selectores)
             return {
                 "mode": "need_info",
                 "session_id": sid,
                 "answer": (
-                    "Para ejecutar necesito 2 cosas:\n"
-                    "1) La URL (o dime 'la misma')\n"
-                    "2) Qué validar exactamente (por ejemplo: 'el botón Login es visible')\n"
-                    "Si hay login, también usuario/contraseña."
+                    "Puedo ejecutar, pero me falta claridad.\n"
+                    "Dime exactamente qué quieres validar (ej: 'Login visible' o 'texto Products aparece') "
+                    "y si uso la URL actual o me das otra."
                 ),
             }
 
-        # Cambio #3: filtrar por alcance si es check-only
         steps = _filter_steps_by_scope(steps, check_only=check_only)
-
-        # asegurar goto con URL resuelta
         _ensure_goto(steps, base_url)
-
-        # actualizar memoria corta
         _maybe_update_last_url(steps, session, base_url)
 
         run_result = execute_test(steps, headless=req.headless)
