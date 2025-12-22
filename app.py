@@ -158,6 +158,24 @@ def _ensure_goto(steps: List[Dict[str, Any]], base_url: str):
         steps.insert(0, {"action": "goto", "url": base_url})
 
 
+def _is_question(prompt: str) -> bool:
+    p = _low(prompt).strip()
+
+    if "?" in p:
+        return True
+
+    return p.startswith((
+        "cuando", "cuándo",
+        "como", "cómo",
+        "que ", "qué ",
+        "por que", "por qué",
+        "deberia", "debería",
+        "puedo", "podría",
+        "debo",
+        "es ", "es necesario", "conviene", "vale la pena",
+    ))
+
+
 def _update_last_url_from_steps(session: Dict[str, Any], steps: List[Dict[str, Any]], fallback: Optional[str] = None):
     for s in steps:
         if str(s.get("action") or "").lower() == "goto" and s.get("url"):
@@ -167,10 +185,22 @@ def _update_last_url_from_steps(session: Dict[str, Any], steps: List[Dict[str, A
         session["last_url"] = fallback
 
 
+def _parse_tool_args(raw_args: str) -> Dict[str, Any]:
+    """
+    Parse robusto para evitar 500 cuando el modelo devuelve JSON mal formado.
+    """
+    try:
+        return json.loads(raw_args)
+    except json.JSONDecodeError:
+        m = re.search(r"\{.*\}", raw_args or "", flags=re.S)
+        if m:
+            return json.loads(m.group(0))
+        raise
+
+
 # ============================================================
 # INTENT ROUTING
 # ============================================================
-# Nota: NO incluyas "login" solo como trigger de ejecución.
 _EXEC_VERBS = [
     "ve a", "ir a", "entra a", "abrir", "abre", "navega",
     "click", "clic", "haz click", "presiona",
@@ -197,21 +227,40 @@ def _wants_doc(prompt: str) -> bool:
     return any(k in p for k in _DOC_HINTS)
 
 
-def _wants_execute_explicit(prompt: str) -> bool:
+def _wants_execute_explicit(prompt: str, session: Optional[dict] = None) -> bool:
     p = _low(prompt)
+    session = session or {}
 
-    # si no hay ningún verbo de ejecución, no ejecutar
-    if not any(v in p for v in _EXEC_VERBS):
+    has_url = _looks_like_url(prompt)
+    has_last_url = bool(session.get("last_url"))
+
+    has_ui_action = any(x in p for x in [
+        "click", "clic", "haz click", "presiona",
+        "fill", "llenar", "escribe", "selecciona",
+        "assert", "valida", "verifica",
+        "aparezca", "visible", "mensaje", "error",
+        "botón", "campo", "texto", "redirige", "redirecciona"
+    ])
+
+    # límites de palabra para evitar "ejecutas" -> "ejecuta"
+    has_exec_intent = bool(re.search(
+        r"\b(ejecutar|ejecuta|correr|corre|run|playwright|navega|abre|entra)\b",
+        p
+    ))
+
+    # 1) Pregunta teórica: si no hay URL y no hay UI action -> NO ejecutar
+    if _is_question(prompt) and not has_url and not has_ui_action:
         return False
 
-    # Para que sea "explícito", pedimos al menos UNA de estas señales:
-    # - trae URL
-    # - o menciona una acción UI concreta (click/llenar/presiona)
-    has_url = _looks_like_url(prompt)
-    has_ui_action = any(x in p for x in ["click", "clic", "haz click", "presiona", "fill", "llenar", "escribe", "selecciona"])
-    has_exec_word = any(x in p for x in ["ejecuta", "corre", "run", "playwright", "navega", "abre", "entra a"])
+    # 2) Caso permisivo: no hay URL, pero sí hay last_url y piden validación/acción
+    if not has_url and has_last_url and has_ui_action:
+        return True
 
-    return has_url or has_ui_action or has_exec_word
+    # 3) Caso normal: requiere URL y (intención o acción UI)
+    if has_url and (has_exec_intent or has_ui_action):
+        return True
+
+    return False
 
 
 def _wants_execute_followup(prompt: str, session: Dict[str, Any]) -> bool:
@@ -222,19 +271,26 @@ def _wants_execute_followup(prompt: str, session: Dict[str, Any]) -> bool:
     return False
 
 
-def _wants_advise(prompt: str) -> bool:
+def _wants_advise(prompt: str, session: Optional[dict] = None) -> bool:
     p = _low(prompt)
+    session = session or {}
+
     # si es doc o execute, no es advise
     if _wants_doc(prompt):
         return False
-    if _wants_execute_explicit(prompt):
+    if _wants_execute_explicit(prompt, session):
         return False
-    return any(k in p for k in _ADVISE_HINTS) or True  # default advise si no hay otra intención
+
+    # SOLO advise si hay hints (sin "or True")
+    return any(k in p for k in _ADVISE_HINTS)
 
 
 def _is_check_only(prompt: str) -> bool:
     p = _low(prompt)
-    return any(x in p for x in ["solo valida", "solo verificar", "solo comprueba", "únicamente valida", "sin hacer click", "sin iniciar sesión"])
+    return any(x in p for x in [
+        "solo valida", "solo verificar", "solo comprueba",
+        "únicamente valida", "sin hacer click", "sin iniciar sesión"
+    ])
 
 
 # ============================================================
@@ -247,11 +303,9 @@ def _doc_requested_parts(prompt: str) -> Dict[str, bool]:
     wants_cases = ("casos de prueba" in p) or ("matriz" in p) or ("test cases" in p)
     wants_scripts = ("script" in p) or ("automat" in p) or ("playwright" in p) or ("p.o.m" in p) or ("page object" in p)
 
-    # si pide “artefactos” sin especificar, damos todo (pero limitado)
     if any(x in p for x in ["artefactos", "todo", "completo", "full"]):
         return {"invest": True, "gherkin": True, "cases": True, "scripts": True}
 
-    # si no detectamos nada, por seguridad: gherkin + cases
     if not any([wants_invest, wants_gherkin, wants_cases, wants_scripts]):
         return {"invest": False, "gherkin": True, "cases": True, "scripts": False}
 
@@ -295,7 +349,7 @@ def _cache_set(key: str, value: Dict[str, Any]):
 
 
 # ============================================================
-# SYSTEM PROMPTS (compactos para velocidad, + robust locators)
+# SYSTEM PROMPTS
 # ============================================================
 SYSTEM_PROMPT = """Eres Vanya, un Agente de QA. Responde claro y directo.
 Modos:
@@ -655,8 +709,9 @@ def chat_run(req: ChatRunRequest):
 
     client = _get_client()
 
-    wants_execute = _wants_execute_explicit(prompt) or _wants_execute_followup(prompt, session)
+    # Router principal (DOC > ADVISE > EXECUTE)
     wants_doc = _wants_doc(prompt)
+    wants_execute = _wants_execute_explicit(prompt, session) or _wants_execute_followup(prompt, session)
 
     # ============================================================
     # PRIORIDAD 1: DOC MODE (rápido y solo lo pedido)
@@ -688,7 +743,7 @@ def chat_run(req: ChatRunRequest):
                 return {"mode": "doc", "session_id": sid, "answer": answer, "doc_artifacts": cached, "cached": True}
 
             def _doc_history_filter(msgs):
-                bad = ("NEED INFO", "Para ejecutar", "URL", "credenciales", "run_qa_test")
+                bad = ("NEED INFO", "Para ejecutar", "URL", "credenciales", "run_qa_test", "playwright")
                 out = []
                 for m in msgs:
                     c = (m.get("content") or "")
@@ -708,14 +763,16 @@ def chat_run(req: ChatRunRequest):
                 f"DOMAIN: {domain}\n"
                 f"USER_STORY_OR_REQUEST:\n{story}\n\n"
                 "Reglas:\n"
+                "- NO incluyas texto fuera del tool-call.\n"
                 "- Si el usuario NO pidió ejecución, NO menciones URL/credenciales como requisito.\n"
                 "- Si falta info, llena assumptions y questions_to_clarify (sin bloquear la entrega).\n"
                 f"- Máximo {DOC_MAX_GHERKIN} escenarios Gherkin.\n"
                 f"- Máximo {DOC_MAX_TEST_CASES} casos de prueba.\n"
                 f"- Máximo {DOC_MAX_FILES} archivos de código, y cada uno <= {DOC_MAX_CODE_CHARS} chars.\n"
-                "- Si el usuario pidió solo Gherkin, NO generes scripts.\n"
-                "- Si el usuario pidió solo matriz/casos, NO generes Gherkin.\n"
-                "- Evita texto extra fuera del tool-call.\n"
+                "- Si REQUESTED.gherkin es false, gherkin debe ser [].\n"
+                "- Si REQUESTED.cases es false, test_cases debe ser [].\n"
+                "- Si REQUESTED.scripts es false: automation_scripts.files DEBE ser [] y NO incluyas ningún código.\n"
+                "- Si REQUESTED.scripts es false: automation_scripts.framework/structure pueden ser vacíos.\n"
             )
             messages.append({"role": "user", "content": user_payload})
 
@@ -731,7 +788,6 @@ def chat_run(req: ChatRunRequest):
             msg = resp.choices[0].message
             tool_calls = getattr(msg, "tool_calls", None) or []
 
-            # fallback DOC mínimo (sin toolcall)
             if not tool_calls:
                 minimal_doc = {
                     "requested": requested,
@@ -751,7 +807,7 @@ def chat_run(req: ChatRunRequest):
                             "automatable": True,
                             "preconditions": ["Usuario registrado y activo"],
                             "steps": ["Abrir login", "Capturar email válido", "Capturar password válida", "Click ingresar"],
-                            "expected": "Redirige a home/cuenta y muestra sesión iniciada"
+                            "expected": "Redirige a home/cuenta y muestra sesión iniciada",
                         },
                         {
                             "id": "TC-LOGIN-002",
@@ -761,7 +817,7 @@ def chat_run(req: ChatRunRequest):
                             "automatable": True,
                             "preconditions": ["Usuario registrado"],
                             "steps": ["Abrir login", "Email válido", "Password inválida", "Click ingresar"],
-                            "expected": "Mensaje de error y no inicia sesión"
+                            "expected": "Mensaje de error y no inicia sesión",
                         },
                     ],
                     "automation_scripts": {
@@ -770,8 +826,8 @@ def chat_run(req: ChatRunRequest):
                         "notes": [],
                         "selectors_recommendation": [],
                         "how_to_run": [],
-                        "files": []
-                    }
+                        "files": [],
+                    },
                 }
                 minimal_doc = _trim_doc(minimal_doc)
                 session["doc_last"] = minimal_doc
@@ -782,9 +838,9 @@ def chat_run(req: ChatRunRequest):
                 _push_history(session, "assistant", "Fallback DOC mínimo (sin tool-call).")
                 return {"mode": "doc", "session_id": sid, "answer": answer, "doc_artifacts": minimal_doc, "cached": False}
 
-            args = json.loads(tool_calls[0].function.arguments)
+            raw_args = tool_calls[0].function.arguments
+            args = _parse_tool_args(raw_args)
 
-            # patch mínimos
             args.setdefault("requested", requested)
             args.setdefault("user_story", story)
             args.setdefault("domain", domain)
@@ -795,15 +851,15 @@ def chat_run(req: ChatRunRequest):
             args.setdefault("gherkin", [])
             args.setdefault("test_cases", [])
             args.setdefault("automation_scripts", {
-                "framework": "pytest + playwright",
-                "structure": "Page Object Model",
+                "framework": "",
+                "structure": "",
                 "notes": [],
                 "selectors_recommendation": [],
                 "how_to_run": [],
                 "files": []
             })
 
-            # Anti-alucinación: si NO pidieron scripts, vacía scripts
+            # hard clamp según requested
             if not bool(requested.get("scripts", False)):
                 args["automation_scripts"] = {
                     "framework": "",
@@ -811,10 +867,8 @@ def chat_run(req: ChatRunRequest):
                     "notes": [],
                     "selectors_recommendation": [],
                     "how_to_run": [],
-                    "files": []
+                    "files": [],
                 }
-
-            # Si NO pidieron gherkin/cases, limpia para no inventar
             if not bool(requested.get("gherkin", False)):
                 args["gherkin"] = []
             if not bool(requested.get("cases", False)):
@@ -841,7 +895,6 @@ def chat_run(req: ChatRunRequest):
         try:
             p_low = _low(prompt)
 
-            # soporte “dame los scripts” desde doc_last
             if session.get("doc_last") and any(x in p_low for x in ["dame los scripts", "muéstrame los scripts", "archivos", "código", "playwright"]):
                 doc = session["doc_last"]
                 answer = "Listo. Los scripts están en **doc_artifacts.automation_scripts.files** (path + content)."
@@ -906,7 +959,9 @@ def chat_run(req: ChatRunRequest):
                 "answer": "Puedo ejecutar, pero necesito más claridad. Dime qué elemento validar (ej: “campo password visible”) o qué texto debe aparecer.",
             }
 
-        args = json.loads(tool_calls[0].function.arguments)
+        raw_args = tool_calls[0].function.arguments
+        args = _parse_tool_args(raw_args)
+
         steps = args.get("steps", [])
         if not isinstance(steps, list) or not steps:
             return {
