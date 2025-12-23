@@ -11,15 +11,15 @@ load_dotenv()
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.requests import Request
+
 from pydantic import BaseModel
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
 from db import init_db, SessionLocal, Thread, Message, utcnow
 from runner import execute_test
-
-from fastapi.responses import JSONResponse
-from starlette.requests import Request
 
 # ============================================================
 # INIT
@@ -41,10 +41,8 @@ app.add_middleware(
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
-    # Log completo en Render
     print("UNHANDLED ERROR:", repr(exc))
     print(traceback.format_exc())
-    # Respuesta JSON para que curl/frontend vean el detalle
     return JSONResponse(
         status_code=500,
         content={"detail": f"{type(exc).__name__}: {str(exc)}"},
@@ -54,6 +52,11 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 def on_startup():
     if os.getenv("DATABASE_URL"):
         init_db()
+
+# (Opcional) endpoint para probar handler
+@app.get("/_boom")
+def _boom():
+    raise Exception("boom")
 
 # ============================================================
 # ENV
@@ -100,16 +103,13 @@ _SESSIONS: Dict[str, Dict[str, Any]] = {}
 _DOC_CACHE: Dict[str, Dict[str, Any]] = {}
 _DOC_CACHE_ORDER: List[str] = []
 
-
 def _now() -> int:
     return int(time.time())
-
 
 def _get_client() -> OpenAI:
     if not OPENAI_API_KEY:
         raise HTTPException(status_code=500, detail="Falta OPENAI_API_KEY")
     return OpenAI(api_key=OPENAI_API_KEY)
-
 
 def _cleanup_sessions():
     t = _now()
@@ -121,7 +121,6 @@ def _cleanup_sessions():
     for sid in dead:
         _SESSIONS.pop(sid, None)
 
-
 def _get_session(session_id: Optional[str]) -> Tuple[str, Dict[str, Any]]:
     sid = (session_id or "").strip() or str(uuid.uuid4())
     s = _SESSIONS.get(sid)
@@ -130,7 +129,6 @@ def _get_session(session_id: Optional[str]) -> Tuple[str, Dict[str, Any]]:
         _SESSIONS[sid] = s
     s["last_seen"] = _now()
     return sid, s
-
 
 def _push_history(session: Dict[str, Any], role: str, content: str):
     session["history"].append({"role": role, "content": content})
@@ -141,13 +139,15 @@ def _push_history(session: Dict[str, Any], role: str, content: str):
 # NORMALIZE / HELPERS
 # ============================================================
 
+# ✅ AQUÍ VA _URL_RE (global y antes de usarlo)
+_URL_RE = re.compile(r"(https?://[^\s]+)", re.I)
+
 def _iso(x):
     """Convierte datetimes a ISO8601 UTC (string). Seguro y consistente."""
     if not x:
         return None
 
     if hasattr(x, "tzinfo"):
-        # Asegura UTC
         if x.tzinfo is None:
             x = x.replace(tzinfo=utcnow().tzinfo)
         return x.astimezone(utcnow().tzinfo).isoformat()
@@ -157,14 +157,11 @@ def _iso(x):
 def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "").strip())
 
-
 def _low(s: str) -> str:
     return (s or "").lower()
 
-
 def _looks_like_url(s: str) -> bool:
     return bool(_URL_RE.search(s or ""))
-
 
 def _extract_first_url(text: str) -> Optional[str]:
     if not text:
@@ -176,7 +173,6 @@ def _extract_first_url(text: str) -> Optional[str]:
     url = url.rstrip(").,;!?:\"'”’]")
     url = url.lstrip("[\"'“‘(")
     return url or None
-
 
 def _normalize_url(url: str) -> str:
     url = (url or "").strip()
