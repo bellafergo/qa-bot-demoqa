@@ -142,18 +142,6 @@ def _push_history(session: Dict[str, Any], role: str, content: str):
 # ✅ AQUÍ VA _URL_RE (global y antes de usarlo)
 _URL_RE = re.compile(r"(https?://[^\s]+)", re.I)
 
-def _make_title_from_prompt(prompt: str, max_len: int = 60) -> str:
-    """
-    Genera un título corto y legible a partir del primer prompt del usuario.
-    Se usa solo cuando el thread aún se llama 'New chat'.
-    """
-    p = (prompt or "").strip().replace("\n", " ")
-    p = " ".join(p.split())
-
-    if not p:
-        return "New chat"
-
-    return (p[:max_len] + "…") if len(p) > max_len else p
 
 def _iso(x):
     """Convierte datetimes a ISO8601 UTC (string). Seguro y consistente."""
@@ -268,6 +256,17 @@ def _parse_tool_args(raw_args: str) -> Optional[Dict[str, Any]]:
             return None
 
     return None
+
+def _make_title_from_prompt(prompt: str, max_len: int = 60) -> str:
+    p = (prompt or "").strip()
+    if not p:
+        return "New chat"
+    # limpia saltos y espacios
+    p = " ".join(p.split())
+    # corta largo
+    if len(p) > max_len:
+        p = p[: max_len - 1] + "…"
+    return p
 
 
 def _is_question(prompt: str) -> bool:
@@ -747,13 +746,24 @@ from fastapi import HTTPException
 
 @app.delete("/threads/{thread_id}")
 def delete_thread(thread_id: str):
-    # Ajusta esto a tu store real
-    # Ejemplo si tienes _THREADS dict:
-    if thread_id not in _THREADS:
-        raise HTTPException(status_code=404, detail="Thread not found")
+    db: Session = SessionLocal()
+    try:
+        t = db.query(Thread).filter(Thread.id == thread_id).first()
+        if not t:
+            raise HTTPException(status_code=404, detail="Thread not found")
 
-    del _THREADS[thread_id]
-    return {"ok": True}
+        # Borra primero mensajes (por FK / consistencia)
+        db.query(Message).filter(Message.thread_id == thread_id).delete(synchronize_session=False)
+
+        # Borra el thread
+        db.delete(t)
+        db.commit()
+        return {"ok": True}
+    except Exception as e:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 # ============================================================
 # THREADS (sidebar tipo ChatGPT)
@@ -824,12 +834,23 @@ def chat_run(req: ChatRunRequest):
         active_thread_id = (req.thread_id or "").strip()
         db: Session = SessionLocal()
         try:
+            # 1) Crear thread si no existe
             if not active_thread_id:
                 t = _db_create_thread(db, title="New chat")
                 active_thread_id = t.id
 
+            # 2) Guardar mensaje del usuario
             _db_add_message_and_touch(db, active_thread_id, "user", prompt)
             db.commit()
+
+            # 3) ✅ Si es el primer mensaje y el título sigue siendo "New chat",
+            #    generar título con contexto desde el prompt
+            t2 = db.query(Thread).filter(Thread.id == active_thread_id).first()
+            if t2 and (not t2.title or t2.title.strip() == "New chat"):
+                t2.title = _make_title_from_prompt(prompt)
+                db.add(t2)
+                db.commit()
+
         except Exception as e:
             db.rollback()
             raise HTTPException(
