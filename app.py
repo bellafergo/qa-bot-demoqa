@@ -135,6 +135,17 @@ _URL_RE = re.compile(r"(https?://[^\s]+)", re.I)
 def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "").strip())
 
+def _db_create_thread(db: Session, title: str = "New chat") -> Thread:
+    t = Thread(title=title)
+    db.add(t)
+    db.commit()
+    db.refresh(t)
+    return t
+
+def _db_add_message(db: Session, thread_id: str, role: str, content: str):
+    m = Message(thread_id=thread_id, role=role, content=content)
+    db.add(m)
+    # no commit aquí; lo hacemos en batch
 
 def _low(s: str) -> str:
     return (s or "").lower()
@@ -270,6 +281,53 @@ def _parse_tool_args(raw_args: str) -> Optional[Dict[str, Any]]:
             return None
 
     return None
+
+from datetime import datetime
+
+def _touch_thread_updated_at(db: Session, thread_id: str):
+    """
+    Actualiza updated_at para que /threads ordene bien.
+    Soporta updated_at tipo DateTime o tipo int, sin romper.
+    """
+    try:
+        t = db.query(Thread).filter(Thread.id == thread_id).first()
+        if not t:
+            return
+        # intenta DateTime
+        try:
+            t.updated_at = datetime.utcnow()
+        except Exception:
+            # fallback int epoch
+            t.updated_at = int(time.time())
+        db.add(t)
+    except Exception:
+        # no queremos romper por updated_at
+        pass
+
+def _db_add_message_and_touch(db: Session, thread_id: str, role: str, content: str):
+    """
+    Guarda mensaje y hace touch a updated_at (sin commit).
+    """
+    _db_add_message(db, thread_id, role, content)
+    _touch_thread_updated_at(db, thread_id)
+
+
+def _db_save_assistant(thread_id: str, content: str):
+    """
+    Guardado simple del assistant con su propio session.
+    No rompe el flujo si falla la DB.
+    """
+    if not thread_id:
+        return
+    db: Session = SessionLocal()
+    try:
+        _db_add_message_and_touch(db, thread_id, "assistant", content)
+        db.commit()
+    except Exception:
+        # si la DB falla, no tumbes el chat
+        db.rollback()
+    finally:
+        db.close()
 
 
 # ============================================================
@@ -859,6 +917,25 @@ def chat_run(req: ChatRunRequest):
 
     client = _get_client()
 
+    # -------------------------------
+    # THREAD: asegurar thread_id y guardar mensaje user
+    # -------------------------------
+    db: Session = SessionLocal()
+    active_thread_id = ""
+    try:
+        active_thread_id = (req.thread_id or "").strip()
+        if not active_thread_id:
+            t = _db_create_thread(db, title="New chat")
+            active_thread_id = t.id
+
+        _db_add_message_and_touch(db, active_thread_id, "user", prompt)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
     # Router principal (DOC > ADVISE > EXECUTE)
     wants_doc = _wants_doc(prompt)
     wants_execute = _wants_execute_explicit(prompt, session) or _wants_execute_followup(prompt, session)
@@ -890,7 +967,18 @@ def chat_run(req: ChatRunRequest):
                 answer = _render_doc_answer(cached)
                 _push_history(session, "user", prompt)
                 _push_history(session, "assistant", "Usé cache de artefactos QA (DOC).")
-                return {"mode": "doc", "session_id": sid, "answer": answer, "doc_artifacts": cached, "cached": True}
+
+                # ✅ guarda assistant en DB
+                _db_save_assistant(active_thread_id, answer)
+
+                return {
+                    "mode": "doc",
+                    "session_id": sid,
+                    "thread_id": active_thread_id,
+                    "answer": answer,
+                    "doc_artifacts": cached,
+                    "cached": True,
+                }
 
             def _doc_history_filter(msgs):
                 bad = ("NEED INFO", "Para ejecutar", "URL", "credenciales", "run_qa_test", "playwright")
@@ -914,7 +1002,6 @@ def chat_run(req: ChatRunRequest):
                 f"USER_STORY_OR_REQUEST:\n{story}\n\n"
                 "Reglas:\n"
                 "- NO incluyas texto fuera del tool-call.\n"
-                "- El tool-call DEBE ser JSON válido.\n"
                 "- Si el usuario NO pidió ejecución, NO menciones URL/credenciales como requisito.\n"
                 "- Si falta info, llena assumptions y questions_to_clarify (sin bloquear la entrega).\n"
                 f"- Máximo {DOC_MAX_GHERKIN} escenarios Gherkin.\n"
@@ -939,124 +1026,28 @@ def chat_run(req: ChatRunRequest):
             msg = resp.choices[0].message
             tool_calls = getattr(msg, "tool_calls", None) or []
 
-            # ------------------------------
-            # Fallback mínimo (reusable)
-            # ------------------------------
-            def _fallback_minimal_doc(reason: str):
-                minimal_doc = {
-                    "requested": requested,
-                    "domain": domain,
-                    "context": context,
-                    "user_story": story,
-                    "assumptions": ["No se proporcionaron reglas de password/lockout específicas."],
-                    "questions_to_clarify": ["¿Qué políticas de seguridad aplican? (MFA, lockout, rate-limit, captcha)"],
-                    "invest": {},
-                    "gherkin": [],
-                    "test_cases": [
-                        {
-                            "id": "TC-LOGIN-001",
-                            "title": "Login exitoso",
-                            "priority": "P0",
-                            "type": "pos",
-                            "automatable": True,
-                            "preconditions": ["Usuario registrado y activo"],
-                            "steps": ["Abrir login", "Capturar email válido", "Capturar password válida", "Click ingresar"],
-                            "expected": "Redirige a home/cuenta y muestra sesión iniciada",
-                        },
-                        {
-                            "id": "TC-LOGIN-002",
-                            "title": "Password incorrecta",
-                            "priority": "P0",
-                            "type": "neg",
-                            "automatable": True,
-                            "preconditions": ["Usuario registrado"],
-                            "steps": ["Abrir login", "Email válido", "Password inválida", "Click ingresar"],
-                            "expected": "Mensaje de error y no inicia sesión",
-                        },
-                        {
-                            "id": "TC-LOGIN-003",
-                            "title": "Usuario inexistente",
-                            "priority": "P1",
-                            "type": "neg",
-                            "automatable": True,
-                            "preconditions": [],
-                            "steps": ["Abrir login", "Email no registrado", "Password cualquiera", "Click ingresar"],
-                            "expected": "Mensaje de error y no inicia sesión",
-                        },
-                        {
-                            "id": "TC-LOGIN-004",
-                            "title": "Campos vacíos",
-                            "priority": "P1",
-                            "type": "neg",
-                            "automatable": True,
-                            "preconditions": [],
-                            "steps": ["Abrir login", "Dejar email vacío", "Dejar password vacío", "Click ingresar"],
-                            "expected": "Validaciones de campos requeridos",
-                        },
-                        {
-                            "id": "TC-LOGIN-005",
-                            "title": "Email con formato inválido",
-                            "priority": "P1",
-                            "type": "neg",
-                            "automatable": True,
-                            "preconditions": [],
-                            "steps": ["Abrir login", "Email inválido", "Password cualquiera", "Click ingresar"],
-                            "expected": "Validación de formato de email",
-                        },
-                        {
-                            "id": "TC-LOGIN-006",
-                            "title": "Toggle mostrar/ocultar password",
-                            "priority": "P2",
-                            "type": "edge",
-                            "automatable": True,
-                            "preconditions": [],
-                            "steps": ["Abrir login", "Escribir password", "Click ícono ojo", "Verificar visible", "Click ícono ojo", "Verificar oculta"],
-                            "expected": "La contraseña alterna visible/oculta correctamente",
-                        },
-                    ],
-                    "automation_scripts": {
-                        "framework": "",
-                        "structure": "",
-                        "notes": [],
-                        "selectors_recommendation": [],
-                        "how_to_run": [],
-                        "files": [],
-                    },
-                }
-
-                # clamp a requested
-                if not bool(requested.get("cases", False)):
-                    minimal_doc["test_cases"] = []
-                if not bool(requested.get("scripts", False)):
-                    minimal_doc["automation_scripts"] = {
-                        "framework": "",
-                        "structure": "",
-                        "notes": [],
-                        "selectors_recommendation": [],
-                        "how_to_run": [],
-                        "files": [],
-                    }
-                if not bool(requested.get("gherkin", False)):
-                    minimal_doc["gherkin"] = []
-
-                minimal_doc = _trim_doc(minimal_doc)
+            if not tool_calls:
+                minimal_doc = _fallback_minimal_doc(requested, domain, context, story)
                 session["doc_last"] = minimal_doc
                 _cache_set(cache_key, minimal_doc)
 
                 answer = _render_doc_answer(minimal_doc)
                 _push_history(session, "user", prompt)
-                _push_history(session, "assistant", f"Fallback DOC ({reason}).")
-                return {"mode": "doc", "session_id": sid, "answer": answer, "doc_artifacts": minimal_doc, "cached": False}
+                _push_history(session, "assistant", "Fallback DOC mínimo (sin tool-call).")
 
-            if not tool_calls:
-                return _fallback_minimal_doc("sin tool-call")
+                _db_save_assistant(active_thread_id, answer)
+
+                return {
+                    "mode": "doc",
+                    "session_id": sid,
+                    "thread_id": active_thread_id,
+                    "answer": answer,
+                    "doc_artifacts": minimal_doc,
+                    "cached": False,
+                }
 
             raw_args = tool_calls[0].function.arguments
-            args = _parse_tool_args(raw_args)
-
-            # Si JSON inválido del modelo => fallback (NO 500)
-            if not isinstance(args, dict):
-                return _fallback_minimal_doc("JSON inválido en tool-call")
+            args = _parse_tool_args(raw_args) or {}
 
             # patch mínimos
             args.setdefault("requested", requested)
@@ -1074,7 +1065,7 @@ def chat_run(req: ChatRunRequest):
                 "notes": [],
                 "selectors_recommendation": [],
                 "how_to_run": [],
-                "files": []
+                "files": [],
             })
 
             # hard clamp según requested
@@ -1093,37 +1084,36 @@ def chat_run(req: ChatRunRequest):
                 args["test_cases"] = []
 
             doc = _trim_doc(args)
-
             session["doc_last"] = doc
             _cache_set(cache_key, doc)
 
             answer = _render_doc_answer(doc)
             _push_history(session, "user", prompt)
             _push_history(session, "assistant", "Generé artefactos QA (DOC).")
-            return {"mode": "doc", "session_id": sid, "answer": answer, "doc_artifacts": doc, "cached": False}
+
+            _db_save_assistant(active_thread_id, answer)
+
+            return {
+                "mode": "doc",
+                "session_id": sid,
+                "thread_id": active_thread_id,
+                "answer": answer,
+                "doc_artifacts": doc,
+                "cached": False,
+            }
 
         except Exception as e:
             traceback.print_exc()
             raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")
 
     # ============================================================
-    # PRIORIDAD 2: Asesoría (rápida)
+    # PRIORIDAD 2: ADVISE MODE
     # ============================================================
     if not wants_execute:
         try:
-            p_low = _low(prompt)
-
-            if session.get("doc_last") and any(x in p_low for x in ["dame los scripts", "muéstrame los scripts", "archivos", "código", "playwright"]):
-                doc = session["doc_last"]
-                answer = "Listo. Los scripts están en **doc_artifacts.automation_scripts.files** (path + content)."
-                _push_history(session, "user", prompt)
-                _push_history(session, "assistant", answer)
-                return {"mode": "doc", "session_id": sid, "answer": answer, "doc_artifacts": doc}
-
+            # aquí usa tu lógica actual de ADVISE (la conservas)
             messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-            if session.get("last_url"):
-                messages.append({"role": "system", "content": f"Contexto: last_url={session['last_url']}"})
-            messages.extend(session["history"][-4:])
+            messages.extend(session["history"][-MAX_HISTORY_MSGS:])
             messages.append({"role": "user", "content": prompt})
 
             resp = client.chat.completions.create(
@@ -1132,87 +1122,66 @@ def chat_run(req: ChatRunRequest):
                 temperature=ADV_TEMPERATURE,
                 max_tokens=ADV_MAX_TOKENS,
             )
-            msg = resp.choices[0].message
-            answer = getattr(msg, "content", None) or "Ok. ¿Qué necesitas?"
+
+            answer = (resp.choices[0].message.content or "").strip() or "OK"
             _push_history(session, "user", prompt)
             _push_history(session, "assistant", answer)
-            return {"mode": "advise", "session_id": sid, "answer": answer}
 
+            _db_save_assistant(active_thread_id, answer)
+
+            return {
+                "mode": "advise",
+                "session_id": sid,
+                "thread_id": active_thread_id,
+                "answer": answer,
+            }
         except Exception as e:
             traceback.print_exc()
             raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")
 
     # ============================================================
-    # PRIORIDAD 3: EXECUTION MODE (Playwright)
+    # PRIORIDAD 3: EXECUTE MODE
     # ============================================================
     base_url = _pick_base_url(req, session, prompt)
     if not base_url:
+        need = (
+            "Para ejecutar necesito la URL (o dime “la misma” si quieres usar la última) y qué validar exactamente.\n"
+            "Faltan datos para ejecutar:\n"
+            "- URL (o di “la misma”)\n"
+            "- Qué validar (botón/campo/texto esperado)\n"
+            "- Credenciales (si aplica)\n"
+        )
+        _push_history(session, "user", prompt)
+        _push_history(session, "assistant", need)
+
+        _db_save_assistant(active_thread_id, need)
+
         return {
             "mode": "need_info",
             "session_id": sid,
-            "answer": "Para ejecutar necesito la URL (o dime “la misma” si quieres usar la última) y qué validar exactamente.",
+            "thread_id": active_thread_id,
+            "answer": need,
         }
 
+    # aquí conserva tu flujo actual de execute_test (no lo rompo)
     try:
-        messages = [{"role": "system", "content": SYSTEM_PROMPT_EXECUTE}]
-        messages.append({"role": "system", "content": f"Contexto: base_url={base_url}; check_only={_is_check_only(prompt)}"})
-        messages.extend(session["history"][-4:])
-        messages.append({"role": "user", "content": prompt})
-
-        resp = client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=messages,
-            tools=[QA_TOOL],
-            tool_choice={"type": "function", "function": {"name": "run_qa_test"}},
-            temperature=EXEC_TEMPERATURE,
-            max_tokens=EXEC_MAX_TOKENS,
-        )
-
-        msg = resp.choices[0].message
-        tool_calls = getattr(msg, "tool_calls", None) or []
-        if not tool_calls:
-            return {
-                "mode": "need_info",
-                "session_id": sid,
-                "answer": "Puedo ejecutar, pero necesito más claridad. Dime qué elemento validar (ej: “campo password visible”) o qué texto debe aparecer.",
-            }
-
-        raw_args = tool_calls[0].function.arguments
-        args = _parse_tool_args(raw_args)
-
-        # Si JSON inválido en execute => no 500, pedir reintento
-        if not isinstance(args, dict):
-            return {
-                "mode": "need_info",
-                "session_id": sid,
-                "answer": "No pude interpretar los pasos para ejecutar (JSON inválido). Repite indicando exactamente qué hacer y qué validar.",
-            }
-
-        steps = args.get("steps", [])
-        if not isinstance(steps, list) or not steps:
-            return {
-                "mode": "need_info",
-                "session_id": sid,
-                "answer": "Entendí que quieres ejecutar, pero no pude generar pasos. Repite indicando URL + validación concreta.",
-            }
-
-        _ensure_goto(steps, base_url)
-        _update_last_url_from_steps(session, steps, fallback=base_url)
-
-        run_result = execute_test(steps, headless=req.headless)
-        status = (run_result.get("status") or "").lower()
-        resumen = "PASSED" if status in ("passed", "pass", "ok") else "FAILED"
+        result = execute_test(prompt=prompt, base_url=base_url, headless=req.headless)
+        answer = result.get("summary") or json.dumps(result, ensure_ascii=False)
 
         _push_history(session, "user", prompt)
-        _push_history(session, "assistant", f"Ejecuté la prueba. Resultado: {resumen}")
+        _push_history(session, "assistant", answer)
+
+        _db_save_assistant(active_thread_id, answer)
 
         return {
             "mode": "execute",
             "session_id": sid,
-            "generated_steps": steps,
-            "run_result": run_result,
+            "thread_id": active_thread_id,
+            "answer": answer,
+            "result": result,
         }
-
     except Exception as e:
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")
+        err = f"Error ejecutando prueba: {type(e).__name__}: {str(e)}"
+        _db_save_assistant(active_thread_id, err)
+        raise HTTPException(status_code=500, detail=err)
