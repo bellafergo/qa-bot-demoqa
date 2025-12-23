@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import { chatRun, getThread, listThreads } from "./api";
+import Sidebar from "./components/Sidebar";
+import Chat from "./components/Chat";
 
 /**
  * Helpers (frontend)
@@ -285,145 +287,6 @@ function App() {
     );
   };
 
-  const Sidebar = () => {
-    if (!isSidebarOpen) {
-      return (
-        <div
-          style={{
-            width: 44,
-            borderRight: "1px solid rgba(255,255,255,0.10)",
-            background: "rgba(0,0,0,0.10)",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            paddingTop: 10,
-            gap: 10,
-          }}
-        >
-          <button
-            onClick={() => setIsSidebarOpen(true)}
-            style={{ cursor: "pointer", padding: "6px 10px" }}
-            title="Abrir"
-          >
-            ☰
-          </button>
-          <button
-            onClick={async () => {
-              try {
-                await createThread();
-              } catch (e) {
-                alert(String(e?.message || e));
-              }
-            }}
-            style={{ cursor: "pointer", padding: "6px 10px" }}
-            title="New chat"
-          >
-            ＋
-          </button>
-        </div>
-      );
-    }
-
-    return (
-      <aside
-        style={{
-          width: 300,
-          borderRight: "1px solid rgba(255,255,255,0.10)",
-          background: "rgba(0,0,0,0.10)",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-        <div
-          style={{
-            padding: 12,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 10,
-            borderBottom: "1px solid rgba(255,255,255,0.10)",
-          }}
-        >
-          <div style={{ fontWeight: 800, letterSpacing: 0.2 }}>Chats</div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button
-              onClick={async () => {
-                try {
-                  await createThread();
-                } catch (e) {
-                  alert(String(e?.message || e));
-                }
-              }}
-              style={{ cursor: "pointer", padding: "6px 10px", fontSize: 12 }}
-              title="New chat"
-            >
-              New chat
-            </button>
-            <button
-              onClick={() => setIsSidebarOpen(false)}
-              style={{ cursor: "pointer", padding: "6px 10px", fontSize: 12 }}
-              title="Cerrar"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-
-        <div style={{ padding: 10, display: "flex", gap: 8 }}>
-          <button
-            onClick={() => refreshThreads().catch(() => {})}
-            style={{ cursor: "pointer", padding: "6px 10px", fontSize: 12 }}
-            title="Refrescar"
-          >
-            ↻
-          </button>
-          <div style={{ fontSize: 12, opacity: 0.75, alignSelf: "center" }}>
-            {threads.length} chat(s)
-          </div>
-        </div>
-
-        <div style={{ overflow: "auto", padding: 10, paddingTop: 0 }}>
-          {threads.map((t) => {
-            const id = t?.id || t?.thread_id;
-            const title = t?.title || `Chat ${String(id || "").slice(0, 6)}`;
-            const active = id && threadId && String(id) === String(threadId);
-
-            return (
-              <button
-                key={String(id)}
-                onClick={async () => {
-                  try {
-                    await loadThread(id);
-                  } catch (e) {
-                    alert(String(e?.message || e));
-                  }
-                }}
-                style={{
-                  width: "100%",
-                  textAlign: "left",
-                  cursor: "pointer",
-                  padding: "10px 10px",
-                  marginBottom: 8,
-                  borderRadius: 12,
-                  border: active
-                    ? "1px solid rgba(80, 140, 255, 0.45)"
-                    : "1px solid rgba(255,255,255,0.10)",
-                  background: active ? "rgba(80, 140, 255, 0.10)" : "rgba(0,0,0,0.12)",
-                  color: "inherit",
-                }}
-                title={String(id)}
-              >
-                <div style={{ fontWeight: 700, fontSize: 13 }}>{title}</div>
-                <div style={{ fontSize: 11, opacity: 0.65, marginTop: 2 }}>
-                  id: {String(id).slice(0, 8)}…
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </aside>
-    );
-  };
 
   // Runner report UI
   const renderRunnerReport = (runner) => {
@@ -779,112 +642,28 @@ function App() {
   // Layout
   // -----------------------------
   return (
-    <div style={{ display: "flex", height: "100vh", width: "100%" }}>
-      <Sidebar />
+  <div style={{ display: "flex", height: "100vh", width: "100%" }}>
+    <Sidebar
+      threads={threads}
+      activeId={threadId}
+      isLoading={isLoading}
+      onNew={async () => {
+        const t = await createThread();
+        await loadThread(t.id);
+      }}
+      onSelect={async (id) => {
+        await loadThread(id);
+      }}
+    />
 
-      <div className="vanya-wrap" style={{ flex: 1, minWidth: 0 }}>
-        <header className="vanya-header">
-          <div className="logo-dot"></div>
-          <h1 style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            Vanya <small>| QA Intelligence Agent</small>
-            {threadId && (
-              <span style={{ fontSize: 11, opacity: 0.55 }}>
-                thread: {String(threadId).slice(0, 8)}…
-              </span>
-            )}
-          </h1>
-        </header>
-
-        <main className="chat-area">
-          {messages.map((msg, i) => (
-            <div key={i} className={`message-row ${msg.role}`}>
-              <div className="message-label">{msg.role === "user" ? "Tú" : "Vanya"}</div>
-
-              <div className="bubble">
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    marginBottom: 6,
-                  }}
-                >
-                  {msg.role === "bot" && <ModeBadge mode={msg.meta?.mode} />}
-                  {msg.role === "bot" && sessionId && (
-                    <span style={{ fontSize: 10, opacity: 0.45 }}>
-                      session: {String(sessionId).slice(0, 8)}…
-                    </span>
-                  )}
-                </div>
-
-                <div
-                  className="text-content"
-                  dangerouslySetInnerHTML={{ __html: formatText(msg.content) }}
-                />
-
-                {msg.meta?.mode === "need_info" && renderNeedInfoHint(msg.content)}
-
-                {/* Reporte Runner */}
-                {msg.runner && renderRunnerReport(msg.runner)}
-
-                {/* Artefactos DOC */}
-                {msg.docArtifacts && renderDocArtifacts(msg.docArtifacts)}
-
-                {/* Evidencia */}
-                {msg.runner?.screenshot_b64 && (
-                  <div className="evidence-container">
-                    <p className="ev-title">🖼️ Evidencia de ejecución:</p>
-                    <img
-                      src={`data:image/png;base64,${msg.runner.screenshot_b64}`}
-                      alt="Evidencia"
-                      className="evidence-img"
-                      onClick={() => {
-                        const newTab = window.open();
-                        if (!newTab) return;
-                        newTab.document.write(
-                          `<img src="data:image/png;base64,${msg.runner.screenshot_b64}" style="width:100%">`
-                        );
-                      }}
-                    />
-                    <p style={{ fontSize: "10px", marginTop: "5px", opacity: 0.5 }}>
-                      Click para ampliar
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-
-          {isLoading && (
-            <div className="message-row bot">
-              <div className="message-label">Vanya</div>
-              <div className="bubble loading">Vanya está procesando tu solicitud...</div>
-            </div>
-          )}
-
-          <div ref={chatEndRef} />
-        </main>
-
-        <footer className="input-area">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Escribe una orden de QA o pregunta algo..."
-            disabled={isLoading}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
-          />
-          <button onClick={handleSend} disabled={isLoading || !input.trim()}>
-            {isLoading ? "..." : "Enviar"}
-          </button>
-        </footer>
-      </div>
-    </div>
-  );
-}
+    <Chat
+      messages={messages}
+      input={input}
+      setInput={setInput}
+      handleSend={handleSend}
+      isLoading={isLoading}
+    />
+  </div>
+);
 
 export default App;
