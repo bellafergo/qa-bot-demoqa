@@ -142,6 +142,19 @@ def _push_history(session: Dict[str, Any], role: str, content: str):
 # ✅ AQUÍ VA _URL_RE (global y antes de usarlo)
 _URL_RE = re.compile(r"(https?://[^\s]+)", re.I)
 
+def _make_title_from_prompt(prompt: str, max_len: int = 60) -> str:
+    """
+    Genera un título corto y legible a partir del primer prompt del usuario.
+    Se usa solo cuando el thread aún se llama 'New chat'.
+    """
+    p = (prompt or "").strip().replace("\n", " ")
+    p = " ".join(p.split())
+
+    if not p:
+        return "New chat"
+
+    return (p[:max_len] + "…") if len(p) > max_len else p
+
 def _iso(x):
     """Convierte datetimes a ISO8601 UTC (string). Seguro y consistente."""
     if not x:
@@ -729,6 +742,18 @@ def meta():
         "doc_cache_items": len(_DOC_CACHE),
         "has_db": bool(os.getenv("DATABASE_URL")),
     }
+
+from fastapi import HTTPException
+
+@app.delete("/threads/{thread_id}")
+def delete_thread(thread_id: str):
+    # Ajusta esto a tu store real
+    # Ejemplo si tienes _THREADS dict:
+    if thread_id not in _THREADS:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    del _THREADS[thread_id]
+    return {"ok": True}
 
 # ============================================================
 # THREADS (sidebar tipo ChatGPT)
