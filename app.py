@@ -329,6 +329,80 @@ def _db_save_assistant(thread_id: str, content: str):
     finally:
         db.close()
 
+    def _fallback_minimal_doc(requested, domain, context, story):
+    minimal_doc = {
+        "requested": requested,
+        "domain": domain,
+        "context": context,
+        "user_story": story,
+        "assumptions": ["No se proporcionaron reglas de password/lockout específicas."],
+        "questions_to_clarify": ["¿Qué políticas de seguridad aplican? (MFA, lockout, rate-limit, captcha)?"],
+        "invest": {},
+        "gherkin": [],
+        "test_cases": [
+            {
+                "id": "TC-LOGIN-001",
+                "title": "Login exitoso",
+                "priority": "P0",
+                "type": "pos",
+                "automatable": True,
+                "preconditions": ["Usuario registrado y activo"],
+                "steps": ["Abrir login", "Capturar email válido", "Capturar password válida", "Click ingresar"],
+                "expected": "Redirige a home/cuenta y muestra sesión iniciada",
+            },
+            {
+                "id": "TC-LOGIN-002",
+                "title": "Password incorrecta",
+                "priority": "P0",
+                "type": "neg",
+                "automatable": True,
+                "preconditions": ["Usuario registrado"],
+                "steps": ["Abrir login", "Email válido", "Password inválida", "Click ingresar"],
+                "expected": "Mensaje de error y no inicia sesión",
+            },
+        ],
+        "automation_scripts": {"framework": "", "structure": "", "notes": [], "selectors_recommendation": [], "how_to_run": [], "files": []},
+    }
+    return _trim_doc(minimal_doc)
+
+from datetime import datetime
+
+def _db_create_thread(db: Session, title: str = "New chat") -> Thread:
+    t = Thread(title=title)
+    db.add(t)
+    db.commit()
+    db.refresh(t)
+    return t
+
+def _db_add_message(db: Session, thread_id: str, role: str, content: str):
+    m = Message(thread_id=thread_id, role=role, content=content)
+    db.add(m)
+
+def _touch_thread(db: Session, thread_id: str):
+    t = db.query(Thread).filter(Thread.id == thread_id).first()
+    if t:
+        t.updated_at = datetime.utcnow()
+        db.add(t)
+
+def _db_add_message_and_touch(db: Session, thread_id: str, role: str, content: str):
+    _db_add_message(db, thread_id, role, content)
+    _touch_thread(db, thread_id)
+
+def _db_save_assistant(thread_id: str, content: str):
+    """
+    Guarda assistant sin tumbar el request si falla la DB.
+    """
+    if not thread_id:
+        return
+    db2: Session = SessionLocal()
+    try:
+        _db_add_message_and_touch(db2, thread_id, "assistant", content)
+        db2.commit()
+    except Exception:
+        db2.rollback()
+    finally:
+        db2.close()
+
 
 # ============================================================
 # INTENT ROUTING
@@ -918,21 +992,20 @@ def chat_run(req: ChatRunRequest):
     client = _get_client()
 
     # -------------------------------
-    # THREAD: asegurar thread_id y guardar mensaje user
+    # THREAD: asegurar thread_id + guardar user
     # -------------------------------
+    active_thread_id = (req.thread_id or "").strip()
     db: Session = SessionLocal()
-    active_thread_id = ""
     try:
-        active_thread_id = (req.thread_id or "").strip()
         if not active_thread_id:
             t = _db_create_thread(db, title="New chat")
             active_thread_id = t.id
 
         _db_add_message_and_touch(db, active_thread_id, "user", prompt)
         db.commit()
-    except Exception:
+    except Exception as e:
         db.rollback()
-        raise
+        raise HTTPException(status_code=500, detail=f"DB error (user msg): {type(e).__name__}: {str(e)}")
     finally:
         db.close()
 
@@ -941,14 +1014,14 @@ def chat_run(req: ChatRunRequest):
     wants_execute = _wants_execute_explicit(prompt, session) or _wants_execute_followup(prompt, session)
 
     # ============================================================
-    # PRIORIDAD 1: DOC MODE (rápido y solo lo pedido)
+    # PRIORIDAD 1: DOC MODE
     # ============================================================
     if wants_doc and not wants_execute:
         try:
             requested = _doc_requested_parts(prompt)
             domain = _infer_domain(prompt)
             story = _extract_user_story(prompt) or prompt
-            context = ""  # opcional
+            context = ""
 
             def _norm_cache_text(s: str, limit: int = 1200) -> str:
                 s = (s or "").strip()
@@ -965,10 +1038,10 @@ def chat_run(req: ChatRunRequest):
             if cached:
                 session["doc_last"] = cached
                 answer = _render_doc_answer(cached)
-                _push_history(session, "user", prompt)
-                _push_history(session, "assistant", "Usé cache de artefactos QA (DOC).")
 
-                # ✅ guarda assistant en DB
+                _push_history(session, "user", prompt)
+                _push_history(session, "assistant", answer)
+
                 _db_save_assistant(active_thread_id, answer)
 
                 return {
@@ -991,8 +1064,7 @@ def chat_run(req: ChatRunRequest):
                 return out
 
             messages = [{"role": "system", "content": SYSTEM_PROMPT_DOC}]
-            hist = _doc_history_filter(session["history"][-DOC_HISTORY_MSGS:])
-            messages.extend(hist)
+            messages.extend(_doc_history_filter(session["history"][-DOC_HISTORY_MSGS:]))
 
             user_payload = (
                 "Tarea: Genera artefactos QA **solo de documentación** (NO ejecutes, NO pidas URL).\n"
@@ -1028,12 +1100,15 @@ def chat_run(req: ChatRunRequest):
 
             if not tool_calls:
                 minimal_doc = _fallback_minimal_doc(requested, domain, context, story)
+                minimal_doc = _trim_doc(minimal_doc)
+
                 session["doc_last"] = minimal_doc
                 _cache_set(cache_key, minimal_doc)
 
                 answer = _render_doc_answer(minimal_doc)
+
                 _push_history(session, "user", prompt)
-                _push_history(session, "assistant", "Fallback DOC mínimo (sin tool-call).")
+                _push_history(session, "assistant", answer)
 
                 _db_save_assistant(active_thread_id, answer)
 
@@ -1088,8 +1163,9 @@ def chat_run(req: ChatRunRequest):
             _cache_set(cache_key, doc)
 
             answer = _render_doc_answer(doc)
+
             _push_history(session, "user", prompt)
-            _push_history(session, "assistant", "Generé artefactos QA (DOC).")
+            _push_history(session, "assistant", answer)
 
             _db_save_assistant(active_thread_id, answer)
 
@@ -1111,7 +1187,6 @@ def chat_run(req: ChatRunRequest):
     # ============================================================
     if not wants_execute:
         try:
-            # aquí usa tu lógica actual de ADVISE (la conservas)
             messages = [{"role": "system", "content": SYSTEM_PROMPT}]
             messages.extend(session["history"][-MAX_HISTORY_MSGS:])
             messages.append({"role": "user", "content": prompt})
@@ -1124,6 +1199,7 @@ def chat_run(req: ChatRunRequest):
             )
 
             answer = (resp.choices[0].message.content or "").strip() or "OK"
+
             _push_history(session, "user", prompt)
             _push_history(session, "assistant", answer)
 
@@ -1135,6 +1211,7 @@ def chat_run(req: ChatRunRequest):
                 "thread_id": active_thread_id,
                 "answer": answer,
             }
+
         except Exception as e:
             traceback.print_exc()
             raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")
@@ -1151,6 +1228,7 @@ def chat_run(req: ChatRunRequest):
             "- Qué validar (botón/campo/texto esperado)\n"
             "- Credenciales (si aplica)\n"
         )
+
         _push_history(session, "user", prompt)
         _push_history(session, "assistant", need)
 
@@ -1163,10 +1241,11 @@ def chat_run(req: ChatRunRequest):
             "answer": need,
         }
 
-    # aquí conserva tu flujo actual de execute_test (no lo rompo)
     try:
         result = execute_test(prompt=prompt, base_url=base_url, headless=req.headless)
-        answer = result.get("summary") or json.dumps(result, ensure_ascii=False)
+
+        # tú puedes ajustar el summary si tu runner trae uno
+        answer = result.get("summary") or "Prueba ejecutada. Revisa el resultado."
 
         _push_history(session, "user", prompt)
         _push_history(session, "assistant", answer)
@@ -1178,8 +1257,9 @@ def chat_run(req: ChatRunRequest):
             "session_id": sid,
             "thread_id": active_thread_id,
             "answer": answer,
-            "result": result,
+            "run_result": result,   # para tu frontend
         }
+
     except Exception as e:
         traceback.print_exc()
         err = f"Error ejecutando prueba: {type(e).__name__}: {str(e)}"
