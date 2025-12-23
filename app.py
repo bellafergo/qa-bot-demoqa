@@ -288,7 +288,23 @@ _ADVISE_HINTS = [
 
 def _wants_doc(prompt: str) -> bool:
     p = _low(prompt)
-    return any(k in p for k in _DOC_HINTS)
+
+    qa_triggers = [
+        "casos de prueba",
+        "casos de testing",
+        "matriz de casos",
+        "gherkin",
+        "historia de usuario",
+        "user story",
+        "invest",
+        "criterios de aceptación",
+        "acceptance criteria",
+        "artefactos qa",
+        "documentación qa",
+        "escenarios de prueba",
+    ]
+
+    return any(k in p for k in qa_triggers)
 
 
 def _wants_execute_explicit(prompt: str, session: Optional[dict] = None) -> bool:
