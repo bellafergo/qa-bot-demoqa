@@ -5,7 +5,7 @@ import {
   getThread,
   listThreads,
   createThread as apiCreateThread,
-  deleteThread,
+  deleteThread as apiDeleteThread,
 } from "./api";
 import Sidebar from "./components/Sidebar";
 import Chat from "./components/Chat";
@@ -29,22 +29,7 @@ const formatText = (text) => {
   return safe.replace(/\*\*(.*?)\*\*/g, "<b>$1</b>").replace(/\n/g, "<br/>");
 };
 
-const prettyStatus = (st) => {
-  const s = (st || "").toLowerCase();
-  if (s === "passed" || s === "pass" || s === "ok") return "✅ PASSED";
-  if (s === "fail" || s === "failed" || s === "error") return "❌ FAILED";
-  return st || "—";
-};
-
-const prettyMode = (mode) => {
-  const m = (mode || "").toLowerCase();
-  if (m === "execute") return "EXECUTE";
-  if (m === "doc") return "DOC";
-  if (m === "advise") return "ADVISE";
-  if (m === "need_info") return "NEED INFO";
-  if (m === "error") return "ERROR";
-  return (mode || "").toUpperCase();
-};
+const shortId = (id) => (id ? `${String(id).slice(0, 8)}…` : "");
 
 function App() {
   // -----------------------------
@@ -102,7 +87,6 @@ function App() {
   // -----------------------------
   const normalizeThreads = (list) => {
     const arr = Array.isArray(list) ? list : [];
-    // conserva solo threads con id real
     const cleaned = arr
       .map((t) => ({
         ...t,
@@ -110,10 +94,9 @@ function App() {
       }))
       .filter((t) => !!t.id);
 
-    // ordenar por updated_at desc si existe
     cleaned.sort((a, b) => {
-      const da = a?.updated_at ? Date.parse(a.updated_at) : 0;
-      const db = b?.updated_at ? Date.parse(b.updated_at) : 0;
+      const da = a?.updated_at ? new Date(a.updated_at).getTime() : 0;
+      const db = b?.updated_at ? new Date(b.updated_at).getTime() : 0;
       return db - da;
     });
 
@@ -123,7 +106,7 @@ function App() {
   const refreshThreads = async () => {
     setIsThreadsLoading(true);
     try {
-      const list = await listThreads(); // api.js ya normaliza a array normalmente
+      const list = await listThreads();
       const normalized = normalizeThreads(list || []);
       setThreads(normalized);
       return normalized;
@@ -133,7 +116,6 @@ function App() {
           e?.message || e
         )}`
       );
-      // no revientes la UI
       return [];
     } finally {
       setIsThreadsLoading(false);
@@ -172,7 +154,6 @@ function App() {
     setIsThreadsLoading(true);
     setUiError("");
 
-    // NO limpies mensajes aquí: si falla, dejamos el chat actual visible
     try {
       const data = await getThread(id);
 
@@ -189,13 +170,6 @@ function App() {
 
       if (opts?.refreshSidebar) await refreshThreads();
       return data;
-    } catch (e) {
-      setUiError(
-        `No pude abrir ese chat (/threads/${String(id).slice(0, 8)}…). Detalle: ${String(
-          e?.message || e
-        )}`
-      );
-      throw e;
     } finally {
       setIsThreadsLoading(false);
     }
@@ -215,10 +189,10 @@ function App() {
         localStorage.setItem("vanya_thread_id", id);
       } catch {}
 
-      // refresca sidebar y carga el thread nuevo (vacío)
-      await refreshThreads();
-      await loadThread(id, { refreshSidebar: false });
+      setWelcome();
 
+      // refresca sidebar
+      await refreshThreads();
       return id;
     } catch (e) {
       setUiError(
@@ -248,236 +222,12 @@ function App() {
   }, []);
 
   // -----------------------------
-  // Render helpers (runner / doc)
-  // -----------------------------
-  const renderRunnerReport = (runner) => {
-    if (!runner) return null;
-
-    const status = runner.status || runner.state || runner.result;
-    const error = runner.error;
-    const steps = Array.isArray(runner.steps) ? runner.steps : [];
-    const logs = Array.isArray(runner.logs) ? runner.logs : [];
-    const duration = runner.duration_ms;
-    const evidenceId = runner.evidence_id;
-
-    return (
-      <div className="runner-report" style={{ marginTop: 12 }}>
-        <div style={{ fontWeight: 700, marginBottom: 6 }}>
-          Resultado: {prettyStatus(status)}
-          {typeof duration === "number" && (
-            <span style={{ fontWeight: 400, marginLeft: 8, opacity: 0.8 }}>
-              ({duration} ms)
-            </span>
-          )}
-        </div>
-
-        {evidenceId && (
-          <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 10 }}>
-            <b>Evidencia ID:</b> {evidenceId}
-          </div>
-        )}
-
-        {error && (
-          <div
-            style={{
-              padding: 10,
-              borderRadius: 10,
-              background: "rgba(255, 0, 0, 0.08)",
-              border: "1px solid rgba(255, 0, 0, 0.25)",
-              marginBottom: 10,
-            }}
-          >
-            <b>Error:</b> {String(error)}
-          </div>
-        )}
-
-        {steps.length > 0 && (
-          <div style={{ marginTop: 10 }}>
-            <div style={{ fontWeight: 700, marginBottom: 6 }}>
-              Pasos ejecutados:
-            </div>
-
-            <div
-              style={{
-                overflowX: "auto",
-                borderRadius: 10,
-                border: "1px solid rgba(255,255,255,0.12)",
-              }}
-            >
-              <table
-                style={{
-                  width: "100%",
-                  borderCollapse: "collapse",
-                  fontSize: 12,
-                }}
-              >
-                <thead>
-                  <tr style={{ background: "rgba(255,255,255,0.06)" }}>
-                    <th style={{ textAlign: "left", padding: 8 }}>#</th>
-                    <th style={{ textAlign: "left", padding: 8 }}>Acción</th>
-                    <th style={{ textAlign: "left", padding: 8 }}>
-                      Selector/Text/URL
-                    </th>
-                    <th style={{ textAlign: "left", padding: 8 }}>Status</th>
-                    <th style={{ textAlign: "left", padding: 8 }}>ms</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {steps.map((s, idx) => {
-                    const st = String(s.status || "").toLowerCase();
-                    const ok = st.includes("pass") || st === "ok";
-                    const target = s.url || s.selector || s.text || "—";
-                    return (
-                      <tr
-                        key={idx}
-                        style={{
-                          borderTop: "1px solid rgba(255,255,255,0.08)",
-                        }}
-                      >
-                        <td style={{ padding: 8, opacity: 0.9 }}>
-                          {s.i ?? s.step ?? idx + 1}
-                        </td>
-                        <td style={{ padding: 8 }}>{s.action || "—"}</td>
-                        <td style={{ padding: 8, opacity: 0.9 }}>{target}</td>
-                        <td style={{ padding: 8 }}>
-                          {ok ? "✅" : "❌"} {s.status || "—"}
-                        </td>
-                        <td style={{ padding: 8, opacity: 0.9 }}>
-                          {s.duration_ms ?? "—"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {logs.length > 0 && (
-          <div style={{ marginTop: 12 }}>
-            <div style={{ fontWeight: 700, marginBottom: 6 }}>Logs:</div>
-            <pre
-              style={{
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-                padding: 10,
-                borderRadius: 10,
-                background: "rgba(0,0,0,0.25)",
-                border: "1px solid rgba(255,255,255,0.12)",
-                fontSize: 12,
-                maxHeight: 220,
-                overflow: "auto",
-              }}
-            >
-              {logs.join("\n")}
-            </pre>
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  const copyToClipboard = async (text) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
-  const renderDocArtifacts = (doc) => {
-    if (!doc) return null;
-
-    const scripts = doc?.automation_scripts || {};
-    const files = Array.isArray(scripts.files) ? scripts.files : [];
-    const framework = scripts.framework || "playwright-python";
-    const structure = scripts.structure || "page-object";
-
-    if (!files.length) return null;
-
-    return (
-      <div style={{ marginTop: 12 }}>
-        <details>
-          <summary style={{ cursor: "pointer", fontWeight: 700 }}>
-            📦 Scripts ({framework}, {structure}) — {files.length} archivo(s)
-          </summary>
-
-          <div style={{ marginTop: 10 }}>
-            {files.map((f, idx) => {
-              const path = f.path || `file_${idx}.txt`;
-              const content = f.content || "";
-              return (
-                <div
-                  key={idx}
-                  style={{
-                    marginBottom: 12,
-                    padding: 10,
-                    borderRadius: 10,
-                    border: "1px solid rgba(255,255,255,0.12)",
-                    background: "rgba(0,0,0,0.18)",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: 10,
-                      marginBottom: 8,
-                    }}
-                  >
-                    <div style={{ fontWeight: 700, fontSize: 13 }}>{path}</div>
-                    <button
-                      style={{
-                        padding: "6px 10px",
-                        fontSize: 12,
-                        cursor: "pointer",
-                      }}
-                      onClick={async () => {
-                        const ok = await copyToClipboard(content);
-                        alert(ok ? `Copiado: ${path}` : "No se pudo copiar.");
-                      }}
-                    >
-                      Copiar
-                    </button>
-                  </div>
-
-                  <pre
-                    style={{
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-word",
-                      padding: 10,
-                      borderRadius: 10,
-                      background: "rgba(0,0,0,0.25)",
-                      border: "1px solid rgba(255,255,255,0.12)",
-                      fontSize: 12,
-                      maxHeight: 260,
-                      overflow: "auto",
-                    }}
-                  >
-                    {content}
-                  </pre>
-                </div>
-              );
-            })}
-          </div>
-        </details>
-      </div>
-    );
-  };
-
-  // -----------------------------
   // Main send (POST /chat_run)
   // -----------------------------
   const addMessage = (msg) => setMessages((prev) => [...prev, msg]);
-  const addBotMessage = (
-    content,
-    meta = {},
-    runner = null,
-    docArtifacts = null
-  ) => addMessage({ role: "bot", content, meta, runner, docArtifacts });
+
+  const addBotMessage = (content, meta = {}, runner = null, docArtifacts = null) =>
+    addMessage({ role: "bot", content, meta, runner, docArtifacts });
 
   const ensureThreadId = async () => {
     if (threadId) return threadId;
@@ -514,8 +264,10 @@ function App() {
       const mode = String(data?.mode || "").toLowerCase();
 
       if (mode === "execute") {
+        // ✅ Importante: NO hacemos loadThread aquí, porque backend aún no persiste runner/screenshot
+        // y al recargar perderíamos la evidencia en UI.
         addBotMessage(
-          `✅ Ejecuté la prueba${data.scope ? ` (${data.scope})` : ""}. Aquí tienes los resultados:`,
+          `✅ Ejecuté la prueba${data.scope ? ` (${data.scope})` : ""}.`,
           { mode: "execute" },
           data.run_result || null,
           null
@@ -530,27 +282,21 @@ function App() {
       } else if (mode === "need_info") {
         addBotMessage(
           data.answer || "Me falta información para ejecutar.",
-          { mode: "need_info" },
-          null,
-          null
+          { mode: "need_info" }
         );
       } else if (mode === "advise" || mode === "info" || mode === "plan") {
-        addBotMessage(data.answer || "Ok. ¿Qué quieres validar?", {
-          mode: "advise",
-        });
+        addBotMessage(data.answer || "Ok. ¿Qué quieres validar?", { mode: "advise" });
       } else {
         addBotMessage(data.answer || "Ok.", { mode });
       }
 
-      // CLAVE: recargar thread y sidebar (sin esconder errores)
-      await loadThread(activeThreadId, { refreshSidebar: false });
-      await refreshThreads();
+      // ✅ Solo refrescamos sidebar para traer el título/updated_at nuevos
+      await refreshThreads().catch(() => {});
     } catch (error) {
       console.error("Error en la petición:", error);
       addBotMessage(
         "❌ **Error de conexión con Vanya.**\n\n" +
-          "El servidor no respondió correctamente. " +
-          "Si estás en Render, revisa que el deploy esté Live y vuelve a intentar.\n\n" +
+          "El servidor no respondió correctamente.\n\n" +
           `Detalle: ${String(error?.message || error)}`,
         { mode: "error" }
       );
@@ -560,7 +306,189 @@ function App() {
     }
   };
 
+  // -----------------------------
+  // Sidebar actions
+  // -----------------------------
+  const handleNew = async () => {
+    try {
+      await createThread();
+    } catch {}
+  };
+
+  const handleSelect = async (id) => {
+    try {
+      await loadThread(id, { refreshSidebar: false });
+    } catch (e) {
+      setUiError(String(e?.message || e));
+    }
+  };
+
+  const handleDelete = async (id) => {
+    const ok = window.confirm(`¿Eliminar este chat (${shortId(id)})?`);
+    if (!ok) return;
+
+    setUiError("");
+
+    // UI optimista
+    setThreads((prev) => prev.filter((t) => String(t.id) !== String(id)));
+
+    try {
+      await apiDeleteThread(id);
+
+      if (String(threadId) === String(id)) {
+        try {
+          localStorage.removeItem("vanya_thread_id");
+        } catch {}
+        setThreadId(null);
+        setWelcome();
+        await createThread();
+      }
+
+      await refreshThreads();
+    } catch (e) {
+      setUiError(`No se pudo eliminar. Detalle: ${String(e?.message || e)}`);
+      await refreshThreads().catch(() => {});
+    }
+  };
+
   const sidebarBusy = isLoading || isThreadsLoading;
+
+  // -----------------------------
+  // Renderers para Chat.jsx
+  // -----------------------------
+  const prettyStatus = (s) => {
+    const v = String(s || "").toLowerCase();
+    if (v === "passed" || v === "pass") return "PASSED";
+    if (v === "failed" || v === "fail") return "FAIL";
+    return (s || "").toString();
+  };
+
+  const renderRunnerReport = (runner) => {
+    if (!runner) return null;
+
+    const status = prettyStatus(runner.status);
+    const isPass = status === "PASSED";
+    const evidence = runner.evidence_id ? `EV-${String(runner.evidence_id).replace(/^EV-/, "")}` : null;
+
+    return (
+      <div
+        style={{
+          marginTop: 10,
+          padding: 12,
+          borderRadius: 14,
+          background: "rgba(255,255,255,0.04)",
+          border: "1px solid rgba(255,255,255,0.10)",
+        }}
+      >
+        <div style={{ fontWeight: 800, marginBottom: 6 }}>
+          {isPass ? "✅ Prueba ejecutada" : "❌ Prueba ejecutada"}: {status}
+          {evidence ? (
+            <span style={{ fontWeight: 400, opacity: 0.75 }}> (evidence: {evidence})</span>
+          ) : null}
+        </div>
+
+        {runner.error ? (
+          <div style={{ marginTop: 6, opacity: 0.9 }}>
+            <b>Detalle:</b> {String(runner.error)}
+          </div>
+        ) : null}
+
+        {/* ✅ Screenshot */}
+        {runner.screenshot_b64 ? (
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontWeight: 700, marginBottom: 6, opacity: 0.9 }}>
+              🖼️ Evidencia
+            </div>
+            <img
+              src={`data:image/png;base64,${runner.screenshot_b64}`}
+              alt="Evidencia"
+              style={{
+                width: "100%",
+                maxWidth: 900,
+                borderRadius: 12,
+                border: "1px solid rgba(255,255,255,0.12)",
+                display: "block",
+              }}
+              onClick={() => {
+                const newTab = window.open();
+                if (!newTab) return;
+                newTab.document.write(
+                  `<img src="data:image/png;base64,${runner.screenshot_b64}" style="width:100%">`
+                );
+              }}
+              title="Click para ampliar"
+            />
+            <div style={{ fontSize: 11, opacity: 0.6, marginTop: 6 }}>
+              Click para ampliar
+            </div>
+          </div>
+        ) : (
+          <div style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}>
+            (Sin screenshot. Si lo necesitas, aumenta timeout o ajusta el runner para capturar siempre.)
+          </div>
+        )}
+
+        {/* Steps (si vienen) */}
+        {Array.isArray(runner.steps) && runner.steps.length ? (
+          <details style={{ marginTop: 10 }}>
+            <summary style={{ cursor: "pointer", opacity: 0.9 }}>
+              Ver pasos ({runner.steps.length})
+            </summary>
+            <div style={{ marginTop: 8, fontSize: 12, opacity: 0.9 }}>
+              {runner.steps.map((st, idx) => (
+                <div key={idx} style={{ marginTop: 6 }}>
+                  <b>
+                    {st?.status === "pass" ? "✅" : "❌"} #{st?.i ?? idx + 1} {st?.action}
+                  </b>
+                  {st?.error ? (
+                    <div style={{ opacity: 0.85 }}>Error: {String(st.error)}</div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </details>
+        ) : null}
+      </div>
+    );
+  };
+
+  const renderDocArtifacts = (docArtifacts) => {
+    if (!docArtifacts) return null;
+
+    // si es array -> lista simple
+    if (Array.isArray(docArtifacts)) {
+      return (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontWeight: 800, marginBottom: 6 }}>📎 Artefactos</div>
+          <ul style={{ margin: 0, paddingLeft: 18, opacity: 0.95 }}>
+            {docArtifacts.map((a, i) => (
+              <li key={i}>{typeof a === "string" ? a : JSON.stringify(a)}</li>
+            ))}
+          </ul>
+        </div>
+      );
+    }
+
+    // si es objeto -> JSON pretty
+    return (
+      <div style={{ marginTop: 10 }}>
+        <div style={{ fontWeight: 800, marginBottom: 6 }}>📎 Artefactos</div>
+        <pre
+          style={{
+            margin: 0,
+            padding: 12,
+            borderRadius: 12,
+            background: "rgba(0,0,0,0.25)",
+            border: "1px solid rgba(255,255,255,0.10)",
+            overflow: "auto",
+            fontSize: 12,
+          }}
+        >
+          {JSON.stringify(docArtifacts, null, 2)}
+        </pre>
+      </div>
+    );
+  };
 
   // -----------------------------
   // Layout
@@ -572,99 +500,95 @@ function App() {
           width: isSidebarOpen ? 320 : 0,
           overflow: "hidden",
           transition: "width 200ms ease",
-          borderRight: isSidebarOpen
-            ? "1px solid rgba(255,255,255,0.08)"
-            : "none",
+          borderRight: isSidebarOpen ? "1px solid rgba(255,255,255,0.08)" : "none",
         }}
       >
-        {isSidebarOpen && (
-          <Sidebar
-            threads={threads}
-            activeId={threadId}
-            isLoading={sidebarBusy}
-            onNew={async () => { if (!sidebarBusy) await createThread(); }}
-            onSelect={async (id) => { if (!sidebarBusy) await loadThread(id, { refreshSidebar: true }); }}
-            onDelete={async (id) => {
-              if (sidebarBusy) return;
-              const ok = window.confirm("¿Borrar este chat? Esto no se puede deshacer.");
-              if (!ok) return;
-
-              await deleteThread(id);
-              await refreshThreads();
-
-              // si borraste el activo, limpia UI
-              if (String(id) === String(threadId)) {
-                setThreadId(null);
-                try { localStorage.removeItem("vanya_thread_id"); } catch {}
-                setWelcome();
-              }
-            }}
-          />
-        )}
+        <Sidebar
+          threads={threads}
+          activeId={threadId}
+          onNew={handleNew}
+          onSelect={handleSelect}
+          onDelete={handleDelete}
+          isLoading={sidebarBusy}
+        />
       </div>
 
-      <div
-        style={{
-          flex: 1,
-          minWidth: 0,
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
+      <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
         <div
           style={{
+            height: 60,
+            padding: "10px 16px",
+            borderBottom: "1px solid rgba(255,255,255,0.08)",
             display: "flex",
             alignItems: "center",
+            justifyContent: "space-between",
             gap: 10,
-            padding: "10px 12px",
-            borderBottom: "1px solid rgba(255,255,255,0.08)",
           }}
         >
-          <button
-            onClick={() => setIsSidebarOpen((v) => !v)}
-            style={{ padding: "6px 10px", cursor: "pointer" }}
-            title={isSidebarOpen ? "Ocultar historial" : "Mostrar historial"}
-          >
-            {isSidebarOpen ? "⟨⟨" : "⟩⟩"}
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button
+              onClick={() => setIsSidebarOpen((s) => !s)}
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.12)",
+                background: "rgba(0,0,0,0.25)",
+                color: "white",
+                cursor: "pointer",
+              }}
+              title={isSidebarOpen ? "Ocultar historial" : "Mostrar historial"}
+            >
+              {isSidebarOpen ? "⟪" : "⟫"}
+            </button>
 
-          <div style={{ fontWeight: 700, opacity: 0.9 }}>
-            Vanya QA Bot{" "}
-            <span style={{ fontWeight: 400, opacity: 0.7 }}>
-              {threadId ? `• Thread: ${String(threadId).slice(0, 8)}…` : ""}
-            </span>
+            <div style={{ fontWeight: 800, fontSize: 18 }}>
+              Vanya{" "}
+              <span style={{ fontWeight: 400, opacity: 0.7, fontSize: 12 }}>
+                | QA Intelligence Agent{" "}
+                {threadId ? `— thread: ${shortId(threadId)}` : ""}
+              </span>
+            </div>
           </div>
+
+          {uiError ? (
+            <div
+              style={{
+                padding: "6px 10px",
+                borderRadius: 10,
+                background: "rgba(255,0,0,0.10)",
+                border: "1px solid rgba(255,0,0,0.25)",
+                fontSize: 12,
+                maxWidth: 520,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+              title={uiError}
+            >
+              ❗ {uiError}
+            </div>
+          ) : null}
         </div>
 
-        {!!uiError && (
-          <div
-            style={{
-              padding: "10px 12px",
-              borderBottom: "1px solid rgba(255,255,255,0.08)",
-              background: "rgba(255, 0, 0, 0.06)",
-              color: "rgba(255,255,255,0.9)",
-              fontSize: 12,
-            }}
-          >
-            {uiError}
-          </div>
-        )}
-
-        <Chat
-          messages={messages}
-          input={input}
-          setInput={setInput}
-          handleSend={handleSend}
-          isLoading={isLoading}
-          sessionId={sessionId}
-          threadId={threadId}
-          renderRunnerReport={renderRunnerReport}
-          renderDocArtifacts={renderDocArtifacts}
-          formatText={formatText}
-          chatEndRef={chatEndRef}
-          prettyMode={prettyMode}
-          prettyStatus={prettyStatus}
-        />
+        <div style={{ flex: 1, overflow: "auto" }}>
+          <Chat
+            messages={messages}
+            input={input}
+            setInput={setInput}
+            handleSend={handleSend}
+            isLoading={isLoading}
+            sessionId={sessionId}
+            threadId={threadId}
+            renderRunnerReport={renderRunnerReport}
+            renderDocArtifacts={renderDocArtifacts}
+            formatText={formatText}
+            chatEndRef={chatEndRef}
+            prettyMode={(m) => m}
+            prettyStatus={prettyStatus}
+          />
+          <div ref={chatEndRef} />
+        </div>
       </div>
     </div>
   );

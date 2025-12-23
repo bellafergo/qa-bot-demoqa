@@ -1,90 +1,160 @@
 // src/components/Sidebar.jsx
-import React from "react";
+import React, { useMemo, useState } from "react";
+
+function fmtDate(iso) {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleString();
+  } catch {
+    return "";
+  }
+}
+
+function buildFallbackTitle(t) {
+  const title = (t?.title || "").trim();
+  if (title && title.toLowerCase() !== "new chat") return title;
+
+  // Si backend manda un preview (ideal)
+  const preview = (t?.preview || "").trim();
+  if (preview) return preview.length > 48 ? preview.slice(0, 48) + "…" : preview;
+
+  // fallback final: id corto
+  const id = String(t?.id || t?.thread_id || "").trim();
+  if (id) return `Chat ${id.slice(0, 6)}…`;
+
+  return "Chat";
+}
 
 export default function Sidebar({
   threads = [],
   activeId = null,
   onNew,
   onSelect,
-  onDelete,          // ✅ nuevo
+  onDelete,
   isLoading = false,
 }) {
+  const [filter, setFilter] = useState("");
+
+  const filtered = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return threads;
+    return threads.filter((t) => {
+      const title = (t?.title || "").toLowerCase();
+      const preview = (t?.preview || "").toLowerCase();
+      const id = String(t?.id || t?.thread_id || "").toLowerCase();
+      return title.includes(q) || preview.includes(q) || id.includes(q);
+    });
+  }, [threads, filter]);
+
   return (
-    <div style={{ width: 260, borderRight: "1px solid rgba(255,255,255,0.08)", padding: 12 }}>
-      <div style={{ fontWeight: 800, marginBottom: 10, opacity: 0.9 }}>Historial</div>
+    <div
+      style={{
+        width: 320,
+        borderRight: "1px solid rgba(255,255,255,0.08)",
+        padding: 12,
+        background: "rgba(0,0,0,0.15)",
+        height: "100%",
+        boxSizing: "border-box",
+      }}
+    >
+      <div style={{ fontWeight: 800, marginBottom: 10, opacity: 0.9 }}>
+        Historial
+      </div>
 
       <button
         onClick={onNew}
         disabled={isLoading}
-        style={{ width: "100%", padding: "10px 12px", borderRadius: 10 }}
+        style={{
+          width: "100%",
+          padding: "10px 12px",
+          borderRadius: 10,
+          border: "1px solid rgba(255,255,255,0.12)",
+          background: "#4e6bff",
+          color: "white",
+          cursor: isLoading ? "not-allowed" : "pointer",
+          fontWeight: 700,
+        }}
       >
         + New chat
       </button>
 
-      <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-        {threads.length === 0 && (
-          <div style={{ fontSize: 12, opacity: 0.65, padding: "8px 4px" }}>
-            Aún no hay chats guardados.
-          </div>
-        )}
+      <input
+        value={filter}
+        onChange={(e) => setFilter(e.target.value)}
+        placeholder="Buscar…"
+        style={{
+          width: "100%",
+          marginTop: 10,
+          padding: "10px 12px",
+          borderRadius: 10,
+          border: "1px solid rgba(255,255,255,0.12)",
+          background: "rgba(0,0,0,0.25)",
+          color: "white",
+          outline: "none",
+          boxSizing: "border-box",
+        }}
+      />
 
-        {threads.map((t, idx) => {
-          const id = t?.id || t?.thread_id || `fallback-${idx}`;
+      <div style={{ marginTop: 12, overflowY: "auto", height: "calc(100vh - 160px)" }}>
+        {filtered.map((t, idx) => {
+          const id = t?.id || t?.thread_id || String(idx);
+          const title = buildFallbackTitle(t);
+          const subtitle =
+            (t?.preview || "").trim() ||
+            (t?.updated_at ? fmtDate(t.updated_at) : "");
+
           const isActive = String(id) === String(activeId);
-
-          // ✅ Usa title del backend; si sigue "New chat", al menos muestra id corto
-          const titleRaw = (t?.title || "New chat").trim();
-          const title =
-            titleRaw !== "New chat"
-              ? titleRaw
-              : `Chat ${String(id).slice(0, 6)}…`;
 
           return (
             <div
               key={id}
+              onClick={() => onSelect?.(id)}
               style={{
+                marginTop: 10,
+                padding: 10,
+                cursor: "pointer",
+                background: isActive ? "rgba(78,107,255,0.18)" : "rgba(0,0,0,0.18)",
+                borderRadius: 12,
+                border: isActive
+                  ? "1px solid rgba(78,107,255,0.55)"
+                  : "1px solid rgba(255,255,255,0.10)",
                 display: "flex",
-                gap: 8,
-                alignItems: "stretch",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 10,
               }}
+              title={title}
             >
-              <button
-                onClick={() => onSelect?.(id)}
-                type="button"
-                style={{
-                  flex: 1,
-                  textAlign: "left",
-                  padding: "10px 10px",
-                  borderRadius: 10,
-                  cursor: "pointer",
-                  border: isActive
-                    ? "1px solid rgba(255,255,255,0.22)"
-                    : "1px solid rgba(255,255,255,0.08)",
-                  background: isActive ? "rgba(255,255,255,0.08)" : "transparent",
-                  color: "rgba(255,255,255,0.92)",
-                }}
-                title={id}
-              >
-                <div style={{ fontWeight: 700, fontSize: 13, lineHeight: 1.2 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 750, fontSize: 13, color: "white" }}>
                   {title}
                 </div>
-                <div style={{ fontSize: 11, opacity: 0.6, marginTop: 4 }}>
-                  id: {String(id).slice(0, 8)}…
-                </div>
-              </button>
+                {subtitle ? (
+                  <div style={{ fontSize: 11, opacity: 0.7, marginTop: 3, color: "white" }}>
+                    {subtitle}
+                  </div>
+                ) : null}
+              </div>
 
               <button
-                type="button"
-                onClick={() => onDelete?.(id)}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation(); // IMPORTANTÍSIMO: que no seleccione el chat
+                  onDelete?.(id);
+                }}
                 disabled={isLoading}
-                title="Borrar chat"
+                title="Eliminar chat"
                 style={{
-                  width: 38,
+                  width: 34,
+                  height: 34,
                   borderRadius: 10,
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  background: "transparent",
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  background: "rgba(0,0,0,0.35)",
+                  color: "white",
                   cursor: isLoading ? "not-allowed" : "pointer",
-                  color: "rgba(255,255,255,0.8)",
+                  opacity: 0.9,
                 }}
               >
                 🗑️
@@ -92,6 +162,12 @@ export default function Sidebar({
             </div>
           );
         })}
+
+        {!filtered.length && (
+          <div style={{ marginTop: 14, opacity: 0.7, fontSize: 12 }}>
+            No hay chats.
+          </div>
+        )}
       </div>
     </div>
   );

@@ -109,7 +109,7 @@ def execute_test(steps: List[Dict[str, Any]], headless: bool = True) -> Dict[str
                     page.wait_for_timeout(delay_ms)
 
                     img_bytes = page.screenshot(full_page=True)
-                    if img_bytes and len(img_bytes) > 15000:
+                    if img_bytes and len(img_bytes) > 2000:
                         return base64.b64encode(img_bytes).decode("utf-8")
                 except Exception:
                     pass
