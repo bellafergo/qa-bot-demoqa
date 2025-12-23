@@ -124,8 +124,19 @@ def _push_history(session: Dict[str, Any], role: str, content: str):
 # ============================================================
 # NORMALIZE / HELPERS
 # ============================================================
+import datetime as dt
+
 _URL_RE = re.compile(r"(https?://[^\s]+)", re.I)
 
+def _iso(x):
+    """Convierte datetimes a ISO8601 UTC (string). Evita bugs de timezone."""
+    if not x:
+        return None
+    if isinstance(x, dt.datetime):
+        if x.tzinfo is None:
+            x = x.replace(tzinfo=dt.timezone.utc)
+        return x.astimezone(dt.timezone.utc).isoformat()
+    return str(x)
 
 def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "").strip())
@@ -728,7 +739,7 @@ def list_threads():
     db: Session = SessionLocal()
     try:
         threads = db.query(Thread).order_by(Thread.updated_at.desc()).all()
-        return [{"id": t.id, "title": t.title, "updated_at": t.updated_at} for t in threads]
+        return [{"id": t.id, "title": t.title, "updated_at": _iso(t.updated_at)} for t in threads]
     finally:
         db.close()
 
