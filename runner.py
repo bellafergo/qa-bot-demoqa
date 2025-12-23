@@ -21,8 +21,7 @@ def _safe_str(v: Any, max_len: int = 120) -> str:
 
 def _pick_locator(page, step: Dict[str, Any]):
     """
-    Mejora clave (Cambio #2): no dependemos de selector.
-    Priorizamos:
+    Locator fallback:
       1) selector (CSS/XPath)
       2) role + text (get_by_role)
       3) text (get_by_text)
@@ -38,16 +37,16 @@ def _pick_locator(page, step: Dict[str, Any]):
         return page.get_by_role(role, name=text)
 
     if text:
-        # exact=False para tolerar pequeños cambios
         return page.get_by_text(text, exact=False)
 
     raise StepExecutionError("No locator: provee selector o text o role+text")
+
 
 def _ensure_goto(steps: List[Dict[str, Any]], default_url: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     Garantiza que exista un paso goto al inicio.
     - Si no hay goto y default_url existe, lo inserta.
-    - Si no hay goto y default_url NO existe, no hace nada (pero lo ideal es fallar en app.py antes).
+    - Si no hay goto y default_url NO existe, no hace nada.
     """
     if not steps:
         return steps
@@ -58,28 +57,29 @@ def _ensure_goto(steps: List[Dict[str, Any]], default_url: Optional[str] = None)
 
     if default_url:
         steps.insert(0, {"action": "goto", "url": default_url})
+
     return steps
 
 
 def execute_test(steps: List[Dict[str, Any]], headless: bool = True) -> Dict[str, Any]:
     t0 = time.time()
+
+    # ✅ SIEMPRE inicializa (evita NameError y resultados incompletos)
     screenshot_b64: Optional[str] = None
     report_steps: List[Dict[str, Any]] = []
     logs: List[str] = []
     evidence_id = f"EV-{uuid.uuid4().hex[:10]}"
 
-def execute_test(steps: List[Dict[str, Any]], headless: bool = True) -> Dict[str, Any]:
-    t0 = time.time()
-        # Asegura navegación inicial si el modelo olvidó goto.
-    # Nota: aquí no tenemos base_url, así que solo podemos:
-    # - confiar en que el primer step goto venga con url, o
-    # - que app.py inserte goto con base_url antes de llamar al runner.
-    # Este helper se vuelve útil si app.py ya lo insertó.
+    # Asegura navegación inicial si el modelo olvidó goto.
+    # Aquí no tenemos base_url, así que confiamos en que venga un goto con url
+    # o que app.py lo inserte antes de llamar al runner.
     steps = _ensure_goto(steps, default_url=None)
+
+    status = "fail"
+    error_msg: Optional[str] = None
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
-
         context = browser.new_context(
             viewport={"width": 1280, "height": 720},
             user_agent=(
@@ -94,7 +94,7 @@ def execute_test(steps: List[Dict[str, Any]], headless: bool = True) -> Dict[str
             """
             Evita screenshots en blanco:
             - espera DOM + body
-            - intenta networkidle pero no revienta si falla (algunas apps mantienen conexiones)
+            - intenta networkidle pero no revienta si falla
             - full_page=True
             - reintenta si PNG sale demasiado pequeño
             """
@@ -115,10 +115,9 @@ def execute_test(steps: List[Dict[str, Any]], headless: bool = True) -> Dict[str
                     pass
             return None
 
-        status = "fail"
-        error_msg: Optional[str] = None
-
         try:
+            logs.append(f"Runner start. steps={len(steps)} headless={headless}")
+
             for i, step in enumerate(steps, start=1):
                 step_t0 = _ms()
 
@@ -151,23 +150,20 @@ def execute_test(steps: List[Dict[str, Any]], headless: bool = True) -> Dict[str
                             raise StepExecutionError("goto requiere 'url'")
                         logs.append(f"Goto: {url}")
                         page.goto(url, wait_until="domcontentloaded", timeout=60000)
-                        # estabilización ligera
                         try:
                             page.wait_for_load_state("networkidle", timeout=15000)
                         except Exception:
                             pass
 
                     # -------------------------
-                    # WAIT (compat: wait_for_selector)
+                    # WAIT
                     # -------------------------
                     elif action in ("wait_for", "wait_for_selector"):
-                        # si es wait_for_selector exige selector; si es wait_for permite text/role
                         if action == "wait_for_selector" and not (selector or "").strip():
                             raise StepExecutionError("wait_for_selector requiere 'selector'")
                         loc = _pick_locator(page, step)
                         logs.append(
-                            f"Wait for visible: "
-                            f"{_safe_str(selector) or _safe_str(role)} {_safe_str(text)} "
+                            f"Wait visible: {(_safe_str(selector) or _safe_str(role))} {_safe_str(text)} "
                             f"(timeout={timeout_ms}ms)"
                         )
                         loc.wait_for(state="visible", timeout=timeout_ms)
@@ -192,7 +188,6 @@ def execute_test(steps: List[Dict[str, Any]], headless: bool = True) -> Dict[str
                         logs.append(f"Click: {(_safe_str(selector) or _safe_str(text))}")
                         loc.wait_for(state="visible", timeout=timeout_ms)
                         loc.click(timeout=timeout_ms)
-                        # algunos clicks disparan navegación o renders; intentamos networkidle sin bloquear
                         try:
                             page.wait_for_load_state("networkidle", timeout=15000)
                         except Exception:
@@ -203,9 +198,9 @@ def execute_test(steps: List[Dict[str, Any]], headless: bool = True) -> Dict[str
                     # -------------------------
                     elif action == "press":
                         key = (text or value or "Enter")
-                        logs.append(f"Press: {key}" + (f" on {(_safe_str(selector) or _safe_str(text))}" if (selector or text or role) else ""))
-
-                        # Si hay locator, presiona ahí; si no, keyboard global
+                        logs.append(
+                            f"Press: {key}" + (f" on {(_safe_str(selector) or _safe_str(text))}" if (selector or text or role) else "")
+                        )
                         try:
                             loc = _pick_locator(page, step)
                             loc.wait_for(state="visible", timeout=timeout_ms)
@@ -231,7 +226,9 @@ def execute_test(steps: List[Dict[str, Any]], headless: bool = True) -> Dict[str
                         if not expected:
                             raise StepExecutionError("assert_text_contains requiere 'text'")
                         loc = _pick_locator(page, step)
-                        logs.append(f"Assert text contains: {(_safe_str(selector) or _safe_str(text))} has '{_safe_str(expected, 80)}'")
+                        logs.append(
+                            f"Assert text contains: {(_safe_str(selector) or _safe_str(text))} has '{_safe_str(expected, 80)}'"
+                        )
                         loc.wait_for(state="visible", timeout=timeout_ms)
                         actual = loc.inner_text(timeout=timeout_ms) or ""
                         if expected.lower() not in actual.lower():
@@ -284,7 +281,10 @@ def execute_test(steps: List[Dict[str, Any]], headless: bool = True) -> Dict[str
                 context.close()
             except Exception:
                 pass
-            browser.close()
+            try:
+                browser.close()
+            except Exception:
+                pass
 
     return {
         "status": status,
