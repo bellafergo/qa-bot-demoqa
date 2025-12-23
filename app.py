@@ -760,8 +760,12 @@ def _trim_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
 # ============================================================
 @app.get("/health")
 def health():
-    _cleanup_sessions()
     return {"ok": True}
+
+@app.get("/maintenance/cleanup")
+def maintenance_cleanup():
+    _cleanup_sessions()
+    return {"cleaned": True}
 
 
 @app.get("/meta")
