@@ -4,7 +4,6 @@ import re
 import time
 import uuid
 import traceback
-import datetime as dt
 from typing import List, Optional, Dict, Any, Tuple
 
 from dotenv import load_dotenv
@@ -16,7 +15,9 @@ from pydantic import BaseModel
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
-from db import init_db, SessionLocal, Thread, Message
+# 👇 Import único y correcto desde db
+from db import init_db, SessionLocal, Thread, Message, utcnow
+
 from runner import execute_test
 
 # ============================================================
@@ -120,22 +121,21 @@ def _push_history(session: Dict[str, Any], role: str, content: str):
     if len(session["history"]) > MAX_HISTORY_MSGS:
         session["history"] = session["history"][-MAX_HISTORY_MSGS:]
 
-
 # ============================================================
 # NORMALIZE / HELPERS
 # ============================================================
-import datetime as dt
-
-_URL_RE = re.compile(r"(https?://[^\s]+)", re.I)
 
 def _iso(x):
-    """Convierte datetimes a ISO8601 UTC (string). Evita bugs de timezone."""
+    """Convierte datetimes a ISO8601 UTC (string). Seguro y consistente."""
     if not x:
         return None
-    if isinstance(x, dt.datetime):
+
+    if hasattr(x, "tzinfo"):
+        # Asegura UTC
         if x.tzinfo is None:
-            x = x.replace(tzinfo=dt.timezone.utc)
-        return x.astimezone(dt.timezone.utc).isoformat()
+            x = x.replace(tzinfo=utcnow().tzinfo)
+        return x.astimezone(utcnow().tzinfo).isoformat()
+
     return str(x)
 
 def _norm(s: str) -> str:
@@ -279,7 +279,7 @@ def _db_add_message(db: Session, thread_id: str, role: str, content: str):
 def _touch_thread(db: Session, thread_id: str):
     t = db.query(Thread).filter(Thread.id == thread_id).first()
     if t:
-        t.updated_at = datetime.now(datetime.timezone.utc)
+        t.updated_at = utcnow()
         db.add(t)
 
 
