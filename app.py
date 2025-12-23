@@ -295,8 +295,23 @@ def _db_create_thread(db: Session, title: str = "New chat") -> Thread:
     return t
 
 
-def _db_add_message(db: Session, thread_id: str, role: str, content: str):
+def _db_add_message(
+    db: Session,
+    thread_id: str,
+    role: str,
+    content: str,
+    meta: Optional[dict] = None,   # ✅ NUEVO
+):
+    """
+    Guarda un mensaje. meta se usa para guardar runner/doc/etc (y que aparezca en historial).
+    Requiere que Message tenga un campo meta_json (JSON/JSONB).
+    """
     m = Message(thread_id=thread_id, role=role, content=content)
+
+    # ✅ si tu modelo Message ya tiene meta_json, lo setea
+    if meta is not None and hasattr(m, "meta_json"):
+        m.meta_json = meta
+
     db.add(m)
 
 
@@ -307,17 +322,26 @@ def _touch_thread(db: Session, thread_id: str):
         db.add(t)
 
 
-def _db_add_message_and_touch(db: Session, thread_id: str, role: str, content: str):
-    _db_add_message(db, thread_id, role, content)
+def _db_add_message_and_touch(
+    db: Session,
+    thread_id: str,
+    role: str,
+    content: str,
+    meta: Optional[dict] = None,   # ✅ NUEVO
+):
+    _db_add_message(db, thread_id, role, content, meta=meta)
     _touch_thread(db, thread_id)
 
 
-def _db_save_assistant(thread_id: str, content: str):
+def _db_save_assistant(thread_id: str, content: str, meta: Optional[dict] = None):  # ✅ NUEVO
+    """
+    Helper para guardar mensaje assistant con meta opcional.
+    """
     if not thread_id:
         return
     db2: Session = SessionLocal()
     try:
-        _db_add_message_and_touch(db2, thread_id, "assistant", content)
+        _db_add_message_and_touch(db2, thread_id, "assistant", content, meta=meta)
         db2.commit()
     except Exception:
         db2.rollback()
@@ -781,16 +805,6 @@ def create_thread():
         db.close()
 
 
-@app.get("/threads")
-def list_threads():
-    db: Session = SessionLocal()
-    try:
-        threads = db.query(Thread).order_by(Thread.updated_at.desc()).all()
-        return [{"id": t.id, "title": t.title, "updated_at": _iso(t.updated_at)} for t in threads]
-    finally:
-        db.close()
-
-
 @app.get("/threads/{thread_id}")
 def get_thread(thread_id: str):
     db: Session = SessionLocal()
@@ -806,10 +820,28 @@ def get_thread(thread_id: str):
             .all()
         )
 
+        out_msgs = []
+        for m in msgs:
+            meta = None
+            # ✅ Si tu modelo ya tiene meta_json (JSON/JSONB), inclúyelo
+            if hasattr(m, "meta_json"):
+                meta = m.meta_json
+
+            out_msgs.append(
+                {
+                    "id": getattr(m, "id", None),
+                    "role": m.role,
+                    "content": m.content,
+                    "created_at": _iso(m.created_at) if " _iso" else m.created_at,
+                    "meta": meta,  # ✅ AQUÍ viaja runner/doc/etc
+                }
+            )
+
         return {
             "id": t.id,
             "title": t.title,
-            "messages": [{"role": m.role, "content": m.content, "created_at": m.created_at} for m in msgs],
+            "updated_at": _iso(t.updated_at),
+            "messages": out_msgs,
         }
     finally:
         db.close()
@@ -1148,8 +1180,10 @@ def chat_run(req: ChatRunRequest):
         # 3) Ejecutar runner (firma correcta: execute_test(steps, headless))
         result = execute_test(steps=steps, headless=req.headless)
 
-        # Resumen corto
-        status = result.get("status")
+        # -------------------------
+        # Resumen corto + persistir runner en historial
+        # -------------------------
+        status = (result.get("status") or "").lower()
         error = result.get("error")
         evidence_id = result.get("evidence_id")
 
@@ -1158,9 +1192,32 @@ def chat_run(req: ChatRunRequest):
         else:
             answer = f"❌ Prueba ejecutada: FAIL (evidence: {evidence_id})\nDetalle: {error}"
 
+        # History (memoria en sesión)
         _push_history(session, "user", prompt)
         _push_history(session, "assistant", answer)
-        _db_save_assistant(active_thread_id, answer)
+
+        # ✅ DB: guarda el mensaje del assistant con META (runner incluido)
+        # Requiere:
+        # - _db_save_assistant(thread_id, content, meta=...) (ya lo ajustaste en helpers)
+        # - Message.meta_json (JSON/JSONB) y que GET /threads incluya "meta"
+        _db_save_assistant(
+            active_thread_id,
+            answer,
+            meta={
+                "mode": "execute",
+                "runner": {
+                    # guarda TODO el runner, o si quieres recortar, al menos:
+                    "status": result.get("status"),
+                    "error": result.get("error"),
+                    "evidence_id": result.get("evidence_id"),
+                    "steps": result.get("steps", []),
+                    "logs": result.get("logs", []),
+                    "screenshot_b64": result.get("screenshot_b64"),  # ✅ lo importante
+                    "duration_ms": result.get("duration_ms"),
+                    "meta": result.get("meta", {}),
+                },
+            },
+        )
 
         return {
             "mode": "execute",
