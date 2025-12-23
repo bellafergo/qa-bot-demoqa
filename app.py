@@ -886,7 +886,7 @@ def chat_run(req: ChatRunRequest):
                     "cached": False,
                 }
 
-                        raw_args = tool_calls[0].function.arguments
+            raw_args = tool_calls[0].function.arguments
             args = _parse_tool_args(raw_args) or {}
 
             # Fallback INVEST si lo pidieron pero el modelo no llenó estructura
