@@ -15,15 +15,14 @@ from pydantic import BaseModel
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
-# 👇 Import único y correcto desde db
 from db import init_db, SessionLocal, Thread, Message, utcnow
-
 from runner import execute_test
 
 # ============================================================
 # INIT
 # ============================================================
-from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
@@ -39,7 +38,6 @@ app.add_middleware(
 
 @app.on_event("startup")
 def on_startup():
-    # Inicializa tablas cuando hay DB
     if os.getenv("DATABASE_URL"):
         init_db()
 
