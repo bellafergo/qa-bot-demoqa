@@ -119,6 +119,9 @@ def _push_history(session: Dict[str, Any], role: str, content: str):
 # ============================================================
 # NORMALIZE / HELPERS
 # ============================================================
+_URL_RE = re.compile(r"(https?://[^\s]+)", re.I)
+
+
 def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "").strip())
 
@@ -128,24 +131,59 @@ def _low(s: str) -> str:
 
 
 def _looks_like_url(s: str) -> bool:
-    return bool(re.search(r"https?://", s or ""))
+    # Estricto: solo http/https (nada de www. implícito)
+    return bool(_URL_RE.search(s or ""))
 
 
-def _pick_base_url(req: ChatRunRequest, session: Dict[str, Any], prompt: str) -> Optional[str]:
-    if req.base_url and req.base_url.strip():
-        return req.base_url.strip()
+def _extract_first_url(text: str) -> Optional[str]:
+    if not text:
+        return None
+    m = _URL_RE.search(text)
+    if not m:
+        return None
+    url = m.group(1).strip()
+    # Limpia basura típica al final/inicio
+    url = url.rstrip(").,;!?:\"'”’]")
+    url = url.lstrip("[\"'“‘(")
+    return url or None
 
-    if _looks_like_url(prompt):
-        m = re.search(r"(https?://[^\s]+)", prompt)
-        if m:
-            return m.group(1).strip().rstrip(").,")
 
+def _normalize_url(url: str) -> str:
+    url = (url or "").strip()
+    url = url.rstrip(").,;!?:\"'”’]")
+    url = url.lstrip("[\"'“‘(")
+    return url
+
+
+def _pick_base_url(req: "ChatRunRequest", session: Dict[str, Any], prompt: str) -> Optional[str]:
+    # 1) base_url explícito en el request
+    if getattr(req, "base_url", None) and req.base_url.strip():
+        return _normalize_url(req.base_url)
+
+    # 2) URL explícita en el prompt
+    url = _extract_first_url(prompt)
+    if url:
+        return url
+
+    # 3) Follow-ups: “la misma”, “ahí”, “en esa página”
     p = _low(prompt)
-    if session.get("last_url") and any(x in p for x in ["la misma", "mismo sitio", "misma página", "ahí", "en esa página"]):
-        return str(session["last_url"])
+    same_markers = [
+        "la misma", "mismo sitio", "misma página",
+        "ahí", "en esa página",
+        "same", "same page", "same site",
+    ]
+    cont_markers = [
+        "ahora", "también", "en la misma",
+        "en esa", "siguiente", "luego", "después",
+        "then", "next",
+    ]
 
-    if session.get("last_url") and any(x in p for x in ["ahora", "también", "en la misma", "en esa", "siguiente", "luego", "después"]):
-        return str(session["last_url"])
+    if session.get("last_url"):
+        last = _normalize_url(str(session["last_url"]))
+        if any(x in p for x in same_markers):
+            return last
+        if any(x in p for x in cont_markers):
+            return last
 
     return None
 
@@ -153,9 +191,16 @@ def _pick_base_url(req: ChatRunRequest, session: Dict[str, Any], prompt: str) ->
 def _ensure_goto(steps: List[Dict[str, Any]], base_url: str):
     if not steps:
         return
-    has_goto = any(str(s.get("action", "")).lower() == "goto" for s in steps)
-    if not has_goto:
-        steps.insert(0, {"action": "goto", "url": base_url})
+
+    base_url = _normalize_url(base_url)
+
+    for s in steps:
+        if str(s.get("action", "")).lower() == "goto":
+            if not s.get("url"):
+                s["url"] = base_url
+            return
+
+    steps.insert(0, {"action": "goto", "url": base_url})
 
 
 def _is_question(prompt: str) -> bool:
@@ -179,28 +224,35 @@ def _is_question(prompt: str) -> bool:
 def _update_last_url_from_steps(session: Dict[str, Any], steps: List[Dict[str, Any]], fallback: Optional[str] = None):
     for s in steps:
         if str(s.get("action") or "").lower() == "goto" and s.get("url"):
-            session["last_url"] = s["url"]
+            session["last_url"] = _normalize_url(str(s["url"]))
             return
     if fallback:
-        session["last_url"] = fallback
+        session["last_url"] = _normalize_url(str(fallback))
+
+
+def _strip_code_fences(s: str) -> str:
+    if not s:
+        return s
+    s2 = s.strip()
+    if s2.startswith("```"):
+        s2 = re.sub(r"^```[a-zA-Z0-9_-]*\s*", "", s2)
+        s2 = re.sub(r"\s*```$", "", s2)
+    return s2.strip()
 
 
 def _parse_tool_args(raw_args: str) -> Optional[Dict[str, Any]]:
-    """
-    Parse robusto: si el JSON viene inválido, NO truenes 500.
-    Regresa dict si se pudo, o None si no.
-    """
     if not raw_args:
         return None
 
-    # 1) intento directo
+    raw = _strip_code_fences(raw_args).strip()
+    raw = raw.lstrip("\ufeff")  # BOM
+
     try:
-        return json.loads(raw_args)
+        return json.loads(raw)
     except json.JSONDecodeError:
         pass
 
-    # 2) intento: rescatar el bloque { ... } más grande
-    m = re.search(r"\{.*\}", raw_args, flags=re.S)
+    m = re.search(r"\{.*\}", raw, flags=re.S)
     if m:
         try:
             return json.loads(m.group(0))
