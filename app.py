@@ -23,11 +23,15 @@ from runner import execute_test
 # ============================================================
 # INIT
 # ============================================================
-app = FastAPI()
+from fastapi.middleware.cors import CORSMiddleware
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # luego ciérralo a tu(s) dominio(s)
+    allow_origins=[
+        "https://valtre-vanya.vercel.app",
+        "http://localhost:5173",
+        "http://localhost:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
