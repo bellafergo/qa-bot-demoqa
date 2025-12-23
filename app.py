@@ -268,7 +268,7 @@ def _db_add_message(db: Session, thread_id: str, role: str, content: str):
 def _touch_thread(db: Session, thread_id: str):
     t = db.query(Thread).filter(Thread.id == thread_id).first()
     if t:
-        t.updated_at = datetime.utcnow()
+        t.updated_at = datetime.now(datetime.timezone.utc)
         db.add(t)
 
 

@@ -43,6 +43,23 @@ def _pick_locator(page, step: Dict[str, Any]):
 
     raise StepExecutionError("No locator: provee selector o text o role+text")
 
+def _ensure_goto(steps: List[Dict[str, Any]], default_url: Optional[str] = None) -> List[Dict[str, Any]]:
+    """
+    Garantiza que exista un paso goto al inicio.
+    - Si no hay goto y default_url existe, lo inserta.
+    - Si no hay goto y default_url NO existe, no hace nada (pero lo ideal es fallar en app.py antes).
+    """
+    if not steps:
+        return steps
+
+    has_goto = any(str(s.get("action", "")).strip().lower() == "goto" for s in steps)
+    if has_goto:
+        return steps
+
+    if default_url:
+        steps.insert(0, {"action": "goto", "url": default_url})
+    return steps
+
 
 def execute_test(steps: List[Dict[str, Any]], headless: bool = True) -> Dict[str, Any]:
     t0 = time.time()
@@ -50,6 +67,15 @@ def execute_test(steps: List[Dict[str, Any]], headless: bool = True) -> Dict[str
     report_steps: List[Dict[str, Any]] = []
     logs: List[str] = []
     evidence_id = f"EV-{uuid.uuid4().hex[:10]}"
+
+def execute_test(steps: List[Dict[str, Any]], headless: bool = True) -> Dict[str, Any]:
+    t0 = time.time()
+        # Asegura navegación inicial si el modelo olvidó goto.
+    # Nota: aquí no tenemos base_url, así que solo podemos:
+    # - confiar en que el primer step goto venga con url, o
+    # - que app.py inserte goto con base_url antes de llamar al runner.
+    # Este helper se vuelve útil si app.py ya lo insertó.
+    steps = _ensure_goto(steps, default_url=None)
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
