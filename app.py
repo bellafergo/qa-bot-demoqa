@@ -157,6 +157,17 @@ def _normalize_url(url: str) -> str:
     url = url.lstrip("[\"'“‘(")
     return url
 
+def _ensure_goto(steps: List[Dict[str, Any]], base_url: str):
+    """
+    Garantiza que el primer paso sea goto.
+    Útil cuando el modelo olvida incluirlo y tu runner lo necesita.
+    """
+    if not steps:
+        return
+    has_goto = any(str(s.get("action", "")).lower() == "goto" for s in steps)
+    if not has_goto:
+        steps.insert(0, {"action": "goto", "url": base_url})
+
 
 def _pick_base_url(req: ChatRunRequest, session: Dict[str, Any], prompt: str) -> Optional[str]:
     if req.base_url and req.base_url.strip():
@@ -553,41 +564,87 @@ def _render_doc_answer(doc: Dict[str, Any]) -> str:
     context = doc.get("context") or ""
     assumptions = doc.get("assumptions") or []
     questions = doc.get("questions_to_clarify") or []
+    invest = doc.get("invest") or {}
 
     out = []
-    out.append(f"## 📌 Input\n**Dominio:** `{_md_escape(domain)}`  \n**Historia / Requerimiento:** {_md_escape(story)}")
+    out.append(
+        "## 📌 Input\n"
+        f"**Dominio:** `{_md_escape(domain)}`  \n"
+        f"**Historia / Requerimiento:** {_md_escape(story)}"
+    )
     if context:
         out.append(f"\n**Contexto:** {_md_escape(context)}")
 
     if assumptions:
         out.append("\n## 🧩 Assumptions\n" + "\n".join([f"- {_md_escape(a)}" for a in assumptions]))
+
     if questions:
         out.append("\n## ❓ Preguntas mínimas\n" + "\n".join([f"- {_md_escape(q)}" for q in questions]))
 
+    # ✅ INVEST (tabla)
+    if req.get("invest"):
+        # soporta 2 formatos:
+        # 1) invest = {"Independent": 2, "Negotiable": 1, ... , "total": 8, "verdict": "...", "gaps":[...]}
+        # 2) invest = {"scores": {...}, "total": ..., "verdict": ..., "gaps": [...]}
+        scores = invest.get("scores") if isinstance(invest, dict) else None
+        if not scores and isinstance(invest, dict):
+            # intenta leer directo
+            scores = {k: v for k, v in invest.items() if k.lower() in ["independent","negotiable","valuable","estimable","small","testable"]}
+
+        total = invest.get("total") if isinstance(invest, dict) else None
+        verdict = invest.get("verdict") if isinstance(invest, dict) else None
+        gaps = invest.get("gaps") if isinstance(invest, dict) else None
+        rewritten = invest.get("rewritten_story") if isinstance(invest, dict) else None
+
+        out.append("\n## ✅ INVEST")
+        out.append("| Criterio | Score |\n|---|---:|")
+        for k in ["Independent", "Negotiable", "Valuable", "Estimable", "Small", "Testable"]:
+            v = ""
+            if isinstance(scores, dict):
+                v = scores.get(k) or scores.get(k.lower()) or ""
+            out.append(f"| {k} | {_md_escape(str(v))} |")
+
+        if total is not None:
+            out.append(f"\n**Total:** {_md_escape(str(total))}")
+        if verdict:
+            out.append(f"**Veredicto:** {_md_escape(str(verdict))}")
+
+        if gaps:
+            out.append("\n### Brechas")
+            for g in gaps:
+                out.append(f"- {_md_escape(str(g))}")
+
+        if rewritten:
+            out.append("\n### Historia reescrita")
+            out.append(_md_escape(str(rewritten)))
+
+    # ✅ Test cases (matriz)
     if req.get("cases"):
         tcs = doc.get("test_cases") or []
         out.append("\n## 🧪 Matriz de casos de prueba")
         out.append("| ID | Prio | Tipo | Auto | Caso |\n|---|---|---|---:|---|")
         for tc in tcs:
             out.append(
-                f"| {_md_escape(str(tc.get('id','')))} | {_md_escape(str(tc.get('priority','')))} | {_md_escape(str(tc.get('type','')))} | "
+                f"| {_md_escape(str(tc.get('id','')))} | {_md_escape(str(tc.get('priority','')))} | "
+                f"{_md_escape(str(tc.get('type','')))} | "
                 f"{'✅' if tc.get('automatable') else '—'} | {_md_escape(str(tc.get('title','')))} |"
             )
 
+    # ✅ Gherkin
     if req.get("gherkin"):
         gherkin = doc.get("gherkin") or []
         out.append("\n## 🥒 Criterios de aceptación (Gherkin)")
         for sc in gherkin:
             tag = sc.get("tag")
             if tag:
-                out.append(f"\n@{_md_escape(tag)}")
-            out.append(f"Scenario: {_md_escape(sc.get('scenario',''))}")
-            for x in sc.get("given", [])[:8]:
-                out.append(f"  Given {_md_escape(x)}")
-            for x in sc.get("when", [])[:8]:
-                out.append(f"  When {_md_escape(x)}")
-            for x in sc.get("then", [])[:10]:
-                out.append(f"  Then {_md_escape(x)}")
+                out.append(f"\n@{_md_escape(str(tag))}")
+            out.append(f"Scenario: {_md_escape(str(sc.get('scenario','')))}")
+            for x in (sc.get("given") or [])[:8]:
+                out.append(f"  Given {_md_escape(str(x))}")
+            for x in (sc.get("when") or [])[:8]:
+                out.append(f"  When {_md_escape(str(x))}")
+            for x in (sc.get("then") or [])[:10]:
+                out.append(f"  Then {_md_escape(str(x))}")
 
     return "\n".join(out).strip()
 
@@ -829,8 +886,25 @@ def chat_run(req: ChatRunRequest):
                     "cached": False,
                 }
 
-            raw_args = tool_calls[0].function.arguments
+                        raw_args = tool_calls[0].function.arguments
             args = _parse_tool_args(raw_args) or {}
+
+            # Fallback INVEST si lo pidieron pero el modelo no llenó estructura
+            if requested.get("invest") and not args.get("invest"):
+                args["invest"] = {
+                    "scores": {
+                        "Independent": "",
+                        "Negotiable": "",
+                        "Valuable": "",
+                        "Estimable": "",
+                        "Small": "",
+                        "Testable": "",
+                    },
+                    "total": "",
+                    "verdict": "",
+                    "gaps": [],
+                    "rewritten_story": ""
+                }
 
             # patch mínimos + clamps
             args.setdefault("requested", requested)
@@ -900,7 +974,7 @@ def chat_run(req: ChatRunRequest):
             traceback.print_exc()
             raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")
 
-    # ============================================================
+     # ============================================================
     # PRIORIDAD 3: EXECUTE MODE
     # ============================================================
     base_url = _pick_base_url(req, session, prompt)
@@ -918,18 +992,92 @@ def chat_run(req: ChatRunRequest):
         return {"mode": "need_info", "session_id": sid, "thread_id": active_thread_id, "answer": need}
 
     try:
-        result = execute_test(prompt=prompt, base_url=base_url, headless=req.headless)
-        answer = result.get("summary") or "Prueba ejecutada. Revisa el resultado."
+        # 1) Pedimos steps al modelo vía tool-call run_qa_test
+        messages = [{"role": "system", "content": SYSTEM_PROMPT_EXECUTE}]
+        # historial corto para estabilidad
+        messages.extend(session["history"][-max(3, min(MAX_HISTORY_MSGS, 6)):])
+        messages.append({
+            "role": "user",
+            "content": (
+                "Genera steps Playwright para validar en la web.\n"
+                f"BASE_URL: {base_url}\n"
+                f"REQUEST:\n{prompt}\n\n"
+                "Reglas:\n"
+                "- Devuelve SOLO tool-call run_qa_test.\n"
+                "- Si la request no incluye navegación, asume la página BASE_URL.\n"
+                "- Usa selectores robustos: data-testid/#id/name, si no hay usa text.\n"
+            )
+        })
+
+        resp = client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=messages,
+            tools=[QA_TOOL],
+            tool_choice={"type": "function", "function": {"name": "run_qa_test"}},
+            temperature=EXEC_TEMPERATURE,
+            max_tokens=EXEC_MAX_TOKENS,
+        )
+
+        msg = resp.choices[0].message
+        tool_calls = getattr(msg, "tool_calls", None) or []
+        if not tool_calls:
+            # Si el modelo no devolvió tool-call, no tronamos 500: pedimos precisión mínima
+            need = (
+                "No pude generar pasos de ejecución.\n"
+                "Dime:\n"
+                "- URL (o di “la misma”)\n"
+                "- Qué validar exactamente (texto/selector esperado)\n"
+                "- Credenciales (si aplica)\n"
+            )
+            _push_history(session, "user", prompt)
+            _push_history(session, "assistant", need)
+            _db_save_assistant(active_thread_id, need)
+            return {"mode": "need_info", "session_id": sid, "thread_id": active_thread_id, "answer": need}
+
+        raw_args = tool_calls[0].function.arguments
+        parsed = _parse_tool_args(raw_args) or {}
+        steps = parsed.get("steps") or []
+
+        if not isinstance(steps, list) or not steps:
+            need = (
+                "No recibí steps válidos para ejecutar.\n"
+                "Dime qué validar exactamente (mensaje/elemento esperado) y la URL.\n"
+            )
+            _push_history(session, "user", prompt)
+            _push_history(session, "assistant", need)
+            _db_save_assistant(active_thread_id, need)
+            return {"mode": "need_info", "session_id": sid, "thread_id": active_thread_id, "answer": need}
+
+        # 2) Forzar goto si no viene (tu runner lo necesita)
+        _ensure_goto(steps, base_url)
+        _update_last_url_from_steps(session, steps, fallback=base_url)
+
+        # 3) Ejecutar runner (firma correcta: execute_test(steps, headless))
+        result = execute_test(steps=steps, headless=req.headless)
+
+        # Resumen corto
+        status = result.get("status")
+        error = result.get("error")
+        evidence_id = result.get("evidence_id")
+
+        if status == "passed":
+            answer = f"✅ Prueba ejecutada: PASSED (evidence: {evidence_id})"
+        else:
+            answer = f"❌ Prueba ejecutada: FAIL (evidence: {evidence_id})\nDetalle: {error}"
+
         _push_history(session, "user", prompt)
         _push_history(session, "assistant", answer)
         _db_save_assistant(active_thread_id, answer)
+
         return {
             "mode": "execute",
             "session_id": sid,
             "thread_id": active_thread_id,
             "answer": answer,
             "run_result": result,
+            "steps": steps,
         }
+
     except Exception as e:
         traceback.print_exc()
         err = f"Error ejecutando prueba: {type(e).__name__}: {str(e)}"
