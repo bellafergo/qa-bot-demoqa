@@ -1,5 +1,38 @@
+// src/components/Chat.jsx
+import React from "react";
+
+function ModeBadge({ mode }) {
+  const m = String(mode || "").toLowerCase();
+
+  const label =
+    m === "execute"
+      ? "EXECUTE"
+      : m === "doc"
+      ? "DOC"
+      : m === "need_info"
+      ? "NEED INFO"
+      : m === "advise"
+      ? "ADVISE"
+      : m === "error"
+      ? "ERROR"
+      : m === "welcome"
+      ? "WELCOME"
+      : (mode || "").toUpperCase() || "INFO";
+
+  const style = {
+    fontSize: 10,
+    padding: "2px 8px",
+    borderRadius: 999,
+    border: "1px solid rgba(255,255,255,0.18)",
+    opacity: 0.85,
+    userSelect: "none",
+  };
+
+  return <span style={style}>{label}</span>;
+}
+
 export default function Chat({
-  messages,
+  messages = [],
   input,
   setInput,
   handleSend,
@@ -7,11 +40,10 @@ export default function Chat({
   sessionId,
   threadId,
   chatEndRef,
-  formatText,
-  renderNeedInfoHint,
-  renderRunnerReport,
-  renderDocArtifacts,
-  ModeBadge,
+  formatText = (t) => t,
+  renderNeedInfoHint, // opcional
+  renderRunnerReport, // opcional
+  renderDocArtifacts, // opcional
 }) {
   return (
     <div className="vanya-wrap" style={{ flex: 1, minWidth: 0 }}>
@@ -44,6 +76,7 @@ export default function Chat({
                 }}
               >
                 {msg.role === "bot" && <ModeBadge mode={msg.meta?.mode} />}
+
                 {msg.role === "bot" && sessionId && (
                   <span style={{ fontSize: 10, opacity: 0.45 }}>
                     session: {String(sessionId).slice(0, 8)}…
@@ -57,11 +90,14 @@ export default function Chat({
               />
 
               {msg.meta?.mode === "need_info" &&
+                typeof renderNeedInfoHint === "function" &&
                 renderNeedInfoHint(msg.content)}
 
-              {msg.runner && renderRunnerReport(msg.runner)}
+              {msg.runner && typeof renderRunnerReport === "function" && renderRunnerReport(msg.runner)}
 
-              {msg.docArtifacts && renderDocArtifacts(msg.docArtifacts)}
+              {msg.docArtifacts &&
+                typeof renderDocArtifacts === "function" &&
+                renderDocArtifacts(msg.docArtifacts)}
 
               {msg.runner?.screenshot_b64 && (
                 <div className="evidence-container">
@@ -90,9 +126,7 @@ export default function Chat({
         {isLoading && (
           <div className="message-row bot">
             <div className="message-label">Vanya</div>
-            <div className="bubble loading">
-              Vanya está procesando tu solicitud...
-            </div>
+            <div className="bubble loading">Vanya está procesando tu solicitud...</div>
           </div>
         )}
 
