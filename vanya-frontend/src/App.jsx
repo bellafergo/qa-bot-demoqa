@@ -143,21 +143,24 @@ function App() {
   };
 
   const createThread = async () => {
-    // usa SOLO api.js (con retry/cold-start)
-    const data = await apiCreateThread();
-    const id = data?.id || data?.thread_id;
-    if (!id) throw new Error("No recibí thread_id del backend.");
+  const data = await apiCreateThread();
+  const id = data?.id || data?.thread_id;
+  if (!id) throw new Error("No recibí thread_id");
 
-    setThreadId(id);
-    try {
-      localStorage.setItem("vanya_thread_id", id);
-    } catch {}
+  setThreadId(id);
+  try {
+    localStorage.setItem("vanya_thread_id", id);
+  } catch {}
 
-    setWelcome(); // UI inmediata
-    await refreshThreads().catch(() => {});
-    // No hace falta loadThread aquí, porque el thread recién creado suele venir vacío
-    return id;
-  };
+  // NO borres nada aquí
+  // El chat nuevo se cargará vacío desde backend
+  await refreshThreads();
+
+  // carga explícitamente el nuevo thread (vacío)
+  await loadThread(id, { refreshSidebar: false });
+
+  return id;
+};
 
   // Init: cargar sidebar + cargar thread guardado si existe
   useEffect(() => {
@@ -482,11 +485,10 @@ function App() {
             activeId={threadId}
             isLoading={isLoading}
             onNew={async () => {
-              const id = await createThread();
-              await loadThread(id, { refreshSidebar: true }).catch(() => {});
-            }}
+            await createThread();
+             }}
             onSelect={async (id) => {
-              await loadThread(id, { refreshSidebar: true }).catch(() => {});
+             await loadThread(id, { refreshSidebar: true });
             }}
           />
         )}
