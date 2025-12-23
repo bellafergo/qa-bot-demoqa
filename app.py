@@ -18,6 +18,9 @@ from sqlalchemy.orm import Session
 from db import init_db, SessionLocal, Thread, Message, utcnow
 from runner import execute_test
 
+from fastapi.responses import JSONResponse
+from starlette.requests import Request
+
 # ============================================================
 # INIT
 # ============================================================
@@ -31,10 +34,21 @@ app.add_middleware(
         "http://localhost:5173",
         "http://localhost:3000",
     ],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    # Log completo en Render
+    print("UNHANDLED ERROR:", repr(exc))
+    print(traceback.format_exc())
+    # Respuesta JSON para que curl/frontend vean el detalle
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"{type(exc).__name__}: {str(exc)}"},
+    )
 
 @app.on_event("startup")
 def on_startup():
@@ -772,35 +786,50 @@ def get_thread(thread_id: str):
 
 @app.post("/chat_run")
 def chat_run(req: ChatRunRequest):
-    _cleanup_sessions()
-    sid, session = _get_session(req.session_id)
-
-    prompt = _norm(req.prompt)
-    if not prompt:
-        raise HTTPException(status_code=400, detail="prompt vacío")
-
-    client = _get_client()
-
-    # -------------------------------
-    # THREAD: asegurar thread_id + guardar user
-    # -------------------------------
-    active_thread_id = (req.thread_id or "").strip()
-    db: Session = SessionLocal()
     try:
-        if not active_thread_id:
-            t = _db_create_thread(db, title="New chat")
-            active_thread_id = t.id
+        _cleanup_sessions()
+        sid, session = _get_session(req.session_id)
 
-        _db_add_message_and_touch(db, active_thread_id, "user", prompt)
-        db.commit()
+        prompt = _norm(req.prompt)
+        if not prompt:
+            raise HTTPException(status_code=400, detail="prompt vacío")
+
+        # ⚠️ si aquí truena OpenAI/env, lo queremos ver en detail
+        client = _get_client()
+
+        # -------------------------------
+        # THREAD: asegurar thread_id + guardar user
+        # -------------------------------
+        active_thread_id = (req.thread_id or "").strip()
+        db: Session = SessionLocal()
+        try:
+            if not active_thread_id:
+                t = _db_create_thread(db, title="New chat")
+                active_thread_id = t.id
+
+            _db_add_message_and_touch(db, active_thread_id, "user", prompt)
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(
+                status_code=500,
+                detail=f"DB error (user msg): {type(e).__name__}: {str(e)}"
+            )
+        finally:
+            db.close()
+
+        wants_doc = _wants_doc(prompt)
+        wants_execute = _wants_execute_explicit(prompt, session) or _wants_execute_followup(prompt, session)
+
+        # ⬇️ AQUÍ sigue tu lógica actual (OpenAI / runner / respuesta)
+        # return {...}
+
+    except HTTPException:
+        raise
     except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"DB error (user msg): {type(e).__name__}: {str(e)}")
-    finally:
-        db.close()
-
-    wants_doc = _wants_doc(prompt)
-    wants_execute = _wants_execute_explicit(prompt, session) or _wants_execute_followup(prompt, session)
+        print("CHAT_RUN ERROR:", repr(e))
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
 
     # ============================================================
     # PRIORIDAD 1: DOC MODE
