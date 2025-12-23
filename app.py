@@ -829,22 +829,31 @@ def chat_run(req: ChatRunRequest):
         client = _get_client()
 
         # -------------------------------
-        # THREAD: asegurar thread_id + guardar user
+        # THREAD: asegurar thread_id + guardar user (robusto)
         # -------------------------------
         active_thread_id = (req.thread_id or "").strip()
         db: Session = SessionLocal()
+
         try:
-            # 1) Crear thread si no existe
-            if not active_thread_id:
+            # 1) Si viene thread_id, valida que exista
+            if active_thread_id:
+                exists = db.query(Thread).filter(Thread.id == active_thread_id).first()
+                if not exists:
+                    # thread_id inválido/borrado -> crea uno nuevo
+                    t = _db_create_thread(db, title="New chat")
+                    active_thread_id = t.id
+                    db.commit()  # ✅ asegura que exista en DB antes de insertar mensajes
+            else:
+                # 2) Si no viene, crea uno nuevo
                 t = _db_create_thread(db, title="New chat")
                 active_thread_id = t.id
+                db.commit()  # ✅ idem
 
-            # 2) Guardar mensaje del usuario
+            # 3) Guarda mensaje del usuario
             _db_add_message_and_touch(db, active_thread_id, "user", prompt)
             db.commit()
 
-            # 3) ✅ Si es el primer mensaje y el título sigue siendo "New chat",
-            #    generar título con contexto desde el prompt
+            # 4) Si sigue "New chat", pon título con contexto
             t2 = db.query(Thread).filter(Thread.id == active_thread_id).first()
             if t2 and (not t2.title or t2.title.strip() == "New chat"):
                 t2.title = _make_title_from_prompt(prompt)
