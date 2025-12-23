@@ -7,17 +7,20 @@ import traceback
 from typing import List, Optional, Dict, Any, Tuple
 
 from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from openai import OpenAI
+from sqlalchemy.orm import Session
 
+from db import init_db, SessionLocal, Thread, Message
 from runner import execute_test
 
 # ============================================================
 # INIT
 # ============================================================
-load_dotenv()
 app = FastAPI()
 
 app.add_middleware(
@@ -28,6 +31,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.on_event("startup")
+def on_startup():
+    # evita que truene si aún no configuras Postgres
+    if os.getenv("DATABASE_URL"):
+        init_db()
+        
 # ============================================================
 # ENV
 # ============================================================
@@ -62,6 +71,7 @@ class ChatRunRequest(BaseModel):
     session_id: Optional[str] = None
     headless: bool = True
     base_url: Optional[str] = None  # opcional
+    thread_id: Optional[str] = None
 
 
 # ============================================================
