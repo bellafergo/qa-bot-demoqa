@@ -36,7 +36,7 @@ def on_startup():
     # evita que truene si aún no configuras Postgres
     if os.getenv("DATABASE_URL"):
         init_db()
-        
+
 # ============================================================
 # ENV
 # ============================================================
@@ -790,6 +790,62 @@ def meta():
         "sessions_in_memory": len(_SESSIONS),
         "doc_cache_items": len(_DOC_CACHE),
     }
+
+# ============================================================
+# THREADS (sidebar tipo ChatGPT)
+# ============================================================
+
+@app.post("/threads")
+def create_thread():
+    db: Session = SessionLocal()
+    try:
+        t = Thread()
+        db.add(t)
+        db.commit()
+        db.refresh(t)
+        return {"id": t.id, "title": t.title}
+    finally:
+        db.close()
+
+
+@app.get("/threads")
+def list_threads():
+    db: Session = SessionLocal()
+    try:
+        threads = db.query(Thread).order_by(Thread.updated_at.desc()).all()
+        return [
+            {"id": t.id, "title": t.title, "updated_at": t.updated_at}
+            for t in threads
+        ]
+    finally:
+        db.close()
+
+
+@app.get("/threads/{thread_id}")
+def get_thread(thread_id: str):
+    db: Session = SessionLocal()
+    try:
+        t = db.query(Thread).filter(Thread.id == thread_id).first()
+        if not t:
+            raise HTTPException(status_code=404, detail="Thread not found")
+
+        msgs = (
+            db.query(Message)
+            .filter(Message.thread_id == thread_id)
+            .order_by(Message.created_at.asc())
+            .all()
+        )
+
+        return {
+            "id": t.id,
+            "title": t.title,
+            "messages": [
+                {"role": m.role, "content": m.content, "created_at": m.created_at}
+                for m in msgs
+            ],
+        }
+    finally:
+        db.close()
 
 
 @app.post("/chat_run")
