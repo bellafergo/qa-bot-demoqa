@@ -27,17 +27,18 @@ from runner import execute_test
 
 app = FastAPI()
 
+ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "https://valtre-vanya.vercel.app",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://valtre-vanya.vercel.app",
-        "http://localhost:5173",
-        "http://localhost:3000",
-    ],
-    allow_credentials=False,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-)
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):

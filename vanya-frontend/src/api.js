@@ -54,31 +54,40 @@ async function handleJsonOrThrow(res) {
 }
 
 export async function apiGet(path) {
-  const res = await fetchWithRetry(`${API_BASE}${path}`, { method: "GET" });
-  return await handleJsonOrThrow(res);
-}
-
-export async function apiPost(path, body = {}) {
-  const res = await fetchWithRetry(`${API_BASE}${path}`, {
-    method: "POST",
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "GET",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body ?? {}),
   });
-  return await handleJsonOrThrow(res);
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(txt || res.statusText);
+  }
+  return res.json();
 }
 
 export async function apiDelete(path) {
-  const res = await fetchWithRetry(`${API_BASE}${path}`, { method: "DELETE" });
-  // puede venir vacío
-  const { text, json } = await safeReadBody(res);
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+  });
   if (!res.ok) {
-    const detail =
-      (json && (json.detail || json.message)) ||
-      text ||
-      `${res.status} ${res.statusText}`;
-    throw new Error(detail);
+    const txt = await res.text();
+    throw new Error(txt || res.statusText);
   }
-  return json ?? { ok: true };
+  return res.json();
+}
+
+export async function apiPost(path, body) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {}),
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(txt || res.statusText);
+  }
+  return res.json();
 }
 
 // ========= Convenience =========
