@@ -15,48 +15,55 @@ export default function Chat({
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       {/* Messages */}
       <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
-        {messages.map((m, i) => (
-          <div
-            key={i}
-            style={{
-              marginBottom: 14,
-              textAlign: m.role === "user" ? "right" : "left",
-            }}
-          >
+        {messages.map((m, i) => {
+          // 🔑 CLAVE: soportar runner nuevo y runner histórico
+          const runner = m.runner || m.meta?.runner || null;
+          const docArtifacts = m.docArtifacts || m.meta?.docArtifacts || null;
+
+          return (
             <div
+              key={i}
               style={{
-                display: "inline-block",
-                maxWidth: "92%",
-                padding: 12,
-                borderRadius: 14,
-                background:
-                  m.role === "user"
-                    ? "linear-gradient(135deg,#4f6cf7,#3b82f6)"
-                    : "rgba(255,255,255,0.06)",
-                border:
-                  m.role === "user"
-                    ? "none"
-                    : "1px solid rgba(255,255,255,0.12)",
-                color: "white",
+                marginBottom: 14,
+                textAlign: m.role === "user" ? "right" : "left",
               }}
             >
-              {/* Texto */}
-              {m.content ? (
-                <div
-                  dangerouslySetInnerHTML={{
-                    __html: formatText(m.content),
-                  }}
-                />
-              ) : null}
+              <div
+                style={{
+                  display: "inline-block",
+                  maxWidth: "92%",
+                  padding: 12,
+                  borderRadius: 14,
+                  background:
+                    m.role === "user"
+                      ? "linear-gradient(135deg,#4f6cf7,#3b82f6)"
+                      : "rgba(255,255,255,0.06)",
+                  border:
+                    m.role === "user"
+                      ? "none"
+                      : "1px solid rgba(255,255,255,0.12)",
+                  color: "white",
+                }}
+              >
+                {/* TEXTO */}
+                {m.content ? (
+                  <div
+                    dangerouslySetInnerHTML={{
+                      __html: formatText(m.content),
+                    }}
+                  />
+                ) : null}
 
-              {/* Runner (SOLO aquí, UNA VEZ) */}
-              {m.runner ? renderRunnerReport(m.runner) : null}
+                {/* ✅ RUNNER (nuevo + histórico, UNA SOLA VEZ) */}
+                {runner ? renderRunnerReport(runner) : null}
 
-              {/* Artefactos */}
-              {m.docArtifacts ? renderDocArtifacts(m.docArtifacts) : null}
+                {/* 📄 Artefactos (si existen) */}
+                {docArtifacts ? renderDocArtifacts(docArtifacts) : null}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
+
         <div ref={chatEndRef} />
       </div>
 

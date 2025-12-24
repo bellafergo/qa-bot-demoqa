@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from "react";
+// src/App.jsx
+import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import "./App.css";
 import {
   chatRun,
@@ -31,15 +32,18 @@ const formatText = (text) => {
 
 const shortId = (id) => (id ? `${String(id).slice(0, 8)}…` : "");
 
-function App() {
+export default function App() {
   // -----------------------------
-  // Chat UI state
+  // UI state
   // -----------------------------
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
-  const [isLoading, setIsLoading] = useState(false); // sending
-  const [isThreadsLoading, setIsThreadsLoading] = useState(false); // sidebar load/list
   const [uiError, setUiError] = useState("");
+
+  // Busy flags
+  const [isSending, setIsSending] = useState(false);
+  const [isThreadsLoading, setIsThreadsLoading] = useState(false);
+  const sidebarBusy = isSending || isThreadsLoading;
 
   // -----------------------------
   // Session + Thread state
@@ -71,7 +75,7 @@ function App() {
 
   useEffect(scrollToBottom, [messages]);
 
-  const setWelcome = () => {
+  const setWelcome = useCallback(() => {
     setMessages([
       {
         role: "bot",
@@ -80,12 +84,12 @@ function App() {
         meta: { mode: "welcome" },
       },
     ]);
-  };
+  }, []);
 
   // -----------------------------
-  // Threads
+  // Threads helpers
   // -----------------------------
-  const normalizeThreads = (list) => {
+  const normalizeThreads = useCallback((list) => {
     const arr = Array.isArray(list) ? list : [];
     const cleaned = arr
       .map((t) => ({
@@ -101,10 +105,11 @@ function App() {
     });
 
     return cleaned;
-  };
+  }, []);
 
-  const refreshThreads = async () => {
+  const refreshThreads = useCallback(async () => {
     setIsThreadsLoading(true);
+    setUiError("");
     try {
       const list = await listThreads();
       const normalized = normalizeThreads(list || []);
@@ -112,77 +117,102 @@ function App() {
       return normalized;
     } catch (e) {
       setUiError(
-        `No pude cargar el historial (/threads). Detalle: ${String(
-          e?.message || e
-        )}`
+        `No pude cargar el historial (/threads). Detalle: ${String(e?.message || e)}`
       );
+      setThreads([]);
       return [];
     } finally {
       setIsThreadsLoading(false);
     }
-  };
+  }, [normalizeThreads]);
 
-  const mapBackendMessagesToUI = (items) => {
+  // -----------------------------
+  // Map backend thread -> UI messages
+  // -----------------------------
+  const mapBackendMessagesToUI = useCallback((items) => {
     if (!Array.isArray(items) || items.length === 0) return null;
 
     const ui = [];
     for (const m of items) {
-      const role = String(m?.role || "").toLowerCase();
-      if (role === "system") continue;
+      const roleRaw = String(m?.role || m?.speaker || "").toLowerCase();
+      if (roleRaw === "system") continue;
 
-      if (role === "assistant") {
-        ui.push({
-          role: "bot",
-          content: String(m?.content || ""),
-          meta: m?.meta || {},
-          runner: m?.runner || null,
-          docArtifacts: m?.doc_artifacts || null,
-        });
-      } else {
-        ui.push({
-          role: "user",
-          content: String(m?.content || ""),
-        });
-      }
+      const role =
+        roleRaw === "assistant" || roleRaw === "bot" ? "bot" : "user";
+
+      const content =
+        typeof m?.content === "string"
+          ? m.content
+          : typeof m?.text === "string"
+          ? m.text
+          : m?.message && typeof m.message === "string"
+          ? m.message
+          : "";
+
+      if (!content) continue;
+
+      ui.push({
+        role,
+        content,
+        meta: m?.meta || {},
+      });
     }
+
     return ui.length ? ui : null;
-  };
+  }, []);
 
-  const loadThread = async (id, opts = { refreshSidebar: true }) => {
-    if (!id) throw new Error("threadId inválido");
+  // -----------------------------
+  // Load one thread
+  // -----------------------------
+  const loadThread = useCallback(
+    async (id, { refreshSidebar = false } = {}) => {
+      const tid = String(id || "").trim();
+      if (!tid) return;
 
-    setIsThreadsLoading(true);
-    setUiError("");
-
-    try {
-      const data = await getThread(id);
-
-      const items = data?.messages || data?.thread?.messages || [];
-      const uiMessages = mapBackendMessagesToUI(items);
-
-      setThreadId(id);
+      setUiError("");
+      setThreadId(tid);
       try {
-        localStorage.setItem("vanya_thread_id", id);
+        localStorage.setItem("vanya_thread_id", tid);
       } catch {}
 
-      if (!uiMessages || uiMessages.length === 0) setWelcome();
-      else setMessages(uiMessages);
+      setIsThreadsLoading(true);
+      try {
+        const data = await getThread(tid);
+        // Esperado: { id, title, messages: [...] } o parecido
+        const backendMsgs =
+          data?.messages || data?.items || data?.history || data?.thread?.messages;
 
-      if (opts?.refreshSidebar) await refreshThreads();
-      return data;
-    } finally {
-      setIsThreadsLoading(false);
-    }
-  };
+        const ui = mapBackendMessagesToUI(backendMsgs);
 
-  const createThread = async () => {
-    setIsThreadsLoading(true);
+        if (ui) setMessages(ui);
+        else setWelcome();
+
+        if (refreshSidebar) await refreshThreads().catch(() => {});
+      } catch (e) {
+        setUiError(
+          `No pude cargar el chat (/threads/${shortId(tid)}). Detalle: ${String(
+            e?.message || e
+          )}`
+        );
+        setWelcome();
+      } finally {
+        setIsThreadsLoading(false);
+      }
+    },
+    [mapBackendMessagesToUI, refreshThreads, setWelcome]
+  );
+
+  // -----------------------------
+  // Create thread
+  // -----------------------------
+  const handleNew = useCallback(async () => {
+    if (sidebarBusy) return;
     setUiError("");
-
+    setIsThreadsLoading(true);
     try {
       const data = await apiCreateThread();
       const id = data?.id || data?.thread_id;
-      if (!id) throw new Error("No recibí thread_id");
+      if (!id) throw new Error("Backend no devolvió id/thread_id al crear thread.");
 
       setThreadId(id);
       try {
@@ -190,31 +220,135 @@ function App() {
       } catch {}
 
       setWelcome();
-
-      // refresca sidebar
-      await refreshThreads();
-      return id;
+      await refreshThreads().catch(() => {});
     } catch (e) {
-      setUiError(
-        `No pude crear un chat nuevo (POST /threads). Detalle: ${String(
-          e?.message || e
-        )}`
-      );
-      throw e;
+      setUiError(`No pude crear chat. Detalle: ${String(e?.message || e)}`);
     } finally {
       setIsThreadsLoading(false);
     }
-  };
+  }, [refreshThreads, setWelcome, sidebarBusy]);
 
-  // Init: cargar sidebar + cargar thread guardado si existe
+  // -----------------------------
+  // Delete thread
+  // -----------------------------
+  const handleDelete = useCallback(
+    async (id) => {
+      if (sidebarBusy) return;
+      const tid = String(id || "").trim();
+      if (!tid) return;
+
+      const ok = window.confirm("¿Borrar este chat? Esto no se puede deshacer.");
+      if (!ok) return;
+
+      setUiError("");
+      setIsThreadsLoading(true);
+      try {
+        await apiDeleteThread(tid);
+        await refreshThreads();
+
+        if (String(tid) === String(threadId)) {
+          setThreadId(null);
+          try {
+            localStorage.removeItem("vanya_thread_id");
+          } catch {}
+          setWelcome();
+        }
+      } catch (e) {
+        setUiError(`No pude borrar el chat. Detalle: ${String(e?.message || e)}`);
+      } finally {
+        setIsThreadsLoading(false);
+      }
+    },
+    [refreshThreads, setWelcome, sidebarBusy, threadId]
+  );
+
+  // -----------------------------
+  // Select thread (from sidebar)
+  // -----------------------------
+  const handleSelect = useCallback(
+    async (id) => {
+      if (sidebarBusy) return;
+      await loadThread(id, { refreshSidebar: false });
+    },
+    [loadThread, sidebarBusy]
+  );
+
+  // -----------------------------
+  // Send chat
+  // -----------------------------
+  const handleSend = useCallback(async () => {
+    const prompt = (input || "").trim();
+    if (!prompt || isSending) return;
+
+    setUiError("");
+    setIsSending(true);
+
+    // UI optimistic
+    setMessages((prev) => [...prev, { role: "user", content: prompt }]);
+    setInput("");
+
+    try {
+      const resp = await chatRun(prompt, threadId || null, { session_id: sessionId });
+
+      // Resp esperada: { answer, thread_id, session_id, ... }
+      const newThreadId = resp?.thread_id || resp?.threadId || threadId || null;
+      const newSessionId = resp?.session_id || resp?.sessionId || sessionId || null;
+
+      if (newThreadId && String(newThreadId) !== String(threadId)) {
+        setThreadId(newThreadId);
+        try {
+          localStorage.setItem("vanya_thread_id", newThreadId);
+        } catch {}
+      }
+
+      if (newSessionId && String(newSessionId) !== String(sessionId)) {
+        setSessionId(newSessionId);
+        try {
+          localStorage.setItem("vanya_session_id", newSessionId);
+        } catch {}
+      }
+
+      const answer =
+        typeof resp?.answer === "string"
+          ? resp.answer
+          : typeof resp?.text === "string"
+          ? resp.text
+          : "";
+
+      if (answer) {
+        setMessages((prev) => [...prev, { role: "bot", content: answer, meta: resp }]);
+      } else {
+        // Si no viene "answer" pero sí viene estructura, al menos mostramos algo
+        setMessages((prev) => [
+          ...prev,
+          { role: "bot", content: "Listo. (Respuesta sin texto, revisa el payload)", meta: resp },
+        ]);
+      }
+
+      // refresca sidebar (título/updated_at)
+      await refreshThreads().catch(() => {});
+    } catch (e) {
+      setUiError(`Error al enviar. Detalle: ${String(e?.message || e)}`);
+      setMessages((prev) => [
+        ...prev,
+        { role: "bot", content: "❗ Hubo un error enviando tu mensaje. Reintenta.", meta: { mode: "error" } },
+      ]);
+    } finally {
+      setIsSending(false);
+    }
+  }, [input, isSending, refreshThreads, sessionId, threadId]);
+
+  // -----------------------------
+  // Initial load
+  // -----------------------------
   useEffect(() => {
-    refreshThreads();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    refreshThreads().catch(() => {});
+  }, [refreshThreads]);
 
   useEffect(() => {
+    // si hay thread guardado, lo cargamos
     if (threadId) {
-      loadThread(threadId, { refreshSidebar: false }).catch(() => setWelcome());
+      loadThread(threadId).catch(() => setWelcome());
     } else {
       setWelcome();
     }
@@ -222,279 +356,11 @@ function App() {
   }, []);
 
   // -----------------------------
-  // Main send (POST /chat_run)
-  // -----------------------------
-  const addMessage = (msg) => setMessages((prev) => [...prev, msg]);
-
-  const addBotMessage = (content, meta = {}, runner = null, docArtifacts = null) =>
-    addMessage({ role: "bot", content, meta, runner, docArtifacts });
-
-  const ensureThreadId = async () => {
-    if (threadId) return threadId;
-    return await createThread();
-  };
-
-  const handleSend = async () => {
-    const text = input.trim();
-    if (!text || isLoading) return;
-
-    setUiError("");
-
-    addMessage({
-      id: crypto?.randomUUID?.() || `optimistic-${Date.now()}`,
-      role: "user",
-      content: text,
-    });
-
-    setInput("");
-    setIsLoading(true);
-
-    try {
-      const activeThreadId = await ensureThreadId();
-
-      const data = await chatRun(text, activeThreadId, { session_id: sessionId });
-
-      if (data?.session_id) {
-        setSessionId(data.session_id);
-        try {
-          localStorage.setItem("vanya_session_id", data.session_id);
-        } catch {}
-      }
-
-      const mode = String(data?.mode || "").toLowerCase();
-
-      if (mode === "execute") {
-        // ✅ Importante: NO hacemos loadThread aquí, porque backend aún no persiste runner/screenshot
-        // y al recargar perderíamos la evidencia en UI.
-        addBotMessage(
-          `✅ Ejecuté la prueba${data.scope ? ` (${data.scope})` : ""}.`,
-          { mode: "execute" },
-          data.run_result || null,
-          null
-        );
-      } else if (mode === "doc") {
-        addBotMessage(
-          data.answer || "Generé artefactos QA.",
-          { mode: "doc" },
-          null,
-          data.doc_artifacts || null
-        );
-      } else if (mode === "need_info") {
-        addBotMessage(
-          data.answer || "Me falta información para ejecutar.",
-          { mode: "need_info" }
-        );
-      } else if (mode === "advise" || mode === "info" || mode === "plan") {
-        addBotMessage(data.answer || "Ok. ¿Qué quieres validar?", { mode: "advise" });
-      } else {
-        addBotMessage(data.answer || "Ok.", { mode });
-      }
-
-      // ✅ Solo refrescamos sidebar para traer el título/updated_at nuevos
-      await refreshThreads().catch(() => {});
-    } catch (error) {
-      console.error("Error en la petición:", error);
-      addBotMessage(
-        "❌ **Error de conexión con Vanya.**\n\n" +
-          "El servidor no respondió correctamente.\n\n" +
-          `Detalle: ${String(error?.message || error)}`,
-        { mode: "error" }
-      );
-      setUiError(String(error?.message || error));
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // -----------------------------
-  // Sidebar actions
-  // -----------------------------
-  const handleNew = async () => {
-    try {
-      await createThread();
-    } catch {}
-  };
-
-  const handleSelect = async (id) => {
-    try {
-      await loadThread(id, { refreshSidebar: false });
-    } catch (e) {
-      setUiError(String(e?.message || e));
-    }
-  };
-
-  const handleDelete = async (id) => {
-    const ok = window.confirm(`¿Eliminar este chat (${shortId(id)})?`);
-    if (!ok) return;
-
-    setUiError("");
-
-    // UI optimista
-    setThreads((prev) => prev.filter((t) => String(t.id) !== String(id)));
-
-    try {
-      await apiDeleteThread(id);
-
-      if (String(threadId) === String(id)) {
-        try {
-          localStorage.removeItem("vanya_thread_id");
-        } catch {}
-        setThreadId(null);
-        setWelcome();
-        await createThread();
-      }
-
-      await refreshThreads();
-    } catch (e) {
-      setUiError(`No se pudo eliminar. Detalle: ${String(e?.message || e)}`);
-      await refreshThreads().catch(() => {});
-    }
-  };
-
-  const sidebarBusy = isLoading || isThreadsLoading;
-
-  // -----------------------------
-  // Renderers para Chat.jsx
-  // -----------------------------
-  const prettyStatus = (s) => {
-    const v = String(s || "").toLowerCase();
-    if (v === "passed" || v === "pass") return "PASSED";
-    if (v === "failed" || v === "fail") return "FAIL";
-    return (s || "").toString();
-  };
-
-  const renderRunnerReport = (runner) => {
-    if (!runner) return null;
-
-    const status = prettyStatus(runner.status);
-    const isPass = status === "PASSED";
-    const evidence = runner.evidence_id ? `EV-${String(runner.evidence_id).replace(/^EV-/, "")}` : null;
-
-    return (
-      <div
-        style={{
-          marginTop: 10,
-          padding: 12,
-          borderRadius: 14,
-          background: "rgba(255,255,255,0.04)",
-          border: "1px solid rgba(255,255,255,0.10)",
-        }}
-      >
-        <div style={{ fontWeight: 800, marginBottom: 6 }}>
-          {isPass ? "✅ Prueba ejecutada" : "❌ Prueba ejecutada"}: {status}
-          {evidence ? (
-            <span style={{ fontWeight: 400, opacity: 0.75 }}> (evidence: {evidence})</span>
-          ) : null}
-        </div>
-
-        {runner.error ? (
-          <div style={{ marginTop: 6, opacity: 0.9 }}>
-            <b>Detalle:</b> {String(runner.error)}
-          </div>
-        ) : null}
-
-        {/* ✅ Screenshot */}
-        {runner.screenshot_b64 ? (
-          <div style={{ marginTop: 10 }}>
-            <div style={{ fontWeight: 700, marginBottom: 6, opacity: 0.9 }}>
-              🖼️ Evidencia
-            </div>
-            <img
-              src={`data:image/png;base64,${runner.screenshot_b64}`}
-              alt="Evidencia"
-              style={{
-                width: "100%",
-                maxWidth: 900,
-                borderRadius: 12,
-                border: "1px solid rgba(255,255,255,0.12)",
-                display: "block",
-              }}
-              onClick={() => {
-                const newTab = window.open();
-                if (!newTab) return;
-                newTab.document.write(
-                  `<img src="data:image/png;base64,${runner.screenshot_b64}" style="width:100%">`
-                );
-              }}
-              title="Click para ampliar"
-            />
-            <div style={{ fontSize: 11, opacity: 0.6, marginTop: 6 }}>
-              Click para ampliar
-            </div>
-          </div>
-        ) : (
-          <div style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}>
-            (Sin screenshot. Si lo necesitas, aumenta timeout o ajusta el runner para capturar siempre.)
-          </div>
-        )}
-
-        {/* Steps (si vienen) */}
-        {Array.isArray(runner.steps) && runner.steps.length ? (
-          <details style={{ marginTop: 10 }}>
-            <summary style={{ cursor: "pointer", opacity: 0.9 }}>
-              Ver pasos ({runner.steps.length})
-            </summary>
-            <div style={{ marginTop: 8, fontSize: 12, opacity: 0.9 }}>
-              {runner.steps.map((st, idx) => (
-                <div key={idx} style={{ marginTop: 6 }}>
-                  <b>
-                    {st?.status === "pass" ? "✅" : "❌"} #{st?.i ?? idx + 1} {st?.action}
-                  </b>
-                  {st?.error ? (
-                    <div style={{ opacity: 0.85 }}>Error: {String(st.error)}</div>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          </details>
-        ) : null}
-      </div>
-    );
-  };
-
-  const renderDocArtifacts = (docArtifacts) => {
-    if (!docArtifacts) return null;
-
-    // si es array -> lista simple
-    if (Array.isArray(docArtifacts)) {
-      return (
-        <div style={{ marginTop: 10 }}>
-          <div style={{ fontWeight: 800, marginBottom: 6 }}>📎 Artefactos</div>
-          <ul style={{ margin: 0, paddingLeft: 18, opacity: 0.95 }}>
-            {docArtifacts.map((a, i) => (
-              <li key={i}>{typeof a === "string" ? a : JSON.stringify(a)}</li>
-            ))}
-          </ul>
-        </div>
-      );
-    }
-
-    // si es objeto -> JSON pretty
-    return (
-      <div style={{ marginTop: 10 }}>
-        <div style={{ fontWeight: 800, marginBottom: 6 }}>📎 Artefactos</div>
-        <pre
-          style={{
-            margin: 0,
-            padding: 12,
-            borderRadius: 12,
-            background: "rgba(0,0,0,0.25)",
-            border: "1px solid rgba(255,255,255,0.10)",
-            overflow: "auto",
-            fontSize: 12,
-          }}
-        >
-          {JSON.stringify(docArtifacts, null, 2)}
-        </pre>
-      </div>
-    );
-  };
-
-  // -----------------------------
   // Layout
   // -----------------------------
   return (
     <div style={{ display: "flex", height: "100vh", width: "100%" }}>
+      {/* Sidebar */}
       <div
         style={{
           width: isSidebarOpen ? 320 : 0,
@@ -503,17 +369,21 @@ function App() {
           borderRight: isSidebarOpen ? "1px solid rgba(255,255,255,0.08)" : "none",
         }}
       >
-        <Sidebar
-          threads={threads}
-          activeId={threadId}
-          onNew={handleNew}
-          onSelect={handleSelect}
-          onDelete={handleDelete}
-          isLoading={sidebarBusy}
-        />
+        {isSidebarOpen && (
+          <Sidebar
+            threads={threads}
+            activeId={threadId}
+            onNew={handleNew}
+            onSelect={handleSelect}
+            onDelete={handleDelete}
+            isLoading={sidebarBusy}
+          />
+        )}
       </div>
 
-      <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+      {/* Main */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+        {/* Top bar */}
         <div
           style={{
             height: 60,
@@ -545,8 +415,7 @@ function App() {
             <div style={{ fontWeight: 800, fontSize: 18 }}>
               Vanya{" "}
               <span style={{ fontWeight: 400, opacity: 0.7, fontSize: 12 }}>
-                | QA Intelligence Agent{" "}
-                {threadId ? `— thread: ${shortId(threadId)}` : ""}
+                | QA Intelligence Agent {threadId ? `— thread: ${shortId(threadId)}` : ""}
               </span>
             </div>
           </div>
@@ -571,21 +440,20 @@ function App() {
           ) : null}
         </div>
 
+        {/* Chat */}
         <div style={{ flex: 1, overflow: "auto" }}>
+          {/* IMPORTANTÍSIMO: key={threadId} para que al seleccionar otro chat sí cambie */}
           <Chat
+            key={threadId || "no-thread"}
             messages={messages}
             input={input}
             setInput={setInput}
             handleSend={handleSend}
-            isLoading={isLoading}
+            isLoading={isSending}
             sessionId={sessionId}
             threadId={threadId}
-            renderRunnerReport={renderRunnerReport}
-            renderDocArtifacts={renderDocArtifacts}
             formatText={formatText}
             chatEndRef={chatEndRef}
-            prettyMode={(m) => m}
-            prettyStatus={prettyStatus}
           />
           <div ref={chatEndRef} />
         </div>
@@ -593,5 +461,3 @@ function App() {
     </div>
   );
 }
-
-export default App;

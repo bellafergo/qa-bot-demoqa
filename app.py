@@ -4,12 +4,13 @@ import re
 import time
 import uuid
 import traceback
+import logging
 from typing import List, Optional, Dict, Any, Tuple
 
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.requests import Request
@@ -20,6 +21,12 @@ from sqlalchemy.orm import Session
 
 from db import init_db, SessionLocal, Thread, Message, utcnow
 from runner import execute_test
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s - %(message)s"
+)
+logger = logging.getLogger("vanya")
 
 # ============================================================
 # INIT
@@ -43,8 +50,7 @@ app.add_middleware(
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
-    print("UNHANDLED ERROR:", repr(exc))
-    print(traceback.format_exc())
+    logger.error("Unhandled error", exc_info=True)
     return JSONResponse(
         status_code=500,
         content={"detail": f"{type(exc).__name__}: {str(exc)}"},
@@ -124,6 +130,7 @@ def _cleanup_sessions():
         _SESSIONS.pop(sid, None)
 
 def _get_session(session_id: Optional[str]) -> Tuple[str, Dict[str, Any]]:
+    _cleanup_sessions()  # limpia antes de crear/usar
     sid = (session_id or "").strip() or str(uuid.uuid4())
     s = _SESSIONS.get(sid)
     if not s:
@@ -236,27 +243,24 @@ def _strip_code_fences(s: str) -> str:
 
 def _parse_tool_args(raw_args: str) -> Optional[Dict[str, Any]]:
     """
-    Parse robusto: si el JSON viene inválido, NO truenes 500.
-    Regresa dict si se pudo, o None si no.
+    Parsea JSON de forma robusta. Si falla el parseo directo, 
+    intenta extraer el contenido entre llaves.
     """
     if not raw_args:
         return None
 
-    raw = _strip_code_fences(raw_args).strip()
-    raw = raw.lstrip("\ufeff")  # BOM
+    raw = _strip_code_fences(raw_args).strip().lstrip("\ufeff")
 
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
-        pass
-
-    m = re.search(r"\{.*\}", raw, flags=re.S)
-    if m:
-        try:
-            return json.loads(m.group(0))
-        except json.JSONDecodeError:
-            return None
-
+        # Intento de rescate si el LLM envió texto extra
+        m = re.search(r"\{.*?\}", raw, flags=re.S)
+        if m:
+            try:
+                return json.loads(m.group(0))
+            except json.JSONDecodeError:
+                return None
     return None
 
 def _make_title_from_prompt(prompt: str, max_len: int = 60) -> str:
@@ -768,7 +772,47 @@ def meta():
         "has_db": bool(os.getenv("DATABASE_URL")),
     }
 
-from fastapi import HTTPException
+
+@app.delete("/threads/{thread_id}")
+def delete_thread(thread_id: str):
+    db: Session = SessionLocal()
+    try:
+        t = db.query(Thread).filter(Thread.id == thread_id).first()
+        if not t:
+            raise HTTPException(status_code=404, detail="Thread not found")
+
+        db.query(Message).filter(Message.thread_id == thread_id).delete(
+            synchronize_session=False
+        )
+
+        db.delete(t)
+        db.commit()
+        return {"ok": True}
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+# ============================================================
+# THREADS (listado para sidebar)
+# ============================================================
+@app.get("/threads")
+def list_threads():
+    db: Session = SessionLocal()
+    try:
+        threads = (
+            db.query(Thread)
+            .order_by(Thread.updated_at.desc())
+            .all()
+        )
+        return [
+            {"id": t.id, "title": t.title, "updated_at": _iso(t.updated_at)}
+            for t in threads
+        ]
+    finally:
+        db.close()
 
 @app.delete("/threads/{thread_id}")
 def delete_thread(thread_id: str):
@@ -791,31 +835,85 @@ def delete_thread(thread_id: str):
     finally:
         db.close()
 
-        # ============================================================
-        # THREADS (listado para sidebar)
-        # ============================================================
-        @app.get("/threads")
-        def list_threads():
-            db: Session = SessionLocal()
-            try:
-                threads = (
-                    db.query(Thread)
-                    .order_by(Thread.updated_at.desc())
-                    .all()
-                )
 
-                return [
-                    {
-                        "id": t.id,
-                        "title": t.title,
-                        "updated_at": _iso(t.updated_at),
-                    }
-                    for t in threads
-                ]
-            finally:
-                db.close()
+@app.get("/threads")
+def list_threads():
+    db: Session = SessionLocal()
+    try:
+        threads = (
+            db.query(Thread)
+            .order_by(Thread.updated_at.desc())
+            .all()
+        )
+        return [
+            {"id": t.id, "title": t.title, "updated_at": _iso(t.updated_at)}
+            for t in threads
+        ]
+    finally:
+        db.close()
 
-from fastapi import HTTPException
+# ============================================================
+# THREAD DETAIL + MESSAGES (para abrir chats del sidebar)
+# ============================================================
+@app.get("/threads/{thread_id}")
+def get_thread(thread_id: str):
+    db: Session = SessionLocal()
+    try:
+        t = db.query(Thread).filter(Thread.id == thread_id).first()
+        if not t:
+            raise HTTPException(status_code=404, detail="Thread not found")
+
+        msgs = (
+            db.query(Message)
+            .filter(Message.thread_id == thread_id)
+            .order_by(Message.created_at.asc())
+            .all()
+        )
+
+        return {
+            "id": t.id,
+            "title": t.title,
+            "updated_at": _iso(t.updated_at),
+            "messages": [
+                {
+                    "id": m.id,
+                    "role": m.role,
+                    "content": m.content,
+                    "created_at": _iso(m.created_at),
+                }
+                for m in msgs
+            ],
+        }
+    finally:
+        db.close()
+
+
+@app.get("/threads/{thread_id}/messages")
+def get_thread_messages(thread_id: str):
+    db: Session = SessionLocal()
+    try:
+        t = db.query(Thread).filter(Thread.id == thread_id).first()
+        if not t:
+            raise HTTPException(status_code=404, detail="Thread not found")
+
+        msgs = (
+            db.query(Message)
+            .filter(Message.thread_id == thread_id)
+            .order_by(Message.created_at.asc())
+            .all()
+        )
+
+        return [
+            {
+                "id": m.id,
+                "role": m.role,
+                "content": m.content,
+                "created_at": _iso(m.created_at),
+            }
+            for m in msgs
+        ]
+    finally:
+        db.close()
 
 @app.delete("/threads/{thread_id}")
 def delete_thread(thread_id: str):
