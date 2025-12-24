@@ -840,18 +840,7 @@ def delete_thread(thread_id: str):
 # THREADS (sidebar tipo ChatGPT)
 # ============================================================
 
-@app.get("/threads")
-def list_threads():
-    db: Session = SessionLocal()
-    try:
-        threads = db.query(Thread).order_by(Thread.updated_at.desc()).all()
-        return [
-            {"id": t.id, "title": t.title, "updated_at": _iso(t.updated_at)}
-            for t in threads
-        ]
-    finally:
-        db.close()
-
+from fastapi import HTTPException  # mejor arriba del archivo, pero aquí funciona
 
 @app.post("/threads")
 def create_thread():
@@ -861,7 +850,20 @@ def create_thread():
         db.add(t)
         db.commit()
         db.refresh(t)
-        return {"id": t.id, "title": t.title}
+        return {"id": t.id, "title": t.title, "updated_at": _iso(t.updated_at)}
+    finally:
+        db.close()
+
+
+@app.get("/threads")
+def list_threads():
+    db: Session = SessionLocal()
+    try:
+        threads = db.query(Thread).order_by(Thread.updated_at.desc()).all()
+        return [
+            {"id": t.id, "title": t.title, "updated_at": _iso(t.updated_at)}
+            for t in threads
+        ]
     finally:
         db.close()
 
@@ -881,25 +883,44 @@ def get_thread(thread_id: str):
             .all()
         )
 
-        out_msgs = []
-        for m in msgs:
-            meta = getattr(m, "meta_json", None)  # si no existe, regresa None
-            out_msgs.append(
-                {
-                    "id": getattr(m, "id", None),
-                    "role": m.role,
-                    "content": m.content,
-                    "created_at": _iso(m.created_at),  # ✅ fijo
-                    "meta": meta,
-                }
-            )
-
         return {
             "id": t.id,
             "title": t.title,
             "updated_at": _iso(t.updated_at),
-            "messages": out_msgs,
+            "messages": [
+                {
+                    "id": getattr(m, "id", None),
+                    "role": m.role,
+                    "content": m.content,
+                    "created_at": _iso(m.created_at),
+                    "meta": getattr(m, "meta_json", None),  # si no existe, regresa None
+                }
+                for m in msgs
+            ],
         }
+    finally:
+        db.close()
+
+
+@app.delete("/threads/{thread_id}")
+def delete_thread(thread_id: str):
+    db: Session = SessionLocal()
+    try:
+        t = db.query(Thread).filter(Thread.id == thread_id).first()
+        if not t:
+            raise HTTPException(status_code=404, detail="Thread not found")
+
+        # borra hijos primero (por FK)
+        db.query(Message).filter(Message.thread_id == thread_id).delete(
+            synchronize_session=False
+        )
+
+        db.delete(t)
+        db.commit()
+        return {"ok": True}
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 
