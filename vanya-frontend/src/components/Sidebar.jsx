@@ -12,16 +12,21 @@ function fmtDate(iso) {
   }
 }
 
-function buildFallbackTitle(t) {
-  const title = (t?.title || "").trim();
+function getThreadId(t) {
+  // Normaliza SIEMPRE a string y evita ids falsos
+  const raw = t?.id ?? t?.thread_id ?? "";
+  const id = String(raw || "").trim();
+  return id || null;
+}
+
+function buildTitle(t) {
+  const title = String(t?.title || "").trim();
   if (title && title.toLowerCase() !== "new chat") return title;
 
-  // Si backend manda un preview (ideal)
-  const preview = (t?.preview || "").trim();
+  const preview = String(t?.preview || "").trim();
   if (preview) return preview.length > 48 ? preview.slice(0, 48) + "…" : preview;
 
-  // fallback final: id corto
-  const id = String(t?.id || t?.thread_id || "").trim();
+  const id = getThreadId(t);
   if (id) return `Chat ${id.slice(0, 6)}…`;
 
   return "Chat";
@@ -37,16 +42,30 @@ export default function Sidebar({
 }) {
   const [filter, setFilter] = useState("");
 
+  const normalized = useMemo(() => {
+    // Limpia threads inválidos y normaliza ids
+    return (Array.isArray(threads) ? threads : [])
+      .map((t) => {
+        const id = getThreadId(t);
+        if (!id) return null;
+        return { ...t, __id: id };
+      })
+      .filter(Boolean);
+  }, [threads]);
+
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    if (!q) return threads;
-    return threads.filter((t) => {
-      const title = (t?.title || "").toLowerCase();
-      const preview = (t?.preview || "").toLowerCase();
-      const id = String(t?.id || t?.thread_id || "").toLowerCase();
+    if (!q) return normalized;
+
+    return normalized.filter((t) => {
+      const title = String(t?.title || "").toLowerCase();
+      const preview = String(t?.preview || "").toLowerCase();
+      const id = String(t?.__id || "").toLowerCase();
       return title.includes(q) || preview.includes(q) || id.includes(q);
     });
-  }, [threads, filter]);
+  }, [normalized, filter]);
+
+  const activeStr = String(activeId || "").trim();
 
   return (
     <div
@@ -57,6 +76,8 @@ export default function Sidebar({
         background: "rgba(0,0,0,0.15)",
         height: "100%",
         boxSizing: "border-box",
+        display: "flex",
+        flexDirection: "column",
       }}
     >
       <div style={{ fontWeight: 800, marginBottom: 10, opacity: 0.9 }}>
@@ -64,7 +85,7 @@ export default function Sidebar({
       </div>
 
       <button
-        onClick={onNew}
+        onClick={() => onNew?.()}
         disabled={isLoading}
         style={{
           width: "100%",
@@ -97,25 +118,40 @@ export default function Sidebar({
         }}
       />
 
-      <div style={{ marginTop: 12, overflowY: "auto", height: "calc(100vh - 160px)" }}>
-        {filtered.map((t, idx) => {
-          const id = t?.id || t?.thread_id || String(idx);
-          const title = buildFallbackTitle(t);
+      <div
+        style={{
+          marginTop: 12,
+          overflowY: "auto",
+          flex: 1,
+          paddingRight: 2,
+        }}
+      >
+        {filtered.map((t) => {
+          const id = t.__id; // ya normalizado
+          const title = buildTitle(t);
           const subtitle =
-            (t?.preview || "").trim() ||
+            String(t?.preview || "").trim() ||
             (t?.updated_at ? fmtDate(t.updated_at) : "");
 
-          const isActive = String(id) === String(activeId);
+          const isActive = String(id) === activeStr;
 
           return (
             <div
               key={id}
+              data-thread-id={id} // 👈 para debug rápido en DevTools
               onClick={() => onSelect?.(id)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") onSelect?.(id);
+              }}
               style={{
                 marginTop: 10,
                 padding: 10,
                 cursor: "pointer",
-                background: isActive ? "rgba(78,107,255,0.18)" : "rgba(0,0,0,0.18)",
+                background: isActive
+                  ? "rgba(78,107,255,0.18)"
+                  : "rgba(0,0,0,0.18)",
                 borderRadius: 12,
                 border: isActive
                   ? "1px solid rgba(78,107,255,0.55)"
@@ -128,11 +164,33 @@ export default function Sidebar({
               title={title}
             >
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontWeight: 750, fontSize: 13, color: "white" }}>
+                <div
+                  style={{
+                    fontWeight: 750,
+                    fontSize: 13,
+                    color: "white",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    maxWidth: 220,
+                  }}
+                >
                   {title}
                 </div>
+
                 {subtitle ? (
-                  <div style={{ fontSize: 11, opacity: 0.7, marginTop: 3, color: "white" }}>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      opacity: 0.7,
+                      marginTop: 3,
+                      color: "white",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      maxWidth: 220,
+                    }}
+                  >
                     {subtitle}
                   </div>
                 ) : null}
@@ -155,6 +213,7 @@ export default function Sidebar({
                   color: "white",
                   cursor: isLoading ? "not-allowed" : "pointer",
                   opacity: 0.9,
+                  flexShrink: 0,
                 }}
               >
                 🗑️
