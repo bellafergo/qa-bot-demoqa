@@ -791,9 +791,68 @@ def delete_thread(thread_id: str):
     finally:
         db.close()
 
+        # ============================================================
+        # THREADS (listado para sidebar)
+        # ============================================================
+        @app.get("/threads")
+        def list_threads():
+            db: Session = SessionLocal()
+            try:
+                threads = (
+                    db.query(Thread)
+                    .order_by(Thread.updated_at.desc())
+                    .all()
+                )
+
+                return [
+                    {
+                        "id": t.id,
+                        "title": t.title,
+                        "updated_at": _iso(t.updated_at),
+                    }
+                    for t in threads
+                ]
+            finally:
+                db.close()
+
+from fastapi import HTTPException
+
+@app.delete("/threads/{thread_id}")
+def delete_thread(thread_id: str):
+    db: Session = SessionLocal()
+    try:
+        t = db.query(Thread).filter(Thread.id == thread_id).first()
+        if not t:
+            raise HTTPException(status_code=404, detail="Thread not found")
+
+        db.query(Message).filter(Message.thread_id == thread_id).delete(synchronize_session=False)
+        db.delete(t)
+        db.commit()
+        return {"ok": True}
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 # ============================================================
 # THREADS (sidebar tipo ChatGPT)
 # ============================================================
+
+@app.get("/threads")
+def list_threads():
+    db: Session = SessionLocal()
+    try:
+        threads = db.query(Thread).order_by(Thread.updated_at.desc()).all()
+        return [
+            {"id": t.id, "title": t.title, "updated_at": _iso(t.updated_at)}
+            for t in threads
+        ]
+    finally:
+        db.close()
+
+
 @app.post("/threads")
 def create_thread():
     db: Session = SessionLocal()
@@ -824,18 +883,14 @@ def get_thread(thread_id: str):
 
         out_msgs = []
         for m in msgs:
-            meta = None
-            # ✅ Si tu modelo ya tiene meta_json (JSON/JSONB), inclúyelo
-            if hasattr(m, "meta_json"):
-                meta = m.meta_json
-
+            meta = getattr(m, "meta_json", None)  # si no existe, regresa None
             out_msgs.append(
                 {
                     "id": getattr(m, "id", None),
                     "role": m.role,
                     "content": m.content,
-                    "created_at": _iso(m.created_at) if " _iso" else m.created_at,
-                    "meta": meta,  # ✅ AQUÍ viaja runner/doc/etc
+                    "created_at": _iso(m.created_at),  # ✅ fijo
+                    "meta": meta,
                 }
             )
 
