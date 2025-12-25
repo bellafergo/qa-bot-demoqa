@@ -13,44 +13,61 @@ export default function Chat(props) {
     chatEndRef = null,
   } = props || {};
 
-  const safeMessages = useMemo(
-    () => (Array.isArray(messages) ? messages : []),
-    [messages]
-  );
+  const safeMessages = useMemo(() => {
+    return Array.isArray(messages) ? messages : [];
+  }, [messages]);
 
   const onEnter = useCallback(
     (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        handleSend();
+        if (!isLoading) handleSend?.();
       }
     },
-    [handleSend]
+    [handleSend, isLoading]
   );
+
+  const pickScreenshotUrl = (m) => {
+    // Fuente principal (lo que guardamos en DB): meta.runner.screenshot_url
+    const primary = m?.meta?.runner?.screenshot_url;
+    if (primary) return String(primary);
+
+    // Fallbacks por si cambiaron nombres
+    const fallbacks = [
+      m?.meta?.runner?.screenshot,
+      m?.meta?.runner?.evidence_url,
+      m?.meta?.evidence?.screenshot_url,
+      m?.meta?.screenshot_url,
+      m?.screenshot_url,
+    ];
+
+    const hit = fallbacks.find((x) => typeof x === "string" && x.trim());
+    return hit ? hit.trim() : null;
+  };
+
+  const pickEvidenceId = (m) => {
+    const id =
+      m?.meta?.runner?.evidence_id ||
+      m?.meta?.runner?.evidenceId ||
+      m?.meta?.evidence_id ||
+      m?.evidence_id ||
+      null;
+    return id ? String(id) : null;
+  };
 
   const renderMsg = (m, idx) => {
     const role = m?.role === "user" ? "user" : "bot";
     const content = typeof m?.content === "string" ? m.content : "";
     const html = formatText(content);
 
-    // ---- Evidence / Screenshot (varios nombres posibles)
-    const screenshot =
-      m?.meta?.runner?.screenshot_url ||
-      m?.meta?.runner?.screenshot ||
-      m?.meta?.runner?.evidence_url ||
-      m?.meta?.evidence?.screenshot_url ||
-      m?.meta?.screenshot_url ||
-      null;
+    const screenshotUrl = pickScreenshotUrl(m);
+    const evidenceId = pickEvidenceId(m);
 
-    const evidenceId =
-      m?.meta?.runner?.evidence_id ||
-      m?.meta?.runner?.evidenceId ||
-      m?.meta?.evidence_id ||
-      null;
+    const key = String(m?.id || m?.meta?.id || `${role}-${idx}`);
 
     return (
       <div
-        key={`${m?.meta?.id || idx}`}
+        key={key}
         style={{
           display: "flex",
           justifyContent: role === "user" ? "flex-end" : "flex-start",
@@ -76,29 +93,29 @@ export default function Chat(props) {
             {role === "user" ? "Tú" : "Vanya"}
             {evidenceId ? (
               <span style={{ marginLeft: 8, opacity: 0.8 }}>
-                · evid: {String(evidenceId)}
+                · evid: {evidenceId}
               </span>
             ) : null}
           </div>
 
-          {/* Texto seguro */}
+          {/* Texto (ya viene formateado desde formatText) */}
           <div
             dangerouslySetInnerHTML={{ __html: html }}
             style={{ lineHeight: 1.35 }}
           />
 
-          {/* Screenshot (si existe) */}
-          {screenshot ? (
+          {/* Evidencia */}
+          {screenshotUrl ? (
             <div style={{ marginTop: 10 }}>
               <a
-                href={screenshot}
+                href={screenshotUrl}
                 target="_blank"
                 rel="noreferrer"
                 style={{
                   display: "inline-block",
                   marginBottom: 8,
                   fontSize: 12,
-                  opacity: 0.85,
+                  opacity: 0.9,
                   color: "white",
                   textDecoration: "underline",
                 }}
@@ -107,7 +124,7 @@ export default function Chat(props) {
               </a>
 
               <img
-                src={screenshot}
+                src={screenshotUrl}
                 alt="Evidencia de prueba"
                 loading="lazy"
                 style={{
@@ -116,7 +133,7 @@ export default function Chat(props) {
                   border: "1px solid rgba(255,255,255,0.15)",
                 }}
                 onError={(e) => {
-                  // Si falla por 404/CORS, evitamos que rompa la UI
+                  // Evita que una URL rota rompa el UI
                   e.currentTarget.style.display = "none";
                 }}
               />
@@ -154,7 +171,7 @@ export default function Chat(props) {
       >
         <textarea
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => setInput?.(e.target.value)}
           onKeyDown={onEnter}
           placeholder="Escribe aquí… (Enter para enviar, Shift+Enter para salto)"
           rows={1}
@@ -172,7 +189,7 @@ export default function Chat(props) {
         />
 
         <button
-          onClick={handleSend}
+          onClick={() => handleSend?.()}
           disabled={isLoading || !String(input || "").trim()}
           style={{
             padding: "10px 14px",
