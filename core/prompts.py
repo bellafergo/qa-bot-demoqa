@@ -35,4 +35,4 @@ Reglas de Calidad:
 - Si generas scripts Playwright, valida Desktop y Mobile.
 - Si faltan datos, agrega assumptions y questions_to_clarify.
 - Devuelve SIEMPRE un tool-call generate_qa_artifacts.
-""" 
+"""

@@ -23,9 +23,6 @@ try:
         sb_list_threads,      # optional
         sb_get_messages,      # optional
         sb_delete_thread,     # optional
-        # sb_add_run,          # optional (si lo agregas luego)
-        # sb_list_runs,
-        # sb_get_run,
     )
 except Exception:
     supabase_client = None
@@ -44,8 +41,6 @@ except Exception:
 # ============================================================
 _SUPABASE_STRICT = (os.getenv("SUPABASE_STRICT", "0").strip() == "1")
 
-# Cache para no evaluar el cliente cada request.
-# NOTA: si no está listo, reintenta cada N segundos (por si acabas de setear env vars).
 _SUPABASE_OK_CACHED: Optional[bool] = None
 _SUPABASE_LAST_CHECK_TS: int = 0
 _SUPABASE_RECHECK_EVERY_S = int(os.getenv("SUPABASE_RECHECK_EVERY_S", "10"))
@@ -69,12 +64,10 @@ def _now_ts() -> int:
 def _has_supabase() -> bool:
     """
     True si Supabase está disponible (cliente construible y responde).
-    Cacheado pero con re-check periódico para no quedarse "pegado" en False
-    cuando acabas de agregar env vars.
+    Cacheado pero con re-check periódico.
     """
     global _SUPABASE_OK_CACHED, _SUPABASE_LAST_CHECK_TS
 
-    # Re-check si nunca se evaluó o ya pasó ventana
     if _SUPABASE_OK_CACHED is None or (_now_ts() - _SUPABASE_LAST_CHECK_TS) >= _SUPABASE_RECHECK_EVERY_S:
         ok = False
         try:
@@ -84,16 +77,12 @@ def _has_supabase() -> bool:
 
         _SUPABASE_OK_CACHED = ok
         _SUPABASE_LAST_CHECK_TS = _now_ts()
-
         logger.info("Supabase availability check: %s", "ENABLED" if ok else "DISABLED")
 
     return bool(_SUPABASE_OK_CACHED)
 
 
 def _supabase_or_raise(op: str) -> None:
-    """
-    Si strict mode está habilitado y supabase no está listo -> error.
-    """
     if _SUPABASE_STRICT and not _has_supabase():
         raise RuntimeError(f"SUPABASE_STRICT=1 y Supabase no está disponible ({op}).")
 
@@ -108,6 +97,19 @@ def _safe_touch_supabase(thread_id: str) -> None:
         logger.warning("Supabase touch failed", exc_info=True)
         if _SUPABASE_STRICT:
             raise
+
+
+def _norm_meta(m: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Normaliza meta para que siempre quede como dict o None.
+    Acepta llaves comunes: meta, meta_json, metaJson.
+    """
+    meta = m.get("meta")
+    if meta is None:
+        meta = m.get("meta_json")
+    if meta is None:
+        meta = m.get("metaJson")
+    return meta if isinstance(meta, dict) else ({} if meta else None)
 
 
 # ============================================================
@@ -142,7 +144,6 @@ def list_threads() -> List[Dict[str, Any]]:
     # ✅ Supabase-first
     if _has_supabase() and sb_list_threads:
         items = sb_list_threads() or []
-        # normaliza llaves por si acaso
         out: List[Dict[str, Any]] = []
         for t in items:
             out.append(
@@ -164,30 +165,44 @@ def list_threads() -> List[Dict[str, Any]]:
 
 
 def get_thread(thread_id: str) -> Dict[str, Any]:
+    """
+    Devuelve:
+      {
+        id, title, updated_at,
+        messages: [{id, role, content, created_at, meta}]
+      }
+    """
     if not thread_id:
         raise ValueError("thread_id vacío")
 
     _supabase_or_raise("get_thread")
 
-    # ✅ Supabase-first
-    if _has_supabase() and sb_get_thread and sb_get_messages:
+    # ✅ Supabase-first (IMPORTANTE: no requerimos sb_get_messages para funcionar)
+    if _has_supabase() and sb_get_thread:
         t = sb_get_thread(thread_id)
         if not t:
             raise KeyError("Thread not found")
 
-        msgs = sb_get_messages(thread_id) or []
-        # normaliza formato de mensajes
-        norm_msgs = []
+        msgs = []
+        if sb_get_messages:
+            try:
+                msgs = sb_get_messages(thread_id) or []
+            except Exception:
+                logger.warning("Supabase get_messages failed (continuing with empty list)", exc_info=True)
+                if _SUPABASE_STRICT:
+                    raise
+                msgs = []
+
+        norm_msgs: List[Dict[str, Any]] = []
         for m in msgs:
-            norm_msgs.append(
-                {
-                    "id": m.get("id"),
-                    "role": m.get("role", "assistant"),
-                    "content": m.get("content", ""),
-                    "created_at": m.get("created_at"),
-                    "meta": m.get("meta") or m.get("meta_json") or m.get("metaJson"),
-                }
-            )
+            mm = {
+                "id": m.get("id"),
+                "role": m.get("role", "assistant"),
+                "content": m.get("content", ""),
+                "created_at": m.get("created_at"),
+                "meta": _norm_meta(m),
+            }
+            norm_msgs.append(mm)
 
         return {
             "id": t.get("id"),
@@ -209,6 +224,7 @@ def get_thread(thread_id: str) -> Dict[str, Any]:
             .order_by(Message.created_at.asc())
             .all()
         )
+
         return {
             "id": t.id,
             "title": t.title,
@@ -353,8 +369,8 @@ def add_message(thread_id: str, role: str, content: str, meta: Optional[dict] = 
 # ============================================================
 def get_recent_messages(thread_id: str, limit: int = 12) -> List[Dict[str, Any]]:
     """
-    Devuelve mensajes recientes en formato {role, content}.
-    Supabase-first si existe, si no SQLite.
+    Devuelve mensajes recientes en formato:
+      [{role, content, meta?, created_at?}]
     """
     if not thread_id:
         return []
@@ -367,7 +383,17 @@ def get_recent_messages(thread_id: str, limit: int = 12) -> List[Dict[str, Any]]
     if _has_supabase() and sb_get_messages:
         msgs = sb_get_messages(thread_id) or []
         msgs = msgs[-limit:]
-        return [{"role": m.get("role", "assistant"), "content": m.get("content", "")} for m in msgs]
+        out: List[Dict[str, Any]] = []
+        for m in msgs:
+            out.append(
+                {
+                    "role": m.get("role", "assistant"),
+                    "content": m.get("content", ""),
+                    "created_at": m.get("created_at"),
+                    "meta": _norm_meta(m),
+                }
+            )
+        return out
 
     # ✅ SQLite fallback
     db: Session = SessionLocal()
@@ -379,6 +405,14 @@ def get_recent_messages(thread_id: str, limit: int = 12) -> List[Dict[str, Any]]
             .all()
         )
         msgs = msgs[-limit:]
-        return [{"role": m.role, "content": m.content} for m in msgs]
+        return [
+            {
+                "role": m.role,
+                "content": m.content,
+                "created_at": _iso(m.created_at),
+                "meta": getattr(m, "meta_json", None),
+            }
+            for m in msgs
+        ]
     finally:
         db.close()
