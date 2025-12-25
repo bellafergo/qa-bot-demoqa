@@ -1,5 +1,11 @@
 // src/App.jsx
-import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import React, {
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  useMemo,
+} from "react";
 import "./App.css";
 import {
   chatRun,
@@ -32,6 +38,49 @@ const formatText = (text) => {
 
 const shortId = (id) => (id ? `${String(id).slice(0, 8)}…` : "");
 
+/**
+ * ErrorBoundary (evita “pantalla negra”)
+ */
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, err: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, err: error };
+  }
+  componentDidCatch(error, info) {
+    // log útil
+    // eslint-disable-next-line no-console
+    console.error("UI crashed:", error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      const msg = String(this.state.err?.message || this.state.err || "Error");
+      return (
+        <div style={{ padding: 18, color: "white" }}>
+          <div
+            style={{
+              padding: "10px 12px",
+              borderRadius: 12,
+              background: "rgba(255,0,0,0.10)",
+              border: "1px solid rgba(255,0,0,0.25)",
+              maxWidth: 900,
+            }}
+          >
+            <div style={{ fontWeight: 900, marginBottom: 6 }}>❗ UI Crashed</div>
+            <div style={{ opacity: 0.9, whiteSpace: "pre-wrap" }}>{msg}</div>
+            <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75 }}>
+              Abre DevTools → Console para ver el stack. Esto evita que se quede en negro.
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   // -----------------------------
   // UI state
@@ -39,6 +88,9 @@ export default function App() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [uiError, setUiError] = useState("");
+
+  // Captura errores globales (unhandledrejection/JS runtime)
+  const [fatalUiError, setFatalUiError] = useState("");
 
   // Busy flags
   const [isSending, setIsSending] = useState(false);
@@ -69,11 +121,14 @@ export default function App() {
 
   const chatEndRef = useRef(null);
 
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
+    // si el componente está montado
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  }, []);
 
-  useEffect(scrollToBottom, [messages]);
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, scrollToBottom]);
 
   const setWelcome = useCallback(() => {
     setMessages([
@@ -117,7 +172,9 @@ export default function App() {
       return normalized;
     } catch (e) {
       setUiError(
-        `No pude cargar el historial (/threads). Detalle: ${String(e?.message || e)}`
+        `No pude cargar el historial (/threads). Detalle: ${String(
+          e?.message || e
+        )}`
       );
       setThreads([]);
       return [];
@@ -128,6 +185,7 @@ export default function App() {
 
   // -----------------------------
   // Map backend thread -> UI messages
+  // (IMPORTANTE: no descartes mensajes que no tengan content pero sí meta.runner)
   // -----------------------------
   const mapBackendMessagesToUI = useCallback((items) => {
     if (!Array.isArray(items) || items.length === 0) return null;
@@ -149,13 +207,16 @@ export default function App() {
           ? m.message
           : "";
 
-      if (!content) continue;
+      // meta (tu backend ya lo manda como "meta" o "meta_json")
+      const meta = m?.meta ?? m?.meta_json ?? {};
 
-      ui.push({
-        role,
-        content,
-        meta: m?.meta || {},
-      });
+      // Si no hay content pero sí hay runner/doc en meta, lo mantenemos para que Chat renderice evidencia
+      const hasRenderableMeta =
+        !!meta?.runner || !!meta?.docArtifacts || !!meta?.artifacts || !!meta?.mode;
+
+      if (!content && !hasRenderableMeta) continue;
+
+      ui.push({ role, content, meta });
     }
 
     return ui.length ? ui : null;
@@ -178,9 +239,12 @@ export default function App() {
       setIsThreadsLoading(true);
       try {
         const data = await getThread(tid);
-        // Esperado: { id, title, messages: [...] } o parecido
+
         const backendMsgs =
-          data?.messages || data?.items || data?.history || data?.thread?.messages;
+          data?.messages ||
+          data?.items ||
+          data?.history ||
+          data?.thread?.messages;
 
         const ui = mapBackendMessagesToUI(backendMsgs);
 
@@ -284,15 +348,17 @@ export default function App() {
     setIsSending(true);
 
     // UI optimistic
-    setMessages((prev) => [...prev, { role: "user", content: prompt }]);
+    setMessages((prev) => [...prev, { role: "user", content: prompt, meta: {} }]);
     setInput("");
 
     try {
-      const resp = await chatRun(prompt, threadId || null, { session_id: sessionId });
+      const resp = await chatRun(prompt, threadId || null, {
+        session_id: sessionId,
+      });
 
-      // Resp esperada: { answer, thread_id, session_id, ... }
       const newThreadId = resp?.thread_id || resp?.threadId || threadId || null;
-      const newSessionId = resp?.session_id || resp?.sessionId || sessionId || null;
+      const newSessionId =
+        resp?.session_id || resp?.sessionId || sessionId || null;
 
       if (newThreadId && String(newThreadId) !== String(threadId)) {
         setThreadId(newThreadId);
@@ -315,23 +381,25 @@ export default function App() {
           ? resp.text
           : "";
 
-      if (answer) {
-        setMessages((prev) => [...prev, { role: "bot", content: answer, meta: resp }]);
-      } else {
-        // Si no viene "answer" pero sí viene estructura, al menos mostramos algo
-        setMessages((prev) => [
-          ...prev,
-          { role: "bot", content: "Listo. (Respuesta sin texto, revisa el payload)", meta: resp },
-        ]);
-      }
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "bot",
+          content: answer || "Listo. (Respuesta sin texto, revisa el payload)",
+          meta: resp || {},
+        },
+      ]);
 
-      // refresca sidebar (título/updated_at)
       await refreshThreads().catch(() => {});
     } catch (e) {
       setUiError(`Error al enviar. Detalle: ${String(e?.message || e)}`);
       setMessages((prev) => [
         ...prev,
-        { role: "bot", content: "❗ Hubo un error enviando tu mensaje. Reintenta.", meta: { mode: "error" } },
+        {
+          role: "bot",
+          content: "❗ Hubo un error enviando tu mensaje. Reintenta.",
+          meta: { mode: "error" },
+        },
       ]);
     } finally {
       setIsSending(false);
@@ -339,125 +407,174 @@ export default function App() {
   }, [input, isSending, refreshThreads, sessionId, threadId]);
 
   // -----------------------------
-  // Initial load
+  // Global error listeners (evita “pantalla negra”)
   // -----------------------------
   useEffect(() => {
-    refreshThreads().catch(() => {});
-  }, [refreshThreads]);
+    const onErr = (event) => {
+      const msg =
+        event?.error?.stack ||
+        event?.error?.message ||
+        event?.message ||
+        String(event || "Unknown error");
+      setFatalUiError(msg);
+      // eslint-disable-next-line no-console
+      console.error("window.onerror:", event);
+    };
+    const onRej = (event) => {
+      const reason = event?.reason;
+      const msg =
+        reason?.stack || reason?.message || String(reason || "Unhandled rejection");
+      setFatalUiError(msg);
+      // eslint-disable-next-line no-console
+      console.error("unhandledrejection:", event);
+    };
+    window.addEventListener("error", onErr);
+    window.addEventListener("unhandledrejection", onRej);
+    return () => {
+      window.removeEventListener("error", onErr);
+      window.removeEventListener("unhandledrejection", onRej);
+    };
+  }, []);
 
+  // -----------------------------
+  // Initial load (estable)
+  // -----------------------------
   useEffect(() => {
-    // si hay thread guardado, lo cargamos
-    if (threadId) {
-      loadThread(threadId).catch(() => setWelcome());
-    } else {
-      setWelcome();
-    }
+    (async () => {
+      await refreshThreads().catch(() => {});
+      if (threadId) {
+        await loadThread(threadId).catch(() => setWelcome());
+      } else {
+        setWelcome();
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // -----------------------------
+  // UI memo: error badge
+  // -----------------------------
+  const errorBadge = useMemo(() => {
+    const msg = fatalUiError || uiError;
+    if (!msg) return null;
+    return (
+      <div
+        style={{
+          padding: "6px 10px",
+          borderRadius: 10,
+          background: "rgba(255,0,0,0.10)",
+          border: "1px solid rgba(255,0,0,0.25)",
+          fontSize: 12,
+          maxWidth: 520,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          color: "white",
+        }}
+        title={msg}
+      >
+        ❗ {msg}
+      </div>
+    );
+  }, [fatalUiError, uiError]);
 
   // -----------------------------
   // Layout
   // -----------------------------
   return (
-    <div style={{ display: "flex", height: "100vh", width: "100%" }}>
-      {/* Sidebar */}
-      <div
-        style={{
-          width: isSidebarOpen ? 320 : 0,
-          overflow: "hidden",
-          transition: "width 200ms ease",
-          borderRight: isSidebarOpen ? "1px solid rgba(255,255,255,0.08)" : "none",
-        }}
-      >
-        {isSidebarOpen && (
-          <Sidebar
-            threads={threads}
-            activeId={threadId}
-            onNew={handleNew}
-            onSelect={handleSelect}
-            onDelete={handleDelete}
-            isLoading={sidebarBusy}
-          />
-        )}
-      </div>
-
-      {/* Main */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-        {/* Top bar */}
+    <ErrorBoundary>
+      <div style={{ display: "flex", height: "100vh", width: "100%" }}>
+        {/* Sidebar */}
         <div
           style={{
-            height: 60,
-            padding: "10px 16px",
-            borderBottom: "1px solid rgba(255,255,255,0.08)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 10,
+            width: isSidebarOpen ? 320 : 0,
+            overflow: "hidden",
+            transition: "width 200ms ease",
+            borderRight: isSidebarOpen
+              ? "1px solid rgba(255,255,255,0.08)"
+              : "none",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <button
-              onClick={() => setIsSidebarOpen((s) => !s)}
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 10,
-                border: "1px solid rgba(255,255,255,0.12)",
-                background: "rgba(0,0,0,0.25)",
-                color: "white",
-                cursor: "pointer",
-              }}
-              title={isSidebarOpen ? "Ocultar historial" : "Mostrar historial"}
-            >
-              {isSidebarOpen ? "⟪" : "⟫"}
-            </button>
+          {isSidebarOpen && (
+            <Sidebar
+              threads={threads}
+              activeId={threadId}
+              onNew={handleNew}
+              onSelect={handleSelect}
+              onDelete={handleDelete}
+              isLoading={sidebarBusy}
+            />
+          )}
+        </div>
 
-            <div style={{ fontWeight: 800, fontSize: 18 }}>
-              Vanya{" "}
-              <span style={{ fontWeight: 400, opacity: 0.7, fontSize: 12 }}>
-                | QA Intelligence Agent {threadId ? `— thread: ${shortId(threadId)}` : ""}
-              </span>
+        {/* Main */}
+        <div
+          style={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            minWidth: 0,
+          }}
+        >
+          {/* Top bar */}
+          <div
+            style={{
+              height: 60,
+              padding: "10px 16px",
+              borderBottom: "1px solid rgba(255,255,255,0.08)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 10,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <button
+                onClick={() => setIsSidebarOpen((s) => !s)}
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  background: "rgba(0,0,0,0.25)",
+                  color: "white",
+                  cursor: "pointer",
+                }}
+                title={isSidebarOpen ? "Ocultar historial" : "Mostrar historial"}
+              >
+                {isSidebarOpen ? "⟪" : "⟫"}
+              </button>
+
+              <div style={{ fontWeight: 800, fontSize: 18, color: "white" }}>
+                Vanya{" "}
+                <span style={{ fontWeight: 400, opacity: 0.7, fontSize: 12 }}>
+                  | QA Intelligence Agent{" "}
+                  {threadId ? `— thread: ${shortId(threadId)}` : ""}
+                </span>
+              </div>
             </div>
+
+            {errorBadge}
           </div>
 
-          {uiError ? (
-            <div
-              style={{
-                padding: "6px 10px",
-                borderRadius: 10,
-                background: "rgba(255,0,0,0.10)",
-                border: "1px solid rgba(255,0,0,0.25)",
-                fontSize: 12,
-                maxWidth: 520,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-              title={uiError}
-            >
-              ❗ {uiError}
-            </div>
-          ) : null}
-        </div>
-
-        {/* Chat */}
-        <div style={{ flex: 1, overflow: "auto" }}>
-          {/* IMPORTANTÍSIMO: key={threadId} para que al seleccionar otro chat sí cambie */}
-          <Chat
-            key={threadId || "no-thread"}
-            messages={messages}
-            input={input}
-            setInput={setInput}
-            handleSend={handleSend}
-            isLoading={isSending}
-            sessionId={sessionId}
-            threadId={threadId}
-            formatText={formatText}
-            chatEndRef={chatEndRef}
-          />
-          <div ref={chatEndRef} />
+          {/* Chat */}
+          <div style={{ flex: 1, overflow: "auto" }}>
+            <Chat
+              key={threadId || "no-thread"}
+              messages={messages}
+              input={input}
+              setInput={setInput}
+              handleSend={handleSend}
+              isLoading={isSending}
+              sessionId={sessionId}
+              threadId={threadId}
+              formatText={formatText}
+              chatEndRef={chatEndRef}
+            />
+            {/* NOTA: NO duplicamos chatEndRef aquí porque Chat ya lo usa */}
+          </div>
         </div>
       </div>
-    </div>
+    </ErrorBoundary>
   );
 }
