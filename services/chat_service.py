@@ -107,7 +107,14 @@ def _summarize_last_execute(messages: List[Dict[str, Any]]) -> Optional[Dict[str
     base_url = (meta.get("base_url") or "").strip() or None
     status = (meta.get("runner_status") or meta.get("status") or "").strip() or "ok"
     duration_ms = meta.get("duration_ms")
-    evidence_url = (meta.get("evidence_url") or meta.get("screenshot_url") or "").strip() or None
+
+    # ✅ evidencia puede venir en meta directo o dentro de runner
+    evidence_url = (
+        (meta.get("evidence_url") or "").strip()
+        or (meta.get("screenshot_url") or "").strip()
+        or ((meta.get("runner") or {}).get("screenshot_url") or "").strip()
+        or ((meta.get("runner") or {}).get("evidence_url") or "").strip()
+    ) or None
 
     if not evidence_url:
         txt = (exec_msg.get("content") or "").strip()
@@ -284,7 +291,6 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             store.add_message(thread_id, "assistant", answer, meta={"mode": "execute", "base_url": base_url})
             return {"mode": "execute", "session_id": session_id, "thread_id": thread_id, "answer": answer, **_confidence("execute", prompt, base_url)}
 
-        # ✅ defensivo: si steps vino como [], no rompemos ensure_goto
         H.ensure_goto(steps, base_url)
         H.update_last_url(session, steps, fallback=base_url)
 
@@ -296,16 +302,33 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         )
         duration_ms = int((time.time() - started) * 1000)
 
-        evidence_url: Optional[str] = None
-        cloud_public_id: Optional[str] = None
+        # ============================================================
+        # ✅ EVIDENCE: SIEMPRE PROPAGAR URL
+        # 1) primero toma lo que ya regrese el runner
+        # 2) si hay screenshot_b64 y cloudinary activo, sube y sobrescribe
+        # ============================================================
         evidence_id = (result.get("evidence_id") or f"EV-{thread_id[:6]}{int(time.time())}").strip()
 
+        evidence_url: Optional[str] = None
+        cloud_public_id: Optional[str] = None
+
+        # 1) URL directa del runner (MUY IMPORTANTE)
+        for k in ("evidence_url", "screenshot_url", "screenshot", "image_url", "cloudinary_url"):
+            v = result.get(k)
+            if isinstance(v, str) and v.strip():
+                evidence_url = v.strip()
+                break
+
+        # 2) subir screenshot_b64 (si aplica) y sobrescribir evidence_url
         try:
             screenshot_b64 = result.get("screenshot_b64") or result.get("screenshotBase64")
             if screenshot_b64 and upload_screenshot_b64 and getattr(settings, "HAS_CLOUDINARY", False):
                 up = upload_screenshot_b64(screenshot_b64, evidence_id=evidence_id, folder="vanya/evidence")
-                evidence_url = up.get("url")
-                cloud_public_id = up.get("public_id")
+                if isinstance(up, dict):
+                    if isinstance(up.get("url"), str) and up["url"].strip():
+                        evidence_url = up["url"].strip()
+                    if isinstance(up.get("public_id"), str) and up["public_id"].strip():
+                        cloud_public_id = up["public_id"].strip()
         except Exception:
             logger.warning("Evidence upload failed (continuing).", exc_info=True)
 
@@ -319,14 +342,27 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
 
         runner_status = result.get("status") or ("ok" if result.get("ok", True) else "error")
 
+        # ✅ Meta compatible con tu UI:
+        # - meta.evidence_url
+        # - meta.runner.screenshot_url
+        # - meta.runner.evidence_url
         assistant_meta: Dict[str, Any] = {
             "mode": "execute",
             "base_url": base_url,
             "duration_ms": duration_ms,
             "runner_status": runner_status,
+
             "evidence_id": evidence_id,
             "evidence_url": evidence_url,
             "cloudinary_public_id": cloud_public_id,
+
+            # Compat con frontend actual (pickScreenshotUrl busca meta.runner.screenshot_url)
+            "runner": {
+                "evidence_id": evidence_id,
+                "evidence_url": evidence_url,
+                "screenshot_url": evidence_url,  # 👈 esto hace que SIEMPRE se vea en el chat
+            },
+
             "steps": steps,
         }
 
@@ -338,6 +374,7 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             "thread_id": thread_id,
             "answer": answer,
             "runner": result,
+            "evidence_id": evidence_id,
             "evidence_url": evidence_url,
             "duration_ms": duration_ms,
             **_confidence("execute", prompt, base_url),
