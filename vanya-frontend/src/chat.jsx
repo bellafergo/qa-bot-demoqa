@@ -27,22 +27,49 @@ export default function Chat(props) {
     [handleSend, isLoading]
   );
 
-  const pickScreenshotUrl = (m) => {
-    // Fuente principal (lo que guardamos en DB): meta.runner.screenshot_url
-    const primary = m?.meta?.runner?.screenshot_url;
-    if (primary) return String(primary);
+  const isImageUrl = (url) => /\.(png|jpe?g|webp)(\?.*)?$/i.test(String(url || ""));
 
-    // Fallbacks por si cambiaron nombres
-    const fallbacks = [
+  const extractEvidenceFromText = (content) => {
+    const text = typeof content === "string" ? content : "";
+    const m = text.match(/Evidence:\s*(https?:\/\/\S+)/i);
+    return m ? m[1].trim() : null;
+  };
+
+  const pickEvidenceUrl = (m) => {
+    // 1) Meta directo (nuevo backend)
+    const direct =
+      m?.meta?.evidence_url ||
+      m?.meta?.evidenceUrl ||
+      m?.meta_json?.evidence_url ||
+      m?.metaJson?.evidence_url ||
+      m?.evidence_url ||
+      m?.evidenceUrl;
+
+    if (typeof direct === "string" && direct.trim()) return direct.trim();
+
+    // 2) Runner / Evidence objects (compatibilidad)
+    const candidates = [
+      // Lo que ya tenías
+      m?.meta?.runner?.screenshot_url,
       m?.meta?.runner?.screenshot,
       m?.meta?.runner?.evidence_url,
+      m?.meta?.runner?.evidenceUrl,
       m?.meta?.evidence?.screenshot_url,
+      m?.meta?.evidence?.url,
       m?.meta?.screenshot_url,
+      m?.meta?.screenshotUrl,
       m?.screenshot_url,
+      // Nuevos posibles
+      m?.meta?.runner?.cloudinary_url,
+      m?.meta?.runner?.image_url,
     ];
 
-    const hit = fallbacks.find((x) => typeof x === "string" && x.trim());
-    return hit ? hit.trim() : null;
+    const hit = candidates.find((x) => typeof x === "string" && x.trim());
+    if (hit) return hit.trim();
+
+    // 3) Último fallback: parsear del texto "Evidence: https://..."
+    const fromText = extractEvidenceFromText(m?.content);
+    return fromText;
   };
 
   const pickEvidenceId = (m) => {
@@ -50,7 +77,9 @@ export default function Chat(props) {
       m?.meta?.runner?.evidence_id ||
       m?.meta?.runner?.evidenceId ||
       m?.meta?.evidence_id ||
+      m?.meta?.evidenceId ||
       m?.evidence_id ||
+      m?.evidenceId ||
       null;
     return id ? String(id) : null;
   };
@@ -60,7 +89,7 @@ export default function Chat(props) {
     const content = typeof m?.content === "string" ? m.content : "";
     const html = formatText(content);
 
-    const screenshotUrl = pickScreenshotUrl(m);
+    const evidenceUrl = pickEvidenceUrl(m);
     const evidenceId = pickEvidenceId(m);
 
     const key = String(m?.id || m?.meta?.id || `${role}-${idx}`);
@@ -104,11 +133,11 @@ export default function Chat(props) {
             style={{ lineHeight: 1.35 }}
           />
 
-          {/* Evidencia */}
-          {screenshotUrl ? (
+          {/* Evidencia (SIEMPRE que exista) */}
+          {evidenceUrl ? (
             <div style={{ marginTop: 10 }}>
               <a
-                href={screenshotUrl}
+                href={evidenceUrl}
                 target="_blank"
                 rel="noreferrer"
                 style={{
@@ -123,20 +152,28 @@ export default function Chat(props) {
                 Abrir evidencia
               </a>
 
-              <img
-                src={screenshotUrl}
-                alt="Evidencia de prueba"
-                loading="lazy"
-                style={{
-                  maxWidth: "100%",
-                  borderRadius: 10,
-                  border: "1px solid rgba(255,255,255,0.15)",
-                }}
-                onError={(e) => {
-                  // Evita que una URL rota rompa el UI
-                  e.currentTarget.style.display = "none";
-                }}
-              />
+              {/* Render imagen solo si parece imagen */}
+              {isImageUrl(evidenceUrl) ? (
+                <img
+                  src={evidenceUrl}
+                  alt="Evidencia de prueba"
+                  loading="lazy"
+                  style={{
+                    maxWidth: "100%",
+                    borderRadius: 10,
+                    border: "1px solid rgba(255,255,255,0.15)",
+                    display: "block",
+                  }}
+                  onError={(e) => {
+                    // Evita que una URL rota rompa el UI
+                    e.currentTarget.style.display = "none";
+                  }}
+                />
+              ) : (
+                <div style={{ fontSize: 12, opacity: 0.85 }}>
+                  (La evidencia no parece imagen. Abre el link.)
+                </div>
+              )}
             </div>
           ) : null}
         </div>
