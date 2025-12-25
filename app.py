@@ -6,10 +6,8 @@ import uuid
 import traceback
 import logging
 import base64
+from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
-import cloudinary.uploader
-import cloudinary
-
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -17,18 +15,22 @@ load_dotenv()
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from starlette.requests import Request
+from fastapi.staticfiles import StaticFiles
 
 from pydantic import BaseModel
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
-from pathlib import Path
-from fastapi.staticfiles import StaticFiles
+import cloudinary
+import cloudinary.uploader
 
 from db import init_db, SessionLocal, Thread, Message, utcnow
 from runner import execute_test
 
+
+# ============================================================
+# LOGGING
+# ============================================================
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s - %(message)s"
@@ -36,59 +38,53 @@ logging.basicConfig(
 logger = logging.getLogger("vanya")
 
 
-CLOUDINARY_URL = os.getenv("CLOUDINARY_URL", "").strip()
+# ============================================================
+# CLOUDINARY (config)
+# ============================================================
+CLOUDINARY_URL = (os.getenv("CLOUDINARY_URL") or "").strip()
 if CLOUDINARY_URL:
     cloudinary.config(secure=True)
+
 
 def upload_evidence_to_cloudinary(
     png_bytes: bytes,
     public_id: str,
-    folder: str = "vanya/evidence"
-):
+    folder: str = "vanya/evidence",
+) -> Dict[str, Any]:
     """
     Sube evidencia (png bytes) a Cloudinary y regresa metadata + URL segura.
     """
     if not CLOUDINARY_URL:
         raise RuntimeError("CLOUDINARY_URL no está configurado")
 
-    try:
-        res = cloudinary.uploader.upload(
-            png_bytes,
-            folder=folder,
-            public_id=public_id,
-            resource_type="image",
-            overwrite=True,
-        )
-        return {
-            "url": res.get("secure_url"),
-            "public_id": res.get("public_id"),
-            "bytes": res.get("bytes"),
-            "format": res.get("format"),
-            "width": res.get("width"),
-            "height": res.get("height"),
-        }
-    except Exception as e:
-        logger.exception("Error subiendo evidencia a Cloudinary")
-        raise
+    res = cloudinary.uploader.upload(
+        png_bytes,
+        folder=folder,
+        public_id=public_id,
+        resource_type="image",
+        overwrite=True,
+    )
+    return {
+        "url": res.get("secure_url") or res.get("url"),
+        "public_id": res.get("public_id"),
+        "bytes": res.get("bytes"),
+        "format": res.get("format"),
+        "width": res.get("width"),
+        "height": res.get("height"),
+    }
+
 
 # ============================================================
 # INIT
 # ============================================================
-
 app = FastAPI()
 
-# ---- Evidence static hosting (para screenshots Playwright)
-
+# (Opcional) static hosting local. Si usas Cloudinary, no pasa nada dejarlo.
 BASE_DIR = Path(__file__).resolve().parent
 EVIDENCE_DIR = Path(os.getenv("EVIDENCE_DIR", str(BASE_DIR / "evidence")))
-
 EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
 
-app.mount(
-    "/evidence",
-    StaticFiles(directory=str(EVIDENCE_DIR)),
-    name="evidence",
-)
+app.mount("/evidence", StaticFiles(directory=str(EVIDENCE_DIR)), name="evidence")
 
 app.add_middleware(
     CORSMiddleware,
@@ -96,7 +92,7 @@ app.add_middleware(
         "http://localhost:5173",
         "http://localhost:5174",
         "https://valtre-vanya.vercel.app",
-        "https://valtre-vanya.vercel.app/",
+        "https://valtre-vanya.vercel.app/".rstrip("/"),
         "https://valtre-vanya.vercel.app".rstrip("/"),
     ],
     allow_credentials=True,
@@ -117,10 +113,6 @@ def on_startup():
     if os.getenv("DATABASE_URL"):
         init_db()
 
-# (Opcional) endpoint para probar handler
-@app.get("/_boom")
-def _boom():
-    raise Exception("boom")
 
 # ============================================================
 # ENV
@@ -131,7 +123,6 @@ OPENAI_MODEL = (os.getenv("OPENAI_MODEL") or "gpt-4o-mini").strip()
 SESSION_TTL_S = int(os.getenv("SESSION_TTL_S", "3600"))
 MAX_HISTORY_MSGS = int(os.getenv("MAX_HISTORY_MSGS", "10"))
 
-# DOC tuning (velocidad)
 DOC_DEFAULT_DOMAIN = (os.getenv("DOC_DEFAULT_DOMAIN") or "retail").strip()
 DOC_MAX_TEST_CASES = int(os.getenv("DOC_MAX_TEST_CASES", "14"))
 DOC_MAX_GHERKIN = int(os.getenv("DOC_MAX_GHERKIN", "8"))
@@ -140,13 +131,13 @@ DOC_MAX_CODE_CHARS = int(os.getenv("DOC_MAX_CODE_CHARS", "3500"))
 DOC_HISTORY_MSGS = int(os.getenv("DOC_HISTORY_MSGS", "4"))
 DOC_CACHE_MAX = int(os.getenv("DOC_CACHE_MAX", "80"))
 
-# Model knobs
 DOC_TEMPERATURE = float(os.getenv("DOC_TEMPERATURE", "0.2"))
 ADV_TEMPERATURE = float(os.getenv("ADV_TEMPERATURE", "0.4"))
 EXEC_TEMPERATURE = float(os.getenv("EXEC_TEMPERATURE", "0.2"))
 DOC_MAX_TOKENS = int(os.getenv("DOC_MAX_TOKENS", "1100"))
 ADV_MAX_TOKENS = int(os.getenv("ADV_MAX_TOKENS", "700"))
 EXEC_MAX_TOKENS = int(os.getenv("EXEC_MAX_TOKENS", "700"))
+
 
 # ============================================================
 # REQUEST MODEL
@@ -158,12 +149,12 @@ class ChatRunRequest(BaseModel):
     base_url: Optional[str] = None
     thread_id: Optional[str] = None
 
+
 # ============================================================
 # SESSION MEMORY (history + last_url + ttl + doc_last)
 # ============================================================
 _SESSIONS: Dict[str, Dict[str, Any]] = {}
 
-# DOC cache (mismo prompt => respuesta instant)
 _DOC_CACHE: Dict[str, Dict[str, Any]] = {}
 _DOC_CACHE_ORDER: List[str] = []
 
@@ -186,7 +177,7 @@ def _cleanup_sessions():
         _SESSIONS.pop(sid, None)
 
 def _get_session(session_id: Optional[str]) -> Tuple[str, Dict[str, Any]]:
-    _cleanup_sessions()  # limpia antes de crear/usar
+    _cleanup_sessions()
     sid = (session_id or "").strip() or str(uuid.uuid4())
     s = _SESSIONS.get(sid)
     if not s:
@@ -200,24 +191,19 @@ def _push_history(session: Dict[str, Any], role: str, content: str):
     if len(session["history"]) > MAX_HISTORY_MSGS:
         session["history"] = session["history"][-MAX_HISTORY_MSGS:]
 
+
 # ============================================================
 # NORMALIZE / HELPERS
 # ============================================================
-
-# ✅ AQUÍ VA _URL_RE (global y antes de usarlo)
 _URL_RE = re.compile(r"(https?://[^\s]+)", re.I)
 
-
 def _iso(x):
-    """Convierte datetimes a ISO8601 UTC (string). Seguro y consistente."""
     if not x:
         return None
-
     if hasattr(x, "tzinfo"):
         if x.tzinfo is None:
             x = x.replace(tzinfo=utcnow().tzinfo)
         return x.astimezone(utcnow().tzinfo).isoformat()
-
     return str(x)
 
 def _norm(s: str) -> str:
@@ -247,16 +233,11 @@ def _normalize_url(url: str) -> str:
     return url
 
 def _ensure_goto(steps: List[Dict[str, Any]], base_url: str):
-    """
-    Garantiza que el primer paso sea goto.
-    Útil cuando el modelo olvida incluirlo y tu runner lo necesita.
-    """
     if not steps:
         return
     has_goto = any(str(s.get("action", "")).lower() == "goto" for s in steps)
     if not has_goto:
         steps.insert(0, {"action": "goto", "url": base_url})
-
 
 def _pick_base_url(req: ChatRunRequest, session: Dict[str, Any], prompt: str) -> Optional[str]:
     if req.base_url and req.base_url.strip():
@@ -277,7 +258,6 @@ def _pick_base_url(req: ChatRunRequest, session: Dict[str, Any], prompt: str) ->
 
     return None
 
-
 def _update_last_url_from_steps(session: Dict[str, Any], steps: List[Dict[str, Any]], fallback: Optional[str] = None):
     for s in steps or []:
         if str(s.get("action") or "").lower() == "goto" and s.get("url"):
@@ -285,7 +265,6 @@ def _update_last_url_from_steps(session: Dict[str, Any], steps: List[Dict[str, A
             return
     if fallback:
         session["last_url"] = _normalize_url(str(fallback))
-
 
 def _strip_code_fences(s: str) -> str:
     if not s:
@@ -296,21 +275,13 @@ def _strip_code_fences(s: str) -> str:
         s2 = re.sub(r"\s*```$", "", s2)
     return s2.strip()
 
-
 def _parse_tool_args(raw_args: str) -> Optional[Dict[str, Any]]:
-    """
-    Parsea JSON de forma robusta. Si falla el parseo directo, 
-    intenta extraer el contenido entre llaves.
-    """
     if not raw_args:
         return None
-
     raw = _strip_code_fences(raw_args).strip().lstrip("\ufeff")
-
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
-        # Intento de rescate si el LLM envió texto extra
         m = re.search(r"\{.*?\}", raw, flags=re.S)
         if m:
             try:
@@ -323,13 +294,10 @@ def _make_title_from_prompt(prompt: str, max_len: int = 60) -> str:
     p = (prompt or "").strip()
     if not p:
         return "New chat"
-    # limpia saltos y espacios
     p = " ".join(p.split())
-    # corta largo
     if len(p) > max_len:
         p = p[: max_len - 1] + "…"
     return p
-
 
 def _is_question(prompt: str) -> bool:
     p = _low(prompt).strip()
@@ -362,15 +330,16 @@ def _db_add_message(
     thread_id: str,
     role: str,
     content: str,
-    meta: Optional[dict] = None,   # ✅ NUEVO
+    meta: Optional[dict] = None,
 ):
     """
-    Guarda un mensaje. meta se usa para guardar runner/doc/etc (y que aparezca en historial).
-    Requiere que Message tenga un campo meta_json (JSON/JSONB).
+    Guarda un mensaje.
+    - `meta` sirve para guardar runner/doc/etc y que aparezca en historial.
+    - Requiere que Message tenga un campo `meta_json` (JSON/JSONB).
     """
     m = Message(thread_id=thread_id, role=role, content=content)
 
-    # ✅ si tu modelo Message ya tiene meta_json, lo setea
+    # Solo setea si el modelo lo soporta
     if meta is not None and hasattr(m, "meta_json"):
         m.meta_json = meta
 
@@ -389,15 +358,16 @@ def _db_add_message_and_touch(
     thread_id: str,
     role: str,
     content: str,
-    meta: Optional[dict] = None,   # ✅ NUEVO
+    meta: Optional[dict] = None,
 ):
     _db_add_message(db, thread_id, role, content, meta=meta)
     _touch_thread(db, thread_id)
 
 
-def _db_save_assistant(thread_id: str, content: str, meta: Optional[dict] = None):  # ✅ NUEVO
+def _db_save_assistant(thread_id: str, content: str, meta: Optional[dict] = None):
     """
     Helper para guardar mensaje assistant con meta opcional.
+    Hace su propia sesión DB.
     """
     if not thread_id:
         return
@@ -407,47 +377,58 @@ def _db_save_assistant(thread_id: str, content: str, meta: Optional[dict] = None
         db2.commit()
     except Exception:
         db2.rollback()
+        logger.error("DB error saving assistant", exc_info=True)
     finally:
         db2.close()
+
 
 # ============================================================
 # INTENT ROUTING
 # ============================================================
 _ADVISE_HINTS = [
     "qué haces", "que haces", "qué puedes", "que puedes", "recomiendas",
-    "riesgos", "mejor práctica", "best practice", "ayúdame a", "explica",
+    "riesgos", "mejor práctica", "best practice", "ayúdame a", "ayudame a", "explica",
+]
+
+_DOC_TRIGGERS = [
+    "casos de prueba", "matriz de casos", "matriz",
+    "gherkin", "historia de usuario", "user story",
+    "invest", "criterios de aceptación", "acceptance criteria",
+    "artefactos qa", "documentación qa", "documentacion qa", "escenarios de prueba",
+    "test cases",
 ]
 
 
 def _wants_doc(prompt: str) -> bool:
     p = _low(prompt)
-    qa_triggers = [
-        "casos de prueba", "matriz de casos", "matriz",
-        "gherkin", "historia de usuario", "user story",
-        "invest", "criterios de aceptación", "acceptance criteria",
-        "artefactos qa", "documentación qa", "escenarios de prueba",
-        "test cases",
-    ]
-    return any(k in p for k in qa_triggers)
+    return any(k in p for k in _DOC_TRIGGERS)
 
 
 def _wants_execute_explicit(prompt: str, session: Optional[dict] = None) -> bool:
+    """
+    Ejecuta SOLO cuando:
+    - Hay URL y hay intención/acción de UI; o
+    - No hay URL pero hay last_url y hay acción de UI; o
+    - Hay intención explícita de ejecutar (run/playwright/navega/abre/entra) + acción.
+    """
     p = _low(prompt)
     session = session or {}
 
     has_url = _looks_like_url(prompt)
     has_last_url = bool(session.get("last_url"))
 
-    has_ui_action = any(x in p for x in [
+    ui_actions = [
         "click", "clic", "haz click", "presiona",
         "fill", "llenar", "escribe", "selecciona",
         "assert", "valida", "verifica",
         "aparezca", "visible", "mensaje", "error",
-        "botón", "campo", "texto", "redirige", "redirecciona"
-    ])
+        "botón", "boton", "campo", "texto", "redirige", "redirecciona",
+        "login", "inicia sesión", "inicia sesion",
+    ]
+    has_ui_action = any(x in p for x in ui_actions)
 
     has_exec_intent = bool(re.search(
-        r"\b(ejecutar|ejecuta|correr|corre|run|playwright|navega|abre|entra)\b",
+        r"\b(ejecutar|ejecuta|correr|corre|run|playwright|navega|abre|entra|automatiza)\b",
         p
     ))
 
@@ -463,13 +444,17 @@ def _wants_execute_explicit(prompt: str, session: Optional[dict] = None) -> bool
     if has_url and (has_exec_intent or has_ui_action):
         return True
 
+    # Intención explícita + acción (aunque URL venga en contexto/última)
+    if has_exec_intent and has_ui_action and has_last_url:
+        return True
+
     return False
 
 
 def _wants_execute_followup(prompt: str, session: Dict[str, Any]) -> bool:
     p = _low(prompt)
-    if session.get("last_url") and any(x in p for x in ["ahora", "también", "en la misma", "en esa", "luego", "después", "siguiente"]):
-        if any(x in p for x in ["valida", "verifica", "visible", "texto", "aparezca", "error", "mensaje", "botón", "campo"]):
+    if session.get("last_url") and any(x in p for x in ["ahora", "también", "tambien", "en la misma", "en esa", "luego", "después", "despues", "siguiente"]):
+        if any(x in p for x in ["valida", "verifica", "visible", "texto", "aparezca", "error", "mensaje", "botón", "boton", "campo"]):
             return True
     return False
 
@@ -483,13 +468,14 @@ def _wants_advise(prompt: str, session: Optional[dict] = None) -> bool:
         return False
     return any(k in p for k in _ADVISE_HINTS)
 
+
 # ============================================================
 # DOC: requested parts
 # ============================================================
 def _doc_requested_parts(prompt: str) -> Dict[str, bool]:
     p = _low(prompt)
     wants_invest = ("invest" in p) or ("brechas" in p)
-    wants_gherkin = ("gherkin" in p) or ("criterios de aceptación" in p)
+    wants_gherkin = ("gherkin" in p) or ("criterios de aceptación" in p) or ("criterios de aceptacion" in p)
     wants_cases = ("casos de prueba" in p) or ("matriz" in p) or ("test cases" in p)
     wants_scripts = ("script" in p) or ("automat" in p) or ("playwright" in p) or ("page object" in p) or ("p.o.m" in p)
 
@@ -497,6 +483,7 @@ def _doc_requested_parts(prompt: str) -> Dict[str, bool]:
         return {"invest": True, "gherkin": True, "cases": True, "scripts": True}
 
     if not any([wants_invest, wants_gherkin, wants_cases, wants_scripts]):
+        # default sensato
         return {"invest": False, "gherkin": True, "cases": True, "scripts": False}
 
     return {"invest": wants_invest, "gherkin": wants_gherkin, "cases": wants_cases, "scripts": wants_scripts}
@@ -516,7 +503,7 @@ def _infer_domain(prompt: str) -> str:
     p = _low(prompt)
     if "pos" in p or "punto de venta" in p:
         return "pos"
-    if "ecommerce" in p or "e-commerce" in p or "tienda en línea" in p:
+    if "ecommerce" in p or "e-commerce" in p or "tienda en línea" in p or "tienda en linea" in p:
         return "ecommerce"
     if "erp" in p or "oracle" in p or "sap" in p:
         return "erp"
@@ -537,6 +524,7 @@ def _cache_set(key: str, value: Dict[str, Any]):
         old = _DOC_CACHE_ORDER.pop(0)
         _DOC_CACHE.pop(old, None)
 
+
 # ============================================================
 # SYSTEM PROMPTS
 # ============================================================
@@ -544,7 +532,6 @@ SYSTEM_PROMPT = """Eres Vanya, Lead SDET experta en Retail y E-commerce.
 Tu objetivo es asegurar que el flujo de compra sea impecable y que ningún defecto afecte conversión, ingresos o experiencia del cliente.
 
 Modos de operación:
-
 - ADVISE: Consultoría técnica. Evalúas calidad bajo INVEST y priorizas riesgos de conversión (pagos, inventario, performance, UX).
 - EXECUTE: Automatización activa. Validas flujos reales con foco en el Golden Path del cliente.
 
@@ -560,7 +547,6 @@ Acciones permitidas:
 goto, fill, click, press, assert_visible, assert_text_contains, wait_ms.
 
 Reglas Críticas:
-
 - En Retail, la UI puede ser inestable: espera siempre visibilidad antes de interactuar.
 - Usa wait_ms estratégicamente antes de aserciones críticas.
 - Si el usuario dice “la misma página”, usa last_url/base_url.
@@ -572,13 +558,13 @@ SYSTEM_PROMPT_DOC = """Eres Vanya. Generas artefactos QA de alto nivel para Reta
 (INVEST, Gherkin, Casos de Prueba, Scripts Playwright Python).
 
 Reglas de Calidad:
-
 - Incluye siempre edge cases de Retail (cupones expirados, stock agotado, errores de pasarela).
 - Prioriza escenarios por impacto en conversión y riesgo técnico.
 - Si generas scripts Playwright, valida Desktop y Mobile.
 - Si faltan datos, agrega assumptions y questions_to_clarify.
 - Devuelve SIEMPRE un tool-call generate_qa_artifacts.
 """
+
 
 # ============================================================
 # TOOLS
@@ -596,10 +582,7 @@ QA_TOOL = {
                     "items": {
                         "type": "object",
                         "properties": {
-                            "action": {
-                                "type": "string",
-                                "enum": ["goto", "fill", "click", "press", "assert_visible", "assert_text_contains", "wait_ms"],
-                            },
+                            "action": {"type": "string", "enum": ["goto", "fill", "click", "press", "assert_visible", "assert_text_contains", "wait_ms"]},
                             "url": {"type": "string"},
                             "selector": {"type": "string"},
                             "text": {"type": "string"},
@@ -653,6 +636,7 @@ QA_DOC_TOOL = {
     },
 }
 
+
 # ============================================================
 # DOC renderer + trim
 # ============================================================
@@ -689,7 +673,14 @@ def _trim_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
         scr["files"] = files
         doc["automation_scripts"] = scr
     else:
-        doc["automation_scripts"] = {"framework": "", "structure": "", "notes": [], "selectors_recommendation": [], "how_to_run": [], "files": []}
+        doc["automation_scripts"] = {
+            "framework": "",
+            "structure": "",
+            "notes": [],
+            "selectors_recommendation": [],
+            "how_to_run": [],
+            "files": [],
+        }
 
     return doc
 
@@ -703,7 +694,7 @@ def _render_doc_answer(doc: Dict[str, Any]) -> str:
     questions = doc.get("questions_to_clarify") or []
     invest = doc.get("invest") or {}
 
-    out = []
+    out: List[str] = []
     out.append(
         "## 📌 Input\n"
         f"**Dominio:** `{_md_escape(domain)}`  \n"
@@ -718,15 +709,11 @@ def _render_doc_answer(doc: Dict[str, Any]) -> str:
     if questions:
         out.append("\n## ❓ Preguntas mínimas\n" + "\n".join([f"- {_md_escape(q)}" for q in questions]))
 
-    # ✅ INVEST (tabla)
+    # ✅ INVEST
     if req.get("invest"):
-        # soporta 2 formatos:
-        # 1) invest = {"Independent": 2, "Negotiable": 1, ... , "total": 8, "verdict": "...", "gaps":[...]}
-        # 2) invest = {"scores": {...}, "total": ..., "verdict": ..., "gaps": [...]}
         scores = invest.get("scores") if isinstance(invest, dict) else None
         if not scores and isinstance(invest, dict):
-            # intenta leer directo
-            scores = {k: v for k, v in invest.items() if k.lower() in ["independent","negotiable","valuable","estimable","small","testable"]}
+            scores = {k: v for k, v in invest.items() if k.lower() in ["independent", "negotiable", "valuable", "estimable", "small", "testable"]}
 
         total = invest.get("total") if isinstance(invest, dict) else None
         verdict = invest.get("verdict") if isinstance(invest, dict) else None
@@ -755,7 +742,7 @@ def _render_doc_answer(doc: Dict[str, Any]) -> str:
             out.append("\n### Historia reescrita")
             out.append(_md_escape(str(rewritten)))
 
-    # ✅ Test cases (matriz)
+    # ✅ Test cases
     if req.get("cases"):
         tcs = doc.get("test_cases") or []
         out.append("\n## 🧪 Matriz de casos de prueba")
@@ -792,8 +779,8 @@ def _fallback_minimal_doc(requested, domain, context, story):
         "domain": domain,
         "context": context,
         "user_story": story,
-        "assumptions": ["No se proporcionaron reglas de password/lockout específicas."],
-        "questions_to_clarify": ["¿Qué políticas de seguridad aplican? (MFA, lockout, rate-limit, captcha)?"],
+        "assumptions": ["No se proporcionaron reglas de seguridad específicas."],
+        "questions_to_clarify": ["¿Qué políticas aplican? (MFA, lockout, rate-limit, captcha)?"],
         "invest": {},
         "gherkin": [],
         "test_cases": [
@@ -818,28 +805,43 @@ def _fallback_minimal_doc(requested, domain, context, story):
                 "expected": "Mensaje de error y no inicia sesión",
             },
         ],
-        "automation_scripts": {"framework": "", "structure": "", "notes": [], "selectors_recommendation": [], "how_to_run": [], "files": []},
+        "automation_scripts": {
+            "framework": "",
+            "structure": "",
+            "notes": [],
+            "selectors_recommendation": [],
+            "how_to_run": [],
+            "files": [],
+        },
     }
     return _trim_doc(minimal_doc)
 
-def upload_screenshot_b64(evidence_id: str, screenshot_b64: str) -> dict:
-    img_bytes = base64.b64decode(screenshot_b64)
-    result = cloudinary.uploader.upload(
-        img_bytes,
-        public_id=evidence_id,
-        folder="vanya_evidence",
-        overwrite=True,
-        resource_type="image",
-    )
+
+# ============================================================
+# EVIDENCE: helper (b64 -> Cloudinary)
+# ============================================================
+def upload_screenshot_b64(evidence_id: str, screenshot_b64: str) -> Dict[str, Any]:
+    """
+    Convierte screenshot_b64 (PNG base64) a bytes y sube a Cloudinary.
+    Reutiliza `upload_evidence_to_cloudinary` definido en la primera parte.
+    """
+    png_bytes = base64.b64decode(screenshot_b64)
+    uploaded = upload_evidence_to_cloudinary(png_bytes=png_bytes, public_id=evidence_id, folder="vanya/evidence")
     return {
         "id": evidence_id,
-        "url": result.get("secure_url") or result.get("url"),
+        "url": uploaded.get("url"),
         "provider": "cloudinary",
+        "public_id": uploaded.get("public_id"),
+        "bytes": uploaded.get("bytes"),
+        "format": uploaded.get("format"),
+        "width": uploaded.get("width"),
+        "height": uploaded.get("height"),
     }
 
 # ============================================================
 # ENDPOINTS
 # ============================================================
+
 @app.get("/health")
 def health():
     return {"ok": True}
@@ -857,182 +859,19 @@ def meta():
         "sessions_in_memory": len(_SESSIONS),
         "doc_cache_items": len(_DOC_CACHE),
         "has_db": bool(os.getenv("DATABASE_URL")),
+        "has_cloudinary": bool((os.getenv("CLOUDINARY_URL") or "").strip()),
     }
 
 
-@app.delete("/threads/{thread_id}")
-def delete_thread(thread_id: str):
-    db: Session = SessionLocal()
-    try:
-        t = db.query(Thread).filter(Thread.id == thread_id).first()
-        if not t:
-            raise HTTPException(status_code=404, detail="Thread not found")
-
-        db.query(Message).filter(Message.thread_id == thread_id).delete(
-            synchronize_session=False
-        )
-
-        db.delete(t)
-        db.commit()
-        return {"ok": True}
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
-
-
 # ============================================================
-# THREADS (listado para sidebar)
+# THREADS (Sidebar)
 # ============================================================
-@app.get("/threads")
-def list_threads():
-    db: Session = SessionLocal()
-    try:
-        threads = (
-            db.query(Thread)
-            .order_by(Thread.updated_at.desc())
-            .all()
-        )
-        return [
-            {"id": t.id, "title": t.title, "updated_at": _iso(t.updated_at)}
-            for t in threads
-        ]
-    finally:
-        db.close()
-
-@app.delete("/threads/{thread_id}")
-def delete_thread(thread_id: str):
-    db: Session = SessionLocal()
-    try:
-        t = db.query(Thread).filter(Thread.id == thread_id).first()
-        if not t:
-            raise HTTPException(status_code=404, detail="Thread not found")
-
-        # Borra primero mensajes (por FK / consistencia)
-        db.query(Message).filter(Message.thread_id == thread_id).delete(synchronize_session=False)
-
-        # Borra el thread
-        db.delete(t)
-        db.commit()
-        return {"ok": True}
-    except Exception as e:
-        db.rollback()
-        raise
-    finally:
-        db.close()
-
-
-@app.get("/threads")
-def list_threads():
-    db: Session = SessionLocal()
-    try:
-        threads = (
-            db.query(Thread)
-            .order_by(Thread.updated_at.desc())
-            .all()
-        )
-        return [
-            {"id": t.id, "title": t.title, "updated_at": _iso(t.updated_at)}
-            for t in threads
-        ]
-    finally:
-        db.close()
-
-# ============================================================
-# THREAD DETAIL + MESSAGES (para abrir chats del sidebar)
-# ============================================================
-@app.get("/threads/{thread_id}")
-def get_thread(thread_id: str):
-    db: Session = SessionLocal()
-    try:
-        t = db.query(Thread).filter(Thread.id == thread_id).first()
-        if not t:
-            raise HTTPException(status_code=404, detail="Thread not found")
-
-        msgs = (
-            db.query(Message)
-            .filter(Message.thread_id == thread_id)
-            .order_by(Message.created_at.asc())
-            .all()
-        )
-
-        return {
-            "id": t.id,
-            "title": t.title,
-            "updated_at": _iso(t.updated_at) if hasattr(t, "updated_at") else None,
-            "messages": [
-                {
-                    "id": m.id,
-                    "role": m.role,
-                    "content": m.content,
-                    "created_at": _iso(m.created_at),
-                    "meta": getattr(m, "meta_json", None),  # ✅ CLAVE
-                }
-                for m in msgs
-            ],
-        }
-    finally:
-        db.close()
-
-
-@app.get("/threads/{thread_id}/messages")
-def get_thread_messages(thread_id: str):
-    db: Session = SessionLocal()
-    try:
-        t = db.query(Thread).filter(Thread.id == thread_id).first()
-        if not t:
-            raise HTTPException(status_code=404, detail="Thread not found")
-
-        msgs = (
-            db.query(Message)
-            .filter(Message.thread_id == thread_id)
-            .order_by(Message.created_at.asc())
-            .all()
-        )
-
-        return [
-            {
-                "id": m.id,
-                "role": m.role,
-                "content": m.content,
-                "created_at": _iso(m.created_at),
-            }
-            for m in msgs
-        ]
-    finally:
-        db.close()
-
-@app.delete("/threads/{thread_id}")
-def delete_thread(thread_id: str):
-    db: Session = SessionLocal()
-    try:
-        t = db.query(Thread).filter(Thread.id == thread_id).first()
-        if not t:
-            raise HTTPException(status_code=404, detail="Thread not found")
-
-        db.query(Message).filter(Message.thread_id == thread_id).delete(synchronize_session=False)
-        db.delete(t)
-        db.commit()
-        return {"ok": True}
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
-
-
-# ============================================================
-# THREADS (sidebar tipo ChatGPT)
-# ============================================================
-
-from fastapi import HTTPException  # mejor arriba del archivo, pero aquí funciona
 
 @app.post("/threads")
 def create_thread():
     db: Session = SessionLocal()
     try:
-        t = Thread()
+        t = Thread(title="New chat")
         db.add(t)
         db.commit()
         db.refresh(t)
@@ -1046,10 +885,7 @@ def list_threads():
     db: Session = SessionLocal()
     try:
         threads = db.query(Thread).order_by(Thread.updated_at.desc()).all()
-        return [
-            {"id": t.id, "title": t.title, "updated_at": _iso(t.updated_at)}
-            for t in threads
-        ]
+        return [{"id": t.id, "title": t.title, "updated_at": _iso(t.updated_at)} for t in threads]
     finally:
         db.close()
 
@@ -1079,7 +915,7 @@ def get_thread(thread_id: str):
                     "role": m.role,
                     "content": m.content,
                     "created_at": _iso(m.created_at),
-                    "meta": getattr(m, "meta_json", None),  # si no existe, regresa None
+                    "meta": getattr(m, "meta_json", None),  # ✅ CLAVE PARA EVIDENCIA
                 }
                 for m in msgs
             ],
@@ -1096,11 +932,7 @@ def delete_thread(thread_id: str):
         if not t:
             raise HTTPException(status_code=404, detail="Thread not found")
 
-        # borra hijos primero (por FK)
-        db.query(Message).filter(Message.thread_id == thread_id).delete(
-            synchronize_session=False
-        )
-
+        db.query(Message).filter(Message.thread_id == thread_id).delete(synchronize_session=False)
         db.delete(t)
         db.commit()
         return {"ok": True}
@@ -1110,6 +942,10 @@ def delete_thread(thread_id: str):
     finally:
         db.close()
 
+
+# ============================================================
+# CHAT RUN
+# ============================================================
 
 @app.post("/chat_run")
 def chat_run(req: ChatRunRequest):
@@ -1121,7 +957,6 @@ def chat_run(req: ChatRunRequest):
         if not prompt:
             raise HTTPException(status_code=400, detail="prompt vacío")
 
-        # ⚠️ si aquí truena OpenAI/env, lo queremos ver en detail
         client = _get_client()
 
         # -------------------------------
@@ -1129,133 +964,42 @@ def chat_run(req: ChatRunRequest):
         # -------------------------------
         active_thread_id = (req.thread_id or "").strip()
         db: Session = SessionLocal()
-
         try:
-            # 1) Si viene thread_id, valida que exista
             if active_thread_id:
                 exists = db.query(Thread).filter(Thread.id == active_thread_id).first()
                 if not exists:
-                    # thread_id inválido/borrado -> crea uno nuevo
                     t = _db_create_thread(db, title="New chat")
                     active_thread_id = t.id
-                    db.commit()  # ✅ asegura que exista en DB antes de insertar mensajes
+                    db.commit()
             else:
-                # 2) Si no viene, crea uno nuevo
                 t = _db_create_thread(db, title="New chat")
                 active_thread_id = t.id
-                db.commit()  # ✅ idem
+                db.commit()
 
-            # 3) Guarda mensaje del usuario
             _db_add_message_and_touch(db, active_thread_id, "user", prompt)
             db.commit()
 
-            # 4) Si sigue "New chat", pon título con contexto
             t2 = db.query(Thread).filter(Thread.id == active_thread_id).first()
             if t2 and (not t2.title or t2.title.strip() == "New chat"):
                 t2.title = _make_title_from_prompt(prompt)
                 db.add(t2)
                 db.commit()
-
         except Exception as e:
             db.rollback()
-            raise HTTPException(
-                status_code=500,
-                detail=f"DB error (user msg): {type(e).__name__}: {str(e)}"
-            )
+            raise HTTPException(status_code=500, detail=f"DB error (user msg): {type(e).__name__}: {str(e)}")
         finally:
             db.close()
 
+        # -------------------------------
+        # INTENTS
+        # -------------------------------
         wants_doc = _wants_doc(prompt)
         wants_execute = _wants_execute_explicit(prompt, session) or _wants_execute_followup(prompt, session)
 
         # ============================================================
-        # EXECUTE MODE (AQUÍ VA EL FIX DE screenshot_url + return runner)
+        # PRIORIDAD 1: DOC MODE (solo documentación)
         # ============================================================
-        if wants_execute:
-            # 1) corre tu runner como lo tengas hoy
-            #    (usa tu lógica existente para base_url / steps / run_qa_test / etc.)
-            #
-            # Debes terminar con estas variables (como ya las tienes en tu código):
-            # - result: dict (status, logs, duration_ms, screenshot_b64, evidence_id, etc.)
-            # - steps: list (los pasos Playwright)
-            # - answer: str (texto final para el chat)
-            # - uploaded_evidence: dict o None  (lo que subes a cloudinary)
-            #
-            # EJEMPLO: (NO cambies si ya lo tienes, solo asegúrate que existan)
-            # result = run_qa_test(...)
-            # uploaded_evidence = upload_evidence_to_cloudinary(...)
-            # answer = ...
-            # steps = ...
-
-            # ---- 👇👇👇 PON AQUÍ TU CÓDIGO EXISTENTE DEL RUNNER 👇👇👇
-            # result, steps, answer, uploaded_evidence = ...
-            # ---- 👆👆👆 HASTA AQUÍ TU CÓDIGO EXISTENTE DEL RUNNER 👆👆👆
-
-            # 2) ✅ FIX: arma runner_meta con screenshot_url (cloudinary) y guárdalo en DB
-            runner_meta = {
-                "status": result.get("status"),
-                "error": result.get("error"),
-                "evidence_id": result.get("evidence_id"),
-                "steps": result.get("steps", []),
-                "logs": result.get("logs", []),
-                "duration_ms": result.get("duration_ms"),
-                "meta": result.get("meta", {}),
-                "evidence": [uploaded_evidence] if uploaded_evidence else [],
-                # 🔥 ESTO ES LO QUE EL FRONTEND NECESITA
-                "screenshot_url": uploaded_evidence["url"] if uploaded_evidence else None,
-            }
-
-            # 3) Guarda el mensaje del asistente + meta (execute)
-            db2: Session = SessionLocal()
-            try:
-                _db_add_message_and_touch(
-                    db2,
-                    active_thread_id,
-                    "assistant",
-                    answer,
-                    meta={"mode": "execute", "runner": runner_meta},
-                )
-                db2.commit()
-            except Exception as e:
-                db2.rollback()
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"DB error (assistant msg): {type(e).__name__}: {str(e)}"
-                )
-            finally:
-                db2.close()
-
-            # 4) ✅ FIX: regresa runner_meta al frontend para que se vea “al instante”
-            return {
-                "ok": True,
-                "mode": "execute",
-                "session_id": sid,
-                "thread_id": active_thread_id,
-                "answer": answer,
-                "runner": runner_meta,
-                "steps": steps,
-            }
-
-        # ============================================================
-        # DOC / CHAT MODE (deja tu lógica actual)
-        # ============================================================
-        # Aquí va tu flujo actual para doc/chat (OpenAI, matrices, gherkin, etc.)
-        # Asegúrate de guardar también el mensaje del asistente en DB como ya lo haces.
-        #
-        # return {...}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        print("CHAT_RUN ERROR:", repr(e))
-        print(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
-
-    # ============================================================
-    # PRIORIDAD 1: DOC MODE
-    # ============================================================
-    if wants_doc and not wants_execute:
-        try:
+        if wants_doc and not wants_execute:
             requested = _doc_requested_parts(prompt)
             domain = _infer_domain(prompt)
             story = _extract_user_story(prompt) or prompt
@@ -1278,8 +1022,9 @@ def chat_run(req: ChatRunRequest):
                 answer = _render_doc_answer(cached)
                 _push_history(session, "user", prompt)
                 _push_history(session, "assistant", answer)
-                _db_save_assistant(active_thread_id, answer)
+                _db_save_assistant(active_thread_id, answer, meta={"mode": "doc", "doc_artifacts": cached})
                 return {
+                    "ok": True,
                     "mode": "doc",
                     "session_id": sid,
                     "thread_id": active_thread_id,
@@ -1332,71 +1077,20 @@ def chat_run(req: ChatRunRequest):
             tool_calls = getattr(msg, "tool_calls", None) or []
 
             if not tool_calls:
-                minimal_doc = _fallback_minimal_doc(requested, domain, context, story)
-                session["doc_last"] = minimal_doc
-                _cache_set(cache_key, minimal_doc)
-                answer = _render_doc_answer(minimal_doc)
-                _push_history(session, "user", prompt)
-                _push_history(session, "assistant", answer)
-                _db_save_assistant(active_thread_id, answer)
-                return {
-                    "mode": "doc",
-                    "session_id": sid,
-                    "thread_id": active_thread_id,
-                    "answer": answer,
-                    "doc_artifacts": minimal_doc,
-                    "cached": False,
-                }
+                doc = _fallback_minimal_doc(requested, domain, context, story)
+            else:
+                args = _parse_tool_args(tool_calls[0].function.arguments) or {}
+                doc = _trim_doc(args)
 
-            raw_args = tool_calls[0].function.arguments
-            args = _parse_tool_args(raw_args) or {}
-
-            # Fallback INVEST si lo pidieron pero el modelo no llenó estructura
-            if requested.get("invest") and not args.get("invest"):
-                args["invest"] = {
-                    "scores": {
-                        "Independent": "",
-                        "Negotiable": "",
-                        "Valuable": "",
-                        "Estimable": "",
-                        "Small": "",
-                        "Testable": "",
-                    },
-                    "total": "",
-                    "verdict": "",
-                    "gaps": [],
-                    "rewritten_story": ""
-                }
-
-            # patch mínimos + clamps
-            args.setdefault("requested", requested)
-            args.setdefault("user_story", story)
-            args.setdefault("domain", domain)
-            args.setdefault("context", context)
-            args.setdefault("assumptions", [])
-            args.setdefault("questions_to_clarify", [])
-            args.setdefault("invest", {})
-            args.setdefault("gherkin", [])
-            args.setdefault("test_cases", [])
-            args.setdefault("automation_scripts", {"framework": "", "structure": "", "notes": [], "selectors_recommendation": [], "how_to_run": [], "files": []})
-
-            if not bool(requested.get("scripts", False)):
-                args["automation_scripts"] = {"framework": "", "structure": "", "notes": [], "selectors_recommendation": [], "how_to_run": [], "files": []}
-            if not bool(requested.get("gherkin", False)):
-                args["gherkin"] = []
-            if not bool(requested.get("cases", False)):
-                args["test_cases"] = []
-
-            doc = _trim_doc(args)
             session["doc_last"] = doc
             _cache_set(cache_key, doc)
-
             answer = _render_doc_answer(doc)
             _push_history(session, "user", prompt)
             _push_history(session, "assistant", answer)
-            _db_save_assistant(active_thread_id, answer)
+            _db_save_assistant(active_thread_id, answer, meta={"mode": "doc", "doc_artifacts": doc})
 
             return {
+                "ok": True,
                 "mode": "doc",
                 "session_id": sid,
                 "thread_id": active_thread_id,
@@ -1405,15 +1099,10 @@ def chat_run(req: ChatRunRequest):
                 "cached": False,
             }
 
-        except Exception as e:
-            traceback.print_exc()
-            raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")
-
-    # ============================================================
-    # PRIORIDAD 2: ADVISE MODE
-    # ============================================================
-    if not wants_execute:
-        try:
+        # ============================================================
+        # PRIORIDAD 2: CHAT / ADVICE (sin ejecución)
+        # ============================================================
+        if not wants_execute:
             messages = [{"role": "system", "content": SYSTEM_PROMPT}]
             messages.extend(session["history"][-MAX_HISTORY_MSGS:])
             messages.append({"role": "user", "content": prompt})
@@ -1424,215 +1113,200 @@ def chat_run(req: ChatRunRequest):
                 temperature=ADV_TEMPERATURE,
                 max_tokens=ADV_MAX_TOKENS,
             )
-
             answer = (resp.choices[0].message.content or "").strip() or "OK"
             _push_history(session, "user", prompt)
             _push_history(session, "assistant", answer)
-            _db_save_assistant(active_thread_id, answer)
-
-            return {"mode": "advise", "session_id": sid, "thread_id": active_thread_id, "answer": answer}
-
-        except Exception as e:
-            traceback.print_exc()
-            raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")
-
-     # ============================================================
-    # PRIORIDAD 3: EXECUTE MODE
-    # ============================================================
-    base_url = _pick_base_url(req, session, prompt)
-    if not base_url:
-        need = (
-            "Para ejecutar necesito la URL (o dime “la misma” si quieres usar la última) y qué validar exactamente.\n"
-            "Faltan datos para ejecutar:\n"
-            "- URL (o di “la misma”)\n"
-            "- Qué validar (botón/campo/texto esperado)\n"
-            "- Credenciales (si aplica)\n"
-        )
-        _push_history(session, "user", prompt)
-        _push_history(session, "assistant", need)
-        _db_save_assistant(active_thread_id, need)
-        return {"mode": "need_info", "session_id": sid, "thread_id": active_thread_id, "answer": need}
-
-    try:
-        # 1) Pedimos steps al modelo vía tool-call run_qa_test
-        messages = [{"role": "system", "content": SYSTEM_PROMPT_EXECUTE}]
-        # historial corto para estabilidad
-        messages.extend(session["history"][-max(3, min(MAX_HISTORY_MSGS, 6)):])
-        messages.append({
-            "role": "user",
-            "content": (
-                "Genera steps Playwright para validar en la web.\n"
-                f"BASE_URL: {base_url}\n"
-                f"REQUEST:\n{prompt}\n\n"
-                "Reglas:\n"
-                "- Devuelve SOLO tool-call run_qa_test.\n"
-                "- Si la request no incluye navegación, asume la página BASE_URL.\n"
-                "- Usa selectores robustos: data-testid/#id/name, si no hay usa text.\n"
-            )
-        })
-
-        resp = client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=messages,
-            tools=[QA_TOOL],
-            tool_choice={"type": "function", "function": {"name": "run_qa_test"}},
-            temperature=EXEC_TEMPERATURE,
-            max_tokens=EXEC_MAX_TOKENS,
-        )
-
-        msg = resp.choices[0].message
-        tool_calls = getattr(msg, "tool_calls", None) or []
-        if not tool_calls:
-            # Si el modelo no devolvió tool-call, no tronamos 500: pedimos precisión mínima
-            need = (
-                "No pude generar pasos de ejecución.\n"
-                "Dime:\n"
-                "- URL (o di “la misma”)\n"
-                "- Qué validar exactamente (texto/selector esperado)\n"
-                "- Credenciales (si aplica)\n"
-            )
-            _push_history(session, "user", prompt)
-            _push_history(session, "assistant", need)
-            _db_save_assistant(active_thread_id, need)
-            return {"mode": "need_info", "session_id": sid, "thread_id": active_thread_id, "answer": need}
-
-        raw_args = tool_calls[0].function.arguments
-        parsed = _parse_tool_args(raw_args) or {}
-        steps = parsed.get("steps") or []
-
-        # -------------------------------------------------
-        # 1) Validación básica
-        # -------------------------------------------------
-        if not isinstance(steps, list) or not steps:
-            need = (
-                "No recibí pasos válidos para ejecutar la prueba.\n"
-                "Indícame claramente qué validar y en qué URL."
-            )
-            _push_history(session, "user", prompt)
-            _push_history(session, "assistant", need)
-            _db_save_assistant(active_thread_id, need)
+            _db_save_assistant(active_thread_id, answer, meta={"mode": "chat"})
             return {
-                "mode": "need_info",
+                "ok": True,
+                "mode": "chat",
                 "session_id": sid,
                 "thread_id": active_thread_id,
-                "answer": need,
+                "answer": answer,
             }
-        # -------------------------------------------------
-        # 2) Normalizar steps
-        # -------------------------------------------------
-        _ensure_goto(steps, base_url)
-        _update_last_url_from_steps(session, steps, fallback=base_url)
 
-        # -------------------------------------------------
-        # 3) Ejecutar runner
-        # -------------------------------------------------
-        result = execute_test(steps=steps, headless=req.headless)
+        # ============================================================
+# PRIORIDAD 3: EXECUTE MODE (Playwright runner)
+# ============================================================
+base_url = _pick_base_url(req, session, prompt)
+if not base_url:
+    need = (
+        "Para ejecutar necesito la URL (o dime “la misma” si quieres usar la última) y qué validar exactamente.\n"
+        "Faltan datos para ejecutar:\n"
+        "- URL (o di “la misma”)\n"
+        "- Qué validar (botón/campo/texto esperado)\n"
+        "- Credenciales (si aplica)\n"
+    )
+    _push_history(session, "user", prompt)
+    _push_history(session, "assistant", need)
+    _db_save_assistant(
+        active_thread_id,
+        need,
+        meta={"mode": "execute", "runner": {"status": "need_info"}},
+    )
+    return {
+        "ok": True,
+        "mode": "execute",
+        "session_id": sid,
+        "thread_id": active_thread_id,
+        "answer": need,
+        "runner": {"status": "need_info"},
+    }
 
-        # -------------------------------------------------
-        # 4) Subir screenshot a Cloudinary (SI EXISTE)
-        # -------------------------------------------------
-        uploaded_evidence = None
+# 1) Pedimos steps al modelo vía tool-call run_qa_test
+messages = [{"role": "system", "content": SYSTEM_PROMPT_EXECUTE}]
+messages.extend(session["history"][-max(3, min(MAX_HISTORY_MSGS, 6)):])
+messages.append({
+    "role": "user",
+    "content": (
+        "Genera steps Playwright para validar en la web.\n"
+        f"BASE_URL: {base_url}\n"
+        f"REQUEST:\n{prompt}\n\n"
+        "Reglas:\n"
+        "- Devuelve SOLO tool-call run_qa_test.\n"
+        "- Si la request no incluye navegación, asume la página BASE_URL.\n"
+        "- Usa selectores robustos: data-testid/#id/name; si no hay usa texto.\n"
+        "- Antes de click/fill, asegura visibilidad (assert_visible) cuando aplique.\n"
+    )
+})
 
-        if result.get("screenshot_b64"):
-            try:
-                uploaded_evidence = upload_screenshot_b64(
-                    evidence_id=result["evidence_id"],
-                    screenshot_b64=result["screenshot_b64"],
-                )
-            except Exception:
-                logger.error("Cloudinary upload failed", exc_info=True)
+resp = client.chat.completions.create(
+    model=OPENAI_MODEL,
+    messages=messages,
+    tools=[QA_TOOL],
+    tool_choice={"type": "function", "function": {"name": "run_qa_test"}},
+    temperature=EXEC_TEMPERATURE,
+    max_tokens=EXEC_MAX_TOKENS,
+)
 
-        # -------------------------------------------------
-        # 4) Subir evidencia a Cloudinary (UNA sola vez)
-        # -------------------------------------------------
-        try:
-            b64 = result.get("screenshot_b64")
-            if b64:
-                # Limpia prefijo data:image si existe
-                if "," in b64:
-                    b64 = b64.split(",", 1)[1]
+msg = resp.choices[0].message
+tool_calls = getattr(msg, "tool_calls", None) or []
+if not tool_calls:
+    need = (
+        "No pude generar pasos de ejecución.\n"
+        "Dime:\n"
+        "- URL (o di “la misma”)\n"
+        "- Qué validar exactamente (texto esperado)\n"
+        "- Credenciales (si aplica)\n"
+    )
+    _push_history(session, "user", prompt)
+    _push_history(session, "assistant", need)
+    _db_save_assistant(
+        active_thread_id,
+        need,
+        meta={"mode": "execute", "runner": {"status": "need_info"}},
+    )
+    return {
+        "ok": True,
+        "mode": "execute",
+        "session_id": sid,
+        "thread_id": active_thread_id,
+        "answer": need,
+        "runner": {"status": "need_info"},
+    }
 
-                png_bytes = base64.b64decode(b64)
-                evidence_id = result.get("evidence_id") or f"EV-{uuid.uuid4().hex[:10]}"
+raw_args = tool_calls[0].function.arguments
+parsed = _parse_tool_args(raw_args) or {}
+steps = parsed.get("steps") or []
 
-                uploaded = upload_evidence_to_cloudinary(
-                    png_bytes=png_bytes,
-                    public_id=evidence_id,
-                )
+# 2) Validación básica
+if not isinstance(steps, list) or not steps:
+    need = "No recibí pasos válidos. Indícame claramente qué validar y en qué URL."
+    _push_history(session, "user", prompt)
+    _push_history(session, "assistant", need)
+    _db_save_assistant(
+        active_thread_id,
+        need,
+        meta={"mode": "execute", "runner": {"status": "need_info"}},
+    )
+    return {
+        "ok": True,
+        "mode": "execute",
+        "session_id": sid,
+        "thread_id": active_thread_id,
+        "answer": need,
+        "runner": {"status": "need_info"},
+    }
 
-                uploaded_evidence = {
-                    "id": evidence_id,
-                    "url": uploaded["url"],
-                    "provider": "cloudinary",
-                    "public_id": uploaded["public_id"],
-                    "mime": "image/png",
-                    "width": uploaded.get("width"),
-                    "height": uploaded.get("height"),
-                }
+# 3) Normalizar steps + last_url
+_ensure_goto(steps, base_url)
+_update_last_url_from_steps(session, steps, fallback=base_url)
 
-                # Reducimos peso en DB (pero dejamos fallback)
-                result["screenshot_b64"] = None
+# 4) Ejecutar runner
+result = execute_test(steps=steps, headless=req.headless)
 
-        except Exception:
-            logger.exception("❌ Falló subida de evidencia a Cloudinary")
+# 5) Subir evidencia a Cloudinary (UNA SOLA VEZ)
+uploaded_evidence = None
+try:
+    b64 = result.get("screenshot_b64")
+    if b64:
+        # Limpia prefijo data:image si existe
+        if "," in b64:
+            b64 = b64.split(",", 1)[1]
 
-        # -------------------------------------------------
-        # 5) Mensaje corto al usuario
-        # -------------------------------------------------
-        status = (result.get("status") or "").lower()
-        error = result.get("error")
+        png_bytes = base64.b64decode(b64)
+        evidence_id = result.get("evidence_id") or f"EV-{uuid.uuid4().hex[:10]}"
 
-        evidence_label = None
-        if uploaded_evidence and uploaded_evidence.get("url"):
-            evidence_label = uploaded_evidence["url"]
-        else:
-            evidence_label = result.get("evidence_id")
-
-        if status == "passed":
-            answer = f"✅ Prueba ejecutada: PASSED (evidence: {evidence_label})"
-        else:
-            answer = f"❌ Prueba ejecutada: FAIL (evidence: {evidence_label})\nDetalle: {error}"
-
-        # -------------------------------------------------
-        # 6) Historial de sesión
-        # -------------------------------------------------
-        _push_history(session, "user", prompt)
-        _push_history(session, "assistant", answer)
-
-        # -------------------------------------------------
-        # 7) Persistencia FINAL en DB
-        # -------------------------------------------------
-        _db_save_assistant(
-            active_thread_id,
-            answer,
-            meta={
-                "mode": "execute",
-                "runner": {
-                    "status": result.get("status"),
-                    "error": result.get("error"),
-                    "evidence_id": uploaded_evidence["id"] if uploaded_evidence else result.get("evidence_id"),
-                    "steps": result.get("steps", []),
-                    "logs": result.get("logs", []),
-                    "duration_ms": result.get("duration_ms"),
-                    "meta": result.get("meta", {}),
-                    "evidence": [uploaded_evidence] if uploaded_evidence else [],
-                    # 👇 CLAVE PARA EL FRONTEND
-                    "screenshot_url": uploaded_evidence["url"] if uploaded_evidence else None,
-                },
-            },
+        uploaded = upload_evidence_to_cloudinary(
+            png_bytes=png_bytes,
+            public_id=evidence_id,
         )
-        return {
-            "mode": "execute",
-            "session_id": sid,
-            "thread_id": active_thread_id,
-            "answer": answer,
-            "run_result": result,
-            "steps": steps,
+
+        uploaded_evidence = {
+            "id": evidence_id,
+            "url": uploaded.get("url"),
+            "provider": "cloudinary",
+            "public_id": uploaded.get("public_id"),
+            "mime": "image/png",
+            "width": uploaded.get("width"),
+            "height": uploaded.get("height"),
         }
 
-    except Exception as e:
-        traceback.print_exc()
-        err = f"Error ejecutando prueba: {type(e).__name__}: {str(e)}"
-        _db_save_assistant(active_thread_id, err)
-        raise HTTPException(status_code=500, detail=err)
-    
+        # Reduce peso si guardas result en DB / response
+        result["screenshot_b64"] = None
+
+except Exception:
+    logger.exception("❌ Falló subida de evidencia a Cloudinary")
+
+# 6) Mensaje corto al usuario
+status = (result.get("status") or "").lower()
+error = result.get("error")
+
+if status == "passed":
+    answer = "✅ Prueba ejecutada: PASSED"
+else:
+    answer = f"❌ Prueba ejecutada: FAIL\nDetalle: {error or 'Sin detalle'}"
+
+# 7) Persistencia FINAL en DB (con screenshot_url)
+runner_meta = {
+    "status": result.get("status"),
+    "error": result.get("error"),
+    "evidence_id": uploaded_evidence["id"] if uploaded_evidence else result.get("evidence_id"),
+    "steps": result.get("steps", steps),
+    "logs": result.get("logs", []),
+    "duration_ms": result.get("duration_ms"),
+    "meta": result.get("meta", {}),
+    "evidence": [uploaded_evidence] if uploaded_evidence else [],
+    # 👇 CLAVE PARA EL FRONTEND
+    "screenshot_url": uploaded_evidence["url"] if uploaded_evidence else None,
+}
+
+_push_history(session, "user", prompt)
+_push_history(session, "assistant", answer)
+
+_db_save_assistant(
+    active_thread_id,
+    answer,
+    meta={"mode": "execute", "runner": runner_meta},
+)
+
+return {
+    "ok": True,
+    "mode": "execute",
+    "session_id": sid,
+    "thread_id": active_thread_id,
+    "answer": answer,
+    "runner": runner_meta,
+    "steps": steps,
+    "run_result": result,
+}
