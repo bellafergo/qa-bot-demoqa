@@ -1152,7 +1152,82 @@ def chat_run(req: ChatRunRequest):
         wants_doc = _wants_doc(prompt)
         wants_execute = _wants_execute_explicit(prompt, session) or _wants_execute_followup(prompt, session)
 
-        # ⬇️ AQUÍ sigue tu lógica actual (OpenAI / runner / respuesta)
+        # ============================================================
+        # EXECUTE MODE (AQUÍ VA EL FIX DE screenshot_url + return runner)
+        # ============================================================
+        if wants_execute:
+            # 1) corre tu runner como lo tengas hoy
+            #    (usa tu lógica existente para base_url / steps / run_qa_test / etc.)
+            #
+            # Debes terminar con estas variables (como ya las tienes en tu código):
+            # - result: dict (status, logs, duration_ms, screenshot_b64, evidence_id, etc.)
+            # - steps: list (los pasos Playwright)
+            # - answer: str (texto final para el chat)
+            # - uploaded_evidence: dict o None  (lo que subes a cloudinary)
+            #
+            # EJEMPLO: (NO cambies si ya lo tienes, solo asegúrate que existan)
+            # result = run_qa_test(...)
+            # uploaded_evidence = upload_evidence_to_cloudinary(...)
+            # answer = ...
+            # steps = ...
+
+            # ---- 👇👇👇 PON AQUÍ TU CÓDIGO EXISTENTE DEL RUNNER 👇👇👇
+            # result, steps, answer, uploaded_evidence = ...
+            # ---- 👆👆👆 HASTA AQUÍ TU CÓDIGO EXISTENTE DEL RUNNER 👆👆👆
+
+            # 2) ✅ FIX: arma runner_meta con screenshot_url (cloudinary) y guárdalo en DB
+            runner_meta = {
+                "status": result.get("status"),
+                "error": result.get("error"),
+                "evidence_id": (uploaded_evidence["id"] if uploaded_evidence else result.get("evidence_id")),
+                "steps": result.get("steps", []),
+                "logs": result.get("logs", []),
+                "duration_ms": result.get("duration_ms"),
+                "meta": result.get("meta", {}),
+                "evidence": [uploaded_evidence] if uploaded_evidence else [],
+                # 🔑 CLAVE PARA QUE EL FRONTEND PINTE LA IMAGEN
+                "screenshot_url": (uploaded_evidence["url"] if uploaded_evidence else None),
+                # (opcional) fallback si no hubo upload
+                "screenshot_b64": result.get("screenshot_b64"),
+            }
+
+            # 3) Guarda el mensaje del asistente + meta (execute)
+            db2: Session = SessionLocal()
+            try:
+                _db_add_message_and_touch(
+                    db2,
+                    active_thread_id,
+                    "assistant",
+                    answer,
+                    meta={"mode": "execute", "runner": runner_meta},
+                )
+                db2.commit()
+            except Exception as e:
+                db2.rollback()
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"DB error (assistant msg): {type(e).__name__}: {str(e)}"
+                )
+            finally:
+                db2.close()
+
+            # 4) ✅ FIX: regresa runner_meta al frontend para que se vea “al instante”
+            return {
+                "ok": True,
+                "mode": "execute",
+                "session_id": sid,
+                "thread_id": active_thread_id,
+                "answer": answer,
+                "runner": runner_meta,
+                "steps": steps,
+            }
+
+        # ============================================================
+        # DOC / CHAT MODE (deja tu lógica actual)
+        # ============================================================
+        # Aquí va tu flujo actual para doc/chat (OpenAI, matrices, gherkin, etc.)
+        # Asegúrate de guardar también el mensaje del asistente en DB como ya lo haces.
+        #
         # return {...}
 
     except HTTPException:
