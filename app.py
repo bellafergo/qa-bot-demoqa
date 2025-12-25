@@ -1395,85 +1395,98 @@ def chat_run(req: ChatRunRequest):
         parsed = _parse_tool_args(raw_args) or {}
         steps = parsed.get("steps") or []
 
-        # 1) Validación de steps
+        # -------------------------------------------------
+        # 1) Validación básica
+        # -------------------------------------------------
         if not isinstance(steps, list) or not steps:
             need = (
-                "No recibí steps válidos para ejecutar.\n"
-                "Dime qué validar exactamente (mensaje/elemento esperado) y la URL.\n"
+                "No recibí pasos válidos para ejecutar la prueba.\n"
+                "Indícame claramente qué validar y en qué URL."
             )
             _push_history(session, "user", prompt)
             _push_history(session, "assistant", need)
-            _db_save_assistant(active_thread_id, need, meta={"mode": "need_info"})
-            return {"mode": "need_info", "session_id": sid, "thread_id": active_thread_id, "answer": need}
+            _db_save_assistant(active_thread_id, need)
+            return {
+                "mode": "need_info",
+                "session_id": sid,
+                "thread_id": active_thread_id,
+                "answer": need,
+            }
 
-        # 2) Forzar goto si no viene (runner lo necesita)
+        # -------------------------------------------------
+        # 2) Normalizar steps
+        # -------------------------------------------------
         _ensure_goto(steps, base_url)
         _update_last_url_from_steps(session, steps, fallback=base_url)
 
+        # -------------------------------------------------
         # 3) Ejecutar runner
+        # -------------------------------------------------
         result = execute_test(steps=steps, headless=req.headless)
 
-        # -------------------------
-        # 4) Subir evidencia a Cloudinary (UNA SOLA VEZ)
-        # -------------------------
-        import base64
+        
+        uploaded_evidence = None
 
-        evidence_items = []
-        cloudinary_ok = False
-
+        # -------------------------------------------------
+        # 4) Subir evidencia a Cloudinary (UNA sola vez)
+        # -------------------------------------------------
         try:
-            evidence_id = (result.get("evidence_id") or "").strip() or f"EV-{uuid.uuid4().hex[:10]}"
-
             b64 = result.get("screenshot_b64")
             if b64:
-                # Si viene con prefix tipo "data:image/png;base64,...", lo limpiamos
+                # Limpia prefijo data:image si existe
                 if "," in b64:
                     b64 = b64.split(",", 1)[1]
 
                 png_bytes = base64.b64decode(b64)
+                evidence_id = result.get("evidence_id") or f"EV-{uuid.uuid4().hex[:10]}"
 
                 uploaded = upload_evidence_to_cloudinary(
                     png_bytes=png_bytes,
                     public_id=evidence_id,
                 )
 
-                evidence_items.append({
+                uploaded_evidence = {
                     "id": evidence_id,
-                    "url": uploaded.get("url"),
+                    "url": uploaded["url"],
                     "provider": "cloudinary",
-                    "public_id": uploaded.get("public_id"),
+                    "public_id": uploaded["public_id"],
                     "mime": "image/png",
-                    "bytes": uploaded.get("bytes"),
                     "width": uploaded.get("width"),
                     "height": uploaded.get("height"),
-                })
+                }
 
-                cloudinary_ok = True
-
-                # Recomendado: no guardes base64 si ya tienes URL (reduce DB)
+                # Reducimos peso en DB (pero dejamos fallback)
                 result["screenshot_b64"] = None
 
         except Exception:
-            # Si Cloudinary falla: NO romper flujo. Conserva screenshot_b64 como fallback.
-            logger.exception("Cloudinary upload failed; keeping screenshot_b64 fallback")
+            logger.exception("❌ Falló subida de evidencia a Cloudinary")
 
-        # -------------------------
-        # 5) Resumen corto + persistir runner en historial
-        # -------------------------
+        # -------------------------------------------------
+        # 5) Mensaje corto al usuario
+        # -------------------------------------------------
         status = (result.get("status") or "").lower()
         error = result.get("error")
-        evidence_id_out = result.get("evidence_id")  # el que generó el runner (puede existir)
+
+        evidence_label = None
+        if uploaded_evidence and uploaded_evidence.get("url"):
+            evidence_label = uploaded_evidence["url"]
+        else:
+            evidence_label = result.get("evidence_id")
 
         if status == "passed":
-            answer = f"✅ Prueba ejecutada: PASSED (evidence: {evidence_id_out or (evidence_items[0]['id'] if evidence_items else 'N/A')})"
+            answer = f"✅ Prueba ejecutada: PASSED (evidence: {evidence_label})"
         else:
-            answer = f"❌ Prueba ejecutada: FAIL (evidence: {evidence_id_out or (evidence_items[0]['id'] if evidence_items else 'N/A')})\nDetalle: {error}"
+            answer = f"❌ Prueba ejecutada: FAIL (evidence: {evidence_label})\nDetalle: {error}"
 
-        # History (memoria en sesión)
+        # -------------------------------------------------
+        # 6) Historial de sesión
+        # -------------------------------------------------
         _push_history(session, "user", prompt)
         _push_history(session, "assistant", answer)
 
-        # 6) Guardar mensaje del assistant con META (runner incluido)
+        # -------------------------------------------------
+        # 7) Persistencia FINAL en DB
+        # -------------------------------------------------
         _db_save_assistant(
             active_thread_id,
             answer,
@@ -1487,14 +1500,11 @@ def chat_run(req: ChatRunRequest):
                     "logs": result.get("logs", []),
                     "duration_ms": result.get("duration_ms"),
                     "meta": result.get("meta", {}),
-
-                    # ✅ URL evidence (Cloudinary)
-                    "evidence": evidence_items,
-
-                    # ✅ fallback si cloudinary falla (o si no hubo screenshot)
+                    # ✅ evidencia persistente (CLAVE para chats viejos)
+                    "evidence": [uploaded_evidence] if uploaded_evidence else [],
+                    # fallback solo si cloudinary falla
                     "screenshot_b64": result.get("screenshot_b64"),
                 },
-                "cloudinary_ok": cloudinary_ok,
             },
         )
         return {
