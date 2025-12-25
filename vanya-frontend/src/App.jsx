@@ -15,7 +15,7 @@ import {
   deleteThread as apiDeleteThread,
 } from "./api";
 import Sidebar from "./components/Sidebar";
-import Chat from "./components/Chat";
+import Chat from "./chat";
 
 // ---- API guardrails (evita "X is not a function")
 const safeFn = (fn, name) => {
