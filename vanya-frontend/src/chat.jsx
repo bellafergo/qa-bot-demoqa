@@ -7,16 +7,16 @@ export default function Chat(props) {
     setInput = () => {},
     handleSend = () => {},
     isLoading = false,
-    sessionId = null, // no obligatorio, pero lo recibes
-    threadId = null,  // no obligatorio, pero lo recibes
+    sessionId = null,
+    threadId = null,
     formatText = (t) => (typeof t === "string" ? t : ""),
     chatEndRef = null,
   } = props || {};
 
-  // Normaliza messages
-  const safeMessages = useMemo(() => {
-    return Array.isArray(messages) ? messages : [];
-  }, [messages]);
+  const safeMessages = useMemo(
+    () => (Array.isArray(messages) ? messages : []),
+    [messages]
+  );
 
   const onEnter = useCallback(
     (e) => {
@@ -33,6 +33,21 @@ export default function Chat(props) {
     const content = typeof m?.content === "string" ? m.content : "";
     const html = formatText(content);
 
+    // ---- Evidence / Screenshot (varios nombres posibles)
+    const screenshot =
+      m?.meta?.runner?.screenshot_url ||
+      m?.meta?.runner?.screenshot ||
+      m?.meta?.runner?.evidence_url ||
+      m?.meta?.evidence?.screenshot_url ||
+      m?.meta?.screenshot_url ||
+      null;
+
+    const evidenceId =
+      m?.meta?.runner?.evidence_id ||
+      m?.meta?.runner?.evidenceId ||
+      m?.meta?.evidence_id ||
+      null;
+
     return (
       <div
         key={`${m?.meta?.id || idx}`}
@@ -48,7 +63,10 @@ export default function Chat(props) {
             maxWidth: 760,
             padding: "10px 12px",
             borderRadius: 14,
-            background: role === "user" ? "rgba(120,160,255,0.18)" : "rgba(255,255,255,0.08)",
+            background:
+              role === "user"
+                ? "rgba(120,160,255,0.18)"
+                : "rgba(255,255,255,0.08)",
             border: "1px solid rgba(255,255,255,0.12)",
             color: "white",
             wordBreak: "break-word",
@@ -56,13 +74,54 @@ export default function Chat(props) {
         >
           <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>
             {role === "user" ? "Tú" : "Vanya"}
+            {evidenceId ? (
+              <span style={{ marginLeft: 8, opacity: 0.8 }}>
+                · evid: {String(evidenceId)}
+              </span>
+            ) : null}
           </div>
 
-          {/* render seguro */}
+          {/* Texto seguro */}
           <div
             dangerouslySetInnerHTML={{ __html: html }}
             style={{ lineHeight: 1.35 }}
           />
+
+          {/* Screenshot (si existe) */}
+          {screenshot ? (
+            <div style={{ marginTop: 10 }}>
+              <a
+                href={screenshot}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  display: "inline-block",
+                  marginBottom: 8,
+                  fontSize: 12,
+                  opacity: 0.85,
+                  color: "white",
+                  textDecoration: "underline",
+                }}
+              >
+                Abrir evidencia
+              </a>
+
+              <img
+                src={screenshot}
+                alt="Evidencia de prueba"
+                loading="lazy"
+                style={{
+                  maxWidth: "100%",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.15)",
+                }}
+                onError={(e) => {
+                  // Si falla por 404/CORS, evitamos que rompa la UI
+                  e.currentTarget.style.display = "none";
+                }}
+              />
+            </div>
+          ) : null}
         </div>
       </div>
     );
@@ -119,7 +178,9 @@ export default function Chat(props) {
             padding: "10px 14px",
             borderRadius: 12,
             border: "1px solid rgba(255,255,255,0.14)",
-            background: isLoading ? "rgba(255,255,255,0.08)" : "rgba(120,160,255,0.35)",
+            background: isLoading
+              ? "rgba(255,255,255,0.08)"
+              : "rgba(120,160,255,0.35)",
             color: "white",
             cursor: isLoading ? "not-allowed" : "pointer",
             fontWeight: 700,
