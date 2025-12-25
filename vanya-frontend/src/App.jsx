@@ -17,6 +17,20 @@ import {
 import Sidebar from "./components/Sidebar";
 import Chat from "./components/Chat";
 
+// ---- API guardrails (evita "X is not a function")
+const safeFn = (fn, name) => {
+  if (typeof fn !== "function") {
+    throw new Error(`API function "${name}" no es una función`);
+  }
+  return fn;
+};
+
+const safeListThreads = safeFn(listThreads, "listThreads");
+const safeGetThread = safeFn(getThread, "getThread");
+const safeChatRun = safeFn(chatRun, "chatRun");
+const safeCreateThread = safeFn(apiCreateThread, "createThread");
+const safeDeleteThread = safeFn(apiDeleteThread, "deleteThread");
+
 /**
  * Helpers (frontend)
  */
@@ -31,7 +45,7 @@ const escapeHtml = (s) => {
 };
 
 const formatText = (text) => {
-  if (!text) return "";
+  if (typeof text !== "string") return "";
   const safe = escapeHtml(text);
   return safe.replace(/\*\*(.*?)\*\*/g, "<b>$1</b>").replace(/\n/g, "<br/>");
 };
@@ -166,7 +180,7 @@ export default function App() {
     setIsThreadsLoading(true);
     setUiError("");
     try {
-      const list = await listThreads();
+      const list = await safeListThreads();
       const normalized = normalizeThreads(list || []);
       setThreads(normalized);
       return normalized;
@@ -238,7 +252,7 @@ export default function App() {
 
       setIsThreadsLoading(true);
       try {
-        const data = await getThread(tid);
+        const data = await safeGetThread(tid);
 
         const backendMsgs =
           data?.messages ||
@@ -274,7 +288,7 @@ export default function App() {
     setUiError("");
     setIsThreadsLoading(true);
     try {
-      const data = await apiCreateThread();
+      const data = await safeCreateThread();
       const id = data?.id || data?.thread_id;
       if (!id) throw new Error("Backend no devolvió id/thread_id al crear thread.");
 
@@ -307,7 +321,7 @@ export default function App() {
       setUiError("");
       setIsThreadsLoading(true);
       try {
-        await apiDeleteThread(tid);
+        await safeDeleteThread(tid);
         await refreshThreads();
 
         if (String(tid) === String(threadId)) {
@@ -352,7 +366,7 @@ export default function App() {
     setInput("");
 
     try {
-      const resp = await chatRun(prompt, threadId || null, {
+      const resp = await safeChatRun(prompt, threadId || null, {
         session_id: sessionId,
       });
 
@@ -561,14 +575,14 @@ export default function App() {
           <div style={{ flex: 1, overflow: "auto" }}>
             <Chat
               key={threadId || "no-thread"}
-              messages={messages}
+              messages={Array.isArray(messages) ? messages : []}
               input={input}
-              setInput={setInput}
-              handleSend={handleSend}
-              isLoading={isSending}
+              setInput={typeof setInput === "function" ? setInput : () => {}}
+              handleSend={typeof handleSend === "function" ? handleSend : () => {}}
+              isLoading={!!isSending}
               sessionId={sessionId}
               threadId={threadId}
-              formatText={formatText}
+              formatText={typeof formatText === "function" ? formatText : (x) => x}
               chatEndRef={chatEndRef}
             />
             {/* NOTA: NO duplicamos chatEndRef aquí porque Chat ya lo usa */}
