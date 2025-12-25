@@ -27,7 +27,8 @@ export default function Chat(props) {
     [handleSend, isLoading]
   );
 
-  const isImageUrl = (url) => /\.(png|jpe?g|webp)(\?.*)?$/i.test(String(url || ""));
+  const isImageUrl = (url) =>
+    /\.(png|jpe?g|webp)(\?.*)?$/i.test(String(url || ""));
 
   const extractEvidenceFromText = (content) => {
     const text = typeof content === "string" ? content : "";
@@ -36,51 +37,81 @@ export default function Chat(props) {
   };
 
   const pickEvidenceUrl = (m) => {
-    // 1) Meta directo (nuevo backend)
-    const direct =
-      m?.meta?.evidence_url ||
-      m?.meta?.evidenceUrl ||
-      m?.meta_json?.evidence_url ||
-      m?.metaJson?.evidence_url ||
-      m?.evidence_url ||
-      m?.evidenceUrl;
+    // Normaliza meta: puede venir en meta, meta_json o metaJson
+    const meta = m?.meta || m?.meta_json || m?.metaJson || {};
+    const runner = meta?.runner || {};
+    const evidence = meta?.evidence || {};
 
-    if (typeof direct === "string" && direct.trim()) return direct.trim();
-
-    // 2) Runner / Evidence objects (compatibilidad)
-    const candidates = [
-      // Lo que ya tenías
-      m?.meta?.runner?.screenshot_url,
-      m?.meta?.runner?.screenshot,
-      m?.meta?.runner?.evidence_url,
-      m?.meta?.runner?.evidenceUrl,
-      m?.meta?.evidence?.screenshot_url,
-      m?.meta?.evidence?.url,
-      m?.meta?.screenshot_url,
-      m?.meta?.screenshotUrl,
+    // 1) Directo: lo más confiable
+    const directCandidates = [
+      meta?.evidence_url,
+      meta?.evidenceUrl,
+      meta?.screenshot_url,
+      meta?.screenshotUrl,
+      m?.evidence_url,
+      m?.evidenceUrl,
       m?.screenshot_url,
-      // Nuevos posibles
-      m?.meta?.runner?.cloudinary_url,
-      m?.meta?.runner?.image_url,
+      m?.screenshotUrl,
     ];
 
-    const hit = candidates.find((x) => typeof x === "string" && x.trim());
-    if (hit) return hit.trim();
+    const directHit = directCandidates.find(
+      (x) => typeof x === "string" && x.trim()
+    );
+    if (directHit) return directHit.trim();
 
-    // 3) Último fallback: parsear del texto "Evidence: https://..."
-    const fromText = extractEvidenceFromText(m?.content);
-    return fromText;
+    // 2) Runner / Evidence objects (compatibilidad)
+    const runnerCandidates = [
+      runner?.screenshot_url,
+      runner?.screenshotUrl,
+      runner?.evidence_url,
+      runner?.evidenceUrl,
+      runner?.cloudinary_url,
+      runner?.image_url,
+
+      // si el runner trae algo anidado (por ejemplo runner.result.evidence_url)
+      runner?.result?.evidence_url,
+      runner?.result?.evidenceUrl,
+      runner?.result?.screenshot_url,
+      runner?.result?.screenshotUrl,
+
+      evidence?.screenshot_url,
+      evidence?.url,
+    ];
+
+    const runnerHit = runnerCandidates.find(
+      (x) => typeof x === "string" && x.trim()
+    );
+    if (runnerHit) return runnerHit.trim();
+
+    // 3) Por si guardaste el runner al root del message (algunas variantes)
+    const rootRunnerCandidates = [
+      m?.runner?.evidence_url,
+      m?.runner?.evidenceUrl,
+      m?.runner?.screenshot_url,
+      m?.runner?.screenshotUrl,
+    ];
+    const rootRunnerHit = rootRunnerCandidates.find(
+      (x) => typeof x === "string" && x.trim()
+    );
+    if (rootRunnerHit) return rootRunnerHit.trim();
+
+    // 4) Último fallback: parsear del texto "Evidence: https://..."
+    return extractEvidenceFromText(m?.content);
   };
 
   const pickEvidenceId = (m) => {
+    const meta = m?.meta || m?.meta_json || m?.metaJson || {};
+    const runner = meta?.runner || {};
+
     const id =
-      m?.meta?.runner?.evidence_id ||
-      m?.meta?.runner?.evidenceId ||
-      m?.meta?.evidence_id ||
-      m?.meta?.evidenceId ||
+      runner?.evidence_id ||
+      runner?.evidenceId ||
+      meta?.evidence_id ||
+      meta?.evidenceId ||
       m?.evidence_id ||
       m?.evidenceId ||
       null;
+
     return id ? String(id) : null;
   };
 
@@ -92,7 +123,7 @@ export default function Chat(props) {
     const evidenceUrl = pickEvidenceUrl(m);
     const evidenceId = pickEvidenceId(m);
 
-    const key = String(m?.id || m?.meta?.id || `${role}-${idx}`);
+    const key = String(m?.id || (m?.meta || m?.meta_json || m?.metaJson)?.id || `${role}-${idx}`);
 
     return (
       <div
@@ -127,13 +158,13 @@ export default function Chat(props) {
             ) : null}
           </div>
 
-          {/* Texto (ya viene formateado desde formatText) */}
+          {/* Texto */}
           <div
             dangerouslySetInnerHTML={{ __html: html }}
             style={{ lineHeight: 1.35 }}
           />
 
-          {/* Evidencia (SIEMPRE que exista) */}
+          {/* Evidencia */}
           {evidenceUrl ? (
             <div style={{ marginTop: 10 }}>
               <a
@@ -152,7 +183,6 @@ export default function Chat(props) {
                 Abrir evidencia
               </a>
 
-              {/* Render imagen solo si parece imagen */}
               {isImageUrl(evidenceUrl) ? (
                 <img
                   src={evidenceUrl}
@@ -165,7 +195,6 @@ export default function Chat(props) {
                     display: "block",
                   }}
                   onError={(e) => {
-                    // Evita que una URL rota rompa el UI
                     e.currentTarget.style.display = "none";
                   }}
                 />
