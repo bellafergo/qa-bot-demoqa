@@ -13,9 +13,7 @@ export default function Chat(props) {
     chatEndRef = null,
   } = props || {};
 
-  const safeMessages = useMemo(() => {
-    return Array.isArray(messages) ? messages : [];
-  }, [messages]);
+  const safeMessages = useMemo(() => (Array.isArray(messages) ? messages : []), [messages]);
 
   const onEnter = useCallback(
     (e) => {
@@ -27,82 +25,109 @@ export default function Chat(props) {
     [handleSend, isLoading]
   );
 
-  // Acepta imágenes típicas (incluye querystring)
-  const isImageUrl = (url) =>
-    /\.(png|jpe?g|webp)(\?.*)?$/i.test(String(url || ""));
+  // ---------- helpers ----------
+  const safeJsonParse = (v) => {
+    if (!v) return null;
+    if (typeof v === "object") return v;
+    if (typeof v !== "string") return null;
+    try {
+      return JSON.parse(v);
+    } catch {
+      return null;
+    }
+  };
 
-  // Extrae Evidence: https://... desde el texto del mensaje
+  const getMeta = (m) => {
+    // Puede venir como meta, meta_json (obj o string), metaJson, etc.
+    const direct = m?.meta && typeof m.meta === "object" ? m.meta : null;
+    if (direct) return direct;
+
+    const parsed = safeJsonParse(m?.meta_json) || safeJsonParse(m?.metaJson);
+    if (parsed && typeof parsed === "object") return parsed;
+
+    // fallback: si backend manda meta_json ya como objeto pero no cae arriba
+    if (m?.meta_json && typeof m.meta_json === "object") return m.meta_json;
+
+    return {};
+  };
+
   const extractEvidenceFromText = (content) => {
     const text = typeof content === "string" ? content : "";
-    const m = text.match(/Evidence:\s*(https?:\/\/\S+)/i);
-    return m ? m[1].trim() : null;
+    // 1) formato: Evidence: https://...
+    let m = text.match(/Evidence:\s*(https?:\/\/\S+)/i);
+    if (m && m[1]) return m[1].trim();
+
+    // 2) cualquier URL suelta
+    m = text.match(/(https?:\/\/[^\s)]+)\b/i);
+    if (m && m[1]) return m[1].trim();
+
+    return null;
   };
 
-  // Normaliza meta que puede venir en meta / meta_json / metaJson
-  const getMeta = (m) => m?.meta || m?.meta_json || m?.metaJson || {};
+  const looksLikeCloudinaryOrImageHost = (url) => {
+    const u = String(url || "").toLowerCase();
+    return (
+      u.includes("res.cloudinary.com") ||
+      u.includes("cloudinary.com") ||
+      u.includes("/image/upload") ||
+      u.includes("storage.googleapis.com") ||
+      u.includes("amazonaws.com") ||
+      u.includes("blob.core.windows.net")
+    );
+  };
 
-  // Busca URL de evidencia en múltiples rutas
+  const isImageUrl = (url) => {
+    const u = String(url || "");
+    // si trae extensión, fácil
+    if (/\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(u)) return true;
+    // si NO trae extensión pero es Cloudinary, casi seguro es imagen
+    if (looksLikeCloudinaryOrImageHost(u)) return true;
+    return false;
+  };
+
   const pickEvidenceUrl = (m) => {
     const meta = getMeta(m);
+
+    // 1) meta directo (tu backend ya lo guarda)
+    const direct =
+      meta?.evidence_url ||
+      meta?.evidenceUrl ||
+      meta?.screenshot_url ||
+      meta?.screenshotUrl;
+
+    if (typeof direct === "string" && direct.trim()) return direct.trim();
+
+    // 2) meta.runner.* (tu compat)
     const runner = meta?.runner || {};
-    const evidence = meta?.evidence || {};
+    const runnerHit =
+      runner?.screenshot_url ||
+      runner?.screenshot ||
+      runner?.evidence_url ||
+      runner?.evidenceUrl ||
+      runner?.image_url ||
+      runner?.cloudinary_url;
 
-    // 1) Directo en meta / message (lo más común cuando ya está bien)
-    const directCandidates = [
-      meta?.evidence_url,
-      meta?.evidenceUrl,
-      meta?.screenshot_url,
-      meta?.screenshotUrl,
+    if (typeof runnerHit === "string" && runnerHit.trim()) return runnerHit.trim();
 
-      // por si lo pusiste a nivel message
-      m?.evidence_url,
-      m?.evidenceUrl,
-      m?.screenshot_url,
-      m?.screenshotUrl,
-    ];
+    // 3) message root (por si el API lo manda plano)
+    const flat =
+      m?.evidence_url ||
+      m?.evidenceUrl ||
+      m?.screenshot_url ||
+      m?.screenshotUrl;
 
-    const directHit = directCandidates.find(
-      (x) => typeof x === "string" && x.trim()
-    );
-    if (directHit) return directHit.trim();
+    if (typeof flat === "string" && flat.trim()) return flat.trim();
 
-    // 2) En runner (compatibilidad con varias versiones)
-    const runnerCandidates = [
-      runner?.screenshot_url,
-      runner?.screenshotUrl,
-      runner?.evidence_url,
-      runner?.evidenceUrl,
-      runner?.cloudinary_url,
-      runner?.image_url,
+    // 4) fallback desde el texto (Evidence: https://...)
+    const fromText = extractEvidenceFromText(m?.content);
+    if (typeof fromText === "string" && fromText.trim()) return fromText.trim();
 
-      // runner anidado (por si el backend lo guardó así)
-      runner?.result?.evidence_url,
-      runner?.result?.evidenceUrl,
-      runner?.result?.screenshot_url,
-      runner?.result?.screenshotUrl,
-    ];
-
-    const runnerHit = runnerCandidates.find(
-      (x) => typeof x === "string" && x.trim()
-    );
-    if (runnerHit) return runnerHit.trim();
-
-    // 3) En evidence object
-    const evidenceCandidates = [evidence?.screenshot_url, evidence?.url];
-    const evidenceHit = evidenceCandidates.find(
-      (x) => typeof x === "string" && x.trim()
-    );
-    if (evidenceHit) return evidenceHit.trim();
-
-    // 4) Último fallback: parsear del texto del mensaje
-    return extractEvidenceFromText(m?.content);
+    return null;
   };
 
-  // Busca evidence_id en múltiples rutas
   const pickEvidenceId = (m) => {
     const meta = getMeta(m);
     const runner = meta?.runner || {};
-
     const id =
       runner?.evidence_id ||
       runner?.evidenceId ||
@@ -111,54 +136,7 @@ export default function Chat(props) {
       m?.evidence_id ||
       m?.evidenceId ||
       null;
-
     return id ? String(id) : null;
-  };
-
-  const renderEvidenceBlock = (evidenceUrl) => {
-    if (!evidenceUrl) return null;
-
-    return (
-      <div style={{ marginTop: 10 }}>
-        <a
-          href={evidenceUrl}
-          target="_blank"
-          rel="noreferrer"
-          style={{
-            display: "inline-block",
-            marginBottom: 8,
-            fontSize: 12,
-            opacity: 0.9,
-            color: "white",
-            textDecoration: "underline",
-          }}
-        >
-          Abrir evidencia
-        </a>
-
-        {isImageUrl(evidenceUrl) ? (
-          <img
-            src={evidenceUrl}
-            alt="Evidencia de prueba"
-            loading="lazy"
-            style={{
-              maxWidth: "100%",
-              borderRadius: 10,
-              border: "1px solid rgba(255,255,255,0.15)",
-              display: "block",
-            }}
-            onError={(e) => {
-              // Evita que una URL rota rompa el UI
-              e.currentTarget.style.display = "none";
-            }}
-          />
-        ) : (
-          <div style={{ fontSize: 12, opacity: 0.85 }}>
-            (La evidencia no parece imagen. Abre el link.)
-          </div>
-        )}
-      </div>
-    );
   };
 
   const renderMsg = (m, idx) => {
@@ -211,13 +189,48 @@ export default function Chat(props) {
           />
 
           {/* Evidencia */}
-          {renderEvidenceBlock(evidenceUrl)}
+          {evidenceUrl ? (
+            <div style={{ marginTop: 10 }}>
+              <a
+                href={evidenceUrl}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  display: "inline-block",
+                  marginBottom: 8,
+                  fontSize: 12,
+                  opacity: 0.9,
+                  color: "white",
+                  textDecoration: "underline",
+                }}
+              >
+                Abrir evidencia
+              </a>
 
-          {/* Si hay evidence_id pero no URL, deja un hint claro */}
-          {!evidenceUrl && evidenceId ? (
-            <div style={{ marginTop: 8, fontSize: 12, opacity: 0.75 }}>
-              (Evidencia generada pero sin URL. Revisa que el backend devuelva{" "}
-              <code style={{ opacity: 0.9 }}>meta.evidence_url</code>.)
+              {isImageUrl(evidenceUrl) ? (
+                <img
+                  src={evidenceUrl}
+                  alt="Evidencia de prueba"
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
+                  crossOrigin="anonymous"
+                  style={{
+                    maxWidth: "100%",
+                    borderRadius: 10,
+                    border: "1px solid rgba(255,255,255,0.15)",
+                    display: "block",
+                  }}
+                  onError={(e) => {
+                    // NO rompemos UI; solo ocultamos la imagen,
+                    // el link "Abrir evidencia" queda visible.
+                    e.currentTarget.style.display = "none";
+                  }}
+                />
+              ) : (
+                <div style={{ fontSize: 12, opacity: 0.85 }}>
+                  (La evidencia no parece imagen. Abre el link.)
+                </div>
+              )}
             </div>
           ) : null}
         </div>
