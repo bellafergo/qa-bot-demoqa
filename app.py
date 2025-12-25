@@ -1517,7 +1517,6 @@ def chat_run(req: ChatRunRequest):
                 "thread_id": active_thread_id,
                 "answer": need,
             }
-
         # -------------------------------------------------
         # 2) Normalizar steps
         # -------------------------------------------------
@@ -1529,17 +1528,19 @@ def chat_run(req: ChatRunRequest):
         # -------------------------------------------------
         result = execute_test(steps=steps, headless=req.headless)
 
-        
+        # -------------------------------------------------
+        # 4) Subir screenshot a Cloudinary (SI EXISTE)
+        # -------------------------------------------------
         uploaded_evidence = None
 
         if result.get("screenshot_b64"):
-        try:
-            uploaded_evidence = upload_screenshot_b64(
-                evidence_id=result["evidence_id"],
-                screenshot_b64=result["screenshot_b64"],
-            )
-        except Exception as e:
-            logger.error("Cloudinary upload failed", exc_info=True)
+            try:
+                uploaded_evidence = upload_screenshot_b64(
+                    evidence_id=result["evidence_id"],
+                    screenshot_b64=result["screenshot_b64"],
+                )
+            except Exception:
+                logger.error("Cloudinary upload failed", exc_info=True)
 
         # -------------------------------------------------
         # 4) Subir evidencia a Cloudinary (UNA sola vez)
