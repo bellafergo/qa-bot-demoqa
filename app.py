@@ -145,7 +145,6 @@ CLOUDINARY_API_KEY = (os.getenv("CLOUDINARY_API_KEY") or os.getenv("CLOUDINARY_K
 CLOUDINARY_API_SECRET = (os.getenv("CLOUDINARY_API_SECRET") or os.getenv("CLOUDINARY_SECRET") or "").strip()
 
 HAS_CLOUDINARY = bool(CLOUDINARY_CLOUD_NAME and CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET)
-
 # ============================================================
 # REQUEST MODEL
 # ============================================================
@@ -156,17 +155,17 @@ class ChatRunRequest(BaseModel):
     base_url: Optional[str] = None
     thread_id: Optional[str] = None
 
-    # ============================================================
+
+# ============================================================
 # DOC CACHE (rápido: mismo prompt => respuesta instant)
 # ============================================================
-_DOC_CACHE: Dict[str, Dict[str, Any]] = globals().get("_DOC_CACHE", {})
-_DOC_CACHE_ORDER: List[str] = globals().get("_DOC_CACHE_ORDER", [])
+_DOC_CACHE: Dict[str, Dict[str, Any]] = {}
+_DOC_CACHE_ORDER: List[str] = []
 
 def _cache_get(key: str) -> Optional[Dict[str, Any]]:
     try:
         v = _DOC_CACHE.get(key)
         if v:
-            # LRU: mueve al final
             if key in _DOC_CACHE_ORDER:
                 _DOC_CACHE_ORDER.remove(key)
             _DOC_CACHE_ORDER.append(key)
@@ -181,7 +180,6 @@ def _cache_set(key: str, value: Dict[str, Any]):
             _DOC_CACHE_ORDER.remove(key)
         _DOC_CACHE_ORDER.append(key)
 
-        # Evita crecer infinito
         while len(_DOC_CACHE_ORDER) > DOC_CACHE_MAX:
             oldest = _DOC_CACHE_ORDER.pop(0)
             _DOC_CACHE.pop(oldest, None)
@@ -720,10 +718,6 @@ def _wants_advise(prompt: str, session: Optional[dict] = None) -> bool:
     return any(k in p for k in _ADVISE_HINTS)
 
 
-if any(k in (prompt or "").lower() for k in ["genera matriz", "genera gherkin", "matriz y gherkin"]):
-    wants_doc = True
-
-
 # ============================================================
 # DOC: requested parts
 # ============================================================
@@ -868,6 +862,7 @@ QA_DOC_TOOL = {
             "properties": {
                 "domain": {"type": "string", "enum": ["retail", "pos", "web"]},
                 "user_story": {"type": "string"},
+
                 "invest": {
                     "type": "object",
                     "additionalProperties": False,
@@ -880,8 +875,17 @@ QA_DOC_TOOL = {
                         "testable": {"type": "string"},
                         "score_0_10": {"type": "number"},
                     },
-                    "required": ["independent", "negotiable", "valuable", "estimable", "small", "testable", "score_0_10"],
+                    "required": [
+                        "independent",
+                        "negotiable",
+                        "valuable",
+                        "estimable",
+                        "small",
+                        "testable",
+                        "score_0_10",
+                    ],
                 },
+
                 "gherkin": {
                     "type": "array",
                     "items": {
@@ -895,6 +899,7 @@ QA_DOC_TOOL = {
                         "required": ["title", "scenario"],
                     },
                 },
+
                 "test_cases": {
                     "type": "array",
                     "items": {
@@ -903,7 +908,10 @@ QA_DOC_TOOL = {
                         "properties": {
                             "id": {"type": "string"},
                             "title": {"type": "string"},
-                            "type": {"type": "string", "enum": ["positive", "negative", "edge", "security", "performance"]},
+                            "type": {
+                                "type": "string",
+                                "enum": ["positive", "negative", "edge", "security", "performance"],
+                            },
                             "priority": {"type": "string", "enum": ["P0", "P1", "P2"]},
                             "risk": {"type": "string", "enum": ["high", "medium", "low"]},
                             "preconditions": {"type": "string"},
@@ -915,6 +923,7 @@ QA_DOC_TOOL = {
                         "required": ["id", "title", "type", "priority", "risk", "steps", "expected"],
                     },
                 },
+
                 "patterns": {
                     "type": "object",
                     "additionalProperties": False,
@@ -922,9 +931,20 @@ QA_DOC_TOOL = {
                         "recommended_smoke": {"type": "array", "items": {"type": "string"}},
                         "recommended_regression": {"type": "array", "items": {"type": "string"}},
                         "recommended_edges": {"type": "array", "items": {"type": "string"}},
+                        "recommended_p0_minimal": {"type": "array", "items": {"type": "string"}},
+
+                        "by_role": {
+                            "type": "object",
+                            "additionalProperties": {"type": "array", "items": {"type": "string"}},
+                        },
+                        "by_flow": {
+                            "type": "object",
+                            "additionalProperties": {"type": "array", "items": {"type": "string"}},
+                        },
                     },
                     "required": ["recommended_smoke", "recommended_regression", "recommended_edges"],
                 },
+
                 "automation": {
                     "type": "object",
                     "additionalProperties": False,
@@ -935,10 +955,21 @@ QA_DOC_TOOL = {
                     },
                     "required": ["strategy", "playwright_skeleton", "selectors_guidance"],
                 },
+
                 "assumptions": {"type": "array", "items": {"type": "string"}},
                 "questions_to_clarify": {"type": "array", "items": {"type": "string"}},
             },
-            "required": ["domain", "user_story", "invest", "gherkin", "test_cases", "patterns", "automation", "assumptions", "questions_to_clarify"],
+            "required": [
+                "domain",
+                "user_story",
+                "invest",
+                "gherkin",
+                "test_cases",
+                "patterns",
+                "automation",
+                "assumptions",
+                "questions_to_clarify",
+            ],
         },
     },
 }
@@ -1253,6 +1284,9 @@ def delete_thread(thread_id: str):
 # CHAT RUN
 # ============================================================
 
+# ============================================================
+# CHAT RUN
+# ============================================================
 @app.post("/chat_run")
 def chat_run(req: ChatRunRequest):
     try:
@@ -1293,223 +1327,171 @@ def chat_run(req: ChatRunRequest):
 
         except Exception as e:
             db.rollback()
-            raise HTTPException(status_code=500, detail=f"DB error (user msg): {type(e).__name__}: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"DB error (user msg): {type(e).__name__}: {str(e)}",
+            )
         finally:
             db.close()
 
+        # -------------------------------
+        # Intentos
+        # -------------------------------
         wants_doc = _wants_doc(prompt)
         wants_execute = _wants_execute_explicit(prompt, session) or _wants_execute_followup(prompt, session)
 
-# ============================================================
-# PRIORIDAD 1: DOC MODE (artefactos estructurados)
-# ============================================================
-if wants_doc and not wants_execute:
-    requested = _doc_requested_parts(prompt) if "_doc_requested_parts" in globals() else {}
-    domain = _infer_domain(prompt) if "_infer_domain" in globals() else DOC_DEFAULT_DOMAIN
-    domain = domain if domain in ("retail", "pos", "web") else "web"
-    story = _extract_user_story(prompt) if "_extract_user_story" in globals() else ""
-    story = (story or "").strip() or prompt.strip()
+        # ============================================================
+        # PRIORIDAD 1: DOC MODE (Artefactos)
+        # ============================================================
+        if wants_doc and not wants_execute:
+            requested = _doc_requested_parts(prompt)
+            domain = _infer_domain(prompt) or DOC_DEFAULT_DOMAIN
+            domain = domain if domain in ("retail", "pos", "web") else "web"
+            story = _extract_user_story(prompt) or prompt
+            context = ""
 
-    cache_key = f"{domain}:{story}:{json.dumps(requested, sort_keys=True, ensure_ascii=False)}"
-    doc_data = _cache_get(cache_key)
+            cache_key = f"{domain}:{story}:{json.dumps(requested, sort_keys=True, ensure_ascii=False)}"
+            doc_data = _cache_get(cache_key)
 
-    if not doc_data:
-        # prompt toolcall
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT_DOC},
+            if not doc_data:
+                messages = [
+                    {"role": "system", "content": SYSTEM_PROMPT_DOC},
+                    {
+                        "role": "user",
+                        "content": (
+                            "Tarea: Genera artefactos QA SOLO documentación.\n"
+                            "Devuelve un tool-call a generate_qa_artifacts.\n\n"
+                            f"DOMAIN: {domain}\n"
+                            f"REQUESTED: {json.dumps(requested, ensure_ascii=False)}\n"
+                            f"HISTORIA:\n{story}\n\n"
+                            f"CONTEXTO:\n{context}\n"
+                        ),
+                    },
+                ]
+
+                resp = client.chat.completions.create(
+                    model=OPENAI_MODEL,
+                    messages=messages,
+                    tools=[QA_DOC_TOOL],
+                    tool_choice={"type": "function", "function": {"name": "generate_qa_artifacts"}},
+                    temperature=DOC_TEMPERATURE,
+                    max_tokens=DOC_MAX_TOKENS,
+                )
+
+                tool_calls = getattr(resp.choices[0].message, "tool_calls", None) or []
+                if not tool_calls:
+                    doc_data = _fallback_minimal_doc(requested, domain, context, story)
+                else:
+                    doc_data = _parse_tool_args(tool_calls[0].function.arguments) or _fallback_minimal_doc(
+                        requested, domain, context, story
+                    )
+
+                doc_data = _trim_doc(doc_data)
+                _cache_set(cache_key, doc_data)
+
+            answer = _render_doc_answer(doc_data)
+
+            _push_history(session, "user", prompt)
+            _push_history(session, "assistant", answer)
+            _db_save_assistant(active_thread_id, answer, meta={"mode": "doc", "doc": doc_data})
+
+            return {
+                "mode": "doc",
+                "session_id": sid,
+                "thread_id": active_thread_id,
+                "answer": answer,
+                "doc": doc_data,
+            }
+
+        # ============================================================
+        # PRIORIDAD 2: ADVISE MODE (Consultoría)
+        # ============================================================
+        if not wants_execute:
+            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            messages.extend(session["history"][-MAX_HISTORY_MSGS:])
+            messages.append({"role": "user", "content": prompt})
+
+            resp = client.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=messages,
+                temperature=ADV_TEMPERATURE,
+                max_tokens=ADV_MAX_TOKENS,
+            )
+
+            answer = (resp.choices[0].message.content or "").strip() or "OK"
+
+            _push_history(session, "user", prompt)
+            _push_history(session, "assistant", answer)
+            _db_save_assistant(active_thread_id, answer, meta={"mode": "advise"})
+
+            return {"mode": "advise", "session_id": sid, "thread_id": active_thread_id, "answer": answer}
+
+        # ============================================================
+        # PRIORIDAD 3: EXECUTE MODE (Playwright)
+        # ============================================================
+        base_url = _pick_base_url(req, session, prompt)
+        if not base_url:
+            need = (
+                "Para ejecutar necesito la URL (o dime “la misma” si quieres usar la última) y qué validar exactamente.\n"
+                "Faltan datos para ejecutar:\n"
+                "- URL (o di “la misma”)\n"
+                "- Qué validar (botón/campo/texto esperado)\n"
+                "- Credenciales (si aplica)\n"
+            )
+            _push_history(session, "user", prompt)
+            _push_history(session, "assistant", need)
+            _db_save_assistant(active_thread_id, need, meta={"mode": "execute", "runner": {"status": "need_info"}})
+            return {"mode": "need_info", "session_id": sid, "thread_id": active_thread_id, "answer": need}
+
+        # 1) Generar steps
+        messages = [{"role": "system", "content": SYSTEM_PROMPT_EXECUTE}]
+        messages.extend(session["history"][-max(3, min(MAX_HISTORY_MSGS, 6)):])
+        messages.append(
             {
                 "role": "user",
                 "content": (
-                    f"Dominio: {domain}\n"
-                    f"Historia:\n{story}\n\n"
-                    "Genera INVEST, Gherkin, Matriz de casos (positive/negative/edge), patrones (smoke/regression/edges) "
-                    "y skeleton Playwright.\n"
-                    "Incluye prioridades P0/P1/P2 y riesgo high/medium/low.\n"
+                    "Genera steps Playwright para validar en la web.\n"
+                    f"BASE_URL: {base_url}\n"
+                    f"REQUEST:\n{prompt}\n\n"
+                    "Reglas:\n"
+                    "- Devuelve SOLO tool-call run_qa_test.\n"
+                    "- Usa selectores robustos: data-testid/#id/name; si no hay usa text.\n"
                 ),
-            },
-        ]
+            }
+        )
 
         resp = client.chat.completions.create(
             model=OPENAI_MODEL,
             messages=messages,
-            tools=[QA_DOC_TOOL],
-            tool_choice={"type": "function", "function": {"name": "generate_qa_artifacts"}},
-            temperature=DOC_TEMPERATURE,
-            max_tokens=DOC_MAX_TOKENS,
+            tools=[QA_TOOL],
+            tool_choice={"type": "function", "function": {"name": "run_qa_test"}},
+            temperature=EXEC_TEMPERATURE,
+            max_tokens=EXEC_MAX_TOKENS,
         )
 
-        msg = resp.choices[0].message
-        tool_calls = getattr(msg, "tool_calls", None) or []
-        if tool_calls:
-            args = _parse_tool_args(tool_calls[0].function.arguments) or {}
-            doc_data = args
-        else:
-            doc_data = _fallback_minimal_doc(requested, domain, story)
+        tool_calls = getattr(resp.choices[0].message, "tool_calls", None) or []
+        if not tool_calls:
+            raise HTTPException(status_code=500, detail="El modelo no devolvió tool-call run_qa_test")
 
-        # fuerza defaults y límites
-        if not doc_data.get("patterns"):
-            doc_data["patterns"] = _DOC_PATTERNS.get(domain, _DOC_PATTERNS["web"])
-        doc_data["domain"] = domain
-        doc_data["user_story"] = story
+        steps_payload = _parse_tool_args(tool_calls[0].function.arguments) or {}
+        steps = steps_payload.get("steps") or steps_payload.get("actions") or steps_payload
+        if not steps:
+            raise HTTPException(status_code=500, detail="Tool-call sin steps")
 
-        doc_data = _trim_doc(doc_data)
-        _cache_set(cache_key, doc_data)
+        # 2) Ejecutar runner (tu función actual)
+        result = _run_runner(steps=steps, base_url=base_url)
 
-    answer = _render_doc_answer(doc_data)
+        answer = _render_execute_answer(result)
 
-    _push_history(session, "user", prompt)
-    _push_history(session, "assistant", answer)
-    _db_save_assistant(active_thread_id, answer, meta={"mode": "doc", "doc": doc_data})
+        _push_history(session, "user", prompt)
+        _push_history(session, "assistant", answer)
+        _db_save_assistant(active_thread_id, answer, meta={"mode": "execute", "runner": result})
 
-    return {
-        "mode": "doc",
-        "session_id": sid,
-        "thread_id": active_thread_id,
-        "answer": answer,
-        "doc": doc_data,
-    }
+        return {"mode": "execute", "session_id": sid, "thread_id": active_thread_id, "answer": answer, "runner": result}
 
-# ============================================================
-# PRIORIDAD 2: ADVISE MODE
-# ============================================================
-if not wants_execute:
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    messages.extend(session["history"][-MAX_HISTORY_MSGS:])
-    messages.append({"role": "user", "content": prompt})
-
-    resp = client.chat.completions.create(
-        model=OPENAI_MODEL,
-        messages=messages,
-        temperature=ADV_TEMPERATURE,
-        max_tokens=ADV_MAX_TOKENS,
-    )
-
-    answer = (resp.choices[0].message.content or "").strip() or "OK"
-    _push_history(session, "user", prompt)
-    _push_history(session, "assistant", answer)
-    _db_save_assistant(active_thread_id, answer, meta={"mode": "advise"})
-
-    return {
-        "mode": "advise",
-        "session_id": sid,
-        "thread_id": active_thread_id,
-        "answer": answer,
-    }
-
-# ============================================================
-# PRIORIDAD 3: EXECUTE MODE
-# ============================================================
-base_url = _pick_base_url(req, session, prompt)
-if not base_url:
-    need = (
-        "Para ejecutar necesito la URL (o dime “la misma” si quieres usar la última) y qué validar exactamente.\n"
-        "Faltan datos:\n- URL (o di “la misma”)\n- Qué validar (botón/campo/texto esperado)\n- Credenciales (si aplica)\n"
-    )
-    _push_history(session, "user", prompt)
-    _push_history(session, "assistant", need)
-    _db_save_assistant(active_thread_id, need, meta={"mode": "execute", "runner": {"status": "need_info"}})
-
-    return {
-        "mode": "need_info",
-        "session_id": sid,
-        "thread_id": active_thread_id,
-        "answer": need,
-    }
-
-# 1) Pedir steps (con contexto, como ya lo tienes)
-messages = [{"role": "system", "content": SYSTEM_PROMPT_EXECUTE}]
-messages.extend(session["history"][-max(3, min(MAX_HISTORY_MSGS, 6)):])
-messages.append({
-    "role": "user",
-    "content": (
-        "Genera steps Playwright para validar en la web.\n"
-        f"BASE_URL: {base_url}\n"
-        f"REQUEST:\n{prompt}\n\n"
-        "Reglas:\n"
-        "- Devuelve SOLO tool-call run_qa_test.\n"
-        "- Usa selectores robustos: data-testid/#id/name; si no hay usa text.\n"
-    )
-})
-
-resp = client.chat.completions.create(
-    model=OPENAI_MODEL,
-    messages=messages,
-    tools=[QA_TOOL],
-    tool_choice={"type": "function", "function": {"name": "run_qa_test"}},
-    temperature=EXEC_TEMPERATURE,
-    max_tokens=EXEC_MAX_TOKENS,
-)
-
-msg = resp.choices[0].message
-tool_calls = getattr(msg, "tool_calls", None) or []
-if not tool_calls:
-    need = "No pude generar pasos de ejecución. Dime URL y qué validar."
-    _push_history(session, "user", prompt)
-    _push_history(session, "assistant", need)
-    _db_save_assistant(active_thread_id, need, meta={"mode": "execute", "runner": {"status": "need_info"}})
-    return {"mode": "need_info", "session_id": sid, "thread_id": active_thread_id, "answer": need}
-
-parsed = _parse_tool_args(tool_calls[0].function.arguments) or {}
-steps = parsed.get("steps") or []
-if not isinstance(steps, list) or not steps:
-    raise HTTPException(status_code=500, detail="Invalid steps from tool_call")
-
-_ensure_goto(steps, base_url)
-_update_last_url_from_steps(session, steps, fallback=base_url)
-
-# 2) Ejecutar runner
-result = execute_test(steps=steps, headless=req.headless)
-
-# 3) Subir evidencia a Cloudinary (UNA sola vez)
-uploaded_evidence = None
-try:
-    b64 = result.get("screenshot_b64")
-    if b64:
-        if "," in b64:
-            b64 = b64.split(",", 1)[1]
-        png_bytes = base64.b64decode(b64)
-        evidence_id = result.get("evidence_id") or f"EV-{uuid.uuid4().hex[:10]}"
-        uploaded = upload_evidence_to_cloudinary(png_bytes=png_bytes, public_id=evidence_id)
-
-        uploaded_evidence = {
-            "id": evidence_id,
-            "url": uploaded.get("url"),
-            "provider": "cloudinary",
-            "public_id": uploaded.get("public_id"),
-            "mime": "image/png",
-            "width": uploaded.get("width"),
-            "height": uploaded.get("height"),
-        }
-        result["screenshot_b64"] = None
-except Exception:
-    logger.exception("❌ Falló subida de evidencia a Cloudinary")
-
-runner_meta = {
-    "status": result.get("status"),
-    "error": result.get("error"),
-    "evidence_id": uploaded_evidence["id"] if uploaded_evidence else result.get("evidence_id"),
-    "steps": result.get("steps", steps),
-    "logs": result.get("logs", []),
-    "duration_ms": result.get("duration_ms"),
-    "meta": result.get("meta", {}),
-    "evidence": [uploaded_evidence] if uploaded_evidence else [],
-    "screenshot_url": uploaded_evidence["url"] if uploaded_evidence else None,
-}
-
-status = (result.get("status") or "").lower()
-answer = "✅ Prueba ejecutada: PASSED" if status == "passed" else f"❌ Prueba ejecutada: FAIL\nDetalle: {runner_meta.get('error') or 'Sin detalle'}"
-
-_push_history(session, "user", prompt)
-_push_history(session, "assistant", answer)
-
-_db_save_assistant(active_thread_id, answer, meta={"mode": "execute", "runner": runner_meta})
-
-return {
-    "mode": "execute",
-    "session_id": sid,
-    "thread_id": active_thread_id,
-    "answer": answer,
-    "run_result": result,
-    "steps": steps,
-    "runner": runner_meta,
-}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("CHAT_RUN ERROR:", repr(e))
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
