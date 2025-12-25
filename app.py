@@ -20,6 +20,9 @@ from pydantic import BaseModel
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
+from pathlib import Path
+from fastapi.staticfiles import StaticFiles
+
 from db import init_db, SessionLocal, Thread, Message, utcnow
 from runner import execute_test
 
@@ -72,6 +75,19 @@ def upload_evidence_to_cloudinary(
 # ============================================================
 
 app = FastAPI()
+
+# ---- Evidence static hosting (para screenshots Playwright)
+
+BASE_DIR = Path(__file__).resolve().parent
+EVIDENCE_DIR = Path(os.getenv("EVIDENCE_DIR", str(BASE_DIR / "evidence")))
+
+EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
+
+app.mount(
+    "/evidence",
+    StaticFiles(directory=str(EVIDENCE_DIR)),
+    name="evidence",
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -1495,15 +1511,14 @@ def chat_run(req: ChatRunRequest):
                 "runner": {
                     "status": result.get("status"),
                     "error": result.get("error"),
-                    "evidence_id": result.get("evidence_id"),
+                    "evidence_id": uploaded_evidence["id"] if uploaded_evidence else result.get("evidence_id"),
                     "steps": result.get("steps", []),
                     "logs": result.get("logs", []),
                     "duration_ms": result.get("duration_ms"),
                     "meta": result.get("meta", {}),
-                    # ✅ evidencia persistente (CLAVE para chats viejos)
                     "evidence": [uploaded_evidence] if uploaded_evidence else [],
-                    # fallback solo si cloudinary falla
-                    "screenshot_b64": result.get("screenshot_b64"),
+                    # 👇 CLAVE PARA EL FRONTEND
+                    "screenshot_url": uploaded_evidence["url"] if uploaded_evidence else None,
                 },
             },
         )
