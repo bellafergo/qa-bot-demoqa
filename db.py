@@ -15,7 +15,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL no está configurada")
+    DATABASE_URL = "sqlite:///./local.db"
 
 engine = create_engine(
     DATABASE_URL,

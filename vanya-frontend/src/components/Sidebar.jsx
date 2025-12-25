@@ -1,5 +1,36 @@
 // src/components/Sidebar.jsx
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+
+/**
+ * Sidebar con Supabase via backend:
+ * - Si NO te pasan `threads` (o viene vacío), hace fetch automático a /threads
+ * - Si SI te pasan `threads`, respeta tus props (backwards compatible)
+ * - Incluye botón refresh ↻
+ * - Filtro local (sin romper)
+ * - Títulos robustos (fix: preview estaba undefined)
+ *
+ * Requisitos:
+ * - Define VITE_API_BASE en frontend (Vercel y local)
+ *   Ej: VITE_API_BASE=https://qa-bot-demoqa.onrender.com
+ * - Backend expone GET /threads
+ */
+
+const API_BASE =
+  (import.meta?.env?.VITE_API_BASE || "https://qa-bot-demoqa.onrender.com").replace(
+    /\/$/,
+    ""
+  );
+
+async function fetchThreads(limit = 80, signal) {
+  const res = await fetch(`${API_BASE}/threads?limit=${limit}`, {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+    signal,
+  });
+  if (!res.ok) throw new Error(`Threads error: ${res.status}`);
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+}
 
 function fmtDate(iso) {
   if (!iso) return "";
@@ -23,6 +54,7 @@ function buildTitle(t) {
   const title = String(t?.title || "").trim();
   if (title && title.toLowerCase() !== "new chat") return title;
 
+  // FIX: preview estaba undefined en tu versión
   const preview = String(t?.preview || "").trim();
   if (preview) return preview.length > 48 ? preview.slice(0, 48) + "…" : preview;
 
@@ -33,7 +65,10 @@ function buildTitle(t) {
 }
 
 export default function Sidebar({
-  threads = [],
+  // Backwards compatible:
+  // - Si tu App.jsx ya le pasa threads, se usa.
+  // - Si no le pasa nada, Sidebar se auto-abastece desde /threads
+  threads: threadsProp = [],
   activeId = null,
   onNew,
   onSelect,
@@ -41,6 +76,43 @@ export default function Sidebar({
   isLoading = false,
 }) {
   const [filter, setFilter] = useState("");
+  const [threadsRemote, setThreadsRemote] = useState([]);
+  const [isFetching, setIsFetching] = useState(false);
+  const [fetchErr, setFetchErr] = useState("");
+
+  const abortRef = useRef(null);
+
+  const usingRemote = !Array.isArray(threadsProp) || threadsProp.length === 0;
+  const threads = usingRemote ? threadsRemote : threadsProp;
+
+  const load = async () => {
+    // Solo hace fetch si no te pasan threads desde arriba
+    if (!usingRemote) return;
+
+    setIsFetching(true);
+    setFetchErr("");
+
+    try {
+      abortRef.current?.abort?.();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      const data = await fetchThreads(120, controller.signal);
+      setThreadsRemote(data);
+    } catch (e) {
+      if (e?.name !== "AbortError") {
+        setFetchErr(e?.message || "Error cargando historial");
+      }
+    } finally {
+      setIsFetching(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+    return () => abortRef.current?.abort?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usingRemote]);
 
   const normalized = useMemo(() => {
     // Limpia threads inválidos y normaliza ids
@@ -66,6 +138,7 @@ export default function Sidebar({
   }, [normalized, filter]);
 
   const activeStr = String(activeId || "").trim();
+  const busy = Boolean(isLoading || isFetching);
 
   return (
     <div
@@ -80,13 +153,44 @@ export default function Sidebar({
         flexDirection: "column",
       }}
     >
-      <div style={{ fontWeight: 800, marginBottom: 10, opacity: 0.9 }}>
-        Historial
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10,
+          marginBottom: 10,
+        }}
+      >
+        <div style={{ fontWeight: 800, opacity: 0.9 }}>Historial</div>
+
+        <button
+          onClick={load}
+          disabled={!usingRemote || busy}
+          title={!usingRemote ? "Threads viene por props" : "Refrescar"}
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: 10,
+            border: "1px solid rgba(255,255,255,0.12)",
+            background: "rgba(0,0,0,0.35)",
+            color: "white",
+            cursor: !usingRemote || busy ? "not-allowed" : "pointer",
+            opacity: usingRemote ? 0.95 : 0.35,
+            flexShrink: 0,
+          }}
+        >
+          ↻
+        </button>
       </div>
 
       <button
-        onClick={() => onNew?.()}
-        disabled={isLoading}
+        onClick={() => {
+          onNew?.();
+          // Si usa remoto, refrescamos para que aparezca arriba
+          if (usingRemote) setTimeout(load, 350);
+        }}
+        disabled={busy}
         style={{
           width: "100%",
           padding: "10px 12px",
@@ -94,8 +198,9 @@ export default function Sidebar({
           border: "1px solid rgba(255,255,255,0.12)",
           background: "#4e6bff",
           color: "white",
-          cursor: isLoading ? "not-allowed" : "pointer",
+          cursor: busy ? "not-allowed" : "pointer",
           fontWeight: 700,
+          opacity: busy ? 0.85 : 1,
         }}
       >
         + New chat
@@ -117,6 +222,12 @@ export default function Sidebar({
           boxSizing: "border-box",
         }}
       />
+
+      {fetchErr ? (
+        <div style={{ marginTop: 10, color: "salmon", fontSize: 12, whiteSpace: "pre-wrap" }}>
+          {fetchErr}
+        </div>
+      ) : null}
 
       <div
         style={{
@@ -160,6 +271,7 @@ export default function Sidebar({
                 alignItems: "center",
                 justifyContent: "space-between",
                 gap: 10,
+                opacity: busy ? 0.92 : 1,
               }}
               title={title}
             >
@@ -201,8 +313,10 @@ export default function Sidebar({
                   e.preventDefault();
                   e.stopPropagation(); // IMPORTANTÍSIMO: que no seleccione el chat
                   onDelete?.(id);
+                  // si se borró remoto, refrescamos
+                  if (usingRemote) setTimeout(load, 350);
                 }}
-                disabled={isLoading}
+                disabled={busy}
                 title="Eliminar chat"
                 style={{
                   width: 34,
@@ -211,7 +325,7 @@ export default function Sidebar({
                   border: "1px solid rgba(255,255,255,0.12)",
                   background: "rgba(0,0,0,0.35)",
                   color: "white",
-                  cursor: isLoading ? "not-allowed" : "pointer",
+                  cursor: busy ? "not-allowed" : "pointer",
                   opacity: 0.9,
                   flexShrink: 0,
                 }}
@@ -222,7 +336,13 @@ export default function Sidebar({
           );
         })}
 
-        {!filtered.length && (
+        {busy && !filtered.length ? (
+          <div style={{ marginTop: 14, opacity: 0.7, fontSize: 12 }}>
+            Cargando chats…
+          </div>
+        ) : null}
+
+        {!busy && !filtered.length && (
           <div style={{ marginTop: 14, opacity: 0.7, fontSize: 12 }}>
             No hay chats.
           </div>
