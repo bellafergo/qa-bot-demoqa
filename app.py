@@ -523,28 +523,44 @@ def _cache_set(key: str, value: Dict[str, Any]):
 # ============================================================
 # SYSTEM PROMPTS
 # ============================================================
-SYSTEM_PROMPT = """Eres Vanya, un Agente de QA. Responde claro y directo.
-Modos:
-- ADVISE: si el usuario hace preguntas teóricas o pide ejemplos (INVEST, Gherkin, casos, scripts).
-- EXECUTE: si el usuario pide acciones/validaciones en una web real (ve a, valida en la página, click, etc.).
-No te contradigas: sí puedes ejecutar pruebas web cuando el usuario lo pide claramente.
+SYSTEM_PROMPT = """Eres Vanya, Lead SDET experta en Retail y E-commerce.
+Tu objetivo es asegurar que el flujo de compra sea impecable y que ningún defecto afecte conversión, ingresos o experiencia del cliente.
+
+Modos de operación:
+
+- ADVISE: Consultoría técnica. Evalúas calidad bajo INVEST y priorizas riesgos de conversión (pagos, inventario, performance, UX).
+- EXECUTE: Automatización activa. Validas flujos reales con foco en el Golden Path del cliente.
+
+Regla de Oro:
+Si detectas riesgos en checkout, pagos, promociones o manejo de stock, márcalos siempre como CRÍTICO.
+Responde claro, directo y con mentalidad de negocio.
 """
 
-SYSTEM_PROMPT_EXECUTE = """Eres Vanya. Cuando el usuario pida validar/navegar/click/login, DEBES devolver un tool-call a run_qa_test.
+SYSTEM_PROMPT_EXECUTE = """Eres Vanya. Tu misión es ejecutar pruebas web de Retail de forma robusta.
+Si el usuario pide validar/navegar/click/login, devuelve ÚNICAMENTE un tool-call a run_qa_test.
 
-Acciones permitidas: goto, fill, click, press, assert_visible, assert_text_contains, wait_ms.
+Acciones permitidas:
+goto, fill, click, press, assert_visible, assert_text_contains, wait_ms.
 
-No pidas URL si el usuario dice “la misma página” y existe last_url/base_url.
-Devuelve SOLO el tool-call run_qa_test con steps.
+Reglas Críticas:
+
+- En Retail, la UI puede ser inestable: espera siempre visibilidad antes de interactuar.
+- Usa wait_ms estratégicamente antes de aserciones críticas.
+- Si el usuario dice “la misma página”, usa last_url/base_url.
+- Prioriza aserciones de visibilidad en botones de Comprar, Agregar al carrito y Checkout.
+- La salida debe ser SOLO el tool-call run_qa_test.
 """
 
-SYSTEM_PROMPT_DOC = """Eres Vanya. Generas artefactos QA (INVEST, Gherkin, casos de prueba y scripts Playwright Python).
-Enfócate en lo que el usuario pide (si pide solo Gherkin, no inventes scripts).
-Si faltan datos:
-- agrega assumptions
-- agrega questions_to_clarify
-Devuelve SIEMPRE un tool-call generate_qa_artifacts con campos completos (vacíos si no aplican).
-NO pidas URL/credenciales cuando el usuario pidió documentación (matriz/gherkin/casos).
+SYSTEM_PROMPT_DOC = """Eres Vanya. Generas artefactos QA de alto nivel para Retail
+(INVEST, Gherkin, Casos de Prueba, Scripts Playwright Python).
+
+Reglas de Calidad:
+
+- Incluye siempre edge cases de Retail (cupones expirados, stock agotado, errores de pasarela).
+- Prioriza escenarios por impacto en conversión y riesgo técnico.
+- Si generas scripts Playwright, valida Desktop y Mobile.
+- Si faltan datos, agrega assumptions y questions_to_clarify.
+- Devuelve SIEMPRE un tool-call generate_qa_artifacts.
 """
 
 # ============================================================
@@ -1379,6 +1395,7 @@ def chat_run(req: ChatRunRequest):
         parsed = _parse_tool_args(raw_args) or {}
         steps = parsed.get("steps") or []
 
+        # 1) Validación de steps
         if not isinstance(steps, list) or not steps:
             need = (
                 "No recibí steps válidos para ejecutar.\n"
@@ -1386,30 +1403,33 @@ def chat_run(req: ChatRunRequest):
             )
             _push_history(session, "user", prompt)
             _push_history(session, "assistant", need)
-            _db_save_assistant(active_thread_id, need)
+            _db_save_assistant(active_thread_id, need, meta={"mode": "need_info"})
             return {"mode": "need_info", "session_id": sid, "thread_id": active_thread_id, "answer": need}
 
-        # 2) Forzar goto si no viene (tu runner lo necesita)
+        # 2) Forzar goto si no viene (runner lo necesita)
         _ensure_goto(steps, base_url)
         _update_last_url_from_steps(session, steps, fallback=base_url)
 
-        # 3) Ejecutar runner (firma correcta: execute_test(steps, headless))
+        # 3) Ejecutar runner
         result = execute_test(steps=steps, headless=req.headless)
 
-        # =========================
-        # ✅ Subir evidencia a Cloudinary (para chats viejos)
-        # =========================
-        uploaded_evidence = None
+        # -------------------------
+        # 4) Subir evidencia a Cloudinary (UNA SOLA VEZ)
+        # -------------------------
+        import base64
+
+        evidence_items = []
+        cloudinary_ok = False
 
         try:
-            evidence_id = result.get("evidence_id") or f"EV-{uuid.uuid4().hex[:10]}"
+            evidence_id = (result.get("evidence_id") or "").strip() or f"EV-{uuid.uuid4().hex[:10]}"
 
-            # Caso A: runner regresa screenshot_b64 (como en tu meta actual)
             b64 = result.get("screenshot_b64")
             if b64:
-                # si viene como "data:image/png;base64,...." lo limpiamos
+                # Si viene con prefix tipo "data:image/png;base64,...", lo limpiamos
                 if "," in b64:
                     b64 = b64.split(",", 1)[1]
+
                 png_bytes = base64.b64decode(b64)
 
                 uploaded = upload_evidence_to_cloudinary(
@@ -1417,44 +1437,43 @@ def chat_run(req: ChatRunRequest):
                     public_id=evidence_id,
                 )
 
-                uploaded_evidence = {
+                evidence_items.append({
                     "id": evidence_id,
-                    "url": uploaded["url"],
+                    "url": uploaded.get("url"),
                     "provider": "cloudinary",
-                    "public_id": uploaded["public_id"],
+                    "public_id": uploaded.get("public_id"),
                     "mime": "image/png",
-                }
+                    "bytes": uploaded.get("bytes"),
+                    "width": uploaded.get("width"),
+                    "height": uploaded.get("height"),
+                })
 
-                # Opcional: ya no guardes el base64 (reduce DB)
+                cloudinary_ok = True
+
+                # Recomendado: no guardes base64 si ya tienes URL (reduce DB)
                 result["screenshot_b64"] = None
 
-        except Exception as _e:
-            # Si Cloudinary falla, no rompas el flujo.
-            # Te quedas con screenshot_b64 como fallback.
-            logger.exception("Cloudinary upload failed")
-
-
+        except Exception:
+            # Si Cloudinary falla: NO romper flujo. Conserva screenshot_b64 como fallback.
+            logger.exception("Cloudinary upload failed; keeping screenshot_b64 fallback")
 
         # -------------------------
-        # Resumen corto + persistir runner en historial
+        # 5) Resumen corto + persistir runner en historial
         # -------------------------
         status = (result.get("status") or "").lower()
         error = result.get("error")
-        evidence_id = result.get("evidence_id")
+        evidence_id_out = result.get("evidence_id")  # el que generó el runner (puede existir)
 
         if status == "passed":
-            answer = f"✅ Prueba ejecutada: PASSED (evidence: {evidence_id})"
+            answer = f"✅ Prueba ejecutada: PASSED (evidence: {evidence_id_out or (evidence_items[0]['id'] if evidence_items else 'N/A')})"
         else:
-            answer = f"❌ Prueba ejecutada: FAIL (evidence: {evidence_id})\nDetalle: {error}"
+            answer = f"❌ Prueba ejecutada: FAIL (evidence: {evidence_id_out or (evidence_items[0]['id'] if evidence_items else 'N/A')})\nDetalle: {error}"
 
         # History (memoria en sesión)
         _push_history(session, "user", prompt)
         _push_history(session, "assistant", answer)
 
-        # ✅ DB: guarda el mensaje del assistant con META (runner incluido)
-        # Requiere:
-        # - _db_save_assistant(thread_id, content, meta=...) (ya lo ajustaste en helpers)
-        # - Message.meta_json (JSON/JSONB) y que GET /threads incluya "meta"
+        # 6) Guardar mensaje del assistant con META (runner incluido)
         _db_save_assistant(
             active_thread_id,
             answer,
@@ -1469,15 +1488,15 @@ def chat_run(req: ChatRunRequest):
                     "duration_ms": result.get("duration_ms"),
                     "meta": result.get("meta", {}),
 
-                    # ✅ NUEVO: evidencia en URL (Cloudinary)
-                    "evidence": [uploaded_evidence] if uploaded_evidence else [],
-                    
-                    # fallback (si cloudinary falla)
+                    # ✅ URL evidence (Cloudinary)
+                    "evidence": evidence_items,
+
+                    # ✅ fallback si cloudinary falla (o si no hubo screenshot)
                     "screenshot_b64": result.get("screenshot_b64"),
                 },
+                "cloudinary_ok": cloudinary_ok,
             },
         )
-
         return {
             "mode": "execute",
             "session_id": sid,
