@@ -5,6 +5,7 @@ import time
 import uuid
 import traceback
 import logging
+import base64
 from typing import List, Optional, Dict, Any, Tuple
 
 from dotenv import load_dotenv
@@ -27,6 +28,44 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s - %(message)s"
 )
 logger = logging.getLogger("vanya")
+
+import cloudinary
+import cloudinary.uploader
+
+CLOUDINARY_URL = os.getenv("CLOUDINARY_URL", "").strip()
+if CLOUDINARY_URL:
+    cloudinary.config(secure=True)
+
+def upload_evidence_to_cloudinary(
+    png_bytes: bytes,
+    public_id: str,
+    folder: str = "vanya/evidence"
+):
+    """
+    Sube evidencia (png bytes) a Cloudinary y regresa metadata + URL segura.
+    """
+    if not CLOUDINARY_URL:
+        raise RuntimeError("CLOUDINARY_URL no está configurado")
+
+    try:
+        res = cloudinary.uploader.upload(
+            png_bytes,
+            folder=folder,
+            public_id=public_id,
+            resource_type="image",
+            overwrite=True,
+        )
+        return {
+            "url": res.get("secure_url"),
+            "public_id": res.get("public_id"),
+            "bytes": res.get("bytes"),
+            "format": res.get("format"),
+            "width": res.get("width"),
+            "height": res.get("height"),
+        }
+    except Exception as e:
+        logger.exception("Error subiendo evidencia a Cloudinary")
+        raise
 
 # ============================================================
 # INIT
@@ -873,13 +912,14 @@ def get_thread(thread_id: str):
         return {
             "id": t.id,
             "title": t.title,
-            "updated_at": _iso(t.updated_at),
+            "updated_at": _iso(t.updated_at) if hasattr(t, "updated_at") else None,
             "messages": [
                 {
                     "id": m.id,
                     "role": m.role,
                     "content": m.content,
                     "created_at": _iso(m.created_at),
+                    "meta": getattr(m, "meta_json", None),  # ✅ CLAVE
                 }
                 for m in msgs
             ],
@@ -1356,6 +1396,45 @@ def chat_run(req: ChatRunRequest):
         # 3) Ejecutar runner (firma correcta: execute_test(steps, headless))
         result = execute_test(steps=steps, headless=req.headless)
 
+        # =========================
+        # ✅ Subir evidencia a Cloudinary (para chats viejos)
+        # =========================
+        uploaded_evidence = None
+
+        try:
+            evidence_id = result.get("evidence_id") or f"EV-{uuid.uuid4().hex[:10]}"
+
+            # Caso A: runner regresa screenshot_b64 (como en tu meta actual)
+            b64 = result.get("screenshot_b64")
+            if b64:
+                # si viene como "data:image/png;base64,...." lo limpiamos
+                if "," in b64:
+                    b64 = b64.split(",", 1)[1]
+                png_bytes = base64.b64decode(b64)
+
+                uploaded = upload_evidence_to_cloudinary(
+                    png_bytes=png_bytes,
+                    public_id=evidence_id,
+                )
+
+                uploaded_evidence = {
+                    "id": evidence_id,
+                    "url": uploaded["url"],
+                    "provider": "cloudinary",
+                    "public_id": uploaded["public_id"],
+                    "mime": "image/png",
+                }
+
+                # Opcional: ya no guardes el base64 (reduce DB)
+                result["screenshot_b64"] = None
+
+        except Exception as _e:
+            # Si Cloudinary falla, no rompas el flujo.
+            # Te quedas con screenshot_b64 como fallback.
+            logger.exception("Cloudinary upload failed")
+
+
+
         # -------------------------
         # Resumen corto + persistir runner en historial
         # -------------------------
@@ -1382,15 +1461,19 @@ def chat_run(req: ChatRunRequest):
             meta={
                 "mode": "execute",
                 "runner": {
-                    # guarda TODO el runner, o si quieres recortar, al menos:
                     "status": result.get("status"),
                     "error": result.get("error"),
                     "evidence_id": result.get("evidence_id"),
                     "steps": result.get("steps", []),
                     "logs": result.get("logs", []),
-                    "screenshot_b64": result.get("screenshot_b64"),  # ✅ lo importante
                     "duration_ms": result.get("duration_ms"),
                     "meta": result.get("meta", {}),
+
+                    # ✅ NUEVO: evidencia en URL (Cloudinary)
+                    "evidence": [uploaded_evidence] if uploaded_evidence else [],
+                    
+                    # fallback (si cloudinary falla)
+                    "screenshot_b64": result.get("screenshot_b64"),
                 },
             },
         )
@@ -1409,3 +1492,4 @@ def chat_run(req: ChatRunRequest):
         err = f"Error ejecutando prueba: {type(e).__name__}: {str(e)}"
         _db_save_assistant(active_thread_id, err)
         raise HTTPException(status_code=500, detail=err)
+    
