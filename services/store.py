@@ -4,11 +4,14 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
+
 from db import SessionLocal, Thread, Message, utcnow
 
 logger = logging.getLogger("vanya.store")
 
-# Supabase store (si existe)
+# ============================================================
+# Optional Supabase backend
+# ============================================================
 try:
     from services.supabase_store import (
         supabase_client,
@@ -16,10 +19,13 @@ try:
         sb_add_message,
         sb_touch_thread,
         sb_update_thread_title,
-        sb_get_thread,          # opcional
-        sb_list_threads,        # opcional
-        sb_get_messages,        # opcional
-        sb_delete_thread,       # opcional
+        sb_get_thread,        # optional
+        sb_list_threads,      # optional
+        sb_get_messages,      # optional
+        sb_delete_thread,     # optional
+        # sb_add_run,          # optional (si lo agregas luego)
+        # sb_list_runs,
+        # sb_get_run,
     )
 except Exception:
     supabase_client = None
@@ -33,13 +39,16 @@ except Exception:
     sb_delete_thread = None
 
 
-# ------------------------------------------------------------
+# ============================================================
 # Config
-# ------------------------------------------------------------
+# ============================================================
 _SUPABASE_STRICT = (os.getenv("SUPABASE_STRICT", "0").strip() == "1")
 
-# cache: evita llamar supabase_client() por request
+# Cache para no evaluar el cliente cada request.
+# NOTA: si no está listo, reintenta cada N segundos (por si acabas de setear env vars).
 _SUPABASE_OK_CACHED: Optional[bool] = None
+_SUPABASE_LAST_CHECK_TS: int = 0
+_SUPABASE_RECHECK_EVERY_S = int(os.getenv("SUPABASE_RECHECK_EVERY_S", "10"))
 
 
 def _iso(x):
@@ -52,39 +61,46 @@ def _iso(x):
     return str(x)
 
 
+def _now_ts() -> int:
+    import time
+    return int(time.time())
+
+
 def _has_supabase() -> bool:
     """
-    True si Supabase está disponible (y el cliente responde).
-    Cacheado para no evaluarlo en cada request.
+    True si Supabase está disponible (cliente construible y responde).
+    Cacheado pero con re-check periódico para no quedarse "pegado" en False
+    cuando acabas de agregar env vars.
     """
-    global _SUPABASE_OK_CACHED
-    if _SUPABASE_OK_CACHED is not None:
-        return _SUPABASE_OK_CACHED
+    global _SUPABASE_OK_CACHED, _SUPABASE_LAST_CHECK_TS
 
-    ok = False
-    try:
-        ok = bool(supabase_client and supabase_client())
-    except Exception:
+    # Re-check si nunca se evaluó o ya pasó ventana
+    if _SUPABASE_OK_CACHED is None or (_now_ts() - _SUPABASE_LAST_CHECK_TS) >= _SUPABASE_RECHECK_EVERY_S:
         ok = False
+        try:
+            ok = bool(supabase_client and supabase_client())
+        except Exception:
+            ok = False
 
-    _SUPABASE_OK_CACHED = ok
-    if ok:
-        logger.info("Supabase enabled (cache=true)")
-    else:
-        logger.info("Supabase disabled or unreachable (cache=true)")
+        _SUPABASE_OK_CACHED = ok
+        _SUPABASE_LAST_CHECK_TS = _now_ts()
 
-    return ok
+        logger.info("Supabase availability check: %s", "ENABLED" if ok else "DISABLED")
+
+    return bool(_SUPABASE_OK_CACHED)
 
 
-def _supabase_or_raise(op: str):
+def _supabase_or_raise(op: str) -> None:
     """
     Si strict mode está habilitado y supabase no está listo -> error.
     """
     if _SUPABASE_STRICT and not _has_supabase():
-        raise RuntimeError(f"SUPABASE_STRICT=1 y Supabase no está disponible ({op})")
+        raise RuntimeError(f"SUPABASE_STRICT=1 y Supabase no está disponible ({op}).")
 
 
-def _safe_touch_supabase(thread_id: str):
+def _safe_touch_supabase(thread_id: str) -> None:
+    if not thread_id:
+        return
     try:
         if sb_touch_thread:
             sb_touch_thread(thread_id)
@@ -95,7 +111,7 @@ def _safe_touch_supabase(thread_id: str):
 
 
 # ============================================================
-# STORE API (lo que usa tu app)
+# STORE API
 # ============================================================
 def create_thread(title: str = "New chat") -> Dict[str, Any]:
     title = (title or "New chat").strip() or "New chat"
@@ -125,7 +141,18 @@ def list_threads() -> List[Dict[str, Any]]:
 
     # ✅ Supabase-first
     if _has_supabase() and sb_list_threads:
-        return sb_list_threads()
+        items = sb_list_threads() or []
+        # normaliza llaves por si acaso
+        out: List[Dict[str, Any]] = []
+        for t in items:
+            out.append(
+                {
+                    "id": t.get("id"),
+                    "title": t.get("title") or "New chat",
+                    "updated_at": t.get("updated_at"),
+                }
+            )
+        return out
 
     # ✅ SQLite fallback
     db: Session = SessionLocal()
@@ -147,12 +174,26 @@ def get_thread(thread_id: str) -> Dict[str, Any]:
         t = sb_get_thread(thread_id)
         if not t:
             raise KeyError("Thread not found")
+
         msgs = sb_get_messages(thread_id) or []
+        # normaliza formato de mensajes
+        norm_msgs = []
+        for m in msgs:
+            norm_msgs.append(
+                {
+                    "id": m.get("id"),
+                    "role": m.get("role", "assistant"),
+                    "content": m.get("content", ""),
+                    "created_at": m.get("created_at"),
+                    "meta": m.get("meta") or m.get("meta_json") or m.get("metaJson"),
+                }
+            )
+
         return {
             "id": t.get("id"),
-            "title": t.get("title"),
+            "title": t.get("title") or "New chat",
             "updated_at": t.get("updated_at"),
-            "messages": msgs,
+            "messages": norm_msgs,
         }
 
     # ✅ SQLite fallback
@@ -274,6 +315,7 @@ def update_thread_title(thread_id: str, title: str) -> None:
 def add_message(thread_id: str, role: str, content: str, meta: Optional[dict] = None) -> None:
     if not thread_id:
         return
+
     role = (role or "assistant").strip() or "assistant"
     content = content or ""
 
@@ -302,5 +344,41 @@ def add_message(thread_id: str, role: str, content: str, meta: Optional[dict] = 
     except Exception:
         db.rollback()
         raise
+    finally:
+        db.close()
+
+
+# ============================================================
+# PRO: thread memory helper
+# ============================================================
+def get_recent_messages(thread_id: str, limit: int = 12) -> List[Dict[str, Any]]:
+    """
+    Devuelve mensajes recientes en formato {role, content}.
+    Supabase-first si existe, si no SQLite.
+    """
+    if not thread_id:
+        return []
+
+    limit = max(1, min(int(limit or 12), 30))
+
+    _supabase_or_raise("get_recent_messages")
+
+    # ✅ Supabase-first
+    if _has_supabase() and sb_get_messages:
+        msgs = sb_get_messages(thread_id) or []
+        msgs = msgs[-limit:]
+        return [{"role": m.get("role", "assistant"), "content": m.get("content", "")} for m in msgs]
+
+    # ✅ SQLite fallback
+    db: Session = SessionLocal()
+    try:
+        msgs = (
+            db.query(Message)
+            .filter(Message.thread_id == thread_id)
+            .order_by(Message.created_at.asc())
+            .all()
+        )
+        msgs = msgs[-limit:]
+        return [{"role": m.role, "content": m.content} for m in msgs]
     finally:
         db.close()
