@@ -7,6 +7,9 @@ import traceback
 import logging
 import base64
 from typing import List, Optional, Dict, Any, Tuple
+import cloudinary.uploader
+import cloudinary
+
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -32,8 +35,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("vanya")
 
-import cloudinary
-import cloudinary.uploader
 
 CLOUDINARY_URL = os.getenv("CLOUDINARY_URL", "").strip()
 if CLOUDINARY_URL:
@@ -821,6 +822,21 @@ def _fallback_minimal_doc(requested, domain, context, story):
     }
     return _trim_doc(minimal_doc)
 
+def upload_screenshot_b64(evidence_id: str, screenshot_b64: str) -> dict:
+    img_bytes = base64.b64decode(screenshot_b64)
+    result = cloudinary.uploader.upload(
+        img_bytes,
+        public_id=evidence_id,
+        folder="vanya_evidence",
+        overwrite=True,
+        resource_type="image",
+    )
+    return {
+        "id": evidence_id,
+        "url": result.get("secure_url") or result.get("url"),
+        "provider": "cloudinary",
+    }
+
 # ============================================================
 # ENDPOINTS
 # ============================================================
@@ -1179,16 +1195,14 @@ def chat_run(req: ChatRunRequest):
             runner_meta = {
                 "status": result.get("status"),
                 "error": result.get("error"),
-                "evidence_id": (uploaded_evidence["id"] if uploaded_evidence else result.get("evidence_id")),
+                "evidence_id": result.get("evidence_id"),
                 "steps": result.get("steps", []),
                 "logs": result.get("logs", []),
                 "duration_ms": result.get("duration_ms"),
                 "meta": result.get("meta", {}),
                 "evidence": [uploaded_evidence] if uploaded_evidence else [],
-                # 🔑 CLAVE PARA QUE EL FRONTEND PINTE LA IMAGEN
-                "screenshot_url": (uploaded_evidence["url"] if uploaded_evidence else None),
-                # (opcional) fallback si no hubo upload
-                "screenshot_b64": result.get("screenshot_b64"),
+                # 🔥 ESTO ES LO QUE EL FRONTEND NECESITA
+                "screenshot_url": uploaded_evidence["url"] if uploaded_evidence else None,
             }
 
             # 3) Guarda el mensaje del asistente + meta (execute)
@@ -1517,6 +1531,15 @@ def chat_run(req: ChatRunRequest):
 
         
         uploaded_evidence = None
+
+        if result.get("screenshot_b64"):
+        try:
+            uploaded_evidence = upload_screenshot_b64(
+                evidence_id=result["evidence_id"],
+                screenshot_b64=result["screenshot_b64"],
+            )
+        except Exception as e:
+            logger.error("Cloudinary upload failed", exc_info=True)
 
         # -------------------------------------------------
         # 4) Subir evidencia a Cloudinary (UNA sola vez)
