@@ -1,82 +1,132 @@
-import { useEffect, useState, useRef } from "react";
-import { apiGet, apiPost } from "../api";
+import React, { useMemo, useCallback } from "react";
 
-export default function Chat({ threadId }) {
-  const [thread, setThread] = useState(null);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const bottomRef = useRef(null);
+export default function Chat(props) {
+  const {
+    messages = [],
+    input = "",
+    setInput = () => {},
+    handleSend = () => {},
+    isLoading = false,
+    sessionId = null, // no obligatorio, pero lo recibes
+    threadId = null,  // no obligatorio, pero lo recibes
+    formatText = (t) => (typeof t === "string" ? t : ""),
+    chatEndRef = null,
+  } = props || {};
 
-  useEffect(() => {
-    if (!threadId) {
-      setThread(null);
-      return;
-    }
+  // Normaliza messages
+  const safeMessages = useMemo(() => {
+    return Array.isArray(messages) ? messages : [];
+  }, [messages]);
 
-    apiGet(`/threads/${threadId}`).then(setThread);
-  }, [threadId]);
+  const onEnter = useCallback(
+    (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        handleSend();
+      }
+    },
+    [handleSend]
+  );
 
-  async function send() {
-    if (!input.trim() || !threadId) return;
+  const renderMsg = (m, idx) => {
+    const role = m?.role === "user" ? "user" : "bot";
+    const content = typeof m?.content === "string" ? m.content : "";
+    const html = formatText(content);
 
-    setLoading(true);
+    return (
+      <div
+        key={`${m?.meta?.id || idx}`}
+        style={{
+          display: "flex",
+          justifyContent: role === "user" ? "flex-end" : "flex-start",
+          marginBottom: 12,
+          padding: "0 6px",
+        }}
+      >
+        <div
+          style={{
+            maxWidth: 760,
+            padding: "10px 12px",
+            borderRadius: 14,
+            background: role === "user" ? "rgba(120,160,255,0.18)" : "rgba(255,255,255,0.08)",
+            border: "1px solid rgba(255,255,255,0.12)",
+            color: "white",
+            wordBreak: "break-word",
+          }}
+        >
+          <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>
+            {role === "user" ? "Tú" : "Vanya"}
+          </div>
 
-    await apiPost("/chat_run", {
-      prompt: input,
-      thread_id: threadId,
-      headless: true,
-    });
-
-    setInput("");
-
-    const updated = await apiGet(`/threads/${threadId}`);
-    setThread(updated);
-    setLoading(false);
-
-    setTimeout(() => bottomRef.current?.scrollIntoView(), 50);
-  }
-
-  if (!threadId) {
-    return <div style={{ padding: 20 }}>Selecciona un chat</div>;
-  }
+          {/* render seguro */}
+          <div
+            dangerouslySetInnerHTML={{ __html: html }}
+            style={{ lineHeight: 1.35 }}
+          />
+        </div>
+      </div>
+    );
+  };
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-      <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
-        {thread?.messages?.map((m, i) => (
-          <div
-            key={i}
-            style={{
-              textAlign: m.role === "user" ? "right" : "left",
-              marginBottom: 12,
-            }}
-          >
-            <div
-              style={{
-                display: "inline-block",
-                padding: 10,
-                borderRadius: 8,
-                background: m.role === "user" ? "#e6f0ff" : "#f4f4f4",
-              }}
-            >
-              <b>{m.role}</b>
-              <div>{m.content}</div>
-            </div>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      {/* Messages */}
+      <div style={{ flex: 1, overflow: "auto", padding: 14 }}>
+        {!threadId ? (
+          <div style={{ color: "rgba(255,255,255,0.7)", padding: 12 }}>
+            Selecciona un chat o crea uno nuevo.
           </div>
-        ))}
-        <div ref={bottomRef} />
+        ) : null}
+
+        {safeMessages.map(renderMsg)}
+
+        <div ref={chatEndRef || undefined} />
       </div>
 
-      <div style={{ display: "flex", padding: 12, gap: 8 }}>
-        <input
+      {/* Input */}
+      <div
+        style={{
+          padding: 12,
+          borderTop: "1px solid rgba(255,255,255,0.08)",
+          display: "flex",
+          gap: 10,
+          alignItems: "center",
+        }}
+      >
+        <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Escribe aquí…"
-          style={{ flex: 1 }}
-          onKeyDown={(e) => e.key === "Enter" && send()}
+          onKeyDown={onEnter}
+          placeholder="Escribe aquí… (Enter para enviar, Shift+Enter para salto)"
+          rows={1}
+          style={{
+            flex: 1,
+            resize: "none",
+            padding: "10px 12px",
+            borderRadius: 12,
+            border: "1px solid rgba(255,255,255,0.14)",
+            background: "rgba(0,0,0,0.25)",
+            color: "white",
+            outline: "none",
+          }}
+          disabled={isLoading}
         />
-        <button onClick={send} disabled={loading}>
-          {loading ? "..." : "Enviar"}
+
+        <button
+          onClick={handleSend}
+          disabled={isLoading || !String(input || "").trim()}
+          style={{
+            padding: "10px 14px",
+            borderRadius: 12,
+            border: "1px solid rgba(255,255,255,0.14)",
+            background: isLoading ? "rgba(255,255,255,0.08)" : "rgba(120,160,255,0.35)",
+            color: "white",
+            cursor: isLoading ? "not-allowed" : "pointer",
+            fontWeight: 700,
+          }}
+          title={sessionId ? `session: ${sessionId}` : ""}
+        >
+          {isLoading ? "..." : "Enviar"}
         </button>
       </div>
     </div>
