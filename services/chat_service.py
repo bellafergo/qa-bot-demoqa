@@ -15,6 +15,12 @@ from services import store
 from services.evidence_service import upload_screenshot_b64
 from runner import execute_test
 
+from services.cloudinary_service import (
+    upload_screenshot_b64,
+    upload_pdf_bytes,
+)
+from services.report_service import generate_pdf_report_bytes
+
 logger = logging.getLogger("vanya.chat_service")
 
 # ============================================================
@@ -453,10 +459,15 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         except Exception as e:
             logger.warning(f"Evidence upload failed: {str(e)}", exc_info=True)
 
-        # ✅ Generar PDF report (MVP)
+        # ============================================================
+        # REPORT (PDF → Cloudinary)
+        # ============================================================
         report_url: Optional[str] = None
+        report_error: Optional[str] = None
+
         try:
             from services.report_service import generate_pdf_report
+            from services.cloudinary_service import upload_pdf_bytes
 
             rep = generate_pdf_report(
                 prompt=prompt,
@@ -470,12 +481,27 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
                     "headless": bool(getattr(req, "headless", True)),
                 },
             )
-            report_url = rep.get("report_url")
-            # También guardamos en result para que el frontend lo encuentre fácil
-            if report_url:
+
+            pdf_path = rep.get("report_path")
+
+            if pdf_path and os.path.exists(pdf_path):
+                with open(pdf_path, "rb") as f:
+                    pdf_bytes = f.read()
+
+                uploaded = upload_pdf_bytes(
+                    pdf_bytes,
+                    evidence_id=evidence_id,
+                    folder="vanya/reports",
+                )
+
+                report_url = uploaded.get("secure_url")
+
+                # también lo dejamos en runner para el frontend
                 result["report_url"] = report_url
+
         except Exception as e:
-            logger.warning(f"Report generation failed: {str(e)}", exc_info=True)
+            logger.warning(f"PDF report upload failed: {str(e)}", exc_info=True)
+            report_error = str(e)
 
         # Render answer
         if hasattr(H, "render_execute_answer"):
