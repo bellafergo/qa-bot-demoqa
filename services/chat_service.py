@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+import os
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import HTTPException
@@ -458,6 +459,118 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
                 )
         except Exception as e:
             logger.warning(f"Evidence upload failed: {str(e)}", exc_info=True)
+            
+    # ============================================================
+    # EXECUTE
+    # ============================================================
+    if mode == "execute":
+        base_url = H.pick_base_url(req, session, prompt)
+        if not base_url:
+            answer = (
+                "Para ejecutar necesito:\n"
+                "- URL (o dime “la misma”)\n"
+                "- Qué validar (botón / campo / texto esperado)\n"
+                "- Credenciales (si aplica)"
+            )
+            store.add_message(thread_id, "assistant", answer, meta={"mode": "execute"})
+            return {
+                "mode": "execute",
+                "persona": persona,
+                "session_id": session_id,
+                "thread_id": thread_id,
+                "answer": answer,
+                **_confidence("execute", prompt, None),
+            }
+
+        # 0) Parser determinístico
+        steps = _parse_steps_from_prompt(prompt, base_url)
+
+        # 1) Fallback a LLM para steps
+        if not steps:
+            client = _client()
+            resp = client.chat.completions.create(
+                model=settings.OPENAI_MODEL,
+                messages=messages
+                + [
+                    {
+                        "role": "user",
+                        "content": (
+                            f"URL base: {base_url}\n"
+                            f"Genera pasos Playwright para:\n{prompt}\n"
+                            "Devuelve SOLO JSON con {\"steps\": [...]}."
+                        ),
+                    }
+                ],
+                temperature=settings.EXEC_TEMPERATURE,
+                max_tokens=settings.EXEC_MAX_TOKENS,
+            )
+            raw = (resp.choices[0].message.content or "").strip()
+            steps = H.extract_steps_from_text(raw)
+
+        if not steps:
+            answer = "No pude generar pasos ejecutables. Dime el botón/campo exacto y el texto esperado."
+            store.add_message(
+                thread_id, "assistant", answer, meta={"mode": "execute", "base_url": base_url}
+            )
+            return {
+                "mode": "execute",
+                "persona": persona,
+                "session_id": session_id,
+                "thread_id": thread_id,
+                "answer": answer,
+                **_confidence("execute", prompt, base_url),
+            }
+
+        # Ensure goto + remember last_url
+        H.ensure_goto(steps, base_url)
+        H.update_last_url(session, steps, fallback=base_url)
+
+        # Runner
+        started = time.time()
+        result = execute_test(
+            steps=steps,
+            base_url=base_url,
+            headless=bool(getattr(req, "headless", True)),
+        )
+        duration_ms = int((time.time() - started) * 1000)
+
+        # ✅ SIEMPRE: prepara data-url (para render inline)
+        screenshot_b64 = (
+            result.get("screenshot_b64")
+            or result.get("screenshotBase64")
+            or result.get("screenshotB64")
+            or result.get("screenshot_base64")
+        )
+        screenshot_data_url = _make_png_data_url(screenshot_b64) if screenshot_b64 else None
+        if screenshot_data_url:
+            result["screenshot_data_url"] = screenshot_data_url
+
+        # Evidence upload -> Cloudinary (PNG) (opcional)
+        evidence_url: Optional[str] = None
+        cloud_public_id: Optional[str] = None
+        evidence_id = (result.get("evidence_id") or f"EV-{int(time.time())}").strip()
+
+        try:
+            if screenshot_b64 and len(str(screenshot_b64)) > 500 and getattr(settings, "HAS_CLOUDINARY", False):
+                b64_str = str(screenshot_b64).strip()
+                if not b64_str.startswith("data:image"):
+                    b64_str = f"data:image/png;base64,{b64_str}"
+
+                uploaded = upload_screenshot_b64(
+                    b64_str,
+                    evidence_id=evidence_id,
+                    folder="vanya/evidence",
+                )
+
+                evidence_url = uploaded.get("secure_url") or uploaded.get("image_url") or uploaded.get("url")
+                cloud_public_id = uploaded.get("public_id")
+                logger.info(f"Evidence uploaded successfully: {evidence_url}")
+            else:
+                logger.warning(
+                    f"Screenshot b64 invalid/too small OR no cloudinary. (len={len(str(screenshot_b64)) if screenshot_b64 else 0})"
+                )
+        except Exception as e:
+            logger.warning(f"Evidence upload failed: {str(e)}", exc_info=True)
 
         # ============================================================
         # REPORT (PDF -> Cloudinary)
@@ -466,9 +579,8 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         report_error: Optional[str] = None
 
         try:
+            # 1) Genera PDF local
             from services.report_service import generate_pdf_report
-            from services.cloudinary_service import upload_pdf_bytes
-
             rep = generate_pdf_report(
                 prompt=prompt,
                 base_url=base_url,
@@ -486,6 +598,12 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             if not pdf_path or not os.path.exists(pdf_path):
                 raise RuntimeError(f"PDF no se generó en disco: {pdf_path}")
 
+            # 2) Sube el PDF a Cloudinary como RAW
+            if not getattr(settings, "HAS_CLOUDINARY", False):
+                raise RuntimeError("Cloudinary no está configurado (HAS_CLOUDINARY=False)")
+
+            from services.cloudinary_service import upload_pdf_bytes
+
             with open(pdf_path, "rb") as f:
                 pdf_bytes = f.read()
 
@@ -499,11 +617,13 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             if not report_url:
                 raise RuntimeError(f"Cloudinary no regresó URL: {uploaded_pdf}")
 
-            # ✅ guarda para UI
+            # ✅ Guarda para UI / historial
             result["report_url"] = report_url
+            result["report_error"] = None
 
         except Exception as e:
             report_error = str(e)
+            result["report_url"] = None
             result["report_error"] = report_error
             logger.warning(f"PDF report failed: {report_error}", exc_info=True)
 
@@ -513,7 +633,7 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         else:
             answer = _render_execute_answer(result, evidence_url=evidence_url)
 
-        # Meta que se guarda en el historial (para que el frontend lo pinte SIEMPRE)
+        # Meta para historial (para que el frontend lo pinte SIEMPRE)
         assistant_meta: Dict[str, Any] = {
             "mode": "execute",
             "base_url": base_url,
@@ -522,18 +642,23 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             "evidence_id": evidence_id,
             "evidence_url": evidence_url,
             "cloudinary_public_id": cloud_public_id,
-            "report_url": report_url,  # ✅ nuevo
 
-            # compat frontend:
+            # ✅ Report
+            "report_url": result.get("report_url"),
+            "report_error": result.get("report_error"),
+
             "runner": {
                 "status": result.get("status"),
                 "error": result.get("error"),
                 "evidence_id": evidence_id,
                 "evidence_url": evidence_url,
-                "screenshot_url": evidence_url,               # si hay Cloudinary, úsalo
-                "screenshot_data_url": screenshot_data_url,   # ✅ si NO hay Cloudinary, la UI debe pintar esto
+                "screenshot_url": evidence_url,
+                "screenshot_data_url": screenshot_data_url,
                 "duration_ms": result.get("duration_ms"),
-                "report_url": report_url,                     # ✅ nuevo
+
+                # ✅ Report en runner
+                "report_url": result.get("report_url"),
+                "report_error": result.get("report_error"),
             },
 
             "steps": steps,
@@ -548,9 +673,14 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             "session_id": session_id,
             "thread_id": thread_id,
             "answer": answer,
-            "runner": result,  # ✅ aquí ya viene screenshot_data_url (+ report_url si se generó)
+
+            "runner": result,  # ✅ incluye screenshot_data_url + report_url/report_error
             "evidence_url": evidence_url,
-            "report_url": report_url,  # ✅ nuevo
+
+            # ✅ también top-level para UI fácil
+            "report_url": result.get("report_url"),
+            "report_error": result.get("report_error"),
+
             "duration_ms": duration_ms,
             **_confidence("execute", prompt, base_url),
         }
