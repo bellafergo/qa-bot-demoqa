@@ -183,8 +183,8 @@ export default function Chat(props) {
 
   const isExecuteMessage = (m) => {
     const meta = getMeta(m);
-    const mode = String(meta?.mode || m?.mode || "").trim().toLowerCase();
-    return mode === "execute" || mode === "execute_mode";
+    const mode = String(m?.mode || meta?.mode || m?.meta?.mode || "").trim().toLowerCase();
+    return mode.includes("execute");
   };
 
   const pickReportUrl = (m) => {
@@ -230,7 +230,7 @@ export default function Chat(props) {
     // ✅ evidencia: si hay URL, muéstrala (sobre todo en execute)
     const showEvidence = !!evidenceUrl && (isExecute || role === "bot");
     // ✅ reporte: SOLO si es execute (para no ensuciar mensajes normales)
-    const showReport = !!reportUrl && isExecute;
+    const showReport = role === "bot" && !!reportUrl;
 
     const meta = getMeta(m);
     const key = String(m?.id || meta?.id || `${role}-${idx}`);
