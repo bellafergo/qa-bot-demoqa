@@ -362,13 +362,22 @@ export default function App() {
     setIsSending(true);
 
     // UI optimistic
-    setMessages((prev) => [...prev, { role: "user", content: prompt, meta: {} }]);
-    setInput("");
+    setMessages((prev) => [
+  ...prev,
+  {
+    role: "bot",
+    content: answer || "Listo. (Respuesta sin texto, revisa el payload)",
+    meta: {
+      ...(resp || {}),
+      // ✅ asegura modo para que Chat.jsx muestre evidencia
+      mode: (resp?.mode || resp?.meta?.mode || "chat_only"),
+      // ✅ garantiza runner donde Chat.jsx lo espera
+      runner: resp?.runner || resp?.meta?.runner || null,
+    },
+  },
+]);
 
-    try {
-      const resp = await safeChatRun(prompt, threadId || null, {
-        session_id: sessionId,
-      });
+console.log("CHAT_RUN resp keys:", Object.keys(resp || {}), "mode:", resp?.mode, "has runner:", !!resp?.runner);
 
       const newThreadId = resp?.thread_id || resp?.threadId || threadId || null;
       const newSessionId =
