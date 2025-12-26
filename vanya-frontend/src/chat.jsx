@@ -13,10 +13,7 @@ export default function Chat(props) {
     chatEndRef = null,
   } = props || {};
 
-  const safeMessages = useMemo(
-    () => (Array.isArray(messages) ? messages : []),
-    [messages]
-  );
+  const safeMessages = useMemo(() => (Array.isArray(messages) ? messages : []), [messages]);
 
   const onEnter = useCallback(
     (e) => {
@@ -28,7 +25,9 @@ export default function Chat(props) {
     [handleSend, isLoading]
   );
 
-  // ---------- helpers ----------
+  // -----------------------------
+  // Helpers: meta robusto
+  // -----------------------------
   const safeJsonParse = (v) => {
     if (!v) return null;
     if (typeof v === "object") return v;
@@ -41,39 +40,49 @@ export default function Chat(props) {
   };
 
   const getMeta = (m) => {
-    const direct = m?.meta && typeof m.meta === "object" ? m.meta : null;
-    if (direct) return direct;
-
-    const parsed =
-      safeJsonParse(m?.meta_json) ||
-      safeJsonParse(m?.metaJson) ||
-      safeJsonParse(m?.metaJSON);
+    // Soporta: meta (obj), meta_json (obj o string), metaJson (string)
+    if (m?.meta && typeof m.meta === "object") return m.meta;
+    const parsed = safeJsonParse(m?.meta_json) || safeJsonParse(m?.metaJson);
     if (parsed && typeof parsed === "object") return parsed;
-
     if (m?.meta_json && typeof m.meta_json === "object") return m.meta_json;
-
     return {};
   };
 
-  // OJO: ya NO extraemos "cualquier URL" (porque agarra saucedemo y lo pone como evidencia).
-  // Solo aceptamos el formato explícito:
-  // "Evidence: https://...."
+  // -----------------------------
+  // Evidence: SOLO desde meta/runner (y opcional desde "Evidence:" del bot)
+  // -----------------------------
   const extractEvidenceFromText = (content) => {
+    // SOLO si viene con prefijo Evidence:
     const text = typeof content === "string" ? content : "";
     const m = text.match(/Evidence:\s*(https?:\/\/\S+)/i);
     return m && m[1] ? m[1].trim() : null;
   };
 
+  const normalizeCloudinaryUrl = (url) => {
+    const u = String(url || "").trim();
+    if (!u) return null;
+
+    // Si ya trae extensión de imagen, listo.
+    if (/\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(u)) return u;
+
+    // Cloudinary: muchas veces es imagen aunque no traiga extensión.
+    // Si es cloudinary "image/upload" y no termina en .png, forzamos .png
+    const low = u.toLowerCase();
+    const isCloud = low.includes("res.cloudinary.com") || low.includes("cloudinary.com");
+    const hasImageUpload = low.includes("/image/upload");
+    if (isCloud && hasImageUpload) {
+      // Evita duplicar .png
+      if (!low.endsWith(".png") && !low.includes(".png?")) return `${u}.png`;
+    }
+
+    return u;
+  };
+
   const isImageUrl = (url) => {
     const u = String(url || "").toLowerCase();
-
     if (/\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(u)) return true;
-
-    // Cloudinary normalmente sí es imagen aunque no tenga extensión
     if (u.includes("res.cloudinary.com")) return true;
-    if (u.includes("cloudinary.com")) return true;
     if (u.includes("/image/upload")) return true;
-
     return false;
   };
 
@@ -81,16 +90,18 @@ export default function Chat(props) {
     const meta = getMeta(m);
     const runner = meta?.runner || {};
 
-    // 1) meta directo
+    // 1) meta directo (lo ideal)
     const direct =
       meta?.evidence_url ||
       meta?.evidenceUrl ||
       meta?.screenshot_url ||
       meta?.screenshotUrl;
 
-    if (typeof direct === "string" && direct.trim()) return direct.trim();
+    if (typeof direct === "string" && direct.trim()) {
+      return normalizeCloudinaryUrl(direct);
+    }
 
-    // 2) runner.*
+    // 2) runner (compat)
     const runnerHit =
       runner?.screenshot_url ||
       runner?.screenshot ||
@@ -99,20 +110,29 @@ export default function Chat(props) {
       runner?.image_url ||
       runner?.cloudinary_url;
 
-    if (typeof runnerHit === "string" && runnerHit.trim()) return runnerHit.trim();
+    if (typeof runnerHit === "string" && runnerHit.trim()) {
+      return normalizeCloudinaryUrl(runnerHit);
+    }
 
-    // 3) plano
+    // 3) plano en el message (por si el API lo manda así)
     const flat =
       m?.evidence_url ||
       m?.evidenceUrl ||
       m?.screenshot_url ||
       m?.screenshotUrl;
 
-    if (typeof flat === "string" && flat.trim()) return flat.trim();
+    if (typeof flat === "string" && flat.trim()) {
+      return normalizeCloudinaryUrl(flat);
+    }
 
-    // 4) fallback desde el texto SOLO si viene "Evidence: ..."
-    const fromText = extractEvidenceFromText(m?.content);
-    if (typeof fromText === "string" && fromText.trim()) return fromText.trim();
+    // 4) ÚLTIMO fallback: SOLO si el BOT escribió "Evidence: https://..."
+    // (NO agarramos cualquier URL, para no “confundir” con saucedemo.com)
+    if ((m?.role || "") === "assistant") {
+      const fromText = extractEvidenceFromText(m?.content);
+      if (typeof fromText === "string" && fromText.trim()) {
+        return normalizeCloudinaryUrl(fromText);
+      }
+    }
 
     return null;
   };
@@ -131,31 +151,18 @@ export default function Chat(props) {
     return id ? String(id) : null;
   };
 
-  const shouldShowEvidence = (m) => {
-    // SOLO mostrar evidencia en mensajes del bot
-    if ((m?.role || "").trim() !== "assistant") return false;
-
-    const meta = getMeta(m);
-    // preferimos mostrar evidencia si el modo es execute (o si hay runner)
-    const mode = (meta?.mode || "").toString().toLowerCase();
-    if (mode === "execute") return true;
-    if (meta?.runner && typeof meta.runner === "object") return true;
-
-    // Si trae evidence_url explícito, también
-    if (meta?.evidence_url || meta?.screenshot_url) return true;
-
-    return false;
-  };
-
   const renderMsg = (m, idx) => {
-    const role = m?.role === "user" ? "user" : "bot";
+    const isUser = m?.role === "user";
+    const role = isUser ? "user" : "bot";
+
     const content = typeof m?.content === "string" ? m.content : "";
     const html = formatText(content);
 
-    const meta = getMeta(m);
-    const evidenceUrl = pickEvidenceUrl(m);
-    const evidenceId = pickEvidenceId(m);
+    // ✅ Evidence SOLO para el bot
+    const evidenceUrl = !isUser ? pickEvidenceUrl(m) : null;
+    const evidenceId = !isUser ? pickEvidenceId(m) : null;
 
+    const meta = getMeta(m);
     const key = String(m?.id || meta?.id || `${role}-${idx}`);
 
     return (
@@ -163,7 +170,7 @@ export default function Chat(props) {
         key={key}
         style={{
           display: "flex",
-          justifyContent: role === "user" ? "flex-end" : "flex-start",
+          justifyContent: isUser ? "flex-end" : "flex-start",
           marginBottom: 12,
           padding: "0 6px",
         }}
@@ -173,21 +180,16 @@ export default function Chat(props) {
             maxWidth: 760,
             padding: "10px 12px",
             borderRadius: 14,
-            background:
-              role === "user"
-                ? "rgba(120,160,255,0.18)"
-                : "rgba(255,255,255,0.08)",
+            background: isUser ? "rgba(120,160,255,0.18)" : "rgba(255,255,255,0.08)",
             border: "1px solid rgba(255,255,255,0.12)",
             color: "white",
             wordBreak: "break-word",
           }}
         >
           <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>
-            {role === "user" ? "Tú" : "Vanya"}
-            {evidenceId ? (
-              <span style={{ marginLeft: 8, opacity: 0.8 }}>
-                · evid: {evidenceId}
-              </span>
+            {isUser ? "Tú" : "Vanya"}
+            {!isUser && evidenceId ? (
+              <span style={{ marginLeft: 8, opacity: 0.8 }}>· evid: {evidenceId}</span>
             ) : null}
           </div>
 
@@ -197,8 +199,8 @@ export default function Chat(props) {
             style={{ lineHeight: 1.35 }}
           />
 
-          {/* Evidencia (solo bot/execute) */}
-          {shouldShowEvidence(m) && evidenceUrl ? (
+          {/* Evidencia (solo bot) */}
+          {!isUser && evidenceUrl ? (
             <div style={{ marginTop: 10 }}>
               <a
                 href={evidenceUrl}
@@ -221,6 +223,7 @@ export default function Chat(props) {
                   src={evidenceUrl}
                   alt="Evidencia de prueba"
                   loading="lazy"
+                  // Ayuda cuando el navegador se pone especial con referrer
                   referrerPolicy="no-referrer"
                   style={{
                     maxWidth: "100%",
@@ -229,7 +232,7 @@ export default function Chat(props) {
                     display: "block",
                   }}
                   onError={(e) => {
-                    // si falla la imagen, escondemos la img pero el link queda
+                    // Si falla la carga, no rompas el UI: oculta la img, deja el link.
                     e.currentTarget.style.display = "none";
                   }}
                 />
@@ -296,9 +299,7 @@ export default function Chat(props) {
             padding: "10px 14px",
             borderRadius: 12,
             border: "1px solid rgba(255,255,255,0.14)",
-            background: isLoading
-              ? "rgba(255,255,255,0.08)"
-              : "rgba(120,160,255,0.35)",
+            background: isLoading ? "rgba(255,255,255,0.08)" : "rgba(120,160,255,0.35)",
             color: "white",
             cursor: isLoading ? "not-allowed" : "pointer",
             fontWeight: 700,
