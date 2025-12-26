@@ -1,3 +1,4 @@
+// vanya-frontend/src/chat.jsx
 import React, { useMemo, useCallback, useState } from "react";
 
 export default function Chat(props) {
@@ -72,9 +73,9 @@ export default function Chat(props) {
   };
 
   const pickRunner = (m) => {
-    // A veces runner viene en meta, a veces en el root del mensaje
     const meta = getMeta(m);
-    const r1 = meta?.runner && typeof meta.runner === "object" ? meta.runner : null;
+    const r1 =
+      meta?.runner && typeof meta.runner === "object" ? meta.runner : null;
     const r2 = m?.runner && typeof m.runner === "object" ? m.runner : null;
     return r1 || r2 || {};
   };
@@ -83,22 +84,29 @@ export default function Chat(props) {
     const meta = getMeta(m);
     const runner = pickRunner(m);
 
-    // ✅ Prioridad 1: Data URL directo del backend (nuevo fix)
+    // ✅ Prioridad 1: Data URL directo del backend (FIX principal)
     const dataUrl =
       runner?.screenshot_data_url ||
       runner?.screenshotDataUrl ||
       meta?.screenshot_data_url ||
       meta?.screenshotDataUrl ||
+      meta?.runner?.screenshot_data_url ||
+      meta?.runner?.screenshotDataUrl ||
       null;
 
     if (typeof dataUrl === "string" && dataUrl.trim()) return dataUrl.trim();
 
-    // ✅ Prioridad 2: Base64 -> Data URL (si por algo no llegó screenshot_data_url)
+    // ✅ Prioridad 2: Base64 -> Data URL
     const b64 =
       runner?.screenshot_b64 ||
       runner?.screenshotB64 ||
+      runner?.screenshotBase64 ||
       meta?.screenshot_b64 ||
       meta?.screenshotB64 ||
+      meta?.screenshotBase64 ||
+      meta?.runner?.screenshot_b64 ||
+      meta?.runner?.screenshotB64 ||
+      meta?.runner?.screenshotBase64 ||
       null;
 
     const b64AsDataUrl = toDataUrl(b64);
@@ -119,12 +127,16 @@ export default function Chat(props) {
       runner?.image_url,
       runner?.screenshot_url,
       runner?.evidence_url,
+      runner?.screenshotUrl,
+      runner?.evidenceUrl,
 
       // plano en el message root
       m?.secure_url,
       m?.image_url,
       m?.evidence_url,
       m?.screenshot_url,
+      m?.evidenceUrl,
+      m?.screenshotUrl,
     ].filter((x) => typeof x === "string" && x.trim());
 
     if (candidates.length) return candidates[0].trim();
@@ -144,6 +156,8 @@ export default function Chat(props) {
       runner?.evidenceId ||
       meta?.evidence_id ||
       meta?.evidenceId ||
+      meta?.runner?.evidence_id ||
+      meta?.runner?.evidenceId ||
       m?.evidence_id ||
       m?.evidenceId ||
       null;
@@ -152,9 +166,9 @@ export default function Chat(props) {
 
   const isExecuteMessage = (m) => {
     const meta = getMeta(m);
-    // Tu backend suele incluir mode arriba, pero tu UI guarda meta.mode en execute
-    const mode = (meta?.mode || m?.mode || "").toString();
-    return mode === "execute";
+    const mode = String(meta?.mode || m?.mode || "").trim().toLowerCase();
+    // deja espacio por si luego tu backend manda "execute_mode"
+    return mode === "execute" || mode === "execute_mode";
   };
 
   const renderMsg = (m, idx) => {
@@ -166,8 +180,9 @@ export default function Chat(props) {
     const evidenceUrl = pickEvidenceUrl(m);
     const evidenceId = pickEvidenceId(m);
 
-    // Solo mostrar evidencia cuando viene de EXECUTE (para no ensuciar el chat)
-    const isExecute = isExecuteMessage(m) || (meta?.mode || "") === "execute";
+    // ✅ mostrar evidencia si es execute, o si de plano existe evidenceUrl (por robustez)
+    const isExecute = isExecuteMessage(m);
+    const showEvidence = !!evidenceUrl && (isExecute || role === "bot");
 
     const key = String(m?.id || meta?.id || `${role}-${idx}`);
 
@@ -210,10 +225,8 @@ export default function Chat(props) {
             style={{ lineHeight: 1.35 }}
           />
 
-          {/* Evidencia (solo en execute) */}
-          {isExecute && evidenceUrl ? (
-            <EvidenceBlock evidenceUrl={evidenceUrl} />
-          ) : null}
+          {/* Evidencia */}
+          {showEvidence ? <EvidenceBlock evidenceUrl={evidenceUrl} /> : null}
         </div>
       </div>
     );
@@ -288,26 +301,28 @@ function EvidenceBlock({ evidenceUrl }) {
   const [failed, setFailed] = useState(false);
 
   const url = String(evidenceUrl || "").trim();
+  const lower = url.toLowerCase();
 
   const looksImage = (() => {
-    const u = url.toLowerCase();
-    if (u.startsWith("data:image/")) return true;
-    if (/\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(u)) return true;
-    if (u.includes("res.cloudinary.com") || u.includes("/image/upload")) return true;
+    if (!url) return false;
+    if (lower.startsWith("data:image/")) return true;
+    if (/\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(lower)) return true;
+    if (lower.includes("res.cloudinary.com") || lower.includes("/image/upload"))
+      return true;
     return false;
   })();
 
   // Cache-buster SOLO para URLs http(s); para data:image NO
   const imgSrc = (() => {
     if (!url) return "";
-    if (url.toLowerCase().startsWith("data:image/")) return url;
+    if (lower.startsWith("data:image/")) return url;
     return url.includes("?") ? `${url}&cb=${Date.now()}` : `${url}?cb=${Date.now()}`;
   })();
 
   return (
     <div style={{ marginTop: 10 }}>
       {/* Si es data:image, no tiene sentido “abrir link” */}
-      {!url.toLowerCase().startsWith("data:image/") ? (
+      {!lower.startsWith("data:image/") ? (
         <a
           href={url}
           target="_blank"
@@ -345,9 +360,7 @@ function EvidenceBlock({ evidenceUrl }) {
         />
       ) : (
         <div style={{ fontSize: 12, opacity: 0.85 }}>
-          {failed
-            ? "⚠️ No se pudo cargar la imagen inline."
-            : "(La evidencia no parece imagen.)"}
+          {failed ? "⚠️ No se pudo cargar la imagen inline." : "(La evidencia no parece imagen.)"}
         </div>
       )}
     </div>

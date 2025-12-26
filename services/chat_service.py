@@ -147,7 +147,7 @@ def _summarize_last_execute(history_msgs: List[Dict[str, Any]]) -> Optional[Dict
 
 
 # ============================================================
-# EXECUTION: deterministic parser (EL ARREGLO)
+# EXECUTION: deterministic parser
 # ============================================================
 def _looks_like_saucedemo(url: str) -> bool:
     return "saucedemo.com" in (url or "").lower()
@@ -161,17 +161,6 @@ def _strip_quotes(s: str) -> str:
 
 
 def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[str, Any]]]:
-    """
-    Convierte instrucciones tipo:
-    - llena "#user-name" con "standard_user"
-    - fill "#password" con "secret_sauce"
-    - click "#login-button"
-    - valida que exista el texto "Products"
-    - assert_text_contains "Products"
-
-    También soporta:
-    - valida que estén visibles: "#user-name" ...
-    """
     p = prompt.strip()
     low = p.lower()
 
@@ -179,27 +168,20 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
     steps.append({"action": "goto", "url": base_url})
     steps.append({"action": "wait_ms", "ms": 250})
 
-    # 1) Visibilidad por lista
-    #    "valida que estén visibles:" + líneas con "#..."
+    # Visibilidad por lista
     if "visibles" in low or "visible" in low:
         selectors = re.findall(r'(["\']?)(#[-\w]+|\.[-\w]+|\[[^\]]+\])\1', p)
-        # selectors devuelve tuplas, tomamos el segundo
-        seen = []
+        seen: List[str] = []
         for _, sel in selectors:
             if sel and sel not in seen:
                 seen.append(sel)
-        # para saucedemo, si no detecta, default a los 3
         if _looks_like_saucedemo(base_url) and not seen:
             seen = ["#user-name", "#password", "#login-button"]
         for sel in seen:
             steps.append({"action": "assert_visible", "selector": sel})
         return steps if len(steps) > 2 else None
 
-    # 2) Fill / llena
-    # patrones:
-    #   llena "#user-name" con "x"
-    #   fill "#user-name" con "x"
-    #   fill "#user-name" with "x"
+    # Fill
     fill_patterns = [
         r'(?:llena|fill)\s+(".*?"|\'.*?\'|#[-\w]+|\.[-\w]+|\[[^\]]+\])\s+(?:con|with)\s+(".*?"|\'.*?\')',
     ]
@@ -209,7 +191,7 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
             val = _strip_quotes(m.group(2))
             steps.append({"action": "fill", "selector": sel, "text": val})
 
-    # 3) Click
+    # Click
     click_patterns = [
         r'(?:haz\s+click\s+en|click)\s+(".*?"|\'.*?\'|#[-\w]+|\.[-\w]+|\[[^\]]+\])',
     ]
@@ -218,9 +200,7 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
             sel = _strip_quotes(m.group(1))
             steps.append({"action": "click", "selector": sel})
 
-    # 4) Assert text
-    # - valida que exista el texto "Products"
-    # - assert_text_contains ... "Products"
+    # Assert text
     text_patterns = [
         r'(?:valida|validar|verify|assert)\s+.*?(?:texto|text).*?(".*?"|\'.*?\')',
         r'(?:assert_text_contains)\s+(".*?"|\'.*?\')',
@@ -235,7 +215,6 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
     if found_text:
         steps.append({"action": "assert_text_contains", "text": found_text})
 
-    # Si no hubo acciones útiles además de goto/wait => None
     useful = [s for s in steps if s["action"] not in ("goto", "wait_ms")]
     if not useful:
         return None
@@ -250,12 +229,30 @@ def _render_execute_answer(result: Dict[str, Any], evidence_url: Optional[str] =
     if evidence_url:
         return f"✅ Ejecutado ({status}).{(' ' + msg) if msg else ''}\nEvidence: {evidence_url}"
 
-    # fallback (runner)
     runner_url = result.get("screenshot_url") or result.get("evidence_url")
     if runner_url:
         return f"✅ Ejecutado ({status}).{(' ' + msg) if msg else ''}\nEvidence: {runner_url}"
 
     return f"✅ Ejecutado ({status}).{(' ' + msg) if msg else ''}"
+
+
+# ============================================================
+# Helpers: evidence data-url
+# ============================================================
+def _make_png_data_url(b64_or_data_url: Optional[str]) -> Optional[str]:
+    """
+    Convierte:
+      - "iVBORw0..." -> "data:image/png;base64,iVBORw0..."
+      - "data:image/png;base64,iVBORw0..." -> igual
+    """
+    if not b64_or_data_url:
+        return None
+    s = str(b64_or_data_url).strip()
+    if not s:
+        return None
+    if s.startswith("data:image"):
+        return s
+    return f"data:image/png;base64,{s}"
 
 
 # ============================================================
@@ -284,7 +281,6 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
     except Exception:
         logger.warning("Failed to load thread history (continuing)", exc_info=True)
         history_msgs = []
-
 
     # MEMORY
     if _is_memory_query(prompt):
@@ -366,10 +362,10 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
                 **_confidence("execute", prompt, None),
             }
 
-        # ✅ 0) Primero intentamos parser determinístico (este es el fix real)
+        # 0) Parser determinístico
         steps = _parse_steps_from_prompt(prompt, base_url)
 
-        # 1) Si no alcanzó, pedimos steps al LLM
+        # 1) Fallback a LLM para steps
         if not steps:
             client = _client()
             resp = client.chat.completions.create(
@@ -407,7 +403,6 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         H.ensure_goto(steps, base_url)
         H.update_last_url(session, steps, fallback=base_url)
 
-
         # Runner
         started = time.time()
         result = execute_test(
@@ -417,20 +412,21 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         )
         duration_ms = int((time.time() - started) * 1000)
 
-        # Evidence upload -> Cloudinary
+        # ✅ SIEMPRE: prepara data-url (para render inline)
+        screenshot_b64 = result.get("screenshot_b64") or result.get("screenshotBase64")
+        screenshot_data_url = _make_png_data_url(screenshot_b64) if screenshot_b64 else None
+        if screenshot_data_url:
+            result["screenshot_data_url"] = screenshot_data_url
+
+        # Evidence upload -> Cloudinary (opcional)
         evidence_url: Optional[str] = None
         cloud_public_id: Optional[str] = None
         evidence_id = (result.get("evidence_id") or f"EV-{int(time.time())}").strip()
 
         try:
-            # 1. Obtenemos el b64
-            screenshot_b64 = result.get("screenshot_b64") or result.get("screenshotBase64")
-            
-            # 2. Validamos que no sea un b64 vacío o corrupto (mínimo 500 caracteres)
+            # Validación de b64 para subir
             if screenshot_b64 and len(str(screenshot_b64)) > 500 and settings.HAS_CLOUDINARY:
-                
-                # 3. Aseguramos el prefijo data:image para que Cloudinary no se confunda
-                b64_str = str(screenshot_b64)
+                b64_str = str(screenshot_b64).strip()
                 if not b64_str.startswith("data:image"):
                     b64_str = f"data:image/png;base64,{b64_str}"
 
@@ -439,28 +435,24 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
                     evidence_id=evidence_id,
                     folder="vanya/evidence",
                 )
-                
-                # 4. Extraemos la URL (priorizando secure_url para HTTPS)
+
                 evidence_url = uploaded.get("secure_url") or uploaded.get("image_url") or uploaded.get("url")
                 cloud_public_id = uploaded.get("public_id")
-                
                 logger.info(f"Evidence uploaded successfully: {evidence_url}")
             else:
-                logger.warning(f"Screenshot b64 invalid or too small (len: {len(str(screenshot_b64)) if screenshot_b64 else 0})")
-                
+                logger.warning(
+                    f"Screenshot b64 invalid/too small OR no cloudinary. (len={len(str(screenshot_b64)) if screenshot_b64 else 0})"
+                )
         except Exception as e:
             logger.warning(f"Evidence upload failed: {str(e)}", exc_info=True)
 
-        # ✅ Renderizar la respuesta
+        # Render answer
         if hasattr(H, "render_execute_answer"):
             answer = H.render_execute_answer(result, evidence_url=evidence_url)
         else:
-            status_text = result.get("status") or ("passed" if result.get("ok", True) else "failed")
-            answer = f"✅ Ejecutado ({status_text})."
-            if evidence_url:
-                answer += f"\nEvidence: {evidence_url}"
+            answer = _render_execute_answer(result, evidence_url=evidence_url)
 
-        # --- AQUÍ VA TU NUEVO BLOQUE ---
+        # Meta que se guarda en el historial (para que el frontend lo pinte SIEMPRE)
         assistant_meta: Dict[str, Any] = {
             "mode": "execute",
             "base_url": base_url,
@@ -469,29 +461,35 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             "evidence_id": evidence_id,
             "evidence_url": evidence_url,
             "cloudinary_public_id": cloud_public_id,
-            # compat frontend viejo / runner-style:
+
+            # compat frontend:
             "runner": {
                 "status": result.get("status"),
-                "screenshot_url": evidence_url,  # ✅ para que chat.jsx lo encuentre
-                "evidence_url": evidence_url,
+                "error": result.get("error"),
                 "evidence_id": evidence_id,
+                "evidence_url": evidence_url,
+                "screenshot_url": evidence_url,               # si hay Cloudinary, úsalo
+                "screenshot_data_url": screenshot_data_url,   # ✅ si NO hay Cloudinary, la UI debe pintar esto
+                "duration_ms": result.get("duration_ms"),
             },
+
             "steps": steps,
         }
 
         store.add_message(thread_id, "assistant", answer, meta=assistant_meta)
 
+        # Response al frontend
         return {
             "mode": "execute",
+            "persona": persona,
             "session_id": session_id,
             "thread_id": thread_id,
             "answer": answer,
-            "runner": result,
+            "runner": result,  # ✅ aquí ya viene screenshot_data_url
             "evidence_url": evidence_url,
             "duration_ms": duration_ms,
             **_confidence("execute", prompt, base_url),
         }
-
 
     # ============================================================
     # ADVISE / DOC
