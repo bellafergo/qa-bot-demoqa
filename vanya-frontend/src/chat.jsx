@@ -1,95 +1,73 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useCallback, useState } from "react";
 
-// Chat.jsx
-// - Pinta evidencia (data-url/base64/url) y reporte (PDF cloudinary/raw)
-// - No depende 100% de meta.mode para mostrar ReportBlock (si existe report_url, lo muestra)
+export default function Chat(props) {
+  const {
+    messages = [],
+    input = "",
+    setInput = () => {},
+    handleSend = () => {},
+    isLoading = false,
+    sessionId = null,
+    threadId = null,
+    formatText = (t) => (typeof t === "string" ? t : ""),
+    chatEndRef = null,
+  } = props || {};
 
-export default function Chat({
-  threadId,
-  sessionId,
-  messages,
-  input,
-  setInput,
-  isLoading,
-  handleSend,
-  chatEndRef,
-  formatText,
-}) {
-  const localEndRef = useRef(null);
+  const safeMessages = useMemo(
+    () => (Array.isArray(messages) ? messages : []),
+    [messages]
+  );
 
-  // Auto-scroll
-  useEffect(() => {
-    const ref = chatEndRef || localEndRef;
-    if (ref?.current) {
-      try {
-        ref.current.scrollIntoView({ behavior: "smooth" });
-      } catch {}
-    }
-  }, [messages, chatEndRef]);
-
-  const safeMessages = useMemo(() => (Array.isArray(messages) ? messages : []), [messages]);
-
-  // ------------------------------
-  // Helpers: meta / runner
-  // ------------------------------
-  const getMeta = (m) => {
-    if (!m) return {};
-    const raw =
-      m.meta_json ?? // backend (SQLAlchemy JSON)
-      m.metaJson ??
-      m.meta ?? // a veces frontend guarda "meta"
-      null;
-
-    if (!raw) return {};
-    if (typeof raw === "object") return raw;
-
-    // si viene como string JSON
-    if (typeof raw === "string") {
-      const s = raw.trim();
-      if (!s) return {};
-      try {
-        const parsed = JSON.parse(s);
-        return parsed && typeof parsed === "object" ? parsed : {};
-      } catch {
-        return {};
+  const onEnter = useCallback(
+    (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        if (!isLoading) handleSend?.();
       }
-    }
+    },
+    [handleSend, isLoading]
+  );
 
-    return {};
+  // -------------------- helpers --------------------
+  const safeJsonParse = (v) => {
+    if (!v) return null;
+    if (typeof v === "object") return v;
+    if (typeof v !== "string") return null;
+    try {
+      return JSON.parse(v);
+    } catch {
+      return null;
+    }
   };
 
-  const pickRunner = (m) => {
-    const meta = getMeta(m);
-    const r1 = meta?.runner && typeof meta.runner === "object" ? meta.runner : null;
-    const r2 = m?.runner && typeof m.runner === "object" ? m.runner : null;
-    return r1 || r2 || {};
+  const getMeta = (m) => {
+    if (m?.meta && typeof m.meta === "object") return m.meta;
+    const parsed = safeJsonParse(m?.meta_json) || safeJsonParse(m?.metaJson);
+    if (parsed && typeof parsed === "object") return parsed;
+    if (m?.meta_json && typeof m.meta_json === "object") return m.meta_json;
+    return {};
   };
 
   const extractUrlFromText = (content) => {
     const text = typeof content === "string" ? content : "";
-    if (!text) return null;
 
-    // Evidence: https://...
-    let mm = text.match(/Evidence:\s*(https?:\/\/\S+)/i);
-    if (mm && mm[1]) return mm[1].trim();
+    // Report/Reporte:
+    let m = text.match(/Report(?:e)?\s*:\s*(https?:\/\/\S+)/i);
+    if (m && m[1]) return m[1].trim();
+
+    // Evidence/Evidencia:
+    m = text.match(/Evidenc(?:e|ia)\s*:\s*(https?:\/\/\S+)/i);
+    if (m && m[1]) return m[1].trim();
 
     // cualquier url
-    mm = text.match(/(https?:\/\/[^\s)]+)\b/i);
-    if (mm && mm[1]) return mm[1].trim();
+    m = text.match(/(https?:\/\/[^\s)]+)\b/i);
+    if (m && m[1]) return m[1].trim();
 
     return null;
   };
 
-  const toDataUrl = (b64) => {
-    const s = String(b64 || "").trim();
-    if (!s) return null;
-    if (s.startsWith("data:image/")) return s;
-    return "data:image/png;base64," + s;
-  };
-
   const isProbablyImageUrl = (url) => {
     const u = String(url || "").toLowerCase();
-    if (!u) return false;
     if (u.startsWith("data:image/")) return true;
     if (/\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(u)) return true;
     if (u.includes("res.cloudinary.com") && u.includes("/image/upload")) return true;
@@ -98,82 +76,21 @@ export default function Chat({
 
   const isProbablyPdfUrl = (url) => {
     const u = String(url || "").toLowerCase();
-    if (!u) return false;
     if (u.endsWith(".pdf")) return true;
-    // Cloudinary RAW
+    // cloudinary raw
     if (u.includes("res.cloudinary.com") && u.includes("/raw/upload")) return true;
     return false;
   };
 
-  // ------------------------------
-  // Pickers (Evidence / Report / ID)
-  // ------------------------------
-  const pickEvidenceUrl = (m) => {
+  const isExecuteMessage = (m) => {
     const meta = getMeta(m);
-    const runner = pickRunner(m);
+    const mode = String(meta?.mode || m?.mode || "").trim().toLowerCase();
+    return mode === "execute" || mode === "execute_mode";
+  };
 
-    // 1) Data URL directo
-    const dataUrl =
-      runner?.screenshot_data_url ||
-      runner?.screenshotDataUrl ||
-      meta?.screenshot_data_url ||
-      meta?.screenshotDataUrl ||
-      meta?.runner?.screenshot_data_url ||
-      meta?.runner?.screenshotDataUrl ||
-      null;
-
-    if (typeof dataUrl === "string" && dataUrl.trim()) return dataUrl.trim();
-
-    // 2) Base64 -> data url
-    const b64 =
-      runner?.screenshot_b64 ||
-      runner?.screenshotB64 ||
-      runner?.screenshotBase64 ||
-      runner?.screenshot_base64 ||
-      meta?.screenshot_b64 ||
-      meta?.screenshotB64 ||
-      meta?.screenshotBase64 ||
-      meta?.runner?.screenshot_b64 ||
-      meta?.runner?.screenshotB64 ||
-      meta?.runner?.screenshotBase64 ||
-      null;
-
-    const b64AsDataUrl = toDataUrl(b64);
-    if (b64AsDataUrl) return b64AsDataUrl;
-
-    // 3) URLs externas
-    const candidates = [
-      meta?.secure_url,
-      meta?.image_url,
-      meta?.evidence_url,
-      meta?.screenshot_url,
-      meta?.evidenceUrl,
-      meta?.screenshotUrl,
-
-      runner?.secure_url,
-      runner?.image_url,
-      runner?.evidence_url,
-      runner?.screenshot_url,
-      runner?.evidenceUrl,
-      runner?.screenshotUrl,
-
-      m?.secure_url,
-      m?.image_url,
-      m?.evidence_url,
-      m?.screenshot_url,
-      m?.evidenceUrl,
-      m?.screenshotUrl,
-    ].filter((x) => typeof x === "string" && x.trim());
-
-    if (candidates.length) return candidates[0].trim();
-
-    // 4) fallback desde texto
-    const fromText = extractUrlFromText(m?.content);
-    if (typeof fromText === "string" && fromText.trim() && isProbablyImageUrl(fromText)) {
-      return fromText.trim();
-    }
-
-    return null;
+  const pickRunner = (m) => {
+    const meta = getMeta(m);
+    return meta?.runner || m?.runner || {};
   };
 
   const pickEvidenceId = (m) => {
@@ -184,12 +101,52 @@ export default function Chat({
       runner?.evidenceId ||
       meta?.evidence_id ||
       meta?.evidenceId ||
-      meta?.runner?.evidence_id ||
-      meta?.runner?.evidenceId ||
       m?.evidence_id ||
       m?.evidenceId ||
       null;
     return id ? String(id) : null;
+  };
+
+  const pickEvidenceUrl = (m) => {
+    const meta = getMeta(m);
+    const runner = pickRunner(m);
+
+    const candidates = [
+      // meta directo
+      meta?.secure_url,
+      meta?.image_url,
+      meta?.evidence_url,
+      meta?.screenshot_url,
+      meta?.screenshot_data_url,
+      meta?.evidenceUrl,
+      meta?.screenshotUrl,
+      meta?.screenshotDataUrl,
+
+      // runner
+      runner?.secure_url,
+      runner?.image_url,
+      runner?.evidence_url,
+      runner?.screenshot_url,
+      runner?.screenshot_data_url,
+      runner?.evidenceUrl,
+      runner?.screenshotUrl,
+      runner?.screenshotDataUrl,
+
+      // plano
+      m?.secure_url,
+      m?.image_url,
+      m?.evidence_url,
+      m?.screenshot_url,
+      m?.screenshot_data_url,
+    ].filter((x) => typeof x === "string" && x.trim());
+
+    if (candidates.length) return candidates[0].trim();
+
+    // fallback texto (si viene Evidence: https://...)
+    const fromText = extractUrlFromText(m?.content);
+    if (fromText && isProbablyImageUrl(fromText)) return fromText.trim();
+
+    return null;
   };
 
   const pickReportUrl = (m) => {
@@ -199,62 +156,38 @@ export default function Chat({
     const candidates = [
       meta?.report_url,
       meta?.reportUrl,
-      meta?.runner?.report_url,
-      meta?.runner?.reportUrl,
-
       runner?.report_url,
       runner?.reportUrl,
-
       m?.report_url,
       m?.reportUrl,
     ].filter((x) => typeof x === "string" && x.trim());
 
     if (candidates.length) return candidates[0].trim();
 
+    // fallback si alguien lo pega al texto
     const fromText = extractUrlFromText(m?.content);
-    if (typeof fromText === "string" && fromText.trim() && isProbablyPdfUrl(fromText)) {
-      return fromText.trim();
-    }
+    if (fromText && isProbablyPdfUrl(fromText)) return fromText.trim();
 
     return null;
   };
 
-  const isExecuteMessage = (m) => {
-    const meta = getMeta(m);
-    const runner = pickRunner(m);
-
-    const mode = String(meta?.mode || m?.mode || "").trim().toLowerCase();
-    if (mode === "execute" || mode === "execute_mode") return true;
-
-    // fallback: si trae runner típico de ejecución
-    if (runner && typeof runner === "object") {
-      if (Array.isArray(runner.steps) && runner.steps.length) return true;
-      if (runner.evidence_id || runner.screenshot_b64 || runner.screenshot_data_url || runner.report_url)
-        return true;
-    }
-    return false;
-  };
-
-  // ------------------------------
-  // Render message
-  // ------------------------------
   const renderMsg = (m, idx) => {
     const role = m?.role === "user" ? "user" : "bot";
     const content = typeof m?.content === "string" ? m.content : "";
-    const html = typeof formatText === "function" ? formatText(content) : content;
+    const html = formatText(content);
 
     const meta = getMeta(m);
-    const evidenceUrl = pickEvidenceUrl(m);
+    const runner = pickRunner(m);
+
     const evidenceId = pickEvidenceId(m);
+    const evidenceUrl = pickEvidenceUrl(m);
     const reportUrl = pickReportUrl(m);
 
     const isExecute = isExecuteMessage(m);
 
-    // ✅ evidencia: si existe, mostrarla (en bot siempre; en user solo si execute)
-    const showEvidence = !!evidenceUrl && (role === "bot" || isExecute);
-
-    // ✅ reporte: si existe, mostrarlo (aunque mode no venga perfecto)
-    const showReport = !!reportUrl && role === "bot";
+    // muestra artefactos si es execute o si vienen (robustez)
+    const showEvidence = !!evidenceUrl && (isExecute || role === "bot");
+    const showReport = !!reportUrl && (isExecute || role === "bot");
 
     const key = String(m?.id || meta?.id || `${role}-${idx}`);
 
@@ -273,7 +206,10 @@ export default function Chat({
             maxWidth: 760,
             padding: "10px 12px",
             borderRadius: 14,
-            background: role === "user" ? "rgba(120,160,255,0.18)" : "rgba(255,255,255,0.08)",
+            background:
+              role === "user"
+                ? "rgba(120,160,255,0.18)"
+                : "rgba(255,255,255,0.08)",
             border: "1px solid rgba(255,255,255,0.12)",
             color: "white",
             wordBreak: "break-word",
@@ -282,7 +218,9 @@ export default function Chat({
           <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>
             {role === "user" ? "Tú" : "Vanya"}
             {evidenceId ? (
-              <span style={{ marginLeft: 8, opacity: 0.8 }}>· evid: {evidenceId}</span>
+              <span style={{ marginLeft: 8, opacity: 0.8 }}>
+                · evid: {evidenceId}
+              </span>
             ) : null}
           </div>
 
@@ -292,7 +230,14 @@ export default function Chat({
           />
 
           {showEvidence ? <EvidenceBlock evidenceUrl={evidenceUrl} /> : null}
-          {showReport ? <ReportBlock reportUrl={reportUrl} /> : null}
+          {showReport ? <ReportLink reportUrl={reportUrl} /> : null}
+
+          {/* debug opcional (si quieres verlo rápido) */}
+          {meta?.debug ? (
+            <pre style={{ fontSize: 11, opacity: 0.7, marginTop: 10 }}>
+              {JSON.stringify({ meta, runner }, null, 2)}
+            </pre>
+          ) : null}
         </div>
       </div>
     );
@@ -308,7 +253,7 @@ export default function Chat({
         ) : null}
 
         {safeMessages.map(renderMsg)}
-        <div ref={chatEndRef || localEndRef} />
+        <div ref={chatEndRef || undefined} />
       </div>
 
       <div
@@ -323,12 +268,7 @@ export default function Chat({
         <textarea
           value={input}
           onChange={(e) => setInput?.(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              handleSend?.();
-            }
-          }}
+          onKeyDown={onEnter}
           placeholder="Escribe aquí… (Enter para enviar, Shift+Enter para salto)"
           rows={1}
           style={{
@@ -343,7 +283,6 @@ export default function Chat({
           }}
           disabled={isLoading}
         />
-
         <button
           onClick={() => handleSend?.()}
           disabled={isLoading || !String(input || "").trim()}
@@ -351,7 +290,9 @@ export default function Chat({
             padding: "10px 14px",
             borderRadius: 12,
             border: "1px solid rgba(255,255,255,0.14)",
-            background: isLoading ? "rgba(255,255,255,0.08)" : "rgba(120,160,255,0.35)",
+            background: isLoading
+              ? "rgba(255,255,255,0.08)"
+              : "rgba(120,160,255,0.35)",
             color: "white",
             cursor: isLoading ? "not-allowed" : "pointer",
             fontWeight: 700,
@@ -374,14 +315,14 @@ function EvidenceBlock({ evidenceUrl }) {
 
   const lower = url.toLowerCase();
 
-  const looksImage = (() => {
-    if (lower.startsWith("data:image/")) return true;
-    if (/\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(lower)) return true;
-    if (lower.includes("res.cloudinary.com") || lower.includes("/image/upload")) return true;
-    return false;
-  })();
+  const looksImage =
+    lower.startsWith("data:image/") ||
+    /\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(lower) ||
+    (lower.includes("res.cloudinary.com") && lower.includes("/image/upload"));
 
+  // Cache-buster SOLO para URLs http(s); para data:image NO
   const imgSrc = (() => {
+    if (!url) return "";
     if (lower.startsWith("data:image/")) return url;
     return url.includes("?") ? `${url}&cb=${Date.now()}` : `${url}?cb=${Date.now()}`;
   })();
@@ -405,7 +346,9 @@ function EvidenceBlock({ evidenceUrl }) {
           Abrir evidencia
         </a>
       ) : (
-        <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 8 }}>Evidencia (captura)</div>
+        <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 8 }}>
+          Evidencia (captura)
+        </div>
       )}
 
       {looksImage && !failed ? (
@@ -431,64 +374,27 @@ function EvidenceBlock({ evidenceUrl }) {
   );
 }
 
-// ---------- Report component ----------
-function ReportBlock({ reportUrl }) {
+// ---------- Report link ----------
+function ReportLink({ reportUrl }) {
   const url = String(reportUrl || "").trim();
   if (!url) return null;
 
-  // “download” en cloudinary raw a veces no respeta; dejamos 2 links igual.
   return (
-    <div
-      style={{
-        marginTop: 12,
-        padding: "10px 12px",
-        borderRadius: 12,
-        border: "1px solid rgba(255,255,255,0.14)",
-        background: "rgba(0,0,0,0.18)",
-      }}
-    >
-      <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 8 }}>📄 Reporte PDF</div>
-
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <a
-          href={url}
-          target="_blank"
-          rel="noreferrer"
-          style={{
-            padding: "8px 10px",
-            borderRadius: 10,
-            border: "1px solid rgba(255,255,255,0.16)",
-            background: "rgba(120,160,255,0.25)",
-            color: "white",
-            textDecoration: "none",
-            fontWeight: 700,
-            fontSize: 13,
-          }}
-        >
-          Abrir reporte
-        </a>
-
-        <a
-          href={url}
-          download
-          style={{
-            padding: "8px 10px",
-            borderRadius: 10,
-            border: "1px solid rgba(255,255,255,0.16)",
-            background: "rgba(255,255,255,0.08)",
-            color: "white",
-            textDecoration: "none",
-            fontWeight: 700,
-            fontSize: 13,
-          }}
-        >
-          Descargar
-        </a>
-      </div>
-
-      <div style={{ marginTop: 8, fontSize: 11, opacity: 0.65, wordBreak: "break-all" }}>
-        {url}
-      </div>
+    <div style={{ marginTop: 10 }}>
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        style={{
+          display: "inline-block",
+          fontSize: 12,
+          opacity: 0.95,
+          color: "white",
+          textDecoration: "underline",
+        }}
+      >
+        📄 Descargar reporte
+      </a>
     </div>
   );
 }
