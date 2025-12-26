@@ -1,3 +1,4 @@
+// vanya-frontend/src/chat.jsx
 import React, { useMemo, useCallback, useState } from "react";
 
 export default function Chat(props) {
@@ -28,7 +29,7 @@ export default function Chat(props) {
     [handleSend, isLoading]
   );
 
-  // -------------------- helpers --------------------
+  // ---------- helpers ----------
   const safeJsonParse = (v) => {
     if (!v) return null;
     if (typeof v === "object") return v;
@@ -41,56 +42,127 @@ export default function Chat(props) {
   };
 
   const getMeta = (m) => {
-    if (m?.meta && typeof m.meta === "object") return m.meta;
+    const direct = m?.meta && typeof m.meta === "object" ? m.meta : null;
+    if (direct) return direct;
+
     const parsed = safeJsonParse(m?.meta_json) || safeJsonParse(m?.metaJson);
     if (parsed && typeof parsed === "object") return parsed;
+
     if (m?.meta_json && typeof m.meta_json === "object") return m.meta_json;
+
     return {};
+  };
+
+  const extractEvidenceFromText = (content) => {
+    const text = typeof content === "string" ? content : "";
+    let mm = text.match(/Evidence:\s*(https?:\/\/\S+)/i);
+    if (mm && mm[1]) return mm[1].trim();
+
+    mm = text.match(/(https?:\/\/[^\s)]+)\b/i);
+    if (mm && mm[1]) return mm[1].trim();
+
+    return null;
   };
 
   const extractUrlFromText = (content) => {
     const text = typeof content === "string" ? content : "";
-
-    // Report/Reporte:
     let m = text.match(/Report(?:e)?\s*:\s*(https?:\/\/\S+)/i);
     if (m && m[1]) return m[1].trim();
 
-    // Evidence/Evidencia:
-    m = text.match(/Evidenc(?:e|ia)\s*:\s*(https?:\/\/\S+)/i);
-    if (m && m[1]) return m[1].trim();
-
-    // cualquier url
     m = text.match(/(https?:\/\/[^\s)]+)\b/i);
     if (m && m[1]) return m[1].trim();
 
     return null;
   };
 
-  const isProbablyImageUrl = (url) => {
-    const u = String(url || "").toLowerCase();
-    if (u.startsWith("data:image/")) return true;
-    if (/\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(u)) return true;
-    if (u.includes("res.cloudinary.com") && u.includes("/image/upload")) return true;
-    return false;
+  const toDataUrl = (b64) => {
+    const s = String(b64 || "").trim();
+    if (!s) return null;
+    if (s.startsWith("data:image/")) return s;
+    return "data:image/png;base64," + s;
   };
 
   const isProbablyPdfUrl = (url) => {
     const u = String(url || "").toLowerCase();
+    if (!u) return false;
     if (u.endsWith(".pdf")) return true;
-    // cloudinary raw
+    // Cloudinary RAW suele verse así:
     if (u.includes("res.cloudinary.com") && u.includes("/raw/upload")) return true;
     return false;
   };
 
-  const isExecuteMessage = (m) => {
-    const meta = getMeta(m);
-    const mode = String(meta?.mode || m?.mode || "").trim().toLowerCase();
-    return mode === "execute" || mode === "execute_mode";
-  };
-
   const pickRunner = (m) => {
     const meta = getMeta(m);
-    return meta?.runner || m?.runner || {};
+    const r1 =
+      meta?.runner && typeof meta.runner === "object" ? meta.runner : null;
+    const r2 = m?.runner && typeof m.runner === "object" ? m.runner : null;
+    return r1 || r2 || {};
+  };
+
+  const pickEvidenceUrl = (m) => {
+    const meta = getMeta(m);
+    const runner = pickRunner(m);
+
+    // ✅ Prioridad 1: Data URL directo del backend
+    const dataUrl =
+      runner?.screenshot_data_url ||
+      runner?.screenshotDataUrl ||
+      meta?.screenshot_data_url ||
+      meta?.screenshotDataUrl ||
+      meta?.runner?.screenshot_data_url ||
+      meta?.runner?.screenshotDataUrl ||
+      null;
+
+    if (typeof dataUrl === "string" && dataUrl.trim()) return dataUrl.trim();
+
+    // ✅ Prioridad 2: Base64 -> Data URL
+    const b64 =
+      runner?.screenshot_b64 ||
+      runner?.screenshotB64 ||
+      runner?.screenshotBase64 ||
+      runner?.screenshot_base64 ||
+      meta?.screenshot_b64 ||
+      meta?.screenshotB64 ||
+      meta?.screenshotBase64 ||
+      meta?.runner?.screenshot_b64 ||
+      meta?.runner?.screenshotB64 ||
+      meta?.runner?.screenshotBase64 ||
+      null;
+
+    const b64AsDataUrl = toDataUrl(b64);
+    if (b64AsDataUrl) return b64AsDataUrl;
+
+    // ✅ Prioridad 3: URLs externas (Cloudinary/S3/etc)
+    const candidates = [
+      meta?.secure_url,
+      meta?.image_url,
+      meta?.evidence_url,
+      meta?.screenshot_url,
+      meta?.evidenceUrl,
+      meta?.screenshotUrl,
+
+      runner?.secure_url,
+      runner?.image_url,
+      runner?.screenshot_url,
+      runner?.evidence_url,
+      runner?.screenshotUrl,
+      runner?.evidenceUrl,
+
+      m?.secure_url,
+      m?.image_url,
+      m?.evidence_url,
+      m?.screenshot_url,
+      m?.evidenceUrl,
+      m?.screenshotUrl,
+    ].filter((x) => typeof x === "string" && x.trim());
+
+    if (candidates.length) return candidates[0].trim();
+
+    // fallback desde texto
+    const fromText = extractEvidenceFromText(m?.content);
+    if (typeof fromText === "string" && fromText.trim()) return fromText.trim();
+
+    return null;
   };
 
   const pickEvidenceId = (m) => {
@@ -101,52 +173,18 @@ export default function Chat(props) {
       runner?.evidenceId ||
       meta?.evidence_id ||
       meta?.evidenceId ||
+      meta?.runner?.evidence_id ||
+      meta?.runner?.evidenceId ||
       m?.evidence_id ||
       m?.evidenceId ||
       null;
     return id ? String(id) : null;
   };
 
-  const pickEvidenceUrl = (m) => {
+  const isExecuteMessage = (m) => {
     const meta = getMeta(m);
-    const runner = pickRunner(m);
-
-    const candidates = [
-      // meta directo
-      meta?.secure_url,
-      meta?.image_url,
-      meta?.evidence_url,
-      meta?.screenshot_url,
-      meta?.screenshot_data_url,
-      meta?.evidenceUrl,
-      meta?.screenshotUrl,
-      meta?.screenshotDataUrl,
-
-      // runner
-      runner?.secure_url,
-      runner?.image_url,
-      runner?.evidence_url,
-      runner?.screenshot_url,
-      runner?.screenshot_data_url,
-      runner?.evidenceUrl,
-      runner?.screenshotUrl,
-      runner?.screenshotDataUrl,
-
-      // plano
-      m?.secure_url,
-      m?.image_url,
-      m?.evidence_url,
-      m?.screenshot_url,
-      m?.screenshot_data_url,
-    ].filter((x) => typeof x === "string" && x.trim());
-
-    if (candidates.length) return candidates[0].trim();
-
-    // fallback texto (si viene Evidence: https://...)
-    const fromText = extractUrlFromText(m?.content);
-    if (fromText && isProbablyImageUrl(fromText)) return fromText.trim();
-
-    return null;
+    const mode = String(meta?.mode || m?.mode || "").trim().toLowerCase();
+    return mode === "execute" || mode === "execute_mode";
   };
 
   const pickReportUrl = (m) => {
@@ -154,17 +192,24 @@ export default function Chat(props) {
     const runner = pickRunner(m);
 
     const candidates = [
-      meta?.report_url,
-      meta?.reportUrl,
-      runner?.report_url,
-      runner?.reportUrl,
+      // top-level response guardada en message
       m?.report_url,
       m?.reportUrl,
+
+      // meta directo
+      meta?.report_url,
+      meta?.reportUrl,
+
+      // meta.runner / runner
+      runner?.report_url,
+      runner?.reportUrl,
+      meta?.runner?.report_url,
+      meta?.runner?.reportUrl,
     ].filter((x) => typeof x === "string" && x.trim());
 
     if (candidates.length) return candidates[0].trim();
 
-    // fallback si alguien lo pega al texto
+    // fallback texto si parece pdf
     const fromText = extractUrlFromText(m?.content);
     if (fromText && isProbablyPdfUrl(fromText)) return fromText.trim();
 
@@ -176,19 +221,18 @@ export default function Chat(props) {
     const content = typeof m?.content === "string" ? m.content : "";
     const html = formatText(content);
 
-    const meta = getMeta(m);
-    const runner = pickRunner(m);
-
-    const evidenceId = pickEvidenceId(m);
     const evidenceUrl = pickEvidenceUrl(m);
+    const evidenceId = pickEvidenceId(m);
     const reportUrl = pickReportUrl(m);
 
     const isExecute = isExecuteMessage(m);
 
-    // muestra artefactos si es execute o si vienen (robustez)
+    // ✅ evidencia: si hay URL, muéstrala (sobre todo en execute)
     const showEvidence = !!evidenceUrl && (isExecute || role === "bot");
-    const showReport = !!reportUrl && (isExecute || role === "bot");
+    // ✅ reporte: SOLO si es execute (para no ensuciar mensajes normales)
+    const showReport = !!reportUrl && isExecute;
 
+    const meta = getMeta(m);
     const key = String(m?.id || meta?.id || `${role}-${idx}`);
 
     return (
@@ -224,20 +268,17 @@ export default function Chat(props) {
             ) : null}
           </div>
 
+          {/* Texto */}
           <div
             dangerouslySetInnerHTML={{ __html: html }}
             style={{ lineHeight: 1.35 }}
           />
 
+          {/* Evidencia */}
           {showEvidence ? <EvidenceBlock evidenceUrl={evidenceUrl} /> : null}
-          {showReport ? <ReportLink reportUrl={reportUrl} /> : null}
 
-          {/* debug opcional (si quieres verlo rápido) */}
-          {meta?.debug ? (
-            <pre style={{ fontSize: 11, opacity: 0.7, marginTop: 10 }}>
-              {JSON.stringify({ meta, runner }, null, 2)}
-            </pre>
-          ) : null}
+          {/* Reporte PDF */}
+          {showReport ? <ReportBlock reportUrl={reportUrl} /> : null}
         </div>
       </div>
     );
@@ -283,6 +324,7 @@ export default function Chat(props) {
           }}
           disabled={isLoading}
         />
+
         <button
           onClick={() => handleSend?.()}
           disabled={isLoading || !String(input || "").trim()}
@@ -315,14 +357,16 @@ function EvidenceBlock({ evidenceUrl }) {
 
   const lower = url.toLowerCase();
 
-  const looksImage =
-    lower.startsWith("data:image/") ||
-    /\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(lower) ||
-    (lower.includes("res.cloudinary.com") && lower.includes("/image/upload"));
+  const looksImage = (() => {
+    if (lower.startsWith("data:image/")) return true;
+    if (/\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(lower)) return true;
+    if (lower.includes("res.cloudinary.com") || lower.includes("/image/upload"))
+      return true;
+    return false;
+  })();
 
   // Cache-buster SOLO para URLs http(s); para data:image NO
   const imgSrc = (() => {
-    if (!url) return "";
     if (lower.startsWith("data:image/")) return url;
     return url.includes("?") ? `${url}&cb=${Date.now()}` : `${url}?cb=${Date.now()}`;
   })();
@@ -374,27 +418,66 @@ function EvidenceBlock({ evidenceUrl }) {
   );
 }
 
-// ---------- Report link ----------
-function ReportLink({ reportUrl }) {
+// ---------- Report component ----------
+function ReportBlock({ reportUrl }) {
   const url = String(reportUrl || "").trim();
   if (!url) return null;
 
   return (
-    <div style={{ marginTop: 10 }}>
-      <a
-        href={url}
-        target="_blank"
-        rel="noreferrer"
-        style={{
-          display: "inline-block",
-          fontSize: 12,
-          opacity: 0.95,
-          color: "white",
-          textDecoration: "underline",
-        }}
-      >
-        📄 Descargar reporte
-      </a>
+    <div
+      style={{
+        marginTop: 12,
+        padding: "10px 12px",
+        borderRadius: 12,
+        border: "1px solid rgba(255,255,255,0.14)",
+        background: "rgba(0,0,0,0.18)",
+      }}
+    >
+      <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 8 }}>
+        📄 Reporte PDF
+      </div>
+
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          style={{
+            padding: "8px 10px",
+            borderRadius: 10,
+            border: "1px solid rgba(255,255,255,0.16)",
+            background: "rgba(120,160,255,0.25)",
+            color: "white",
+            textDecoration: "none",
+            fontWeight: 700,
+            fontSize: 13,
+          }}
+        >
+          Abrir reporte
+        </a>
+
+        {/* Nota: download cross-domain a veces no descarga “bonito”, pero sirve en varios casos */}
+        <a
+          href={url}
+          download
+          style={{
+            padding: "8px 10px",
+            borderRadius: 10,
+            border: "1px solid rgba(255,255,255,0.16)",
+            background: "rgba(255,255,255,0.08)",
+            color: "white",
+            textDecoration: "none",
+            fontWeight: 700,
+            fontSize: 13,
+          }}
+        >
+          Descargar
+        </a>
+      </div>
+
+      <div style={{ marginTop: 8, fontSize: 11, opacity: 0.65 }}>
+        {url}
+      </div>
     </div>
   );
 }
