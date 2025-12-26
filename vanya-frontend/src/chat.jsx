@@ -74,8 +74,7 @@ export default function Chat(props) {
 
   const pickRunner = (m) => {
     const meta = getMeta(m);
-    const r1 =
-      meta?.runner && typeof meta.runner === "object" ? meta.runner : null;
+    const r1 = meta?.runner && typeof meta.runner === "object" ? meta.runner : null;
     const r2 = m?.runner && typeof m.runner === "object" ? m.runner : null;
     return r1 || r2 || {};
   };
@@ -148,6 +147,24 @@ export default function Chat(props) {
     return null;
   };
 
+  const pickReportUrl = (m) => {
+    const meta = getMeta(m);
+    const runner = pickRunner(m);
+
+    const url =
+      meta?.report_url ||
+      meta?.reportUrl ||
+      runner?.report_url ||
+      runner?.reportUrl ||
+      m?.report_url ||
+      m?.reportUrl ||
+      null;
+
+    if (typeof url !== "string") return null;
+    const u = url.trim();
+    return u ? u : null;
+  };
+
   const pickEvidenceId = (m) => {
     const meta = getMeta(m);
     const runner = pickRunner(m);
@@ -167,7 +184,6 @@ export default function Chat(props) {
   const isExecuteMessage = (m) => {
     const meta = getMeta(m);
     const mode = String(meta?.mode || m?.mode || "").trim().toLowerCase();
-    // deja espacio por si luego tu backend manda "execute_mode"
     return mode === "execute" || mode === "execute_mode";
   };
 
@@ -178,11 +194,16 @@ export default function Chat(props) {
 
     const meta = getMeta(m);
     const evidenceUrl = pickEvidenceUrl(m);
+    const reportUrl = pickReportUrl(m);
     const evidenceId = pickEvidenceId(m);
 
-    // ✅ mostrar evidencia si es execute, o si de plano existe evidenceUrl (por robustez)
     const isExecute = isExecuteMessage(m);
+
+    // ✅ Evidencia solo si viene (y para bot/execute)
     const showEvidence = !!evidenceUrl && (isExecute || role === "bot");
+
+    // ✅ Reporte solo cuando exista (y normalmente en execute)
+    const showReport = !!reportUrl && (isExecute || role === "bot");
 
     const key = String(m?.id || meta?.id || `${role}-${idx}`);
 
@@ -227,6 +248,9 @@ export default function Chat(props) {
 
           {/* Evidencia */}
           {showEvidence ? <EvidenceBlock evidenceUrl={evidenceUrl} /> : null}
+
+          {/* Reporte descargable */}
+          {showReport ? <ReportLink reportUrl={reportUrl} /> : null}
         </div>
       </div>
     );
@@ -307,8 +331,7 @@ function EvidenceBlock({ evidenceUrl }) {
     if (!url) return false;
     if (lower.startsWith("data:image/")) return true;
     if (/\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(lower)) return true;
-    if (lower.includes("res.cloudinary.com") || lower.includes("/image/upload"))
-      return true;
+    if (lower.includes("res.cloudinary.com") || lower.includes("/image/upload")) return true;
     return false;
   })();
 
@@ -321,7 +344,6 @@ function EvidenceBlock({ evidenceUrl }) {
 
   return (
     <div style={{ marginTop: 10 }}>
-      {/* Si es data:image, no tiene sentido “abrir link” */}
       {!lower.startsWith("data:image/") ? (
         <a
           href={url}
@@ -363,6 +385,31 @@ function EvidenceBlock({ evidenceUrl }) {
           {failed ? "⚠️ No se pudo cargar la imagen inline." : "(La evidencia no parece imagen.)"}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------- Report link ----------
+function ReportLink({ reportUrl }) {
+  const url = String(reportUrl || "").trim();
+  if (!url) return null;
+
+  return (
+    <div style={{ marginTop: 10 }}>
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        style={{
+          display: "inline-block",
+          fontSize: 12,
+          opacity: 0.95,
+          color: "white",
+          textDecoration: "underline",
+        }}
+      >
+        📄 Descargar reporte
+      </a>
     </div>
   );
 }
