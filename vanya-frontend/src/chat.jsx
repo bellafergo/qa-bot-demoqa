@@ -64,26 +64,20 @@ export default function Chat(props) {
     return null;
   };
 
-  const looksLikeCloudinaryOrImageHost = (url) => {
-    const u = String(url || "").toLowerCase();
-    return (
-      u.includes("res.cloudinary.com") ||
-      u.includes("cloudinary.com") ||
-      u.includes("/image/upload") ||
-      u.includes("storage.googleapis.com") ||
-      u.includes("amazonaws.com") ||
-      u.includes("blob.core.windows.net")
-    );
-  };
 
   const isImageUrl = (url) => {
-    const u = String(url || "");
-    // si trae extensión, fácil
+    const u = String(url || "").toLowerCase();
+
+    // Si tiene extensión típica, es imagen
     if (/\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(u)) return true;
-    // si NO trae extensión pero es Cloudinary, casi seguro es imagen
-    if (looksLikeCloudinaryOrImageHost(u)) return true;
+
+    // Cloudinary casi siempre es imagen aunque no tenga extensión
+    if (u.includes("res.cloudinary.com")) return true;
+    if (u.includes("cloudinary.com")) return true;
+    if (u.includes("/image/upload")) return true;
+
     return false;
-  };
+  }
 
   const pickEvidenceUrl = (m) => {
     const meta = getMeta(m);
@@ -213,7 +207,6 @@ export default function Chat(props) {
                   alt="Evidencia de prueba"
                   loading="lazy"
                   referrerPolicy="no-referrer"
-                  crossOrigin="anonymous"
                   style={{
                     maxWidth: "100%",
                     borderRadius: 10,
@@ -221,8 +214,6 @@ export default function Chat(props) {
                     display: "block",
                   }}
                   onError={(e) => {
-                    // NO rompemos UI; solo ocultamos la imagen,
-                    // el link "Abrir evidencia" queda visible.
                     e.currentTarget.style.display = "none";
                   }}
                 />
