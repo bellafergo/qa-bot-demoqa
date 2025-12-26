@@ -19,7 +19,7 @@ from services.cloudinary_service import (
     upload_screenshot_b64,
     upload_pdf_bytes,
 )
-from services.report_service import generate_pdf_report_bytes
+from services.report_service import generate_pdf_report
 
 logger = logging.getLogger("vanya.chat_service")
 
