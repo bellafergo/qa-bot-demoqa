@@ -407,6 +407,13 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         H.ensure_goto(steps, base_url)
         H.update_last_url(session, steps, fallback=base_url)
 
+        Sí, esa es exactamente la parte que debemos reforzar. El problema de la imagen de 1x1 píxeles suele ocurrir porque el string Base64 llega incompleto o sin el encabezado que Cloudinary necesita para procesarlo como una imagen real.
+
+Aquí tienes el bloque corregido. He añadido una validación de tamaño y el prefijo automático para asegurar que Cloudinary reciba un archivo válido.
+
+Código Corregido (Reemplaza tu bloque actual)
+Python
+
         # Runner
         started = time.time()
         result = execute_test(
@@ -419,26 +426,38 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         # Evidence upload -> Cloudinary
         evidence_url: Optional[str] = None
         cloud_public_id: Optional[str] = None
-
         evidence_id = (result.get("evidence_id") or f"EV-{int(time.time())}").strip()
 
         try:
+            # 1. Obtenemos el b64
             screenshot_b64 = result.get("screenshot_b64") or result.get("screenshotBase64")
-            if screenshot_b64 and settings.HAS_CLOUDINARY:
+            
+            # 2. Validamos que no sea un b64 vacío o corrupto (mínimo 500 caracteres)
+            if screenshot_b64 and len(str(screenshot_b64)) > 500 and settings.HAS_CLOUDINARY:
+                
+                # 3. Aseguramos el prefijo data:image para que Cloudinary no se confunda
+                b64_str = str(screenshot_b64)
+                if not b64_str.startswith("data:image"):
+                    b64_str = f"data:image/png;base64,{b64_str}"
+
                 uploaded = upload_screenshot_b64(
-                    screenshot_b64,
+                    b64_str,
                     evidence_id=evidence_id,
                     folder="vanya/evidence",
                 )
-                # ✅ Preferimos image_url directo para <img />
-                evidence_url = uploaded.get("image_url") or uploaded.get("secure_url")
+                
+                # 4. Extraemos la URL (priorizando secure_url para HTTPS)
+                evidence_url = uploaded.get("secure_url") or uploaded.get("image_url") or uploaded.get("url")
                 cloud_public_id = uploaded.get("public_id")
-        except Exception:
-            logger.warning("Evidence upload failed (continuing)", exc_info=True)
+                
+                logger.info(f"Evidence uploaded successfully: {evidence_url}")
+            else:
+                logger.warning(f"Screenshot b64 invalid or too small (len: {len(str(screenshot_b64)) if screenshot_b64 else 0})")
+                
+        except Exception as e:
+            logger.warning(f"Evidence upload failed: {str(e)}", exc_info=True)
 
-        answer = _render_execute_answer(result, evidence_url=evidence_url)
-
-        # ✅ Renderizar la respuesta (si existe la función de ayuda)
+        # ✅ Renderizar la respuesta
         if hasattr(H, "render_execute_answer"):
             answer = H.render_execute_answer(result, evidence_url=evidence_url)
         else:
