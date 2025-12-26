@@ -13,7 +13,10 @@ export default function Chat(props) {
     chatEndRef = null,
   } = props || {};
 
-  const safeMessages = useMemo(() => (Array.isArray(messages) ? messages : []), [messages]);
+  const safeMessages = useMemo(
+    () => (Array.isArray(messages) ? messages : []),
+    [messages]
+  );
 
   const onEnter = useCallback(
     (e) => {
@@ -38,51 +41,47 @@ export default function Chat(props) {
   };
 
   const getMeta = (m) => {
-    // Puede venir como meta, meta_json (obj o string), metaJson, etc.
     const direct = m?.meta && typeof m.meta === "object" ? m.meta : null;
     if (direct) return direct;
 
-    const parsed = safeJsonParse(m?.meta_json) || safeJsonParse(m?.metaJson);
+    const parsed =
+      safeJsonParse(m?.meta_json) ||
+      safeJsonParse(m?.metaJson) ||
+      safeJsonParse(m?.metaJSON);
     if (parsed && typeof parsed === "object") return parsed;
 
-    // fallback: si backend manda meta_json ya como objeto pero no cae arriba
     if (m?.meta_json && typeof m.meta_json === "object") return m.meta_json;
 
     return {};
   };
 
+  // OJO: ya NO extraemos "cualquier URL" (porque agarra saucedemo y lo pone como evidencia).
+  // Solo aceptamos el formato explícito:
+  // "Evidence: https://...."
   const extractEvidenceFromText = (content) => {
     const text = typeof content === "string" ? content : "";
-    // 1) formato: Evidence: https://...
-    let m = text.match(/Evidence:\s*(https?:\/\/\S+)/i);
-    if (m && m[1]) return m[1].trim();
-
-    // 2) cualquier URL suelta
-    m = text.match(/(https?:\/\/[^\s)]+)\b/i);
-    if (m && m[1]) return m[1].trim();
-
-    return null;
+    const m = text.match(/Evidence:\s*(https?:\/\/\S+)/i);
+    return m && m[1] ? m[1].trim() : null;
   };
-
 
   const isImageUrl = (url) => {
     const u = String(url || "").toLowerCase();
 
-    // Si tiene extensión típica, es imagen
     if (/\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(u)) return true;
 
-    // Cloudinary casi siempre es imagen aunque no tenga extensión
+    // Cloudinary normalmente sí es imagen aunque no tenga extensión
     if (u.includes("res.cloudinary.com")) return true;
     if (u.includes("cloudinary.com")) return true;
     if (u.includes("/image/upload")) return true;
 
     return false;
-  }
+  };
 
   const pickEvidenceUrl = (m) => {
     const meta = getMeta(m);
+    const runner = meta?.runner || {};
 
-    // 1) meta directo (tu backend ya lo guarda)
+    // 1) meta directo
     const direct =
       meta?.evidence_url ||
       meta?.evidenceUrl ||
@@ -91,8 +90,7 @@ export default function Chat(props) {
 
     if (typeof direct === "string" && direct.trim()) return direct.trim();
 
-    // 2) meta.runner.* (tu compat)
-    const runner = meta?.runner || {};
+    // 2) runner.*
     const runnerHit =
       runner?.screenshot_url ||
       runner?.screenshot ||
@@ -103,7 +101,7 @@ export default function Chat(props) {
 
     if (typeof runnerHit === "string" && runnerHit.trim()) return runnerHit.trim();
 
-    // 3) message root (por si el API lo manda plano)
+    // 3) plano
     const flat =
       m?.evidence_url ||
       m?.evidenceUrl ||
@@ -112,7 +110,7 @@ export default function Chat(props) {
 
     if (typeof flat === "string" && flat.trim()) return flat.trim();
 
-    // 4) fallback desde el texto (Evidence: https://...)
+    // 4) fallback desde el texto SOLO si viene "Evidence: ..."
     const fromText = extractEvidenceFromText(m?.content);
     if (typeof fromText === "string" && fromText.trim()) return fromText.trim();
 
@@ -133,15 +131,32 @@ export default function Chat(props) {
     return id ? String(id) : null;
   };
 
+  const shouldShowEvidence = (m) => {
+    // SOLO mostrar evidencia en mensajes del bot
+    if ((m?.role || "").trim() !== "assistant") return false;
+
+    const meta = getMeta(m);
+    // preferimos mostrar evidencia si el modo es execute (o si hay runner)
+    const mode = (meta?.mode || "").toString().toLowerCase();
+    if (mode === "execute") return true;
+    if (meta?.runner && typeof meta.runner === "object") return true;
+
+    // Si trae evidence_url explícito, también
+    if (meta?.evidence_url || meta?.screenshot_url) return true;
+
+    return false;
+  };
+
   const renderMsg = (m, idx) => {
     const role = m?.role === "user" ? "user" : "bot";
     const content = typeof m?.content === "string" ? m.content : "";
     const html = formatText(content);
 
+    const meta = getMeta(m);
     const evidenceUrl = pickEvidenceUrl(m);
     const evidenceId = pickEvidenceId(m);
 
-    const key = String(m?.id || getMeta(m)?.id || `${role}-${idx}`);
+    const key = String(m?.id || meta?.id || `${role}-${idx}`);
 
     return (
       <div
@@ -182,8 +197,8 @@ export default function Chat(props) {
             style={{ lineHeight: 1.35 }}
           />
 
-          {/* Evidencia */}
-          {evidenceUrl ? (
+          {/* Evidencia (solo bot/execute) */}
+          {shouldShowEvidence(m) && evidenceUrl ? (
             <div style={{ marginTop: 10 }}>
               <a
                 href={evidenceUrl}
@@ -214,6 +229,7 @@ export default function Chat(props) {
                     display: "block",
                   }}
                   onError={(e) => {
+                    // si falla la imagen, escondemos la img pero el link queda
                     e.currentTarget.style.display = "none";
                   }}
                 />
