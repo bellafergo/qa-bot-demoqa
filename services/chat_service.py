@@ -224,11 +224,35 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             **_confidence("advise", prompt, mem.get("base_url")),
         }
 
-    # Intent
-    if H.wants_doc(prompt):
+    # ============================================================
+    # Intent (routing robusto: ADVISE nunca debe caer en EXECUTE)
+    # ============================================================
+    p = (prompt or "").strip()
+    pl = p.lower()
+
+    # 1) Forzar ADVISE explícito
+    if pl.startswith("advise:") or pl.startswith("advice:"):
+        mode = "advise"
+        prompt = p.split(":", 1)[1].strip() or p
+
+    # 2) Heurística de análisis / consultoría
+    elif any(k in pl for k in [
+        "analiza", "análisis", "checklist", "riesgo", "riesgos",
+        "recomienda", "recomendación", "invest", "gherkin",
+        "casos de prueba", "matriz", "estrategia", "qué validar",
+        "que validar", "criterios de aceptación", "mejoras"
+    ]):
+        mode = "advise"
+
+    # 3) Documentación
+    elif H.wants_doc(prompt):
         mode = "doc"
+
+    # 4) Ejecución REAL
     elif H.wants_execute(prompt, session):
         mode = "execute"
+
+    # 5) Default
     else:
         mode = "advise"
 
