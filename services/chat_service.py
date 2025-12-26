@@ -340,190 +340,190 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         if content:
             messages.append({"role": role, "content": content})
 
-   # ============================================================
-# EXECUTE
-# ============================================================
-if mode == "execute":
-    base_url = H.pick_base_url(req, session, prompt)
-    if not base_url:
-        answer = (
-            "Para ejecutar necesito:\n"
-            "- URL (o dime “la misma”)\n"
-            "- Qué validar (botón / campo / texto esperado)\n"
-            "- Credenciales (si aplica)"
-        )
-        store.add_message(thread_id, "assistant", answer, meta={"mode": "execute"})
-        return {
-            "mode": "execute",
-            "persona": persona,
-            "session_id": session_id,
-            "thread_id": thread_id,
-            "answer": answer,
-            **_confidence("execute", prompt, None),
-        }
-
-    # 0) Parser determinístico
-    steps = _parse_steps_from_prompt(prompt, base_url)
-
-    # 1) Fallback a LLM para steps
-    if not steps:
-        client = _client()
-        resp = client.chat.completions.create(
-            model=settings.OPENAI_MODEL,
-            messages=messages
-            + [
-                {
-                    "role": "user",
-                    "content": (
-                        f"URL base: {base_url}\n"
-                        f"Genera pasos Playwright para:\n{prompt}\n"
-                        "Devuelve SOLO JSON con {\"steps\": [...]}."
-                    ),
-                }
-            ],
-            temperature=settings.EXEC_TEMPERATURE,
-            max_tokens=settings.EXEC_MAX_TOKENS,
-        )
-        raw = (resp.choices[0].message.content or "").strip()
-        steps = H.extract_steps_from_text(raw)
-
-    if not steps:
-        answer = "No pude generar pasos ejecutables. Dime el botón/campo exacto y el texto esperado."
-        store.add_message(
-            thread_id, "assistant", answer, meta={"mode": "execute", "base_url": base_url}
-        )
-        return {
-            "mode": "execute",
-            "persona": persona,
-            "session_id": session_id,
-            "thread_id": thread_id,
-            "answer": answer,
-            **_confidence("execute", prompt, base_url),
-        }
-
-    # Ensure goto + remember last_url
-    H.ensure_goto(steps, base_url)
-    H.update_last_url(session, steps, fallback=base_url)
-
-    # Runner
-    started = time.time()
-    result = execute_test(
-        steps=steps,
-        base_url=base_url,
-        headless=bool(getattr(req, "headless", True)),
-    )
-    duration_ms = int((time.time() - started) * 1000)
-
-    # ✅ SIEMPRE: prepara data-url (para render inline)
-    screenshot_b64 = (
-        result.get("screenshot_b64")
-        or result.get("screenshotBase64")
-        or result.get("screenshotB64")
-        or result.get("screenshot_base64")
-    )
-    screenshot_data_url = _make_png_data_url(screenshot_b64) if screenshot_b64 else None
-    if screenshot_data_url:
-        result["screenshot_data_url"] = screenshot_data_url
-
-    # Evidence upload -> Cloudinary (opcional)
-    evidence_url: Optional[str] = None
-    cloud_public_id: Optional[str] = None
-    evidence_id = (result.get("evidence_id") or f"EV-{int(time.time())}").strip()
-
-    try:
-        # Validación de b64 para subir
-        if screenshot_b64 and len(str(screenshot_b64)) > 500 and getattr(settings, "HAS_CLOUDINARY", False):
-            b64_str = str(screenshot_b64).strip()
-            if not b64_str.startswith("data:image"):
-                b64_str = f"data:image/png;base64,{b64_str}"
-
-            uploaded = upload_screenshot_b64(
-                b64_str,
-                evidence_id=evidence_id,
-                folder="vanya/evidence",
+    # ============================================================
+    # EXECUTE
+    # ============================================================
+    if mode == "execute":
+        base_url = H.pick_base_url(req, session, prompt)
+        if not base_url:
+            answer = (
+                "Para ejecutar necesito:\n"
+                "- URL (o dime “la misma”)\n"
+                "- Qué validar (botón / campo / texto esperado)\n"
+                "- Credenciales (si aplica)"
             )
-
-            evidence_url = uploaded.get("secure_url") or uploaded.get("image_url") or uploaded.get("url")
-            cloud_public_id = uploaded.get("public_id")
-            logger.info(f"Evidence uploaded successfully: {evidence_url}")
-        else:
-            logger.warning(
-                f"Screenshot b64 invalid/too small OR no cloudinary. (len={len(str(screenshot_b64)) if screenshot_b64 else 0})"
-            )
-    except Exception as e:
-        logger.warning(f"Evidence upload failed: {str(e)}", exc_info=True)
-
-    # ✅ Generar PDF report (MVP)
-    report_url: Optional[str] = None
-    try:
-        from services.report_service import generate_pdf_report
-
-        rep = generate_pdf_report(
-            prompt=prompt,
-            base_url=base_url,
-            runner=result,
-            steps=steps,
-            evidence_id=evidence_id,
-            meta={
-                "thread_id": thread_id,
+            store.add_message(thread_id, "assistant", answer, meta={"mode": "execute"})
+            return {
+                "mode": "execute",
+                "persona": persona,
                 "session_id": session_id,
-                "headless": bool(getattr(req, "headless", True)),
-            },
+                "thread_id": thread_id,
+                "answer": answer,
+                **_confidence("execute", prompt, None),
+            }
+
+        # 0) Parser determinístico
+        steps = _parse_steps_from_prompt(prompt, base_url)
+
+        # 1) Fallback a LLM para steps
+        if not steps:
+            client = _client()
+            resp = client.chat.completions.create(
+                model=settings.OPENAI_MODEL,
+                messages=messages
+                + [
+                    {
+                        "role": "user",
+                        "content": (
+                            f"URL base: {base_url}\n"
+                            f"Genera pasos Playwright para:\n{prompt}\n"
+                            "Devuelve SOLO JSON con {\"steps\": [...]}."
+                        ),
+                    }
+                ],
+                temperature=settings.EXEC_TEMPERATURE,
+                max_tokens=settings.EXEC_MAX_TOKENS,
+            )
+            raw = (resp.choices[0].message.content or "").strip()
+            steps = H.extract_steps_from_text(raw)
+
+        if not steps:
+            answer = "No pude generar pasos ejecutables. Dime el botón/campo exacto y el texto esperado."
+            store.add_message(
+                thread_id, "assistant", answer, meta={"mode": "execute", "base_url": base_url}
+            )
+            return {
+                "mode": "execute",
+                "persona": persona,
+                "session_id": session_id,
+                "thread_id": thread_id,
+                "answer": answer,
+                **_confidence("execute", prompt, base_url),
+            }
+
+        # Ensure goto + remember last_url
+        H.ensure_goto(steps, base_url)
+        H.update_last_url(session, steps, fallback=base_url)
+
+        # Runner
+        started = time.time()
+        result = execute_test(
+            steps=steps,
+            base_url=base_url,
+            headless=bool(getattr(req, "headless", True)),
         )
-        report_url = rep.get("report_url")
-        # También guardamos en result para que el frontend lo encuentre fácil
-        if report_url:
-            result["report_url"] = report_url
-    except Exception as e:
-        logger.warning(f"Report generation failed: {str(e)}", exc_info=True)
+        duration_ms = int((time.time() - started) * 1000)
 
-    # Render answer
-    if hasattr(H, "render_execute_answer"):
-        answer = H.render_execute_answer(result, evidence_url=evidence_url)
-    else:
-        answer = _render_execute_answer(result, evidence_url=evidence_url)
+        # ✅ SIEMPRE: prepara data-url (para render inline)
+        screenshot_b64 = (
+            result.get("screenshot_b64")
+            or result.get("screenshotBase64")
+            or result.get("screenshotB64")
+            or result.get("screenshot_base64")
+        )
+        screenshot_data_url = _make_png_data_url(screenshot_b64) if screenshot_b64 else None
+        if screenshot_data_url:
+            result["screenshot_data_url"] = screenshot_data_url
 
-    # Meta que se guarda en el historial (para que el frontend lo pinte SIEMPRE)
-    assistant_meta: Dict[str, Any] = {
-        "mode": "execute",
-        "base_url": base_url,
-        "duration_ms": duration_ms,
-        "runner_status": result.get("status") or ("ok" if result.get("ok", True) else "error"),
-        "evidence_id": evidence_id,
-        "evidence_url": evidence_url,
-        "cloudinary_public_id": cloud_public_id,
-        "report_url": report_url,  # ✅ nuevo
+        # Evidence upload -> Cloudinary (opcional)
+        evidence_url: Optional[str] = None
+        cloud_public_id: Optional[str] = None
+        evidence_id = (result.get("evidence_id") or f"EV-{int(time.time())}").strip()
 
-        # compat frontend:
-        "runner": {
-            "status": result.get("status"),
-            "error": result.get("error"),
+        try:
+            # Validación de b64 para subir
+            if screenshot_b64 and len(str(screenshot_b64)) > 500 and getattr(settings, "HAS_CLOUDINARY", False):
+                b64_str = str(screenshot_b64).strip()
+                if not b64_str.startswith("data:image"):
+                    b64_str = f"data:image/png;base64,{b64_str}"
+
+                uploaded = upload_screenshot_b64(
+                    b64_str,
+                    evidence_id=evidence_id,
+                    folder="vanya/evidence",
+                )
+
+                evidence_url = uploaded.get("secure_url") or uploaded.get("image_url") or uploaded.get("url")
+                cloud_public_id = uploaded.get("public_id")
+                logger.info(f"Evidence uploaded successfully: {evidence_url}")
+            else:
+                logger.warning(
+                    f"Screenshot b64 invalid/too small OR no cloudinary. (len={len(str(screenshot_b64)) if screenshot_b64 else 0})"
+                )
+        except Exception as e:
+            logger.warning(f"Evidence upload failed: {str(e)}", exc_info=True)
+
+        # ✅ Generar PDF report (MVP)
+        report_url: Optional[str] = None
+        try:
+            from services.report_service import generate_pdf_report
+
+            rep = generate_pdf_report(
+                prompt=prompt,
+                base_url=base_url,
+                runner=result,
+                steps=steps,
+                evidence_id=evidence_id,
+                meta={
+                    "thread_id": thread_id,
+                    "session_id": session_id,
+                    "headless": bool(getattr(req, "headless", True)),
+                },
+            )
+            report_url = rep.get("report_url")
+            # También guardamos en result para que el frontend lo encuentre fácil
+            if report_url:
+                result["report_url"] = report_url
+        except Exception as e:
+            logger.warning(f"Report generation failed: {str(e)}", exc_info=True)
+
+        # Render answer
+        if hasattr(H, "render_execute_answer"):
+            answer = H.render_execute_answer(result, evidence_url=evidence_url)
+        else:
+            answer = _render_execute_answer(result, evidence_url=evidence_url)
+
+        # Meta que se guarda en el historial (para que el frontend lo pinte SIEMPRE)
+        assistant_meta: Dict[str, Any] = {
+            "mode": "execute",
+            "base_url": base_url,
+            "duration_ms": duration_ms,
+            "runner_status": result.get("status") or ("ok" if result.get("ok", True) else "error"),
             "evidence_id": evidence_id,
             "evidence_url": evidence_url,
-            "screenshot_url": evidence_url,               # si hay Cloudinary, úsalo
-            "screenshot_data_url": screenshot_data_url,   # ✅ si NO hay Cloudinary, la UI debe pintar esto
-            "duration_ms": result.get("duration_ms"),
-            "report_url": report_url,                     # ✅ nuevo
-        },
+            "cloudinary_public_id": cloud_public_id,
+            "report_url": report_url,  # ✅ nuevo
 
-        "steps": steps,
-    }
+            # compat frontend:
+            "runner": {
+                "status": result.get("status"),
+                "error": result.get("error"),
+                "evidence_id": evidence_id,
+                "evidence_url": evidence_url,
+                "screenshot_url": evidence_url,               # si hay Cloudinary, úsalo
+                "screenshot_data_url": screenshot_data_url,   # ✅ si NO hay Cloudinary, la UI debe pintar esto
+                "duration_ms": result.get("duration_ms"),
+                "report_url": report_url,                     # ✅ nuevo
+            },
 
-    store.add_message(thread_id, "assistant", answer, meta=assistant_meta)
+            "steps": steps,
+        }
 
-    # Response al frontend
-    return {
-        "mode": "execute",
-        "persona": persona,
-        "session_id": session_id,
-        "thread_id": thread_id,
-        "answer": answer,
-        "runner": result,  # ✅ aquí ya viene screenshot_data_url (+ report_url si se generó)
-        "evidence_url": evidence_url,
-        "report_url": report_url,  # ✅ nuevo
-        "duration_ms": duration_ms,
-        **_confidence("execute", prompt, base_url),
-    }
+        store.add_message(thread_id, "assistant", answer, meta=assistant_meta)
+
+        # Response al frontend
+        return {
+            "mode": "execute",
+            "persona": persona,
+            "session_id": session_id,
+            "thread_id": thread_id,
+            "answer": answer,
+            "runner": result,  # ✅ aquí ya viene screenshot_data_url (+ report_url si se generó)
+            "evidence_url": evidence_url,
+            "report_url": report_url,  # ✅ nuevo
+            "duration_ms": duration_ms,
+            **_confidence("execute", prompt, base_url),
+        }
 
     # ============================================================
     # ADVISE / DOC
