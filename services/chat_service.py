@@ -285,6 +285,7 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         logger.warning("Failed to load thread history (continuing)", exc_info=True)
         history_msgs = []
 
+
     # MEMORY
     if _is_memory_query(prompt):
         mem = _summarize_last_execute(history_msgs)
@@ -437,6 +438,16 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
 
         answer = _render_execute_answer(result, evidence_url=evidence_url)
 
+        # ✅ Renderizar la respuesta (si existe la función de ayuda)
+        if hasattr(H, "render_execute_answer"):
+            answer = H.render_execute_answer(result, evidence_url=evidence_url)
+        else:
+            status_text = result.get("status") or ("passed" if result.get("ok", True) else "failed")
+            answer = f"✅ Ejecutado ({status_text})."
+            if evidence_url:
+                answer += f"\nEvidence: {evidence_url}"
+
+        # --- AQUÍ VA TU NUEVO BLOQUE ---
         assistant_meta: Dict[str, Any] = {
             "mode": "execute",
             "base_url": base_url,
@@ -448,7 +459,7 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             # compat frontend viejo / runner-style:
             "runner": {
                 "status": result.get("status"),
-                "screenshot_url": evidence_url,  # ✅ para que chat.jsx lo encuentre aunque busque runner
+                "screenshot_url": evidence_url,  # ✅ para que chat.jsx lo encuentre
                 "evidence_url": evidence_url,
                 "evidence_id": evidence_id,
             },
@@ -459,7 +470,6 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
 
         return {
             "mode": "execute",
-            "persona": persona,
             "session_id": session_id,
             "thread_id": thread_id,
             "answer": answer,
@@ -468,6 +478,7 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             "duration_ms": duration_ms,
             **_confidence("execute", prompt, base_url),
         }
+
 
     # ============================================================
     # ADVISE / DOC
