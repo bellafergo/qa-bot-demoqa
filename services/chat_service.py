@@ -460,7 +460,7 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             logger.warning(f"Evidence upload failed: {str(e)}", exc_info=True)
 
         # ============================================================
-        # REPORT (PDF → Cloudinary)
+        # REPORT (PDF -> Cloudinary)
         # ============================================================
         report_url: Optional[str] = None
         report_error: Optional[str] = None
@@ -483,25 +483,29 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             )
 
             pdf_path = rep.get("report_path")
+            if not pdf_path or not os.path.exists(pdf_path):
+                raise RuntimeError(f"PDF no se generó en disco: {pdf_path}")
 
-            if pdf_path and os.path.exists(pdf_path):
-                with open(pdf_path, "rb") as f:
-                    pdf_bytes = f.read()
+            with open(pdf_path, "rb") as f:
+                pdf_bytes = f.read()
 
-                uploaded = upload_pdf_bytes(
-                    pdf_bytes,
-                    evidence_id=evidence_id,
-                    folder="vanya/reports",
-                )
+            uploaded_pdf = upload_pdf_bytes(
+                pdf_bytes,
+                evidence_id=evidence_id,
+                folder="vanya/reports",
+            )
 
-                report_url = uploaded.get("secure_url")
+            report_url = uploaded_pdf.get("secure_url") or uploaded_pdf.get("url")
+            if not report_url:
+                raise RuntimeError(f"Cloudinary no regresó URL: {uploaded_pdf}")
 
-                # también lo dejamos en runner para el frontend
-                result["report_url"] = report_url
+            # ✅ guarda para UI
+            result["report_url"] = report_url
 
         except Exception as e:
-            logger.warning(f"PDF report upload failed: {str(e)}", exc_info=True)
             report_error = str(e)
+            result["report_error"] = report_error
+            logger.warning(f"PDF report failed: {report_error}", exc_info=True)
 
         # Render answer
         if hasattr(H, "render_execute_answer"):
