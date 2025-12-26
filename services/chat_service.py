@@ -407,12 +407,6 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         H.ensure_goto(steps, base_url)
         H.update_last_url(session, steps, fallback=base_url)
 
-        Sí, esa es exactamente la parte que debemos reforzar. El problema de la imagen de 1x1 píxeles suele ocurrir porque el string Base64 llega incompleto o sin el encabezado que Cloudinary necesita para procesarlo como una imagen real.
-
-Aquí tienes el bloque corregido. He añadido una validación de tamaño y el prefijo automático para asegurar que Cloudinary reciba un archivo válido.
-
-Código Corregido (Reemplaza tu bloque actual)
-Python
 
         # Runner
         started = time.time()
