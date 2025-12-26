@@ -53,22 +53,18 @@ export default function Chat(props) {
     return {};
   };
 
-  const extractEvidenceFromText = (content) => {
-    const text = typeof content === "string" ? content : "";
-    let mm = text.match(/Evidence:\s*(https?:\/\/\S+)/i);
-    if (mm && mm[1]) return mm[1].trim();
-
-    mm = text.match(/(https?:\/\/[^\s)]+)\b/i);
-    if (mm && mm[1]) return mm[1].trim();
-
-    return null;
-  };
-
   const extractUrlFromText = (content) => {
     const text = typeof content === "string" ? content : "";
+
+    // Report: / Reporte:
     let m = text.match(/Report(?:e)?\s*:\s*(https?:\/\/\S+)/i);
     if (m && m[1]) return m[1].trim();
 
+    // Evidence: (a veces el backend manda Evidence: url)
+    m = text.match(/Evidence\s*:\s*(https?:\/\/\S+)/i);
+    if (m && m[1]) return m[1].trim();
+
+    // cualquier URL
     m = text.match(/(https?:\/\/[^\s)]+)\b/i);
     if (m && m[1]) return m[1].trim();
 
@@ -82,28 +78,55 @@ export default function Chat(props) {
     return "data:image/png;base64," + s;
   };
 
-  const isProbablyPdfUrl = (url) => {
-    const u = String(url || "").toLowerCase();
-    if (!u) return false;
-    if (u.endsWith(".pdf")) return true;
-    // Cloudinary RAW suele verse así:
-    if (u.includes("res.cloudinary.com") && u.includes("/raw/upload")) return true;
+  const isProbablyPdfUrl = (u) => {
+    const s = String(u || "").toLowerCase().trim();
+    if (!s) return false;
+    // Cloudinary RAW (tu caso)
+    if (s.includes("res.cloudinary.com") && s.includes("/raw/upload")) return true;
+    // PDFs normales
+    if (s.endsWith(".pdf") || s.includes(".pdf?")) return true;
     return false;
   };
 
   const pickRunner = (m) => {
     const meta = getMeta(m);
-    const r1 =
-      meta?.runner && typeof meta.runner === "object" ? meta.runner : null;
+    const r1 = meta?.runner && typeof meta.runner === "object" ? meta.runner : null;
     const r2 = m?.runner && typeof m.runner === "object" ? m.runner : null;
     return r1 || r2 || {};
+  };
+
+  const isExecuteMessage = (m) => {
+    const meta = getMeta(m);
+    const mode = String(m?.mode || meta?.mode || meta?.runner?.mode || "")
+      .trim()
+      .toLowerCase();
+    // más tolerante
+    return mode.includes("execute");
+  };
+
+  const pickEvidenceId = (m) => {
+    const meta = getMeta(m);
+    const runner = pickRunner(m);
+
+    const candidates = [
+      runner?.evidence_id,
+      runner?.evidenceId,
+      meta?.evidence_id,
+      meta?.evidenceId,
+      meta?.runner?.evidence_id,
+      meta?.runner?.evidenceId,
+      m?.evidence_id,
+      m?.evidenceId,
+    ].filter((x) => typeof x === "string" && x.trim());
+
+    return candidates.length ? candidates[0].trim() : null;
   };
 
   const pickEvidenceUrl = (m) => {
     const meta = getMeta(m);
     const runner = pickRunner(m);
 
-    // ✅ Prioridad 1: Data URL directo del backend
+    // ✅ Prioridad 1: screenshot_data_url directo
     const dataUrl =
       runner?.screenshot_data_url ||
       runner?.screenshotDataUrl ||
@@ -115,76 +138,50 @@ export default function Chat(props) {
 
     if (typeof dataUrl === "string" && dataUrl.trim()) return dataUrl.trim();
 
-    // ✅ Prioridad 2: Base64 -> Data URL
+    // ✅ Prioridad 2: base64 -> data url
     const b64 =
       runner?.screenshot_b64 ||
       runner?.screenshotB64 ||
-      runner?.screenshotBase64 ||
-      runner?.screenshot_base64 ||
       meta?.screenshot_b64 ||
       meta?.screenshotB64 ||
-      meta?.screenshotBase64 ||
       meta?.runner?.screenshot_b64 ||
       meta?.runner?.screenshotB64 ||
-      meta?.runner?.screenshotBase64 ||
       null;
 
-    const b64AsDataUrl = toDataUrl(b64);
-    if (b64AsDataUrl) return b64AsDataUrl;
+    const asData = toDataUrl(b64);
+    if (typeof asData === "string" && asData.trim()) return asData.trim();
 
-    // ✅ Prioridad 3: URLs externas (Cloudinary/S3/etc)
+    // ✅ Prioridad 3: URLs típicas
     const candidates = [
-      meta?.secure_url,
-      meta?.image_url,
+      runner?.evidence_url,
+      runner?.evidenceUrl,
+      runner?.screenshot_url,
+      runner?.screenshotUrl,
+
       meta?.evidence_url,
-      meta?.screenshot_url,
       meta?.evidenceUrl,
+      meta?.screenshot_url,
       meta?.screenshotUrl,
 
-      runner?.secure_url,
-      runner?.image_url,
-      runner?.screenshot_url,
-      runner?.evidence_url,
-      runner?.screenshotUrl,
-      runner?.evidenceUrl,
+      meta?.runner?.evidence_url,
+      meta?.runner?.evidenceUrl,
+      meta?.runner?.screenshot_url,
+      meta?.runner?.screenshotUrl,
 
-      m?.secure_url,
-      m?.image_url,
+      // a veces viene directo
       m?.evidence_url,
-      m?.screenshot_url,
       m?.evidenceUrl,
+      m?.screenshot_url,
       m?.screenshotUrl,
     ].filter((x) => typeof x === "string" && x.trim());
 
     if (candidates.length) return candidates[0].trim();
 
-    // fallback desde texto
-    const fromText = extractEvidenceFromText(m?.content);
-    if (typeof fromText === "string" && fromText.trim()) return fromText.trim();
+    // ✅ fallback: intenta sacarlo del texto (Evidence: https://...)
+    const fromText = extractUrlFromText(m?.content);
+    if (fromText) return fromText.trim();
 
     return null;
-  };
-
-  const pickEvidenceId = (m) => {
-    const meta = getMeta(m);
-    const runner = pickRunner(m);
-    const id =
-      runner?.evidence_id ||
-      runner?.evidenceId ||
-      meta?.evidence_id ||
-      meta?.evidenceId ||
-      meta?.runner?.evidence_id ||
-      meta?.runner?.evidenceId ||
-      m?.evidence_id ||
-      m?.evidenceId ||
-      null;
-    return id ? String(id) : null;
-  };
-
-  const isExecuteMessage = (m) => {
-    const meta = getMeta(m);
-    const mode = String(m?.mode || meta?.mode || m?.meta?.mode || "").trim().toLowerCase();
-    return mode.includes("execute");
   };
 
   const pickReportUrl = (m) => {
@@ -192,24 +189,26 @@ export default function Chat(props) {
     const runner = pickRunner(m);
 
     const candidates = [
-      // top-level response guardada en message
+      // top-level en el mensaje
       m?.report_url,
       m?.reportUrl,
 
-      // meta directo
+      // meta directo (tu handleSend mete ...(resp) aquí)
       meta?.report_url,
       meta?.reportUrl,
 
-      // meta.runner / runner
+      // runner
       runner?.report_url,
       runner?.reportUrl,
+
+      // meta.runner
       meta?.runner?.report_url,
       meta?.runner?.reportUrl,
     ].filter((x) => typeof x === "string" && x.trim());
 
     if (candidates.length) return candidates[0].trim();
 
-    // fallback texto si parece pdf
+    // fallback desde texto (si el bot lo imprime)
     const fromText = extractUrlFromText(m?.content);
     if (fromText && isProbablyPdfUrl(fromText)) return fromText.trim();
 
@@ -227,9 +226,10 @@ export default function Chat(props) {
 
     const isExecute = isExecuteMessage(m);
 
-    // ✅ evidencia: si hay URL, muéstrala (sobre todo en execute)
+    // evidencia: si hay URL, muéstrala (sobre todo en execute)
     const showEvidence = !!evidenceUrl && (isExecute || role === "bot");
-    // ✅ reporte: SOLO si es execute (para no ensuciar mensajes normales)
+
+    // ✅ reporte: mostrar SIEMPRE que exista la URL (sin depender de isExecute)
     const showReport = role === "bot" && !!reportUrl;
 
     const meta = getMeta(m);
@@ -277,7 +277,7 @@ export default function Chat(props) {
           {/* Evidencia */}
           {showEvidence ? <EvidenceBlock evidenceUrl={evidenceUrl} /> : null}
 
-          {/* Reporte PDF */}
+          {/* ✅ Reporte PDF */}
           {showReport ? <ReportBlock reportUrl={reportUrl} /> : null}
         </div>
       </div>
@@ -356,62 +356,48 @@ function EvidenceBlock({ evidenceUrl }) {
   if (!url) return null;
 
   const lower = url.toLowerCase();
+  const looksImage =
+    lower.startsWith("data:image/") ||
+    /\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(lower) ||
+    lower.includes("res.cloudinary.com") ||
+    lower.includes("/image/upload");
 
-  const looksImage = (() => {
-    if (lower.startsWith("data:image/")) return true;
-    if (/\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(lower)) return true;
-    if (lower.includes("res.cloudinary.com") || lower.includes("/image/upload"))
-      return true;
-    return false;
-  })();
-
-  // Cache-buster SOLO para URLs http(s); para data:image NO
+  // Cache-buster SOLO para http(s); para data:image NO
   const imgSrc = (() => {
+    if (!url) return "";
     if (lower.startsWith("data:image/")) return url;
     return url.includes("?") ? `${url}&cb=${Date.now()}` : `${url}?cb=${Date.now()}`;
   })();
 
   return (
     <div style={{ marginTop: 10 }}>
-      {!lower.startsWith("data:image/") ? (
-        <a
-          href={url}
-          target="_blank"
-          rel="noreferrer"
-          style={{
-            display: "inline-block",
-            marginBottom: 8,
-            fontSize: 12,
-            opacity: 0.9,
-            color: "white",
-            textDecoration: "underline",
-          }}
-        >
-          Abrir evidencia
-        </a>
-      ) : (
-        <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 8 }}>
-          Evidencia (captura)
-        </div>
-      )}
+      <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 6 }}>
+        Evidencia (captura)
+      </div>
 
       {looksImage && !failed ? (
         <img
           src={imgSrc}
-          alt="Evidencia de prueba"
-          loading="lazy"
-          referrerPolicy="no-referrer"
+          alt="evidence"
           style={{
-            maxWidth: "100%",
-            borderRadius: 10,
-            border: "1px solid rgba(255,255,255,0.15)",
-            display: "block",
+            width: "100%",
+            maxWidth: 720,
+            borderRadius: 12,
+            border: "1px solid rgba(255,255,255,0.10)",
+            background: "rgba(0,0,0,0.25)",
           }}
           onError={() => setFailed(true)}
         />
       ) : (
         <div style={{ fontSize: 12, opacity: 0.85 }}>
-          {failed ? "⚠️ No se pudo cargar la imagen inline." : "(La evidencia no parece imagen.)"}
+          <a
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            style={{ color: "rgba(160,200,255,0.95)" }}
+          >
+            Abrir evidencia
+          </a>
         </div>
       )}
     </div>
@@ -424,59 +410,34 @@ function ReportBlock({ reportUrl }) {
   if (!url) return null;
 
   return (
-    <div
-      style={{
-        marginTop: 12,
-        padding: "10px 12px",
-        borderRadius: 12,
-        border: "1px solid rgba(255,255,255,0.14)",
-        background: "rgba(0,0,0,0.18)",
-      }}
-    >
-      <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 8 }}>
-        📄 Reporte PDF
+    <div style={{ marginTop: 10 }}>
+      <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 6 }}>
+        Reporte (PDF)
       </div>
 
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <a
           href={url}
           target="_blank"
           rel="noreferrer"
           style={{
+            display: "inline-block",
             padding: "8px 10px",
             borderRadius: 10,
-            border: "1px solid rgba(255,255,255,0.16)",
-            background: "rgba(120,160,255,0.25)",
-            color: "white",
+            border: "1px solid rgba(255,255,255,0.14)",
+            background: "rgba(0,0,0,0.25)",
+            color: "rgba(160,200,255,0.95)",
             textDecoration: "none",
             fontWeight: 700,
-            fontSize: 13,
+            fontSize: 12,
           }}
         >
           Abrir reporte
         </a>
 
-        {/* Nota: download cross-domain a veces no descarga “bonito”, pero sirve en varios casos */}
-        <a
-          href={url}
-          download
-          style={{
-            padding: "8px 10px",
-            borderRadius: 10,
-            border: "1px solid rgba(255,255,255,0.16)",
-            background: "rgba(255,255,255,0.08)",
-            color: "white",
-            textDecoration: "none",
-            fontWeight: 700,
-            fontSize: 13,
-          }}
-        >
-          Descargar
-        </a>
-      </div>
-
-      <div style={{ marginTop: 8, fontSize: 11, opacity: 0.65 }}>
-        {url}
+        <span style={{ fontSize: 12, opacity: 0.75, wordBreak: "break-all" }}>
+          {url}
+        </span>
       </div>
     </div>
   );
