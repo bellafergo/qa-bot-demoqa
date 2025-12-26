@@ -64,7 +64,6 @@ class ErrorBoundary extends React.Component {
     return { hasError: true, err: error };
   }
   componentDidCatch(error, info) {
-    // log útil
     // eslint-disable-next-line no-console
     console.error("UI crashed:", error, info);
   }
@@ -85,7 +84,8 @@ class ErrorBoundary extends React.Component {
             <div style={{ fontWeight: 900, marginBottom: 6 }}>❗ UI Crashed</div>
             <div style={{ opacity: 0.9, whiteSpace: "pre-wrap" }}>{msg}</div>
             <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75 }}>
-              Abre DevTools → Console para ver el stack. Esto evita que se quede en negro.
+              Abre DevTools → Console para ver el stack. Esto evita que se quede
+              en negro.
             </div>
           </div>
         </div>
@@ -136,7 +136,6 @@ export default function App() {
   const chatEndRef = useRef(null);
 
   const scrollToBottom = useCallback(() => {
-    // si el componente está montado
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
@@ -224,9 +223,12 @@ export default function App() {
       // meta (tu backend ya lo manda como "meta" o "meta_json")
       const meta = m?.meta ?? m?.meta_json ?? {};
 
-      // Si no hay content pero sí hay runner/doc en meta, lo mantenemos para que Chat renderice evidencia
+      // Si no hay content pero sí hay runner/doc en meta, lo mantenemos
       const hasRenderableMeta =
-        !!meta?.runner || !!meta?.docArtifacts || !!meta?.artifacts || !!meta?.mode;
+        !!meta?.runner ||
+        !!meta?.docArtifacts ||
+        !!meta?.artifacts ||
+        !!meta?.mode;
 
       if (!content && !hasRenderableMeta) continue;
 
@@ -290,7 +292,8 @@ export default function App() {
     try {
       const data = await safeCreateThread();
       const id = data?.id || data?.thread_id;
-      if (!id) throw new Error("Backend no devolvió id/thread_id al crear thread.");
+      if (!id)
+        throw new Error("Backend no devolvió id/thread_id al crear thread.");
 
       setThreadId(id);
       try {
@@ -352,7 +355,7 @@ export default function App() {
   );
 
   // -----------------------------
-  // Send chat
+  // Send chat  ✅ (SIN DUPLICADOS / SIN RESP “SUELTO”)
   // -----------------------------
   const handleSend = useCallback(async () => {
     const prompt = (input || "").trim();
@@ -362,26 +365,16 @@ export default function App() {
     setIsSending(true);
 
     // UI optimistic
-    setMessages((prev) => [
-  ...prev,
-  {
-    role: "bot",
-    content: answer || "Listo. (Respuesta sin texto, revisa el payload)",
-    meta: {
-      ...(resp || {}),
-      // ✅ asegura modo para que Chat.jsx muestre evidencia
-      mode: (resp?.mode || resp?.meta?.mode || "chat_only"),
-      // ✅ garantiza runner donde Chat.jsx lo espera
-      runner: resp?.runner || resp?.meta?.runner || null,
-    },
-  },
-]);
+    setMessages((prev) => [...prev, { role: "user", content: prompt, meta: {} }]);
+    setInput("");
 
-console.log("CHAT_RUN resp keys:", Object.keys(resp || {}), "mode:", resp?.mode, "has runner:", !!resp?.runner);
+    try {
+      const resp = await safeChatRun(prompt, threadId || null, {
+        session_id: sessionId,
+      });
 
       const newThreadId = resp?.thread_id || resp?.threadId || threadId || null;
-      const newSessionId =
-        resp?.session_id || resp?.sessionId || sessionId || null;
+      const newSessionId = resp?.session_id || resp?.sessionId || sessionId || null;
 
       if (newThreadId && String(newThreadId) !== String(threadId)) {
         setThreadId(newThreadId);
@@ -404,12 +397,17 @@ console.log("CHAT_RUN resp keys:", Object.keys(resp || {}), "mode:", resp?.mode,
           ? resp.text
           : "";
 
+      // ✅ Aquí se conserva runner y mode para que Chat.jsx pinte la evidencia
       setMessages((prev) => [
         ...prev,
         {
           role: "bot",
-          content: answer || "Listo. (Respuesta sin texto, revisa el payload)",
-          meta: resp || {},
+          content: answer || "Listo.",
+          meta: {
+            ...(resp || {}),
+            mode: resp?.mode || "chat_only",
+            runner: resp?.runner || null,
+          },
         },
       ]);
 
@@ -594,7 +592,6 @@ console.log("CHAT_RUN resp keys:", Object.keys(resp || {}), "mode:", resp?.mode,
               formatText={typeof formatText === "function" ? formatText : (x) => x}
               chatEndRef={chatEndRef}
             />
-            {/* NOTA: NO duplicamos chatEndRef aquí porque Chat ya lo usa */}
           </div>
         </div>
       </div>
