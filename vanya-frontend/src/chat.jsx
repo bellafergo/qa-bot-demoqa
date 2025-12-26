@@ -83,7 +83,7 @@ export default function Chat(props) {
     const meta = getMeta(m);
     const runner = pickRunner(m);
 
-    // ✅ Prioridad 1: Data URL directo del backend (FIX principal)
+    // ✅ Prioridad 1: Data URL directo del backend
     const dataUrl =
       runner?.screenshot_data_url ||
       runner?.screenshotDataUrl ||
@@ -121,7 +121,7 @@ export default function Chat(props) {
       meta?.evidenceUrl,
       meta?.screenshotUrl,
 
-      // meta.runner.*
+      // runner.*
       runner?.secure_url,
       runner?.image_url,
       runner?.screenshot_url,
@@ -129,7 +129,7 @@ export default function Chat(props) {
       runner?.screenshotUrl,
       runner?.evidenceUrl,
 
-      // plano en el message root
+      // root
       m?.secure_url,
       m?.image_url,
       m?.evidence_url,
@@ -168,6 +168,7 @@ export default function Chat(props) {
   const pickEvidenceId = (m) => {
     const meta = getMeta(m);
     const runner = pickRunner(m);
+
     const id =
       runner?.evidence_id ||
       runner?.evidenceId ||
@@ -178,6 +179,7 @@ export default function Chat(props) {
       m?.evidence_id ||
       m?.evidenceId ||
       null;
+
     return id ? String(id) : null;
   };
 
@@ -331,7 +333,8 @@ function EvidenceBlock({ evidenceUrl }) {
     if (!url) return false;
     if (lower.startsWith("data:image/")) return true;
     if (/\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(lower)) return true;
-    if (lower.includes("res.cloudinary.com") || lower.includes("/image/upload")) return true;
+    if (lower.includes("res.cloudinary.com") || lower.includes("/image/upload"))
+      return true;
     return false;
   })();
 
@@ -382,7 +385,9 @@ function EvidenceBlock({ evidenceUrl }) {
         />
       ) : (
         <div style={{ fontSize: 12, opacity: 0.85 }}>
-          {failed ? "⚠️ No se pudo cargar la imagen inline." : "(La evidencia no parece imagen.)"}
+          {failed
+            ? "⚠️ No se pudo cargar la imagen inline."
+            : "(La evidencia no parece imagen.)"}
         </div>
       )}
     </div>
