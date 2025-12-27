@@ -16,21 +16,24 @@ class ChatRunRequest(BaseModel):
     thread_id: Optional[str] = None
 
 
-def _ensure_data_url(runner: Any) -> None:
+def _ensure_data_url(obj: Any) -> None:
     """
-    Agrega runner.screenshot_data_url si existe screenshot_b64.
-    Funciona incluso si runner viene como dict o si la estructura cambia ligeramente.
+    Agrega screenshot_data_url si existe screenshot_b64.
+    Funciona incluso si viene como dict y aunque cambie el shape.
     """
-    if not isinstance(runner, dict):
+    if not isinstance(obj, dict):
         return
 
-    b64 = runner.get("screenshot_b64")
+    # Si ya existe, no lo toques
+    if isinstance(obj.get("screenshot_data_url"), str) and obj["screenshot_data_url"].startswith("data:image/"):
+        return
+
+    b64 = obj.get("screenshot_b64") or obj.get("screenshotBase64") or obj.get("screenshotB64") or obj.get("screenshot_base64")
     if isinstance(b64, str) and b64.strip():
-        # Evita duplicar si ya viene con prefijo
         if b64.startswith("data:image/"):
-            runner["screenshot_data_url"] = b64
+            obj["screenshot_data_url"] = b64
         else:
-            runner["screenshot_data_url"] = "data:image/png;base64," + b64
+            obj["screenshot_data_url"] = "data:image/png;base64," + b64.strip()
 
 
 @router.post("/chat_run")
@@ -38,20 +41,19 @@ def chat_run(req: ChatRunRequest) -> Dict[str, Any]:
     """
     Wrapper del service:
     - Mantiene el comportamiento actual
-    - Garantiza que la evidencia se regrese como Data URL para que el frontend la pueda mostrar
+    - Garantiza screenshot_data_url para que el frontend renderice evidencia inline
     """
     try:
         result = handle_chat_run(req)
 
-        # Post-proceso robusto: si el service regresó runner
         if isinstance(result, dict):
-            runner = result.get("runner")
-            _ensure_data_url(runner)
+            # runner top-level
+            _ensure_data_url(result.get("runner"))
 
-            # (Opcional) También intenta dentro de meta si algún día lo mueves ahí
+            # runner dentro de meta (por si lo mueves)
             meta = result.get("meta")
-            if isinstance(meta, dict) and isinstance(meta.get("runner"), dict):
-                _ensure_data_url(meta["runner"])
+            if isinstance(meta, dict):
+                _ensure_data_url(meta.get("runner"))
 
         return result
 

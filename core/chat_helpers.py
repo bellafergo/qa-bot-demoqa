@@ -18,24 +18,49 @@ from core.doc_patterns import get_patterns
 # ============================================================
 _URL_RE = re.compile(r"(https?://[^\s]+)", re.I)
 
-# Heurística: señales de “quiero asesoría”
+# Señales claras de "análisis / consultoría" (NO ejecutar)
+# Incluye tus patrones + los que te estaban fallando en demo
 _ADVISE_HINTS = (
     "qué haces", "que haces",
     "qué puedes", "que puedes",
-    "recomiendas", "riesgos",
+    "recomiendas", "recomienda",
+    "riesgos", "impacto", "prioridad",
     "mejor práctica", "mejor practica", "best practice",
     "ayúdame a", "ayudame a",
     "explica", "explicame", "explicación",
+    "resume", "resumen", "ejecutivo", "lenguaje ejecutivo",
+    "actúa como", "actua como",
+    "retoma", "continúa", "continua",
+    "qué pruebas", "que pruebas",
+    "qué validaciones", "que validaciones",
+    "qué harías", "que harías",
 )
 
-# Heurística: señales de “quiero ejecución”
-_EXEC_INTENT_WORDS = (
-    "ejecuta", "ejecutar", "corre", "correr",
-    "run", "runner", "playwright",
-    "navega", "abre", "entra",
-    "prueba en vivo", "evidence", "screenshot",
-)
+# Verbos explícitos que SÍ activan intención de ejecución
+# (IMPORTANTE: no metas palabras genéricas como "prueba" sola)
+_EXECUTE_VERB_PATTERNS = [
+    r"\bve a\b",
+    r"\babre\b",
+    r"\bnavega\b",
+    r"\bentra\b",
+    r"\bejecuta\b",
+    r"\bcorrer\b",
+    r"\bcorre\b",
+    r"\brun\b",
+    r"\busa playwright\b",
+    r"\bhaz click\b",
+    r"\bhaz clic\b",
+    r"\bda click\b",
+    r"\bclick\b",
+    r"\bclic\b",
+    r"\binicia sesi[oó]n\b",
+    r"\bloguea\b",
+    r"\bvalida en la web\b",
+    r"\bprueba en (el )?sitio\b",
+]
 
+# Acciones UI: si hay URL + estas señales, también puede ser ejecución.
+# OJO: aquí dejamos "valida/verifica" pero solo cuentan si hay URL (o last_url) y NO hay señales de análisis.
 _UI_ACTION_WORDS = (
     "click", "clic", "haz click", "da click", "presiona",
     "fill", "llenar", "escribe", "captura", "selecciona",
@@ -43,6 +68,14 @@ _UI_ACTION_WORDS = (
     "aparezca", "visible", "mensaje", "error",
     "botón", "boton", "campo", "texto",
     "login", "inicia sesión", "inicia sesion",
+    "checkout", "carrito", "pagar", "pago",
+)
+
+# Palabras relacionadas a ejecución (no necesariamente verbos explícitos)
+# Sirven como hints secundarios (conservamos las tuyas)
+_EXEC_INTENT_WORDS = (
+    "runner", "playwright",
+    "prueba en vivo", "evidence", "screenshot",
 )
 
 # Heurística: señales de “quiero docs QA”
@@ -197,45 +230,93 @@ def parse_tool_args(raw: str) -> Optional[Dict[str, Any]]:
 
 
 # ============================================================
-# INTENT DETECTION
+# INTENT DETECTION (FIX PRINCIPAL)
 # ============================================================
 def is_question(prompt: str) -> bool:
     p = low(prompt)
     if "?" in p:
         return True
-    return p.startswith(("que ", "qué ", "como ", "cómo ", "cuando", "cuándo", "por qué", "debo", "puedo"))
+    return p.startswith(
+        (
+            "que ", "qué ",
+            "como ", "cómo ",
+            "cuando", "cuándo",
+            "por qué", "porque",
+            "debo", "puedo",
+        )
+    )
+
+
+def _has_explicit_execute_verbs(prompt: str) -> bool:
+    p = low(prompt)
+    return any(re.search(rx, p) for rx in _EXECUTE_VERB_PATTERNS)
+
+
+def _has_advise_cues(prompt: str) -> bool:
+    p = low(prompt)
+    return any(h in p for h in _ADVISE_HINTS)
 
 
 def wants_doc(prompt: str) -> bool:
     p = low(prompt)
 
-    # Si piden ejecución explícita, NO es doc
-    if any(w in p for w in _EXEC_INTENT_WORDS) or any(w in p for w in _UI_ACTION_WORDS):
+    # Si es claramente ejecución (por verbo explícito), NO es doc
+    if _has_explicit_execute_verbs(p):
+        return False
+
+    # Si piden UI actions, probablemente es ejecución (si hay URL) => no doc
+    if any(w in p for w in _UI_ACTION_WORDS) or any(w in p for w in _EXEC_INTENT_WORDS):
         return False
 
     return any(w in p for w in _DOC_WORDS)
 
 
 def wants_execute(prompt: str, session: Dict[str, Any]) -> bool:
+    """
+    Regla nueva (más segura):
+    - NO ejecutar si el texto huele a análisis/consultoría.
+    - Ejecutar si hay verbos explícitos de ejecución (aunque falte URL -> backend puede pedirla).
+    - Ejecutar si hay URL (o last_url) + acciones UI claras (click/llenar/validar/login),
+      siempre que NO sea una pregunta teórica.
+    """
     p = low(prompt)
 
+    # 1) Hard stop: señales de análisis/consultoría -> no ejecutar
+    if _has_advise_cues(p):
+        return False
+
+    # 2) Verbo explícito de ejecución => intención de ejecutar (aunque falte URL)
+    if _has_explicit_execute_verbs(p):
+        return True
+
+    # 3) Caso "URL + acción UI" (o continuidad con last_url)
     has_ui_action = any(w in p for w in _UI_ACTION_WORDS)
-    has_exec_intent = any(w in p for w in _EXEC_INTENT_WORDS)
+    has_exec_hint = any(w in p for w in _EXEC_INTENT_WORDS) or any(w in p for w in _EXEC_INTENT_WORDS)
 
     has_url = looks_like_url(prompt) or bool(session.get("last_url"))
 
-    # Pregunta teórica sin acción → no ejecutar
-    if is_question(prompt) and not has_ui_action and not has_exec_intent:
+    # Pregunta teórica sin acción => no ejecutar
+    if is_question(prompt) and not has_ui_action and not has_exec_hint:
         return False
 
-    # Necesitamos URL o last_url + intención/acción
-    return has_url and (has_ui_action or has_exec_intent)
+    # Para ejecutar por heurística, sí necesitamos URL o last_url
+    return bool(has_url and (has_ui_action or has_exec_hint))
 
 
 def wants_advise(prompt: str, session: Dict[str, Any]) -> bool:
     if wants_doc(prompt) or wants_execute(prompt, session):
         return False
+
+    # Si el usuario pregunta o usa cues de consultoría, es ADVISE
+    if is_question(prompt) or _has_advise_cues(prompt):
+        return True
+
     return any(h in low(prompt) for h in _ADVISE_HINTS)
+
+
+# Alias útil para que tu backend sea más legible
+def is_execute_intent(prompt: str, session: Dict[str, Any]) -> bool:
+    return wants_execute(prompt, session)
 
 
 # ============================================================
@@ -463,6 +544,7 @@ __all__ = [
     "strip_code_fences", "parse_tool_args",
     "is_question",
     "wants_doc", "wants_execute", "wants_advise",
+    "is_execute_intent",
     "doc_requested_parts", "extract_user_story", "infer_domain", "get_domain_patterns",
     "pick_base_url", "ensure_goto", "update_last_url",
     "extract_steps_from_text",
