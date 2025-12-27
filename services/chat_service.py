@@ -1,6 +1,7 @@
 # services/chat_service.py
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -551,26 +552,84 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
     # ADVISE / DOC (NUNCA pide URL)
     # ============================================================
     client = _client()
+
+    # ---------- DOC: JSON estructurado ----------
+    if mode == "doc":
+        resp = client.chat.completions.create(
+            model=settings.OPENAI_MODEL,
+            messages=messages,
+            temperature=0.2,
+            max_tokens=settings.DOC_MAX_TOKENS,
+            response_format={"type": "json_object"},
+        )
+
+        raw = (resp.choices[0].message.content or "").strip()
+        doc_json = _safe_json_loads(raw)
+
+        # Fallback seguro (no rompe el flujo)
+        if not isinstance(doc_json, dict):
+            answer = raw or "No pude generar el artefacto en formato estructurado."
+            store.add_message(
+                thread_id,
+                "assistant",
+                answer,
+                meta={"mode": "doc", "doc_parse_error": True},
+            )
+            return {
+                "mode": "doc",
+                "persona": persona,
+                "session_id": session_id,
+                "thread_id": thread_id,
+                "answer": answer,
+                "doc_json": None,
+                **_confidence("doc", prompt, None),
+            }
+
+        # Render bonito para UI actual
+        answer = _render_doc_answer_from_json(doc_json)
+
+        store.add_message(
+            thread_id,
+            "assistant",
+            answer,
+            meta={
+                "mode": "doc",
+                "persona": persona,
+                "doc_json": doc_json,
+            },
+        )
+
+        return {
+            "mode": "doc",
+            "persona": persona,
+            "session_id": session_id,
+            "thread_id": thread_id,
+            "answer": answer,
+            "doc_json": doc_json,
+            **_confidence("doc", prompt, None),
+        }
+
+    # ---------- ADVISE: texto normal ----------
     resp = client.chat.completions.create(
         model=settings.OPENAI_MODEL,
         messages=messages,
-        temperature=settings.DOC_TEMPERATURE if mode == "doc" else settings.ADV_TEMPERATURE,
-        max_tokens=settings.DOC_MAX_TOKENS if mode == "doc" else settings.ADV_MAX_TOKENS,
+        temperature=settings.ADV_TEMPERATURE,
+        max_tokens=settings.ADV_MAX_TOKENS,
     )
     answer = (resp.choices[0].message.content or "").strip() or "¿Puedes darme un poco más de contexto?"
 
-    store.add_message(thread_id, "assistant", answer, meta={"mode": mode, "persona": persona})
-
-    # base_url solo como dato (no para pedirlo)
-    base_url_hint = None
-    if mode != "doc":
-        base_url_hint = H.pick_base_url(req, session, prompt)
+    store.add_message(
+        thread_id,
+        "assistant",
+        answer,
+        meta={"mode": "advise", "persona": persona},
+    )
 
     return {
-        "mode": mode,
+        "mode": "advise",
         "persona": persona,
         "session_id": session_id,
         "thread_id": thread_id,
         "answer": answer,
-        **_confidence(mode, prompt, base_url_hint),
+        **_confidence("advise", prompt, None),
     }

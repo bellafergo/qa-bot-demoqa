@@ -53,6 +53,23 @@ export default function Chat(props) {
     return {};
   };
 
+  const pickDocJson = (m) => {
+    if (!m) return null;
+
+    // 1) top-level (backend puede enviarlo así)
+    if (m.doc_json && typeof m.doc_json === "object") return m.doc_json;
+
+    // 2) dentro de meta
+    const meta = getMeta(m);
+    if (meta?.doc_json && typeof meta.doc_json === "object") return meta.doc_json;
+
+    // 3) por si algún día viene como string JSON
+    const parsed = safeJsonParse(meta?.doc_json);
+    if (parsed && typeof parsed === "object") return parsed;
+
+    return null;
+  };
+
   const extractUrlFromText = (content) => {
     const text = typeof content === "string" ? content : "";
 
@@ -60,7 +77,7 @@ export default function Chat(props) {
     let m = text.match(/Report(?:e)?\s*:\s*(https?:\/\/\S+)/i);
     if (m && m[1]) return m[1].trim();
 
-    // Evidence: (a veces el backend manda Evidence: url)
+    // Evidence:
     m = text.match(/Evidence\s*:\s*(https?:\/\/\S+)/i);
     if (m && m[1]) return m[1].trim();
 
@@ -81,9 +98,7 @@ export default function Chat(props) {
   const isProbablyPdfUrl = (u) => {
     const s = String(u || "").toLowerCase().trim();
     if (!s) return false;
-    // Cloudinary RAW (tu caso)
     if (s.includes("res.cloudinary.com") && s.includes("/raw/upload")) return true;
-    // PDFs normales
     if (s.endsWith(".pdf") || s.includes(".pdf?")) return true;
     return false;
   };
@@ -100,7 +115,6 @@ export default function Chat(props) {
     const mode = String(m?.mode || meta?.mode || meta?.runner?.mode || "")
       .trim()
       .toLowerCase();
-    // más tolerante
     return mode.includes("execute");
   };
 
@@ -168,7 +182,6 @@ export default function Chat(props) {
       meta?.runner?.screenshot_url,
       meta?.runner?.screenshotUrl,
 
-      // a veces viene directo
       m?.evidence_url,
       m?.evidenceUrl,
       m?.screenshot_url,
@@ -177,7 +190,7 @@ export default function Chat(props) {
 
     if (candidates.length) return candidates[0].trim();
 
-    // ✅ fallback: intenta sacarlo del texto (Evidence: https://...)
+    // ✅ fallback: intenta sacarlo del texto
     const fromText = extractUrlFromText(m?.content);
     if (fromText) return fromText.trim();
 
@@ -189,26 +202,22 @@ export default function Chat(props) {
     const runner = pickRunner(m);
 
     const candidates = [
-      // top-level en el mensaje
       m?.report_url,
       m?.reportUrl,
 
-      // meta directo (tu handleSend mete ...(resp) aquí)
       meta?.report_url,
       meta?.reportUrl,
 
-      // runner
       runner?.report_url,
       runner?.reportUrl,
 
-      // meta.runner
       meta?.runner?.report_url,
       meta?.runner?.reportUrl,
     ].filter((x) => typeof x === "string" && x.trim());
 
     if (candidates.length) return candidates[0].trim();
 
-    // fallback desde texto (si el bot lo imprime)
+    // fallback desde texto
     const fromText = extractUrlFromText(m?.content);
     if (fromText && isProbablyPdfUrl(fromText)) return fromText.trim();
 
@@ -223,17 +232,20 @@ export default function Chat(props) {
     const evidenceUrl = pickEvidenceUrl(m);
     const evidenceId = pickEvidenceId(m);
     const reportUrl = pickReportUrl(m);
+    const docJson = pickDocJson(m);
 
     const isExecute = isExecuteMessage(m);
 
     // evidencia: si hay URL, muéstrala (sobre todo en execute)
     const showEvidence = !!evidenceUrl && (isExecute || role === "bot");
 
-    // ✅ reporte: mostrar SIEMPRE que exista la URL (sin depender de isExecute)
+    // reporte: mostrar SIEMPRE que exista la URL (sin depender de isExecute)
     const showReport = role === "bot" && !!reportUrl;
 
     const meta = getMeta(m);
     const key = String(m?.id || meta?.id || `${role}-${idx}`);
+
+    const showDocTabs = role === "bot" && !!docJson;
 
     return (
       <div
@@ -268,16 +280,21 @@ export default function Chat(props) {
             ) : null}
           </div>
 
-          {/* Texto */}
-          <div
-            dangerouslySetInnerHTML={{ __html: html }}
-            style={{ lineHeight: 1.35 }}
-          />
+          {/* Texto (si hay doc_json, el texto sirve como summary; se mantiene) */}
+          {content ? (
+            <div
+              dangerouslySetInnerHTML={{ __html: html }}
+              style={{ lineHeight: 1.35 }}
+            />
+          ) : null}
+
+          {/* DOC Tabs (Executive / QA) */}
+          {showDocTabs ? <DocArtifactTabs doc={docJson} /> : null}
 
           {/* Evidencia */}
           {showEvidence ? <EvidenceBlock evidenceUrl={evidenceUrl} /> : null}
 
-          {/* ✅ Reporte PDF */}
+          {/* Reporte PDF */}
           {showReport ? <ReportBlock reportUrl={reportUrl} /> : null}
         </div>
       </div>
@@ -344,6 +361,203 @@ export default function Chat(props) {
           {isLoading ? "..." : "Enviar"}
         </button>
       </div>
+    </div>
+  );
+}
+
+// ============================================================
+// DOC UI: Tabs Executive / QA
+// ============================================================
+function DocArtifactTabs({ doc }) {
+  const [tab, setTab] = useState("executive");
+
+  const ev = doc?.executive_view || {};
+  const qv = doc?.qa_view || {};
+
+  const topRisks = Array.isArray(ev?.top_risks) ? ev.top_risks : [];
+  const matrix = Array.isArray(ev?.matrix_summary) ? ev.matrix_summary : [];
+  const assumptions = Array.isArray(qv?.assumptions) ? qv.assumptions : [];
+  const questions = Array.isArray(qv?.questions_to_clarify) ? qv.questions_to_clarify : [];
+  const cases = Array.isArray(qv?.cases) ? qv.cases : [];
+
+  const Button = ({ active, children, onClick }) => (
+    <button
+      onClick={onClick}
+      style={{
+        padding: "8px 12px",
+        borderRadius: 10,
+        border: "1px solid rgba(255,255,255,0.16)",
+        background: active ? "rgba(255,255,255,0.10)" : "transparent",
+        color: "inherit",
+        cursor: "pointer",
+        fontWeight: 800,
+        fontSize: 12,
+      }}
+    >
+      {children}
+    </button>
+  );
+
+  return (
+    <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <Button active={tab === "executive"} onClick={() => setTab("executive")}>
+          Executive
+        </Button>
+        <Button active={tab === "qa"} onClick={() => setTab("qa")}>
+          QA
+        </Button>
+      </div>
+
+      {tab === "executive" ? (
+        <div style={{ display: "grid", gap: 10 }}>
+          {ev?.title ? (
+            <div style={{ fontSize: 16, fontWeight: 900 }}>{ev.title}</div>
+          ) : null}
+
+          {ev?.objective ? (
+            <div style={{ opacity: 0.9 }}>
+              <b>Objetivo:</b> {ev.objective}
+            </div>
+          ) : null}
+
+          {topRisks.length ? (
+            <>
+              <div style={{ fontWeight: 900, marginTop: 4 }}>Riesgos principales</div>
+              <SimpleTable
+                columns={["Prioridad", "Riesgo", "Impacto"]}
+                rows={topRisks.map((r) => ({
+                  Prioridad: r?.priority || "",
+                  Riesgo: r?.risk || "",
+                  Impacto: r?.impact || "",
+                }))}
+              />
+            </>
+          ) : null}
+
+          {matrix.length ? (
+            <>
+              <div style={{ fontWeight: 900, marginTop: 4 }}>Matriz resumida</div>
+              <SimpleTable
+                columns={["ID", "Escenario", "Resultado esperado", "Prioridad"]}
+                rows={matrix.map((r) => ({
+                  ID: r?.id || "",
+                  Escenario: r?.scenario || "",
+                  "Resultado esperado": r?.expected || "",
+                  Prioridad: r?.priority || "",
+                }))}
+              />
+            </>
+          ) : null}
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: 10 }}>
+          {assumptions.length ? (
+            <div>
+              <div style={{ fontWeight: 900 }}>Supuestos</div>
+              <ul style={{ marginTop: 6 }}>
+                {assumptions.map((a, i) => (
+                  <li key={i}>{a}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {questions.length ? (
+            <div>
+              <div style={{ fontWeight: 900 }}>Preguntas para aclarar</div>
+              <ul style={{ marginTop: 6 }}>
+                {questions.map((q, i) => (
+                  <li key={i}>{q}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {cases.length ? (
+            <>
+              <div style={{ fontWeight: 900 }}>Casos detallados</div>
+              <SimpleTable
+                columns={[
+                  "ID",
+                  "Escenario",
+                  "Prioridad",
+                  "Tipo",
+                  "Precondiciones",
+                  "Pasos",
+                  "Resultado esperado",
+                ]}
+                rows={cases.map((c) => ({
+                  ID: c?.id || "",
+                  Escenario: c?.scenario || "",
+                  Prioridad: c?.priority || "",
+                  Tipo: c?.type || "",
+                  Precondiciones: Array.isArray(c?.preconditions) ? c.preconditions.join(" • ") : "",
+                  Pasos: Array.isArray(c?.steps)
+                    ? c.steps.map((s, i) => `${i + 1}. ${s}`).join("\n")
+                    : "",
+                  "Resultado esperado": c?.expected || "",
+                }))}
+              />
+            </>
+          ) : (
+            <div style={{ opacity: 0.8, fontSize: 12 }}>
+              No hay detalle técnico en este artefacto (qa_view.cases vacío).
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SimpleTable({ columns = [], rows = [] }) {
+  return (
+    <div
+      style={{
+        overflowX: "auto",
+        borderRadius: 12,
+        border: "1px solid rgba(255,255,255,0.12)",
+      }}
+    >
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <thead>
+          <tr>
+            {columns.map((c) => (
+              <th
+                key={c}
+                style={{
+                  textAlign: "left",
+                  padding: "10px 12px",
+                  borderBottom: "1px solid rgba(255,255,255,0.12)",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {c}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {(rows || []).map((r, idx) => (
+            <tr key={idx}>
+              {columns.map((c) => (
+                <td
+                  key={c}
+                  style={{
+                    padding: "10px 12px",
+                    verticalAlign: "top",
+                    borderBottom: "1px solid rgba(255,255,255,0.06)",
+                    whiteSpace: c === "Pasos" ? "pre-wrap" : "normal",
+                  }}
+                >
+                  {r?.[c] ?? ""}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
