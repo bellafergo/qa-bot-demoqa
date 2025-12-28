@@ -37,13 +37,13 @@ Reglas:
 """
 
 SYSTEM_PROMPT_AUTOMATION = """Eres Vanya, QA Automation / SDET en MODO EJECUCIÓN.
-Tu misión es generar pasos robustos para ejecutar pruebas web.
+Tu misión es generar pasos robustos y EJECUTAR pruebas web.
 
 Reglas:
-- Devuelve pasos Playwright claros y estables.
+- Cuando el usuario pide validar/probar/ejecutar/login/navegar, debes generar steps y ejecutar runner.
 - Usa selectores robustos (data-testid > id > role/text).
 - Espera visibilidad antes de interactuar.
-- No expliques: ejecuta (siempre JSON en ejecución cuando se pida).
+- Devuelve pasos ejecutables (JSON) cuando se pida, sin explicación.
 """
 
 
@@ -97,18 +97,12 @@ def _safe_json_loads(s: str) -> Optional[Dict[str, Any]]:
 
 
 def _extract_json_object(raw: str) -> Optional[Dict[str, Any]]:
-    """
-    Intenta extraer un objeto JSON dict del texto.
-    - directo
-    - rescate por regex { ... }
-    """
     if not raw:
         return None
     txt = raw.strip()
     obj = _safe_json_loads(txt)
     if isinstance(obj, dict):
         return obj
-
     m = re.search(r"\{.*\}", txt, flags=re.S)
     if not m:
         return None
@@ -164,17 +158,20 @@ def _is_memory_query(prompt: str) -> bool:
         "recuérdame", "recuerdame", "última prueba", "ultima prueba",
         "qué validamos", "que validamos", "resultado", "evidence", "evidencia",
         "qué pasó", "que paso", "resumen de la prueba", "summary de la prueba",
+        "run", "logs", "steps",
     ]
     return any(k in p for k in keys)
 
 
 def _summarize_last_execute(history_msgs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """
-    Busca el último mensaje assistant con meta.mode == execute y arma un resumen.
+    Busca el último mensaje assistant con meta.mode == execute y arma un resumen estable.
+    No recalcula PASSED/FAILED: usa lo que realmente ocurrió en el último run.
     """
     for m in reversed(history_msgs or []):
         if (m.get("role") or "").strip() != "assistant":
             continue
+
         meta = m.get("meta") or m.get("meta_json") or {}
         if isinstance(meta, str):
             meta = _safe_json_loads(meta) or {}
@@ -185,35 +182,13 @@ def _summarize_last_execute(history_msgs: List[Dict[str, Any]]) -> Optional[Dict
             continue
 
         runner = meta.get("runner") or {}
-        status = (runner.get("status") or "").strip() or meta.get("runner_status")
-        base_url = meta.get("base_url")
+        status = (runner.get("status") or meta.get("runner_status") or "").strip() or "unknown"
+        base_url = meta.get("base_url") or ""
         evidence_url = meta.get("evidence_url") or runner.get("screenshot_url") or runner.get("evidence_url")
         report_url = meta.get("report_url")
         duration_ms = meta.get("duration_ms") or runner.get("duration_ms")
 
-        # Determinar expectativa según intención del usuario
-        expects_success = "pueda iniciar sesión" in prompt.lower() \
-            or "login exitoso" in prompt.lower()
-
-        expects_error = "muestre un error" in prompt.lower() \
-            or "debe fallar" in prompt.lower()
-
-        if expects_success:
-            # login esperado exitoso
-            status = "passed" if login_success else "failed"
-
-        elif expects_error:
-            # error esperado
-            status = "passed" if error_visible else "failed"
-
-        else:
-            # fallback conservador
-            status = runner.get("status", "failed")
-
-        answer = m.get("content") or ""
-        if not answer.strip():
-            answer = "Resumen: ejecución registrada (sin mensaje)."
-
+        answer = (m.get("content") or "").strip() or "Resumen: ejecución registrada."
         return {
             "answer": answer,
             "runner_status": status,
@@ -222,7 +197,6 @@ def _summarize_last_execute(history_msgs: List[Dict[str, Any]]) -> Optional[Dict
             "report_url": report_url,
             "duration_ms": duration_ms,
         }
-
     return None
 
 
@@ -243,9 +217,8 @@ def _strip_quotes(s: str) -> str:
 
 def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[str, Any]]]:
     """
-    Parser determinístico: si el usuario ya especificó fill/click/assert,
-    generamos steps sin depender del LLM.
-    (Basado en tu versión) :contentReference[oaicite:2]{index=2}
+    Parser determinístico (si el usuario menciona acciones/selector/texto).
+    Si no hay suficiente, devuelve None y se usa LLM.
     """
     p = (prompt or "").strip()
     low = p.lower()
@@ -291,17 +264,15 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
     ]
     found_text = None
     for pat in text_patterns:
-        m = re.search(pat, p, flags=re.IGNORECASE)
-        if m:
-            found_text = _strip_quotes(m.group(1))
+        mm = re.search(pat, p, flags=re.IGNORECASE)
+        if mm:
+            found_text = _strip_quotes(mm.group(1))
             break
     if found_text:
         steps.append({"action": "assert_text_contains", "text": found_text})
 
     useful = [s for s in steps if s["action"] not in ("goto", "wait_ms")]
-    if not useful:
-        return None
-    return steps
+    return steps if useful else None
 
 
 def _make_png_data_url(b64_or_data_url: Optional[str]) -> Optional[str]:
@@ -332,9 +303,13 @@ def _handle_execute_mode(
     persona: str,
     messages: List[Dict[str, str]],
 ) -> Dict[str, Any]:
+    """
+    Flujo estable:
+    base_url -> steps -> runner -> evidence_url -> report_url -> save_run -> persist -> return
+    """
+    t0 = time.time()
     base_url = H.pick_base_url(req, session, prompt)
 
-    # Si falta URL, aquí sí pedimos (solo execute). :contentReference[oaicite:3]{index=3}
     if not base_url:
         answer = (
             "Para ejecutar necesito:\n"
@@ -352,10 +327,10 @@ def _handle_execute_mode(
             **_confidence("execute", prompt, None),
         }
 
-    # 0) parser determinístico
+    # 0) Parser determinístico
     steps = _parse_steps_from_prompt(prompt, base_url)
 
-    # 1) fallback LLM para steps
+    # 1) Fallback LLM para steps
     if not steps:
         client = _client()
         resp = client.chat.completions.create(
@@ -379,7 +354,12 @@ def _handle_execute_mode(
 
     if not steps:
         answer = "No pude generar pasos ejecutables. Dime el botón/campo exacto y el texto esperado."
-        store.add_message(thread_id, "assistant", answer, meta={"mode": "execute", "persona": persona, "base_url": base_url})
+        store.add_message(
+            thread_id,
+            "assistant",
+            answer,
+            meta={"mode": "execute", "persona": persona, "base_url": base_url},
+        )
         return {
             "mode": "execute",
             "persona": persona,
@@ -389,21 +369,71 @@ def _handle_execute_mode(
             **_confidence("execute", prompt, base_url),
         }
 
+    # 2) Ejecutar runner (SIEMPRE definir runner antes de usarlo)
+    runner: Dict[str, Any] = {}
+    evidence_url: Optional[str] = None
+    report_url: Optional[str] = None
+    screenshot_data_url: Optional[str] = None
+    duration_ms: Optional[int] = None
+
+    try:
+        runner = execute_test(
+            base_url=base_url,
+            steps=steps,
+            headless=bool(getattr(req, "headless", True)),
+            timeout_s=settings.RUNNER_TIMEOUT_S,
+        ) or {}
+    except Exception as e:
+        logger.exception("Runner execution failed")
+        answer = (
+            "No pude ejecutar la prueba.\n"
+            "Verifica:\n"
+            "- URL accesible\n"
+            "- Credenciales correctas (si aplica)\n"
+            "- Qué validación exacta quieres (texto/botón/elemento)\n"
+            "Y reintenta."
+        )
+        store.add_message(thread_id, "assistant", answer, meta={"mode": "execute", "persona": persona, "error": f"{type(e).__name__}: {e}"})
+        return {
+            "mode": "execute",
+            "persona": persona,
+            "session_id": session.get("id"),
+            "thread_id": thread_id,
+            "answer": answer,
+            "error": f"{type(e).__name__}: {e}",
+            **_confidence("execute", prompt, base_url),
+        }
+
+    # status / msg / duration
     ok = bool(runner.get("ok", True))
-    status = (runner.get("status") or ("ok" if ok else "fail")).strip()
+    status = (runner.get("status") or ("passed" if ok else "failed")).strip()
     msg = (runner.get("message") or runner.get("detail") or "").strip()
+    duration_ms = runner.get("duration_ms")
+    if not isinstance(duration_ms, int):
+        duration_ms = int((time.time() - t0) * 1000)
 
-    answer = _render_execute_answer(status=status, msg=msg, evidence_url=evidence_url, report_url=report_url)
+    # 3) Evidencia (screenshot -> Cloudinary)
+    try:
+        b64 = runner.get("screenshot_b64") or runner.get("screenshotBase64") or runner.get("screenshotB64")
+        screenshot_data_url = _make_png_data_url(b64) if b64 else runner.get("screenshot_data_url") or runner.get("screenshotDataUrl")
+        evidence_id = (runner.get("evidence_id") or "").strip()
+        if b64 and settings.HAS_CLOUDINARY:
+            # nombre estable con evidence_id si existe
+            fname = f"{evidence_id}.png" if evidence_id else "evidence.png"
+            evidence_url = cloud_upload_screenshot_b64(str(b64), filename=fname)
+        # Si el runner ya trae url
+        if not evidence_url:
+            evidence_url = runner.get("screenshot_url") or runner.get("evidence_url")
+    except Exception:
+        logger.exception("Evidence upload failed (continuing)")
+        evidence_url = evidence_url or None
 
-    # ============================================================
-    # REPORTE PDF (UNA SOLA VEZ, BIEN HECHO)
-    # ============================================================
-    report_url = None
+    # 4) Reporte PDF (best-effort, nunca rompe)
     try:
         rep = generate_pdf_report(
             prompt=prompt,
             base_url=base_url,
-            runner=runner,
+            runner={**runner, "screenshot_data_url": screenshot_data_url} if screenshot_data_url else runner,
             steps=steps,
             evidence_id=runner.get("evidence_id"),
             meta={
@@ -412,30 +442,30 @@ def _handle_execute_mode(
                 "headless": getattr(req, "headless", True),
             },
         )
-
-        if settings.HAS_CLOUDINARY:
-            up = cloud_upload_pdf_bytes(
-                open(rep["report_path"], "rb").read(),
-                filename=rep["report_filename"],
-            )
-            report_url = up
-
+        if settings.HAS_CLOUDINARY and rep and rep.get("report_path"):
+            with open(rep["report_path"], "rb") as f:
+                pdf_bytes = f.read()
+            report_url = cloud_upload_pdf_bytes(pdf_bytes, filename=rep.get("report_filename") or "report.pdf")
     except Exception:
-        logger.exception("PDF report generation/upload failed")
+        logger.exception("PDF report generation/upload failed (continuing)")
+        report_url = None
 
-    # ============================================================
-    # Guardar run y adjuntar runner correctamente
-    # ============================================================
-    from app import save_run
+    # 5) Guardar run (best-effort)
+    try:
+        from app import save_run
+        save_run(runner)
+    except Exception:
+        logger.exception("save_run failed (continuing)")
 
-    save_run(runner)
+    # 6) Respuesta final (con links)
+    answer = _render_execute_answer(status=status, msg=msg, evidence_url=evidence_url, report_url=report_url)
 
     meta = {
         "mode": "execute",
         "persona": persona,
         "base_url": base_url,
         "steps": steps,
-        "runner": {**runner, "screenshot_data_url": screenshot_data_url},
+        "runner": {**runner, "screenshot_data_url": screenshot_data_url} if isinstance(runner, dict) else runner,
         "evidence_url": evidence_url,
         "report_url": report_url,
         "duration_ms": duration_ms,
@@ -463,14 +493,14 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
     """
     Producto: routing determinístico + respuestas seguras.
     - DOC: fuerza JSON estructurado (Executive/QA) y nunca truena.
-    - EXECUTE: corre runner si aplica; si falla, mensaje útil (no solo "error").
+    - EXECUTE: corre runner; si falla, mensaje útil (y error trazable).
     - ADVISE: respuesta QA lead.
     """
     prompt = H.norm(getattr(req, "prompt", "") or "")
     if not prompt:
         raise HTTPException(status_code=400, detail="Prompt vacío")
 
-    # defaults seguros (evita UnboundLocalError) :contentReference[oaicite:4]{index=4}
+    # defaults
     mode: str = "advise"
     persona: str = "lead"
     answer: str = ""
@@ -478,7 +508,7 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
 
     # session
     session_id, session = H.get_session(getattr(req, "session_id", None))
-    session["id"] = session_id  # para usarlo en execute
+    session["id"] = session_id
 
     # thread
     thread_id = (getattr(req, "thread_id", None) or "").strip() or None
@@ -486,7 +516,7 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         t = store.create_thread(title=(prompt[:60] or "New chat"))
         thread_id = t["id"]
 
-    # persist USER message (correcto: role=user) :contentReference[oaicite:5]{index=5}
+    # persist USER message
     try:
         store.add_message(thread_id, "user", prompt, meta={"mode_hint": "input"})
     except Exception:
@@ -500,7 +530,7 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         logger.warning("Failed to load thread history (continuing)", exc_info=True)
         history_msgs = []
 
-    # MEMORY (siempre advise) :contentReference[oaicite:6]{index=6}
+    # MEMORY
     if _is_memory_query(prompt):
         mem = _summarize_last_execute(history_msgs)
         if not mem:
@@ -529,7 +559,7 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             **_confidence("advise", prompt, mem.get("base_url")),
         }
 
-    # INTENT (execute tiene prioridad; doc no compite con execute) :contentReference[oaicite:7]{index=7}
+    # INTENT
     wants_execute = bool(H.wants_execute(prompt, session))
     wants_doc = bool(H.wants_doc(prompt)) if not wants_execute else False
     mode = "execute" if wants_execute else "doc" if wants_doc else "advise"
@@ -558,7 +588,6 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
                 result["session_id"] = session_id
                 return result
 
-            # fallback raro
             answer = "No pude completar la ejecución. Reintenta indicando URL, credenciales y qué validar."
             store.add_message(thread_id, "assistant", answer, meta={"mode": "execute", "persona": persona, "safe_fallback": True})
             return {
@@ -595,7 +624,7 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
                 **_confidence("execute", prompt, H.pick_base_url(req, session, prompt)),
             }
 
-    # DOC / ADVISE (nunca debe romper endpoint)
+    # DOC / ADVISE
     try:
         client = _client()
 
@@ -661,7 +690,6 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         }
 
     except Exception as e:
-        # fallback final: nunca 500
         msg = "Ocurrió un problema generando la respuesta. Intenta nuevamente o ajusta el alcance."
         logger.exception("DOC/ADVISE failure")
         try:
