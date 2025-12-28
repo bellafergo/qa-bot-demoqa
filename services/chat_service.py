@@ -304,6 +304,10 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
     prompt = H.norm(getattr(req, "prompt", "") or "")
     if not prompt:
         raise HTTPException(status_code=400, detail="Prompt vacío")
+    
+    answer: str = ""
+    doc_json = None
+    meta: dict = {}
 
     # Session
     session_id, session = H.get_session(getattr(req, "session_id", None))
@@ -612,10 +616,14 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             **_confidence("execute", prompt, base_url),
         }
 
-    # ============================================================
+   # ============================================================
     # ADVISE / DOC (NUNCA debe romper el endpoint)
     # ============================================================
     client = _client()
+
+    # ✅ define siempre, aunque algo falle antes
+    answer: str = ""
+    doc_json = None
 
     def _extract_json_object(raw: str):
         if not raw:
@@ -668,12 +676,16 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
 
             answer = _render_doc_answer_from_json(doc_json)
 
-            store.add_message(
-                thread_id,
-                "assistant",
-                answer,
-                meta={"mode": "doc", "doc_json": doc_json},
-            )
+            # ✅ nunca dejes que store rompa el endpoint
+            try:
+                store.add_message(
+                    thread_id,
+                    "assistant",
+                    answer,
+                    meta={"mode": "doc", "persona": persona, "doc_json": doc_json},
+                )
+            except Exception:
+                logger.exception("store.add_message failed (doc)")
 
             return {
                 "mode": "doc",
@@ -695,7 +707,10 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
 
         answer = (resp.choices[0].message.content or "").strip() or "¿Puedes darme más contexto?"
 
-        store.add_message(thread_id, "assistant", answer, meta={"mode": mode})
+        try:
+            store.add_message(thread_id, "assistant", answer, meta={"mode": mode, "persona": persona})
+        except Exception:
+            logger.exception("store.add_message failed (advise)")
 
         base_url_hint = H.pick_base_url(req, session, prompt)
 
@@ -709,23 +724,28 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         }
 
     except Exception as e:
-        # 🔒 fallback final — nunca 500
-        msg = "Ocurrió un problema generando la respuesta. Intenta nuevamente o ajusta el alcance."
-
         logger.exception("DOC/ADVISE failure")
 
-        store.add_message(
-            thread_id,
-            "assistant",
-            msg,
-            meta={"mode": mode, "error": str(e)},
-        )
+        # 🔒 fallback final — nunca 500
+        answer = "Ocurrió un problema generando la respuesta. Intenta nuevamente o ajusta el alcance."
+        err = f"{type(e).__name__}: {str(e)}"
+
+        # ✅ el fallback NUNCA debe fallar al guardar
+        try:
+            store.add_message(
+                thread_id,
+                "assistant",
+                answer,
+                meta={"mode": mode, "persona": persona, "error": err},
+            )
+        except Exception:
+            logger.exception("store.add_message failed (fallback)")
 
         return {
             "mode": mode,
             "persona": persona,
             "session_id": session_id,
             "thread_id": thread_id,
-            "answer": msg,
-            "error": str(e),
+            "answer": answer,
+            "error": err,
         }
