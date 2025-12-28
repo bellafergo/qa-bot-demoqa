@@ -295,36 +295,49 @@ def _make_png_data_url(b64_or_data_url: Optional[str]) -> Optional[str]:
     if s.startswith("data:image"):
         return s
     return f"data:image/png;base64,{s}"
+
 # ============================================================
 # MAIN
 # ============================================================
 def handle_chat_run(req: Any) -> Dict[str, Any]:
+    """
+    Producto: routing determinístico + respuestas seguras.
+    - DOC: fuerza JSON estructurado (Executive/QA) y nunca truena.
+    - EXECUTE: corre runner si aplica; si falla, mensaje útil (no solo "error").
+    - ADVISE: respuesta normal QA lead.
+    """
     prompt = H.norm(getattr(req, "prompt", "") or "")
     if not prompt:
         raise HTTPException(status_code=400, detail="Prompt vacío")
 
-    # ----------------------------
-    # Session (in-memory)
-    # ----------------------------
+    # ---------- defaults seguros (evita UnboundLocalError) ----------
+    answer: str = ""
+    mode: str = "advise"
+    persona: str = "lead"
+    doc_json: Optional[dict] = None
+    meta: Dict[str, Any] = {}
+
+    # ---------- session ----------
     session_id, session = H.get_session(getattr(req, "session_id", None))
 
-    # ----------------------------
-    # Thread (DB / store)
-    # ----------------------------
+    # ---------- thread ----------
     thread_id = (getattr(req, "thread_id", None) or "").strip() or None
     if not thread_id:
         t = store.create_thread(title=(prompt[:60] or "New chat"))
         thread_id = t["id"]
 
-    # ✅ Persist USER message (correct role)
+    # ---------- persist USER message (correcto: role=user) ----------
     try:
-        store.add_message(thread_id, "user", prompt, meta={"source": "chat"})
+        store.add_message(
+            thread_id,
+            "user",
+            prompt,
+            meta={"mode_hint": "input"},
+        )
     except Exception:
-        logger.exception("store.add_message failed (user prompt)")
+        logger.warning("Failed to persist user message (continuing)", exc_info=True)
 
-    # ----------------------------
-    # Load history
-    # ----------------------------
+    # ---------- load history ----------
     try:
         thread = store.get_thread(thread_id)
         history_msgs = (thread.get("messages") or [])[-settings.MAX_HISTORY_MSGS :]
@@ -332,288 +345,63 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         logger.warning("Failed to load thread history (continuing)", exc_info=True)
         history_msgs = []
 
-    # ----------------------------
-    # MEMORY (no execute)
-    # ----------------------------
-    if _is_memory_query(prompt):
-        mem = _summarize_last_execute(history_msgs)
-        if not mem:
-            answer = (
-                "Aún no veo una ejecución previa en este chat. "
-                "Pídeme que ejecute una prueba y luego te resumo el resultado."
-            )
-            try:
-                store.add_message(thread_id, "assistant", answer, meta={"mode": "advise", "memory": True})
-            except Exception:
-                logger.exception("store.add_message failed (memory empty)")
-            return {
-                "mode": "advise",
-                "persona": _persona(prompt, "advise"),
-                "session_id": session_id,
-                "thread_id": thread_id,
-                "answer": answer,
-                **_confidence("advise", prompt, None),
-            }
+    # ---------- decide mode determinísticamente ----------
+    p = prompt.lower()
 
-        answer = mem.get("answer") or "Resumen no disponible."
-        try:
-            store.add_message(
-                thread_id,
-                "assistant",
-                answer,
-                meta={
-                    "mode": "advise",
-                    "memory": True,
-                    "base_url": mem.get("base_url"),
-                    "runner_status": mem.get("runner_status"),
-                    "evidence_url": mem.get("evidence_url"),
-                    "report_url": mem.get("report_url"),
-                    "duration_ms": mem.get("duration_ms"),
-                },
-            )
-        except Exception:
-            logger.exception("store.add_message failed (memory)")
-        return {
-            "mode": "advise",
-            "persona": _persona(prompt, "advise"),
-            "session_id": session_id,
-            "thread_id": thread_id,
-            "answer": answer,
-            "evidence_url": mem.get("evidence_url"),
-            "report_url": mem.get("report_url"),
-            "duration_ms": mem.get("duration_ms"),
-            **_confidence("advise", prompt, mem.get("base_url")),
-        }
+    DOC_TRIGGERS = (
+        "matriz", "casos de prueba", "casos prueba", "gherkin", "escenarios",
+        "checklist", "plan de pruebas", "test plan", "test cases", "matriz de pruebas",
+    )
+    EXEC_TRIGGERS = (
+        "ve a ", "abre ", "navega", "haz click", "da click", "inicia sesión", "login",
+        "valida", "verifica", "ejecuta", "ejecutar", "prueba ui", "playwright",
+        "https://", "http://",
+    )
 
-    # ----------------------------
-    # INTENT (execute vs doc vs advise)
-    # ----------------------------
-    wants_execute = bool(H.wants_execute(prompt, session))
-    wants_doc = bool(H.wants_doc(prompt)) if not wants_execute else False  # doc no compite con execute
+    wants_doc = any(k in p for k in DOC_TRIGGERS)
+    wants_execute = any(k in p for k in EXEC_TRIGGERS)
 
-    mode = "execute" if wants_execute else "doc" if wants_doc else "advise"
-    persona = _persona(prompt, mode)
+    # Regla de producto:
+    # - Si pide artefacto -> DOC
+    # - Si pide ejecutar UI -> EXECUTE
+    # - Si viene mezclado, prioriza EXECUTE si hay URL + acción, si no DOC
+    if wants_execute and ("http://" in p or "https://" in p or "saucedemo" in p or "valida" in p or "inicia sesión" in p):
+        mode = "execute"
+        persona = "automation"
+    elif wants_doc:
+        mode = "doc"
+        persona = "doc"
+    else:
+        mode = "advise"
+        persona = "lead"
 
-    # ----------------------------
-    # LLM messages
-    # ----------------------------
-    messages: List[Dict[str, str]] = [{"role": "system", "content": _system_prompt(persona)}]
-    for m in history_msgs:
-        role = (m.get("role") or "assistant").strip()
-        content = (m.get("content") or "").strip()
-        if content:
-            messages.append({"role": role, "content": content})
+    # ---------- build messages ----------
+    # Nota: usa tu formato de mensajes existente (history + system + user)
+    messages = H.build_messages(history_msgs, prompt, mode=mode, persona=persona)
 
-    # ============================================================
-    # EXECUTE (solo aquí se permite pedir URL)
-    # ============================================================
-    if mode == "execute":
-        base_url = H.pick_base_url(req, session, prompt)
-
-        if not base_url:
-            answer = (
-                "Para ejecutar necesito:\n"
-                "- URL (o dime “la misma”)\n"
-                "- Qué validar (botón / campo / texto esperado)\n"
-                "- Credenciales (si aplica)"
-            )
-            try:
-                store.add_message(thread_id, "assistant", answer, meta={"mode": "execute", "persona": persona})
-            except Exception:
-                logger.exception("store.add_message failed (execute clarify)")
-
-            return {
-                "mode": "execute",
-                "persona": persona,
-                "session_id": session_id,
-                "thread_id": thread_id,
-                "answer": answer,
-                **_confidence("execute", prompt, None),
-            }
-
-        # 0) Parser determinístico
-        steps = _parse_steps_from_prompt(prompt, base_url)
-
-        # 1) Fallback a LLM para steps
-        if not steps:
-            client = _client()
-            resp = client.chat.completions.create(
-                model=settings.OPENAI_MODEL,
-                messages=messages
-                + [
-                    {
-                        "role": "user",
-                        "content": (
-                            f"URL base: {base_url}\n"
-                            f"Genera pasos Playwright para:\n{prompt}\n"
-                            'Devuelve SOLO JSON con {"steps": [...]}'
-                        ),
-                    }
-                ],
-                temperature=settings.EXEC_TEMPERATURE,
-                max_tokens=settings.EXEC_MAX_TOKENS,
-            )
-            raw = (resp.choices[0].message.content or "").strip()
-            steps = H.extract_steps_from_text(raw) or []
-
-        if not steps:
-            answer = "No pude inferir pasos claros para ejecutar. Dime exactamente qué validar (campo/botón/texto)."
-            try:
-                store.add_message(thread_id, "assistant", answer, meta={"mode": "execute", "persona": persona})
-            except Exception:
-                logger.exception("store.add_message failed (execute no steps)")
-            return {
-                "mode": "execute",
-                "persona": persona,
-                "session_id": session_id,
-                "thread_id": thread_id,
-                "answer": answer,
-                **_confidence("execute", prompt, base_url),
-            }
-
-        # Ejecuta runner
-        t0 = time.time()
-        try:
-            result = execute_test(
-                base_url=base_url,
-                steps=steps,
-                headless=bool(getattr(req, "headless", True)),
-                timeout_s=settings.RUNNER_TIMEOUT_S,
-            )
-        except Exception as e:
-            result = {"status": "error", "error": f"{type(e).__name__}: {str(e)}"}
-
-        duration_ms = int((time.time() - t0) * 1000)
-
-        # Evidence / screenshot -> data url
-        screenshot_b64 = (
-            (result or {}).get("screenshot_b64")
-            or (result or {}).get("screenshotBase64")
-            or (result or {}).get("screenshotB64")
-            or (result or {}).get("screenshot_base64")
-        )
-        screenshot_data_url = _make_png_data_url(screenshot_b64)
-
-        # Cloudinary screenshot (si aplica)
-        evidence_id = H.make_evidence_id()
-        evidence_url = None
-        cloud_public_id = None
-        try:
-            if screenshot_b64 and getattr(settings, "HAS_CLOUDINARY", False):
-                up = cloud_upload_screenshot_b64(screenshot_b64, evidence_id=evidence_id, folder="vanya/evidence")
-                evidence_url = up.get("secure_url") or up.get("url")
-                cloud_public_id = up.get("public_id")
-        except Exception:
-            logger.warning("Cloudinary screenshot upload failed", exc_info=True)
-
-        # PDF report (best effort)
-        try:
-            rep = generate_pdf_report(
-                prompt=prompt,
-                base_url=base_url,
-                runner=result,
-                steps=steps,
-                evidence_id=evidence_id,
-                meta={
-                    "thread_id": thread_id,
-                    "session_id": session_id,
-                    "headless": bool(getattr(req, "headless", True)),
-                },
-            )
-            pdf_path = rep.get("report_path")
-            if pdf_path and os.path.exists(pdf_path) and getattr(settings, "HAS_CLOUDINARY", False):
-                with open(pdf_path, "rb") as f:
-                    pdf_bytes = f.read()
-                uploaded_pdf = cloud_upload_pdf_bytes(pdf_bytes, evidence_id=evidence_id, folder="vanya/reports")
-                report_url = uploaded_pdf.get("secure_url") or uploaded_pdf.get("url")
-                result["report_url"] = report_url
-                result["report_error"] = None
-            else:
-                result["report_url"] = None
-                result["report_error"] = "PDF no disponible o Cloudinary no configurado"
-        except Exception as e:
-            result["report_url"] = None
-            result["report_error"] = str(e)
-            logger.warning("PDF report failed", exc_info=True)
-
-        # Enriquecer runner para UI
-        if isinstance(result, dict):
-            result["duration_ms"] = result.get("duration_ms") or duration_ms
-            result["screenshot_data_url"] = screenshot_data_url
-            result["evidence_url"] = evidence_url
-
-        # Render answer
-        answer = (
-            H.render_execute_answer(result, evidence_url=evidence_url)
-            if hasattr(H, "render_execute_answer")
-            else (f"✅ Ejecutado ({result.get('status')})." + (f"\nEvidence: {evidence_url}" if evidence_url else ""))
-        )
-
-        assistant_meta: Dict[str, Any] = {
-            "mode": "execute",
-            "persona": persona,
-            "base_url": base_url,
-            "duration_ms": duration_ms,
-            "runner_status": result.get("status") or ("ok" if result.get("ok", True) else "error"),
-            "evidence_id": evidence_id,
-            "evidence_url": evidence_url,
-            "cloudinary_public_id": cloud_public_id,
-            "report_url": result.get("report_url"),
-            "report_error": result.get("report_error"),
-            "runner": {
-                "status": result.get("status"),
-                "error": result.get("error"),
-                "evidence_id": evidence_id,
-                "evidence_url": evidence_url,
-                "screenshot_url": evidence_url,
-                "screenshot_data_url": screenshot_data_url,
-                "duration_ms": result.get("duration_ms") or duration_ms,
-                "report_url": result.get("report_url"),
-                "report_error": result.get("report_error"),
-            },
-            "steps": steps,
-        }
-
-        try:
-            store.add_message(thread_id, "assistant", answer, meta=assistant_meta)
-        except Exception:
-            logger.exception("store.add_message failed (execute)")
-
-        return {
-            "mode": "execute",
-            "persona": persona,
-            "session_id": session_id,
-            "thread_id": thread_id,
-            "answer": answer,
-            "runner": result,
-            "evidence_url": evidence_url,
-            "report_url": result.get("report_url"),
-            "report_error": result.get("report_error"),
-            "duration_ms": duration_ms,
-            **_confidence("execute", prompt, base_url),
-        }
-
-    # ============================================================
-    # ADVISE / DOC (NUNCA debe romper el endpoint)
-    # ============================================================
     client = _client()
-    answer: str = ""
-    doc_json: Optional[Dict[str, Any]] = None
 
-    def _extract_json_object(raw: str) -> Optional[Dict[str, Any]]:
-        if not raw:
-            return None
-        raw = raw.strip()
-        obj = _safe_json_loads(raw)
-        if isinstance(obj, dict):
-            return obj
-        m = re.search(r"\{.*\}", raw, re.S)
-        if not m:
-            return None
-        return _safe_json_loads(m.group(0))
+    # ============================================================
+    # DOC (FORZADO) — siempre devuelve doc_json válido
+    # ============================================================
+    if mode == "doc":
+        def _extract_json_object(raw: str) -> Optional[dict]:
+            if not raw:
+                return None
+            raw = raw.strip()
 
-    try:
-        if mode == "doc":
+            obj = _safe_json_loads(raw)
+            if isinstance(obj, dict):
+                return obj
+
+            import re
+            m = re.search(r"\{.*\}", raw, re.S)
+            if not m:
+                return None
+            obj = _safe_json_loads(m.group(0))
+            return obj if isinstance(obj, dict) else None
+
+        try:
             resp = client.chat.completions.create(
                 model=settings.OPENAI_MODEL,
                 messages=messages,
@@ -624,29 +412,34 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             doc_json = _extract_json_object(raw)
 
             if not isinstance(doc_json, dict):
+                # fallback de producto (JSON válido siempre)
                 doc_json = {
                     "executive_view": {
                         "title": "Artefacto QA",
-                        "objective": "El modelo no devolvió JSON válido. Se muestra salida de respaldo.",
+                        "objective": "No se recibió JSON válido del modelo. Se entrega vista de respaldo.",
                         "top_risks": [],
                         "matrix_summary": [],
                     },
                     "qa_view": {
-                        "sections": [{"title": "Salida del modelo", "content": raw[:4000] if raw else "Sin contenido"}]
+                        "sections": [
+                            {
+                                "title": "Salida del modelo (respaldo)",
+                                "content": (raw[:4000] if raw else "Sin contenido"),
+                            }
+                        ]
                     },
                 }
 
             answer = _render_doc_answer_from_json(doc_json)
 
-            try:
-                store.add_message(
-                    thread_id,
-                    "assistant",
-                    answer,
-                    meta={"mode": "doc", "persona": persona, "doc_json": doc_json, "doc_schema": "v1"},
-                )
-            except Exception:
-                logger.exception("store.add_message failed (doc)")
+            meta = {
+                "mode": "doc",
+                "persona": persona,
+                "doc_json": doc_json,
+                "doc_schema": "v1",
+            }
+
+            store.add_message(thread_id, "assistant", answer, meta=meta)
 
             return {
                 "mode": "doc",
@@ -658,7 +451,80 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
                 **_confidence("doc", prompt, None),
             }
 
-        # ADVISE
+        except Exception as e:
+            logger.exception("DOC failure (safe fallback)")
+            answer = "Ocurrió un problema generando el artefacto QA. Intenta de nuevo con más detalle (flujo/alcance) o reduce el número de casos."
+            meta = {"mode": "doc", "persona": persona, "error": f"{type(e).__name__}: {str(e)}", "safe_fallback": True}
+            try:
+                store.add_message(thread_id, "assistant", answer, meta=meta)
+            except Exception:
+                pass
+            return {
+                "mode": "doc",
+                "persona": persona,
+                "session_id": session_id,
+                "thread_id": thread_id,
+                "answer": answer,
+                "error": meta["error"],
+                **_confidence("doc", prompt, None),
+            }
+
+    # ============================================================
+    # EXECUTE — si falla, respuesta útil + runner si existe
+    # ============================================================
+    if mode == "execute":
+        try:
+            # tus helpers actuales deberían resolver base_url / pasos / runner
+            # y devolver un dict con answer + meta/runner/evidence
+            result = _handle_execute_mode(req=req, session=session, prompt=prompt, thread_id=thread_id, messages=messages)
+
+            # garantiza que siempre exista answer para el frontend
+            if isinstance(result, dict):
+                if not (result.get("answer") or "").strip():
+                    result["answer"] = "Ejecución completada. Revisa evidencia y resultado."
+                return result
+
+            # fallback raro
+            answer = "No pude completar la ejecución. Reintenta indicando URL, credenciales y qué validar."
+            store.add_message(thread_id, "assistant", answer, meta={"mode": "execute", "persona": persona, "safe_fallback": True})
+            return {
+                "mode": "execute",
+                "persona": persona,
+                "session_id": session_id,
+                "thread_id": thread_id,
+                "answer": answer,
+                **_confidence("execute", prompt, H.pick_base_url(req, session, prompt)),
+            }
+
+        except Exception as e:
+            logger.exception("EXECUTE crashed (safe fallback)")
+            answer = (
+                "No pude ejecutar la prueba.\n"
+                "Verifica:\n"
+                "- URL accesible\n"
+                "- Credenciales correctas (si aplica)\n"
+                "- Qué validación exacta quieres (texto/botón/elemento)\n"
+                "Y reintenta."
+            )
+            meta = {"mode": "execute", "persona": persona, "error": f"{type(e).__name__}: {str(e)}", "safe_fallback": True}
+            try:
+                store.add_message(thread_id, "assistant", answer, meta=meta)
+            except Exception:
+                pass
+            return {
+                "mode": "execute",
+                "persona": persona,
+                "session_id": session_id,
+                "thread_id": thread_id,
+                "answer": answer,
+                "error": meta["error"],
+                **_confidence("execute", prompt, H.pick_base_url(req, session, prompt)),
+            }
+
+    # ============================================================
+    # ADVISE — QA lead normal, estable
+    # ============================================================
+    try:
         resp = client.chat.completions.create(
             model=settings.OPENAI_MODEL,
             messages=messages,
@@ -667,37 +533,23 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         )
         answer = (resp.choices[0].message.content or "").strip() or "¿Puedes darme más contexto?"
 
-        try:
-            store.add_message(thread_id, "assistant", answer, meta={"mode": "advise", "persona": persona})
-        except Exception:
-            logger.exception("store.add_message failed (advise)")
-
-        base_url_hint = H.pick_base_url(req, session, prompt)
-
-        return {
-            "mode": "advise",
-            "persona": persona,
-            "session_id": session_id,
-            "thread_id": thread_id,
-            "answer": answer,
-            **_confidence("advise", prompt, base_url_hint),
-        }
-
     except Exception as e:
-        logger.exception("DOC/ADVISE failure")
-        answer = "Ocurrió un problema generando la respuesta. Intenta nuevamente o ajusta el alcance."
-        err = f"{type(e).__name__}: {str(e)}"
+        logger.exception("ADVISE failed (safe fallback)")
+        answer = "Ocurrió un problema generando la respuesta. Intenta nuevamente."
 
-        try:
-            store.add_message(thread_id, "assistant", answer, meta={"mode": mode, "persona": persona, "error": err})
-        except Exception:
-            logger.exception("store.add_message failed (fallback)")
+    meta = {"mode": "advise", "persona": persona}
+    try:
+        store.add_message(thread_id, "assistant", answer, meta=meta)
+    except Exception:
+        logger.warning("Failed to persist assistant message (continuing)", exc_info=True)
 
-        return {
-            "mode": mode,
-            "persona": persona,
-            "session_id": session_id,
-            "thread_id": thread_id,
-            "answer": answer,
-            "error": err,
-        }
+    base_url_hint = H.pick_base_url(req, session, prompt)
+
+    return {
+        "mode": "advise",
+        "persona": persona,
+        "session_id": session_id,
+        "thread_id": thread_id,
+        "answer": answer,
+        **_confidence("advise", prompt, base_url_hint),
+    }
