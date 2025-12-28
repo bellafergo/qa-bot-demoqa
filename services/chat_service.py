@@ -23,6 +23,60 @@ from services.report_service import generate_pdf_report
 
 logger = logging.getLogger("vanya.chat_service")
 
+def _safe_json_loads(s: str) -> Optional[Dict[str, Any]]:
+    try:
+        return json.loads(s)
+    except Exception:
+        return None
+
+
+def _render_doc_answer_from_json(doc: Dict[str, Any]) -> str:
+    """
+    Genera un resumen legible (Markdown simple) a partir del doc_json
+    para mantener compatibilidad con el UI actual.
+    """
+    ev = doc.get("executive_view", {})
+    title = ev.get("title", "Artefacto QA")
+    objective = ev.get("objective", "")
+
+    lines: List[str] = []
+    lines.append(f"## {title}")
+
+    if objective:
+        lines.append(f"**Objetivo:** {objective}")
+
+    risks = ev.get("top_risks", [])
+    if risks:
+        lines.append("\n### Riesgos principales")
+        for r in risks:
+            pr = r.get("priority", "")
+            rk = r.get("risk", "")
+            im = r.get("impact", "")
+            line = f"- **{pr}**: {rk}"
+            if im:
+                line += f" — {im}"
+            lines.append(line)
+
+    matrix = ev.get("matrix_summary") or []
+    if matrix:
+        lines.append("\n### Matriz resumida")
+        lines.append("| ID | Escenario | Resultado esperado | Prioridad |")
+        lines.append("|---|---|---|---|")
+        for row in matrix:
+            lines.append(
+                f"| {row.get('id','')} | {row.get('scenario','')} | {row.get('expected','')} | {row.get('priority','')} |"
+            )
+
+    lines.append("\n> Tip: Usa las pestañas Executive / QA para ver el detalle técnico.")
+    return "\n".join(lines).strip()
+
+meta={
+    "mode": "doc",
+    "persona": persona,
+    "doc_json": doc_json,
+    "doc_schema": "v1"
+}
+
 
 # ============================================================
 # SYSTEM PROMPTS (ligeros; el "modo" lo define el router principal)
@@ -366,6 +420,13 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         # 0) Parser determinístico
         steps = _parse_steps_from_prompt(prompt, base_url)
 
+        messages_doc = messages + [
+    {
+        "role": "user",
+        "content": "Devuelve exclusivamente un JSON válido siguiendo el esquema definido. No agregues texto adicional."
+    }
+]
+
         # 1) Fallback a LLM para steps
         if not steps:
             client = _client()
@@ -549,87 +610,119 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         }
 
     # ============================================================
-    # ADVISE / DOC (NUNCA pide URL)
+    # ADVISE / DOC (NUNCA debe romper el endpoint)
     # ============================================================
     client = _client()
 
-    # ---------- DOC: JSON estructurado ----------
-    if mode == "doc":
-        resp = client.chat.completions.create(
-            model=settings.OPENAI_MODEL,
-            messages=messages,
-            temperature=0.2,
-            max_tokens=settings.DOC_MAX_TOKENS,
-            response_format={"type": "json_object"},
-        )
+    def _extract_json_object(raw: str):
+        if not raw:
+            return None
+        raw = raw.strip()
 
-        raw = (resp.choices[0].message.content or "").strip()
-        doc_json = _safe_json_loads(raw)
+        # intento directo
+        obj = _safe_json_loads(raw)
+        if isinstance(obj, dict):
+            return obj
 
-        # Fallback seguro (no rompe el flujo)
-        if not isinstance(doc_json, dict):
-            answer = raw or "No pude generar el artefacto en formato estructurado."
+        # rescate por regex
+        import re
+        m = re.search(r"\{.*\}", raw, re.S)
+        if not m:
+            return None
+        return _safe_json_loads(m.group(0))
+
+    try:
+        # ---------- DOC ----------
+        if mode == "doc":
+            resp = client.chat.completions.create(
+                model=settings.OPENAI_MODEL,
+                messages=messages,
+                temperature=0.2,
+                max_tokens=settings.DOC_MAX_TOKENS,
+            )
+
+            raw = (resp.choices[0].message.content or "").strip()
+            doc_json = _extract_json_object(raw)
+
+            if not isinstance(doc_json, dict):
+                # fallback seguro
+                doc_json = {
+                    "executive_view": {
+                        "title": "Artefacto QA",
+                        "objective": "El modelo no devolvió JSON válido. Se muestra salida de respaldo.",
+                        "top_risks": [],
+                        "matrix_summary": [],
+                    },
+                    "qa_view": {
+                        "sections": [
+                            {
+                                "title": "Salida del modelo",
+                                "content": raw[:4000] if raw else "Sin contenido",
+                            }
+                        ]
+                    },
+                }
+
+            answer = _render_doc_answer_from_json(doc_json)
+
             store.add_message(
                 thread_id,
                 "assistant",
                 answer,
-                meta={"mode": "doc", "doc_parse_error": True},
+                meta={"mode": "doc", "doc_json": doc_json},
             )
+
             return {
                 "mode": "doc",
                 "persona": persona,
                 "session_id": session_id,
                 "thread_id": thread_id,
                 "answer": answer,
-                "doc_json": None,
+                "doc_json": doc_json,
                 **_confidence("doc", prompt, None),
             }
 
-        # Render bonito para UI actual
-        answer = _render_doc_answer_from_json(doc_json)
-
-        store.add_message(
-            thread_id,
-            "assistant",
-            answer,
-            meta={
-                "mode": "doc",
-                "persona": persona,
-                "doc_json": doc_json,
-            },
+        # ---------- ADVISE ----------
+        resp = client.chat.completions.create(
+            model=settings.OPENAI_MODEL,
+            messages=messages,
+            temperature=settings.ADV_TEMPERATURE,
+            max_tokens=settings.ADV_MAX_TOKENS,
         )
 
+        answer = (resp.choices[0].message.content or "").strip() or "¿Puedes darme más contexto?"
+
+        store.add_message(thread_id, "assistant", answer, meta={"mode": mode})
+
+        base_url_hint = H.pick_base_url(req, session, prompt)
+
         return {
-            "mode": "doc",
+            "mode": mode,
             "persona": persona,
             "session_id": session_id,
             "thread_id": thread_id,
             "answer": answer,
-            "doc_json": doc_json,
-            **_confidence("doc", prompt, None),
+            **_confidence(mode, prompt, base_url_hint),
         }
 
-    # ---------- ADVISE: texto normal ----------
-    resp = client.chat.completions.create(
-        model=settings.OPENAI_MODEL,
-        messages=messages,
-        temperature=settings.ADV_TEMPERATURE,
-        max_tokens=settings.ADV_MAX_TOKENS,
-    )
-    answer = (resp.choices[0].message.content or "").strip() or "¿Puedes darme un poco más de contexto?"
+    except Exception as e:
+        # 🔒 fallback final — nunca 500
+        msg = "Ocurrió un problema generando la respuesta. Intenta nuevamente o ajusta el alcance."
 
-    store.add_message(
-        thread_id,
-        "assistant",
-        answer,
-        meta={"mode": "advise", "persona": persona},
-    )
+        logger.exception("DOC/ADVISE failure")
 
-    return {
-        "mode": "advise",
-        "persona": persona,
-        "session_id": session_id,
-        "thread_id": thread_id,
-        "answer": answer,
-        **_confidence("advise", prompt, None),
-    }
+        store.add_message(
+            thread_id,
+            "assistant",
+            msg,
+            meta={"mode": mode, "error": str(e)},
+        )
+
+        return {
+            "mode": mode,
+            "persona": persona,
+            "session_id": session_id,
+            "thread_id": thread_id,
+            "answer": msg,
+            "error": str(e),
+        }
