@@ -269,10 +269,6 @@ export default function Chat(props) {
     const showEvidence = !!evidenceUrl;
     const showReport   = !!reportUrl;
 
-
-    // reporte: mostrar SIEMPRE que exista la URL
-    const showReport = role === "bot" && !!reportUrl;
-
     const meta = getMeta(m);
     const key = String(m?.id || meta?.id || `${role}-${idx}`);
 
