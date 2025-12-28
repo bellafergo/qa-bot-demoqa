@@ -15,6 +15,10 @@ export default function Chat(props) {
     chatEndRef = null,
   } = props || {};
 
+  <div style={{ fontSize: 11, opacity: 0.55, padding: "8px 12px" }}>
+  build: {BUILD_TAG}
+</div>
+
   const safeMessages = useMemo(
     () => (Array.isArray(messages) ? messages : []),
     [messages]
@@ -29,6 +33,8 @@ export default function Chat(props) {
     },
     [handleSend, isLoading]
   );
+
+  const BUILD_TAG = "execStatus-fix-2025-12-28-02";
 
   // ---------- helpers ----------
   const safeJsonParse = (v) => {
@@ -255,101 +261,107 @@ export default function Chat(props) {
       : "rgba(255,255,255,0.75)";
 
   const renderMsg = (m, idx) => {
-    const role = m?.role === "user" ? "user" : "bot";
-    const content = typeof m?.content === "string" ? m.content : "";
-    const html = formatText(content);
+  const role = m?.role === "user" ? "user" : "bot";
+  const content = typeof m?.content === "string" ? m.content : "";
+  const html = formatText(content);
 
-    const evidenceUrl = pickEvidenceUrl(m);
-    const evidenceId = pickEvidenceId(m);
-    const reportUrl = pickReportUrl(m);
-    const docJson = pickDocJson(m);
+  // meta siempre existe (tu getMeta ya regresa {})
+  const meta = getMeta(m);
+  const key = String(m?.id || meta?.id || `${role}-${idx}`);
 
-    const isExecute = isExecuteMessage(m);
+  // URLs / data
+  const evidenceUrl = pickEvidenceUrl(m);
+  const evidenceId = pickEvidenceId(m);
+  const reportUrl = pickReportUrl(m);
+  const docJson = pickDocJson(m);
 
-    const showEvidence = role === "bot" && !!evidenceUrl;
-    const showReport = role === "bot" && !!reportUrl;
+  // ✅ FIX CRASH: siempre definido
+  const execStatus = pickExecStatus(m); // "PASSED" | "FAILED" | null
 
-    const meta = getMeta(m);
-    const key = String(m?.id || meta?.id || `${role}-${idx}`);
+  // Mostrar solo en mensajes del bot (limpio)
+  const isBot = role === "bot";
+  const showEvidence = isBot && !!evidenceUrl;
+  const showReport = isBot && !!reportUrl;
+  const showDocTabs = isBot && !!docJson;
 
-    const showDocTabs = role === "bot" && !!docJson;
-
-    return (
+  return (
+    <div
+      key={key}
+      style={{
+        display: "flex",
+        justifyContent: role === "user" ? "flex-end" : "flex-start",
+        marginBottom: 12,
+        padding: "0 6px",
+      }}
+    >
       <div
-        key={key}
         style={{
-          display: "flex",
-          justifyContent: role === "user" ? "flex-end" : "flex-start",
-          marginBottom: 12,
-          padding: "0 6px",
+          maxWidth: 760,
+          padding: "10px 12px",
+          borderRadius: 14,
+          background:
+            role === "user"
+              ? "rgba(120,160,255,0.18)"
+              : "rgba(255,255,255,0.08)",
+          border: "1px solid rgba(255,255,255,0.12)",
+          color: "white",
+          wordBreak: "break-word",
         }}
       >
+        {/* Header */}
         <div
           style={{
-            maxWidth: 760,
-            padding: "10px 12px",
-            borderRadius: 14,
-            background:
-              role === "user"
-                ? "rgba(120,160,255,0.18)"
-                : "rgba(255,255,255,0.08)",
-            border: "1px solid rgba(255,255,255,0.12)",
-            color: "white",
-            wordBreak: "break-word",
+            fontSize: 12,
+            marginBottom: 6,
+            display: "flex",
+            gap: 8,
+            alignItems: "center",
+            flexWrap: "wrap",
           }}
         >
-          {/* Header */}
-          <div
-            style={{
-              fontSize: 12,
-              marginBottom: 6,
-              display: "flex",
-              gap: 8,
-              alignItems: "center",
-              flexWrap: "wrap",
-            }}
-          >
-            <span style={{ opacity: 0.75 }}>{role === "user" ? "Tú" : "Vanya"}</span>
+          <span style={{ opacity: 0.75 }}>{isBot ? "Vanya" : "Tú"}</span>
 
-            {execStatus ? (
-              <span
-                style={{
-                  padding: "2px 8px",
-                  borderRadius: 999,
-                  fontWeight: 900,
-                  fontSize: 11,
-                  color: statusColor(execStatus),
-                  border: `1px solid ${statusColor(execStatus)}`,
-                  textTransform: "uppercase",
-                }}
-              >
-                {execStatus}
-              </span>
-            ) : null}
-
-            {evidenceId ? <span style={{ opacity: 0.7 }}>· evid: {evidenceId}</span> : null}
-          </div>
-
-          {/* Texto (si hay doc_json, el texto sirve como summary; se mantiene) */}
-          {content ? (
-            <div
-              dangerouslySetInnerHTML={{ __html: html }}
-              style={{ lineHeight: 1.35 }}
-            />
+          {execStatus ? (
+            <span
+              style={{
+                padding: "2px 8px",
+                borderRadius: 999,
+                fontWeight: 900,
+                fontSize: 11,
+                color: statusColor(execStatus),
+                border: `1px solid ${statusColor(execStatus)}`,
+                textTransform: "uppercase",
+              }}
+            >
+              {execStatus}
+            </span>
           ) : null}
 
-          {/* DOC Tabs (Executive / QA) */}
-          {showDocTabs ? <DocArtifactTabs doc={docJson} /> : null}
-
-          {/* Evidencia */}
-          {showEvidence ? <EvidenceBlock evidenceUrl={evidenceUrl} /> : null}
-
-          {/* Reporte PDF */}
-          {showReport ? <ReportBlock reportUrl={reportUrl} /> : null}
+          {evidenceId ? (
+            <span style={{ opacity: 0.7 }}>· evid: {evidenceId}</span>
+          ) : null}
         </div>
+
+        {/* Texto */}
+        {content ? (
+          <div
+            dangerouslySetInnerHTML={{ __html: html }}
+            style={{ lineHeight: 1.35 }}
+          />
+        ) : null}
+
+        {/* DOC Tabs */}
+        {showDocTabs ? <DocArtifactTabs doc={docJson} /> : null}
+
+        {/* Evidencia */}
+        {showEvidence ? <EvidenceBlock evidenceUrl={evidenceUrl} /> : null}
+
+        {/* Reporte */}
+        {showReport ? <ReportBlock reportUrl={reportUrl} /> : null}
       </div>
-    );
-  };
+    </div>
+  );
+};
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
