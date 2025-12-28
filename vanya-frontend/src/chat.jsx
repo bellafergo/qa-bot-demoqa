@@ -266,8 +266,8 @@ export default function Chat(props) {
 
     const isExecute = isExecuteMessage(m);
 
-    const showEvidence = !!evidenceUrl;
-    const showReport   = !!reportUrl;
+    const showEvidence = role === "bot" && !!evidenceUrl;
+    const showReport = role === "bot" && !!reportUrl;
 
     const meta = getMeta(m);
     const key = String(m?.id || meta?.id || `${role}-${idx}`);
