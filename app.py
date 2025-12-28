@@ -8,6 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi import HTTPException
 
 from core.settings import settings
 
@@ -21,6 +22,37 @@ from db import init_db
 logger = logging.getLogger("vanya")
 
 app = FastAPI(title="Vanya QA Bot", version="1.0.0")
+
+# ============================================================
+# RUN STORE (in-memory) - para ver steps/logs por evidence_id
+# ============================================================
+import time
+from typing import Dict, Any, Optional
+
+_RUNS: Dict[str, Dict[str, Any]] = {}
+_RUNS_TTL_S = int(os.getenv("RUNS_TTL_S", "86400"))  # 24h por default
+
+def _runs_cleanup():
+    now = time.time()
+    kill = []
+    for evid, item in _RUNS.items():
+        ts = item.get("ts", 0)
+        if now - ts > _RUNS_TTL_S:
+            kill.append(evid)
+    for evid in kill:
+        _RUNS.pop(evid, None)
+
+def save_run(run_payload: Dict[str, Any]) -> None:
+    evid = run_payload.get("evidence_id")
+    if not evid:
+        return
+    _runs_cleanup()
+    _RUNS[evid] = {"ts": time.time(), "data": run_payload}
+
+def get_run(evidence_id: str) -> Optional[Dict[str, Any]]:
+    _runs_cleanup()
+    item = _RUNS.get(evidence_id)
+    return item["data"] if item else None
 
 
 # ============================================================
@@ -146,6 +178,14 @@ def on_startup():
         logger.info("DB disabled: DATABASE_URL not set")
 
     logger.info(f"CORS allow_origins = {cors_origins}")
+
+
+    @app.get("/runs/{evidence_id}")
+    def read_run(evidence_id: str):
+        r = get_run(evidence_id)
+        if not r:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return {"ok": True, "run": r}
 
 
 # ============================================================

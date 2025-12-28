@@ -420,6 +420,12 @@ def _handle_execute_mode(
 
     answer = _render_execute_answer(status=status, msg=msg, evidence_url=evidence_url, report_url=report_url)
 
+    from app import save_run
+    save_run(runner_result)
+
+    meta = meta or {}
+    meta["runner"] = runner_result
+
     meta = {
         "mode": "execute",
         "persona": persona,
