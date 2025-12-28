@@ -2,6 +2,7 @@
 import logging
 import os
 from pathlib import Path
+from typing import List, Optional
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,7 +22,6 @@ from db import init_db
 
 logger = logging.getLogger("vanya")
 
-
 # ============================================================
 # APP
 # ============================================================
@@ -30,12 +30,11 @@ app = FastAPI(
     version="1.0.0",
 )
 
-
 # ============================================================
 # HELPERS
 # ============================================================
-def _normalize_origins(origins):
-    out = []
+def _normalize_origins(origins: Optional[List[str]]) -> List[str]:
+    out: List[str] = []
     for o in (origins or []):
         if not o:
             continue
@@ -46,7 +45,7 @@ def _normalize_origins(origins):
         out.append(s)
 
     seen = set()
-    uniq = []
+    uniq: List[str] = []
     for o in out:
         if o in seen:
             continue
@@ -55,7 +54,7 @@ def _normalize_origins(origins):
     return uniq
 
 
-def _safe_mount_static(url_path: str, directory: str, name: str):
+def _safe_mount_static(url_path: str, directory: str, name: str) -> None:
     try:
         p = Path(directory)
         if p.exists() and p.is_dir():
@@ -68,15 +67,36 @@ def _safe_mount_static(url_path: str, directory: str, name: str):
 
 
 def _is_prod() -> bool:
-    # Si DEBUG_ERRORS=1, muestra detalle aunque esté en Render
-    if (os.getenv("DEBUG_ERRORS") or "").strip() in ("1", "true", "TRUE", "yes", "YES"):
+    """
+    - Si DEBUG_ERRORS=1 => muestra detalle aunque esté en Render.
+    - Si ENV/ENVIRONMENT indica prod o variable RENDER true => considerado prod.
+    """
+    if (os.getenv("DEBUG_ERRORS") or "").strip().lower() in ("1", "true", "yes"):
         return False
+
     env = (os.getenv("ENV") or os.getenv("ENVIRONMENT") or "").lower().strip()
     if env in ("prod", "production"):
         return True
-    if os.getenv("RENDER", "").strip().lower() in ("1", "true", "yes"):
+
+    if (os.getenv("RENDER") or "").strip().lower() in ("1", "true", "yes"):
         return True
+
     return False
+
+
+def _apply_cors_headers_if_needed(request: Request, response: JSONResponse, allowed_origins: List[str]) -> None:
+    """
+    ✅ Importante:
+    Cuando hay excepciones, a veces el navegador reporta CORS error y oculta el body.
+    Esto fuerza CORS headers también en respuestas 500.
+    """
+    origin = (request.headers.get("origin") or "").strip()
+    if origin and origin in allowed_origins:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        # Vary evita caches raros por origin
+        response.headers["Vary"] = "Origin"
+
 
 # ============================================================
 # CORS
@@ -98,15 +118,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 # ============================================================
 # STATIC (Evidence/Reports)
 # ============================================================
-from pathlib import Path
-
-# Crea carpetas en runtime (Render-safe, no requiere Git)
+# ✅ Crea carpetas en runtime (Render-safe)
 try:
-    Path(settings.EVIDENCE_DIR).mkdir(parents=True, exist_ok=True)
+    Path(str(settings.EVIDENCE_DIR)).mkdir(parents=True, exist_ok=True)
     Path("evidence/reports").mkdir(parents=True, exist_ok=True)
     logger.info("Runtime directories ensured: evidence/, evidence/reports/")
 except Exception:
@@ -115,16 +132,24 @@ except Exception:
 _safe_mount_static("/evidence", str(settings.EVIDENCE_DIR), "evidence")
 _safe_mount_static("/reports", "evidence/reports", "reports")
 
-
 # ============================================================
 # ERROR HANDLER
 # ============================================================
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
     logger.exception("Unhandled error")
+
     if _is_prod():
-        return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
-    return JSONResponse(status_code=500, content={"detail": f"{type(exc).__name__}: {str(exc)}"})
+        response = JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
+    else:
+        response = JSONResponse(
+            status_code=500,
+            content={"detail": f"{type(exc).__name__}: {str(exc)}"},
+        )
+
+    # ✅ Fuerza CORS headers también en error (evita Failed to fetch)
+    _apply_cors_headers_if_needed(request, response, cors_origins)
+    return response
 
 
 # ============================================================
@@ -133,7 +158,6 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 @app.on_event("startup")
 def on_startup():
     # ✅ No dependas de settings.LOG_LEVEL (no existe en tu Settings)
-    # Puedes controlar con env LOG_LEVEL si quieres (opcional)
     env_level = (os.getenv("LOG_LEVEL") or "INFO").upper().strip()
     level = getattr(logging, env_level, logging.INFO)
     logging.basicConfig(level=level)
