@@ -68,13 +68,15 @@ def _safe_mount_static(url_path: str, directory: str, name: str):
 
 
 def _is_prod() -> bool:
+    # Si DEBUG_ERRORS=1, muestra detalle aunque esté en Render
+    if (os.getenv("DEBUG_ERRORS") or "").strip() in ("1", "true", "TRUE", "yes", "YES"):
+        return False
     env = (os.getenv("ENV") or os.getenv("ENVIRONMENT") or "").lower().strip()
     if env in ("prod", "production"):
         return True
     if os.getenv("RENDER", "").strip().lower() in ("1", "true", "yes"):
         return True
     return False
-
 
 # ============================================================
 # CORS
