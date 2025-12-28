@@ -199,9 +199,8 @@ def _summarize_last_execute(history_msgs: List[Dict[str, Any]]) -> Optional[Dict
         }
     return None
 
-
 # ============================================================
-# EXECUTE helpers
+# EXECUTE helpers (PRODUCT)
 # ============================================================
 def _looks_like_saucedemo(url: str) -> bool:
     s = (url or "").lower()
@@ -369,12 +368,11 @@ def _handle_execute_mode(
             **_confidence("execute", prompt, base_url),
         }
 
-    # 2) Ejecutar runner (SIEMPRE definir runner antes de usarlo)
+    # 2) Ejecutar runner (SIEMPRE inicializar para evitar NameError)
     runner: Dict[str, Any] = {}
     evidence_url: Optional[str] = None
     report_url: Optional[str] = None
     screenshot_data_url: Optional[str] = None
-    duration_ms: Optional[int] = None
 
     try:
         runner = execute_test(
@@ -393,7 +391,12 @@ def _handle_execute_mode(
             "- Qué validación exacta quieres (texto/botón/elemento)\n"
             "Y reintenta."
         )
-        store.add_message(thread_id, "assistant", answer, meta={"mode": "execute", "persona": persona, "error": f"{type(e).__name__}: {e}"})
+        store.add_message(
+            thread_id,
+            "assistant",
+            answer,
+            meta={"mode": "execute", "persona": persona, "error": f"{type(e).__name__}: {e}", "base_url": base_url, "steps": steps},
+        )
         return {
             "mode": "execute",
             "persona": persona,
@@ -404,31 +407,30 @@ def _handle_execute_mode(
             **_confidence("execute", prompt, base_url),
         }
 
-    # status / msg / duration
     ok = bool(runner.get("ok", True))
     status = (runner.get("status") or ("passed" if ok else "failed")).strip()
     msg = (runner.get("message") or runner.get("detail") or "").strip()
+
     duration_ms = runner.get("duration_ms")
     if not isinstance(duration_ms, int):
         duration_ms = int((time.time() - t0) * 1000)
 
-    # 3) Evidencia (screenshot -> Cloudinary)
+    # 3) Evidencia (screenshot -> Cloudinary) best-effort
     try:
         b64 = runner.get("screenshot_b64") or runner.get("screenshotBase64") or runner.get("screenshotB64")
-        screenshot_data_url = _make_png_data_url(b64) if b64 else runner.get("screenshot_data_url") or runner.get("screenshotDataUrl")
+        screenshot_data_url = _make_png_data_url(b64) if b64 else (runner.get("screenshot_data_url") or runner.get("screenshotDataUrl"))
         evidence_id = (runner.get("evidence_id") or "").strip()
+
         if b64 and settings.HAS_CLOUDINARY:
-            # nombre estable con evidence_id si existe
             fname = f"{evidence_id}.png" if evidence_id else "evidence.png"
             evidence_url = cloud_upload_screenshot_b64(str(b64), filename=fname)
-        # Si el runner ya trae url
+
         if not evidence_url:
             evidence_url = runner.get("screenshot_url") or runner.get("evidence_url")
     except Exception:
         logger.exception("Evidence upload failed (continuing)")
-        evidence_url = evidence_url or None
 
-    # 4) Reporte PDF (best-effort, nunca rompe)
+    # 4) Reporte PDF best-effort (nunca rompe)
     try:
         rep = generate_pdf_report(
             prompt=prompt,
@@ -436,11 +438,7 @@ def _handle_execute_mode(
             runner={**runner, "screenshot_data_url": screenshot_data_url} if screenshot_data_url else runner,
             steps=steps,
             evidence_id=runner.get("evidence_id"),
-            meta={
-                "thread_id": thread_id,
-                "session_id": session.get("id"),
-                "headless": getattr(req, "headless", True),
-            },
+            meta={"thread_id": thread_id, "session_id": session.get("id"), "headless": getattr(req, "headless", True)},
         )
         if settings.HAS_CLOUDINARY and rep and rep.get("report_path"):
             with open(rep["report_path"], "rb") as f:
@@ -448,16 +446,27 @@ def _handle_execute_mode(
             report_url = cloud_upload_pdf_bytes(pdf_bytes, filename=rep.get("report_filename") or "report.pdf")
     except Exception:
         logger.exception("PDF report generation/upload failed (continuing)")
-        report_url = None
 
-    # 5) Guardar run (best-effort)
+    # 5) Guardar run best-effort
     try:
-        from app import save_run
-        save_run(runner)
+        # Ideal: importar desde un módulo sin ciclo (store/run_store). Si hoy lo tienes en app.py, lo dejamos best-effort.
+        from app import save_run  # noqa
+        save_run({
+            **(runner if isinstance(runner, dict) else {}),
+            "base_url": base_url,
+            "prompt": prompt,
+            "steps": steps,
+            "evidence_url": evidence_url,
+            "report_url": report_url,
+            "duration_ms": duration_ms,
+            "thread_id": thread_id,
+            "session_id": session.get("id"),
+            "mode": "execute",
+        })
     except Exception:
         logger.exception("save_run failed (continuing)")
 
-    # 6) Respuesta final (con links)
+    # 6) Respuesta final
     answer = _render_execute_answer(status=status, msg=msg, evidence_url=evidence_url, report_url=report_url)
 
     meta = {
@@ -484,7 +493,6 @@ def _handle_execute_mode(
         "duration_ms": duration_ms,
         **_confidence("execute", prompt, base_url),
     }
-
 
 # ============================================================
 # MAIN
