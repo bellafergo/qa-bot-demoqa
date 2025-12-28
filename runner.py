@@ -1,94 +1,137 @@
 # runner.py
+# ============================================================
+# Playwright Runner (Retail / E2E)
+# - Ejecuta steps Playwright
+# - Devuelve screenshot_b64 para UI
+# - Soporta timeout global (timeout_s) SIN afectar screenshot robust
+# ============================================================
+
 from __future__ import annotations
 
-import time
 import base64
+import time
 import uuid
-from typing import Any, Dict, List, Optional
-from urllib.parse import urljoin
+from typing import Any, Dict, List, Optional, Tuple
 
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-
-
-# ============================================================
-# Errors
-# ============================================================
-class StepExecutionError(Exception):
-    pass
+from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import sync_playwright
 
 
 # ============================================================
 # Helpers
 # ============================================================
-def _ms() -> int:
+def _b64_png(img_bytes: bytes) -> str:
+    return base64.b64encode(img_bytes).decode("utf-8")
+
+
+def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
-def _safe_str(v: Any, max_len: int = 140) -> str:
-    s = "" if v is None else str(v)
-    return s if len(s) <= max_len else s[:max_len] + "..."
+def _as_int(v: Any, default: int) -> int:
+    try:
+        return int(v)
+    except Exception:
+        return default
 
 
-def _normalize_url(url: Optional[str], base_url: Optional[str]) -> str:
-    u = (url or "").strip()
-    if not u:
-        return (base_url or "").strip()
-
-    if u.startswith("http://") or u.startswith("https://"):
-        return u
-
-    b = (base_url or "").strip()
-    if not b:
-        return u
-
-    # urljoin maneja /path, ?q= etc
-    return urljoin(b if b.endswith("/") else b + "/", u)
+def _safe_str(v: Any) -> str:
+    try:
+        return "" if v is None else str(v)
+    except Exception:
+        return ""
 
 
-def _pick_locator(page, step: Dict[str, Any]):
+def _normalize_action(step: Dict[str, Any]) -> str:
+    a = (step.get("action") or step.get("type") or "").strip().lower()
+    # compat aliases
+    if a in ("wait_for_selector", "wait_for"):
+        return "assert_visible"
+    return a
+
+
+def _pick_timeout_ms(step: Dict[str, Any], default_ms: int) -> int:
+    # per-step override
+    return _as_int(step.get("timeout_ms"), default_ms)
+
+
+def _step_label(i: int, step: Dict[str, Any]) -> str:
+    a = _normalize_action(step)
+    tgt = step.get("selector") or step.get("url") or step.get("text") or ""
+    return f"{i+1:02d}. {a} {tgt}".strip()
+
+
+def _selector_from_step(step: Dict[str, Any]) -> str:
+    # prefer selector; fallbacks used by generator sometimes
+    sel = step.get("selector") or step.get("target") or step.get("loc") or ""
+    return _safe_str(sel).strip()
+
+
+def _url_from_step(step: Dict[str, Any], base_url: Optional[str]) -> str:
+    url = (step.get("url") or step.get("href") or "").strip()
+    if url:
+        return url
+    # compat: sometimes generator sends {"action":"goto","path":"/login"}
+    path = (step.get("path") or "").strip()
+    if path and base_url:
+        if base_url.endswith("/") and path.startswith("/"):
+            return base_url[:-1] + path
+        if (not base_url.endswith("/")) and (not path.startswith("/")):
+            return base_url + "/" + path
+        return base_url + path
+    return base_url or ""
+
+
+# ============================================================
+# Screenshot (NO depende de timeout global por decisión)
+# ============================================================
+def take_screenshot_robust(page) -> Tuple[Optional[str], List[str]]:
     """
-    Locator fallback (robusto):
-      1) selector (CSS/XPath)
-      2) role + text (get_by_role)
-      3) text (get_by_text)
+    Toma screenshot con reintentos y timeouts propios.
+    Importante: NO respeta timeout global (por diseño), para no perder evidencia.
     """
-    selector = (step.get("selector") or "").strip()
-    text = (step.get("text") or "").strip()
-    role = (step.get("role") or "").strip()
+    logs: List[str] = []
+    b64: Optional[str] = None
 
-    if selector:
-        return page.locator(selector)
+    # Timeouts propios (ms)
+    NAV_STABILIZE_MS = 1500
+    SHOT_TIMEOUT_MS = 15000
+    RETRIES = 2
 
-    if role and text:
-        return page.get_by_role(role, name=text)
+    try:
+        page.wait_for_timeout(NAV_STABILIZE_MS)
+    except Exception:
+        pass
 
-    if text:
-        return page.get_by_text(text, exact=False)
+    last_err = None
+    for attempt in range(RETRIES + 1):
+        try:
+            # full_page=True puede fallar en sitios pesados; intentamos primero full y luego normal
+            png = page.screenshot(full_page=True, timeout=SHOT_TIMEOUT_MS)
+            b64 = _b64_png(png)
+            logs.append(f"Screenshot: ok (full_page) [attempt {attempt+1}]")
+            return b64, logs
+        except Exception as e:
+            last_err = e
+            logs.append(f"Screenshot full_page failed [attempt {attempt+1}]: {type(e).__name__}: {e}")
 
-    raise StepExecutionError("No locator: provee selector o text o role+text")
+        try:
+            png = page.screenshot(full_page=False, timeout=SHOT_TIMEOUT_MS)
+            b64 = _b64_png(png)
+            logs.append(f"Screenshot: ok (viewport) [attempt {attempt+1}]")
+            return b64, logs
+        except Exception as e:
+            last_err = e
+            logs.append(f"Screenshot viewport failed [attempt {attempt+1}]: {type(e).__name__}: {e}")
 
+        try:
+            page.wait_for_timeout(800)
+        except Exception:
+            pass
 
-def _ensure_goto(steps: List[Dict[str, Any]], base_url: Optional[str]) -> List[Dict[str, Any]]:
-    """
-    Garantiza goto al inicio.
-    - Si ya existe goto -> no toca
-    - Si no existe goto y hay base_url -> inserta goto(base_url)
-    - Si no existe goto y NO hay base_url -> deja igual (pero puede fallar después si requieren navegación)
-    """
-    if not steps:
-        return steps
-
-    has_goto = any(str(s.get("action", "")).strip().lower() == "goto" for s in steps)
-    if has_goto:
-        return steps
-
-    if base_url and base_url.strip():
-        steps.insert(0, {"action": "goto", "url": base_url.strip()})
-    return steps
-
-
-def _b64_png(img_bytes: bytes) -> str:
-    return base64.b64encode(img_bytes).decode("utf-8")
+    logs.append(f"Screenshot: failed окончательно: {type(last_err).__name__}: {last_err}" if last_err else "Screenshot: failed")
+    return None, logs
 
 
 # ============================================================
@@ -99,24 +142,27 @@ def execute_test(
     base_url: Optional[str] = None,
     headless: bool = True,
     viewport: Optional[Dict[str, int]] = None,
+    timeout_s: Optional[int] = None,  # ✅ timeout global (NO afecta screenshot_robust)
 ) -> Dict[str, Any]:
     """
     Ejecuta steps Playwright.
-    Soporta acciones:
+
+    Acciones soportadas:
       goto, fill, click, press, assert_visible, assert_text_contains, wait_ms
     Compatibilidad:
-      wait_for, wait_for_selector -> treated as wait visible
+      wait_for, wait_for_selector -> assert_visible
 
     Retorna:
       {
-        status: "passed" | "fail",
+        ok: bool,
+        status: "passed" | "fail" | "error",
         error: str | None,
         evidence_id: str,
         steps: [...],
         logs: [...],
         screenshot_b64: str | None,
         duration_ms: int,
-        meta: { headless, steps_count, base_url }
+        meta: { headless, steps_count, base_url, timeout_ms }
       }
     """
     t0 = time.time()
@@ -128,6 +174,7 @@ def execute_test(
 
     if not isinstance(steps, list) or not steps:
         return {
+            "ok": False,
             "status": "fail",
             "error": "steps vacío o inválido",
             "evidence_id": evidence_id,
@@ -135,225 +182,187 @@ def execute_test(
             "logs": ["Runner error: steps vacío o inválido"],
             "screenshot_b64": None,
             "duration_ms": int((time.time() - t0) * 1000),
-            "meta": {
-                "headless": headless,
-                "steps_count": 0,
-                "base_url": (base_url or None),
-            },
+            "meta": {"headless": headless, "steps_count": 0, "base_url": base_url, "timeout_ms": None},
         }
 
-    base_url_norm = (base_url or "").strip() or None
-    steps = _ensure_goto(steps, base_url_norm)
+    # Defaults
+    default_step_timeout_ms = 15000
+    timeout_ms_global: Optional[int] = None
+    if timeout_s is not None:
+        timeout_ms_global = max(1000, int(timeout_s) * 1000)
 
-    status = "fail"
+    # Viewport defaults
+    if not isinstance(viewport, dict):
+        viewport = {"width": 1366, "height": 768}
+    vw = _as_int(viewport.get("width"), 1366)
+    vh = _as_int(viewport.get("height"), 768)
+
+    status = "passed"
+    ok = True
     error_msg: Optional[str] = None
 
-    viewport = viewport or {"width": 1280, "height": 720}
+    def _record_step(i: int, step: Dict[str, Any], st: str, err: Optional[str] = None, extra: Optional[Dict[str, Any]] = None):
+        payload: Dict[str, Any] = {
+            "index": i,
+            "action": _normalize_action(step),
+            "raw_action": step.get("action"),
+            "selector": step.get("selector"),
+            "url": step.get("url"),
+            "value": step.get("value"),
+            "text": step.get("text"),
+            "status": st,
+            "error": err,
+            "ts_ms": _now_ms(),
+        }
+        if extra:
+            payload.update(extra)
+        report_steps.append(payload)
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=headless)
-        context = browser.new_context(
-            viewport=viewport,
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/123.0.0.0 Safari/537.36"
-            ),
-        )
-        page = context.new_page()
+    # Execute in Playwright
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=headless)
+            context = browser.new_context(viewport={"width": vw, "height": vh})
 
-        def take_screenshot_robust(retries: int = 3, delay_ms: int = 700) -> Optional[str]:
-            """
-            Evita screenshots en blanco:
-            - espera domcontentloaded
-            - intenta networkidle sin romper
-            - espera body attached
-            - espera un poco extra
-            - reintenta si PNG muy chico
-            """
-            for attempt in range(1, retries + 1):
-                try:
-                    page.wait_for_load_state("domcontentloaded", timeout=60000)
-                    try:
-                        page.wait_for_load_state("networkidle", timeout=15000)
-                    except Exception:
-                        pass
-                    page.wait_for_selector("body", state="attached", timeout=15000)
-                    page.wait_for_timeout(delay_ms)
+            # ✅ Timeout global (A): aplica a toda interacción/espera,
+            #    pero NO tocamos screenshot_robust (por decisión).
+            if timeout_ms_global is not None:
+                context.set_default_timeout(timeout_ms_global)
+                context.set_default_navigation_timeout(timeout_ms_global)
+                logs.append(f"Global timeout applied: {timeout_ms_global}ms")
 
-                    img_bytes = page.screenshot(full_page=True)
-                    if img_bytes and len(img_bytes) > 2000:
-                        return _b64_png(img_bytes)
+            page = context.new_page()
 
-                    logs.append(f"[screenshot] attempt={attempt} too-small-or-empty")
-                except Exception as e:
-                    logs.append(f"[screenshot] attempt={attempt} failed: {type(e).__name__}: {_safe_str(e)}")
-            return None
+            # Base URL: si no viene, la intentamos inferir de un goto inicial
+            inferred_base_url = base_url
+            for st in steps:
+                if _normalize_action(st) == "goto":
+                    u = _url_from_step(st, base_url)
+                    if u:
+                        inferred_base_url = base_url or u
+                    break
 
-        try:
-            logs.append(f"Runner start. steps={len(steps)} headless={headless} base_url={base_url_norm}")
-
-            for i, step in enumerate(steps, start=1):
-                step_t0 = _ms()
-
-                action = (step.get("action") or "").strip().lower()
-                url = (step.get("url") or "").strip() if step.get("url") else None
-                selector = step.get("selector")
-                text = step.get("text")
-                role = step.get("role")
-                value = step.get("value")
-                timeout_ms = int(step.get("timeout_ms") or 15000)
-
-                # alias compatibility
-                if action in ("wait_for", "wait_for_selector"):
-                    action = "wait_visible"
-
-                step_result: Dict[str, Any] = {
-                    "i": i,
-                    "action": action,
-                    "selector": selector,
-                    "text": text,
-                    "role": role,
-                    "url": url,
-                    "status": "pass",
-                    "duration_ms": 0,
-                    "error": None,
-                }
+            # Ejecutar steps
+            for i, step in enumerate(steps):
+                action = _normalize_action(step)
+                timeout_ms = _pick_timeout_ms(step, default_step_timeout_ms)
 
                 try:
-                    # -------------------------
-                    # NAV
-                    # -------------------------
                     if action == "goto":
-                        resolved = _normalize_url(url, base_url_norm)
-                        if not resolved:
-                            raise StepExecutionError("goto requiere 'url' o base_url")
-                        logs.append(f"Goto: {resolved}")
-                        page.goto(resolved, wait_until="domcontentloaded", timeout=60000)
-                        try:
-                            page.wait_for_load_state("networkidle", timeout=15000)
-                        except Exception:
-                            pass
+                        url = _url_from_step(step, inferred_base_url)
+                        if not url:
+                            raise ValueError("goto requiere url/base_url")
+                        # OJO: dejamos el goto con timeout por step si viene; si no, usa default/global
+                        page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+                        _record_step(i, step, "passed", extra={"resolved_url": url})
+                        continue
 
-                    # -------------------------
-                    # WAIT (visible)
-                    # -------------------------
-                    elif action == "wait_visible":
-                        loc = _pick_locator(page, step)
-                        logs.append(
-                            f"Wait visible: {(_safe_str(selector) or _safe_str(role))} {_safe_str(text)} (timeout={timeout_ms}ms)"
-                        )
-                        loc.wait_for(state="visible", timeout=timeout_ms)
-
-                    # -------------------------
-                    # INPUT
-                    # -------------------------
-                    elif action == "fill":
-                        if value is None and text is None:
-                            raise StepExecutionError("fill requiere 'value' (o 'text' como fallback)")
-                        fill_value = value if value is not None else text
-                        loc = _pick_locator(page, step)
-                        logs.append(f"Fill: {(_safe_str(selector) or _safe_str(text))} = {_safe_str(fill_value, 80)}")
-                        loc.wait_for(state="visible", timeout=timeout_ms)
-                        loc.fill(str(fill_value), timeout=timeout_ms)
-
-                    # -------------------------
-                    # CLICK
-                    # -------------------------
-                    elif action == "click":
-                        loc = _pick_locator(page, step)
-                        logs.append(f"Click: {(_safe_str(selector) or _safe_str(text))}")
-                        loc.wait_for(state="visible", timeout=timeout_ms)
-                        loc.click(timeout=timeout_ms)
-                        try:
-                            page.wait_for_load_state("networkidle", timeout=15000)
-                        except Exception:
-                            pass
-
-                    # -------------------------
-                    # PRESS
-                    # -------------------------
-                    elif action == "press":
-                        key = (value or text or "Enter")
-                        logs.append(
-                            f"Press: {key}" + (f" on {(_safe_str(selector) or _safe_str(text))}" if (selector or text or role) else "")
-                        )
-                        try:
-                            loc = _pick_locator(page, step)
-                            loc.wait_for(state="visible", timeout=timeout_ms)
-                            loc.press(str(key), timeout=timeout_ms)
-                        except Exception:
-                            page.keyboard.press(str(key))
-
-                        try:
-                            page.wait_for_load_state("networkidle", timeout=15000)
-                        except Exception:
-                            pass
-
-                    # -------------------------
-                    # ASSERTS
-                    # -------------------------
-                    elif action == "assert_visible":
-                        loc = _pick_locator(page, step)
-                        logs.append(f"Assert visible: {(_safe_str(selector) or _safe_str(text))}")
-                        loc.wait_for(state="visible", timeout=timeout_ms)
-
-                    elif action == "assert_text_contains":
-                        expected = str(value or text or "").strip()
-                        if not expected:
-                            raise StepExecutionError("assert_text_contains requiere 'text' o 'value' esperado")
-                        loc = _pick_locator(page, step)
-                        logs.append(
-                            f"Assert text contains: {(_safe_str(selector) or _safe_str(text))} has '{_safe_str(expected, 80)}'"
-                        )
-                        loc.wait_for(state="visible", timeout=timeout_ms)
-                        actual = loc.inner_text(timeout=timeout_ms) or ""
-                        if expected.lower() not in actual.lower():
-                            raise StepExecutionError(
-                                f"Texto esperado no encontrado. Esperado: '{expected}'. Actual: '{_safe_str(actual, 220)}'"
-                            )
-
-                    # -------------------------
-                    # SLEEP
-                    # -------------------------
-                    elif action == "wait_ms":
-                        # prioridad: timeout_ms explícito del step > value > text > 1000
-                        ms = int(step.get("timeout_ms") or value or text or 1000)
-                        logs.append(f"Wait ms: {ms}")
+                    if action == "wait_ms":
+                        ms = _as_int(step.get("ms"), 500)
                         page.wait_for_timeout(ms)
+                        _record_step(i, step, "passed", extra={"ms": ms})
+                        continue
 
-                    else:
-                        raise StepExecutionError(f"Acción no soportada: {action}")
+                    # Para acciones con selector
+                    sel = _selector_from_step(step)
+                    if not sel and action not in ("assert_text_contains",):
+                        raise ValueError(f"{action} requiere selector")
 
-                except PlaywrightTimeoutError as e:
-                    step_result["status"] = "fail"
-                    step_result["error"] = f"Timeout: {str(e)}"
-                    raise StepExecutionError(step_result["error"])
+                    if action == "fill":
+                        val = _safe_str(step.get("value"))
+                        page.locator(sel).wait_for(state="visible", timeout=timeout_ms)
+                        page.fill(sel, val, timeout=timeout_ms)
+                        _record_step(i, step, "passed")
+                        continue
 
-                except StepExecutionError as e:
-                    step_result["status"] = "fail"
-                    step_result["error"] = str(e)
-                    raise
+                    if action == "click":
+                        page.locator(sel).wait_for(state="visible", timeout=timeout_ms)
+                        page.click(sel, timeout=timeout_ms)
+                        _record_step(i, step, "passed")
+                        continue
+
+                    if action == "press":
+                        key = _safe_str(step.get("key") or "Enter")
+                        page.locator(sel).wait_for(state="visible", timeout=timeout_ms)
+                        page.press(sel, key, timeout=timeout_ms)
+                        _record_step(i, step, "passed", extra={"key": key})
+                        continue
+
+                    if action == "assert_visible":
+                        page.locator(sel).wait_for(state="visible", timeout=timeout_ms)
+                        _record_step(i, step, "passed")
+                        continue
+
+                    if action == "assert_text_contains":
+                        # puede venir selector + expected o solo expected (en ese caso usa body)
+                        expected = _safe_str(step.get("expected") or step.get("text") or "").strip()
+                        if not expected:
+                            raise ValueError("assert_text_contains requiere expected/text")
+                        target_sel = _selector_from_step(step) or "body"
+                        loc = page.locator(target_sel)
+                        loc.wait_for(state="visible", timeout=timeout_ms)
+                        content = (loc.inner_text(timeout=timeout_ms) or "").strip()
+                        if expected not in content:
+                            raise AssertionError(f"Texto no encontrado. Expected contiene: '{expected}'")
+                        _record_step(i, step, "passed", extra={"target": target_sel})
+                        continue
+
+                    raise ValueError(f"Acción no soportada: {action}")
+
+                except (PlaywrightTimeoutError,) as e:
+                    ok = False
+                    status = "fail"
+                    error_msg = f"Timeout en step {i+1}: {action} — {type(e).__name__}: {e}"
+                    logs.append(error_msg)
+                    _record_step(i, step, "failed", err=error_msg)
+                    # screenshot en fallo (NO depende de timeout global)
+                    shot, shot_logs = take_screenshot_robust(page)
+                    logs.extend(shot_logs)
+                    screenshot_b64 = shot
+                    break
+
+                except (AssertionError, ValueError) as e:
+                    ok = False
+                    status = "fail"
+                    error_msg = f"Fallo en step {i+1}: {action} — {type(e).__name__}: {e}"
+                    logs.append(error_msg)
+                    _record_step(i, step, "failed", err=error_msg)
+                    shot, shot_logs = take_screenshot_robust(page)
+                    logs.extend(shot_logs)
+                    screenshot_b64 = shot
+                    break
+
+                except PlaywrightError as e:
+                    ok = False
+                    status = "error"
+                    error_msg = f"Playwright error en step {i+1}: {action} — {type(e).__name__}: {e}"
+                    logs.append(error_msg)
+                    _record_step(i, step, "error", err=error_msg)
+                    shot, shot_logs = take_screenshot_robust(page)
+                    logs.extend(shot_logs)
+                    screenshot_b64 = shot
+                    break
 
                 except Exception as e:
-                    step_result["status"] = "fail"
-                    step_result["error"] = f"{type(e).__name__}: {str(e)}"
-                    raise
+                    ok = False
+                    status = "error"
+                    error_msg = f"Error inesperado en step {i+1}: {action} — {type(e).__name__}: {e}"
+                    logs.append(error_msg)
+                    _record_step(i, step, "error", err=error_msg)
+                    shot, shot_logs = take_screenshot_robust(page)
+                    logs.extend(shot_logs)
+                    screenshot_b64 = shot
+                    break
 
-                finally:
-                    step_result["duration_ms"] = _ms() - step_t0
-                    report_steps.append(step_result)
+            # Screenshot final (si pasó y aún no hay)
+            if screenshot_b64 is None:
+                try:
+                    shot, shot_logs = take_screenshot_robust(page)
+                    logs.extend(shot_logs)
+                    screenshot_b64 = shot
+                except Exception as e:
+                    logs.append(f"Final screenshot failed: {type(e).__name__}: {e}")
 
-            screenshot_b64 = take_screenshot_robust()
-            status = "passed"
-
-        except Exception as e:
-            error_msg = str(e)
-            logs.append(f"ERROR: {error_msg}")
-            screenshot_b64 = screenshot_b64 or take_screenshot_robust()
-            status = "fail"
-
-        finally:
             try:
                 context.close()
             except Exception:
@@ -363,17 +372,28 @@ def execute_test(
             except Exception:
                 pass
 
+    except Exception as e:
+        ok = False
+        status = "error"
+        error_msg = f"Runner crashed: {type(e).__name__}: {e}"
+        logs.append(error_msg)
+
+    duration_ms = int((time.time() - t0) * 1000)
+
     return {
+        "ok": ok,
         "status": status,
         "error": error_msg,
         "evidence_id": evidence_id,
         "steps": report_steps,
         "logs": logs,
         "screenshot_b64": screenshot_b64,
-        "duration_ms": int((time.time() - t0) * 1000),
+        "duration_ms": duration_ms,
         "meta": {
             "headless": headless,
             "steps_count": len(steps),
-            "base_url": base_url_norm,
+            "base_url": base_url,
+            "timeout_ms": timeout_ms_global,
+            "viewport": {"width": vw, "height": vh},
         },
     }
