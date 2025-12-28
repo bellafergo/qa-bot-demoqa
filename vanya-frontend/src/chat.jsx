@@ -483,6 +483,104 @@ function EvidenceBlock({ evidenceUrl }) {
   );
 }
 
+function RunDebugBlock({ runner }) {
+  if (!runner || typeof runner !== "object") return null;
+
+  const steps = Array.isArray(runner.steps) ? runner.steps : [];
+  const logs = Array.isArray(runner.logs) ? runner.logs : [];
+
+  const copyJson = async () => {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(runner, null, 2));
+      alert("✅ Run JSON copiado");
+    } catch {
+      alert("No se pudo copiar (permisos del navegador).");
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 10 }}>
+      <details style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: 10 }}>
+        <summary style={{ cursor: "pointer", fontWeight: 800, opacity: 0.9 }}>
+          Detalles (steps/logs)
+        </summary>
+
+        <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+          <button
+            onClick={copyJson}
+            style={{
+              padding: "6px 10px",
+              borderRadius: 10,
+              border: "1px solid rgba(255,255,255,0.14)",
+              background: "rgba(255,255,255,0.08)",
+              color: "white",
+              cursor: "pointer",
+              fontWeight: 700,
+            }}
+          >
+            Copiar JSON
+          </button>
+
+          {runner?.evidence_id ? (
+            <span style={{ opacity: 0.7, fontSize: 12 }}>evidence_id: {runner.evidence_id}</span>
+          ) : null}
+        </div>
+
+        {/* Steps */}
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontWeight: 800, marginBottom: 6 }}>Steps</div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead>
+                <tr style={{ opacity: 0.8 }}>
+                  <th style={{ textAlign: "left", padding: 6 }}>#</th>
+                  <th style={{ textAlign: "left", padding: 6 }}>action</th>
+                  <th style={{ textAlign: "left", padding: 6 }}>selector/url</th>
+                  <th style={{ textAlign: "left", padding: 6 }}>status</th>
+                  <th style={{ textAlign: "left", padding: 6 }}>error</th>
+                </tr>
+              </thead>
+              <tbody>
+                {steps.map((s, i) => (
+                  <tr key={i} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+                    <td style={{ padding: 6, opacity: 0.8 }}>{s.index ?? i + 1}</td>
+                    <td style={{ padding: 6, fontWeight: 800 }}>{String(s.action || "")}</td>
+                    <td style={{ padding: 6, opacity: 0.9 }}>
+                      {s.url ? `url: ${s.url}` : s.selector ? `sel: ${s.selector}` : ""}
+                    </td>
+                    <td style={{ padding: 6 }}>{String(s.status || "")}</td>
+                    <td style={{ padding: 6, opacity: 0.8 }}>{s.error ? String(s.error) : ""}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Logs */}
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontWeight: 800, marginBottom: 6 }}>Logs</div>
+          <pre
+            style={{
+              whiteSpace: "pre-wrap",
+              fontSize: 12,
+              lineHeight: 1.3,
+              background: "rgba(0,0,0,0.25)",
+              border: "1px solid rgba(255,255,255,0.10)",
+              borderRadius: 12,
+              padding: 10,
+              maxHeight: 240,
+              overflow: "auto",
+            }}
+          >
+            {logs.join("\n")}
+          </pre>
+        </div>
+      </details>
+    </div>
+  );
+}
+
 // ---------- Report component ----------
 function ReportBlock({ reportUrl }) {
   const url = String(reportUrl || "").trim();
