@@ -3,10 +3,9 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 from openai import OpenAI
@@ -16,63 +15,16 @@ from core import chat_helpers as H
 from services import store
 from runner import execute_test
 
-# Cloudinary (evidence + pdf)
+# Cloudinary (evidence + pdf) - usa tus servicios existentes
 from services.cloudinary_service import upload_screenshot_b64 as cloud_upload_screenshot_b64
 from services.cloudinary_service import upload_pdf_bytes as cloud_upload_pdf_bytes
 from services.report_service import generate_pdf_report
 
 logger = logging.getLogger("vanya.chat_service")
 
-def _safe_json_loads(s: str) -> Optional[Dict[str, Any]]:
-    try:
-        return json.loads(s)
-    except Exception:
-        return None
-
-
-def _render_doc_answer_from_json(doc: Dict[str, Any]) -> str:
-    """
-    Genera un resumen legible (Markdown simple) a partir del doc_json
-    para mantener compatibilidad con el UI actual.
-    """
-    ev = doc.get("executive_view", {})
-    title = ev.get("title", "Artefacto QA")
-    objective = ev.get("objective", "")
-
-    lines: List[str] = []
-    lines.append(f"## {title}")
-
-    if objective:
-        lines.append(f"**Objetivo:** {objective}")
-
-    risks = ev.get("top_risks", [])
-    if risks:
-        lines.append("\n### Riesgos principales")
-        for r in risks:
-            pr = r.get("priority", "")
-            rk = r.get("risk", "")
-            im = r.get("impact", "")
-            line = f"- **{pr}**: {rk}"
-            if im:
-                line += f" — {im}"
-            lines.append(line)
-
-    matrix = ev.get("matrix_summary") or []
-    if matrix:
-        lines.append("\n### Matriz resumida")
-        lines.append("| ID | Escenario | Resultado esperado | Prioridad |")
-        lines.append("|---|---|---|---|")
-        for row in matrix:
-            lines.append(
-                f"| {row.get('id','')} | {row.get('scenario','')} | {row.get('expected','')} | {row.get('priority','')} |"
-            )
-
-    lines.append("\n> Tip: Usa las pestañas Executive / QA para ver el detalle técnico.")
-    return "\n".join(lines).strip()
-
 
 # ============================================================
-# SYSTEM PROMPTS (ligeros; el "modo" lo define el router principal)
+# SYSTEM PROMPTS
 # ============================================================
 SYSTEM_PROMPT_LEAD = """Eres Vanya, QA Lead / SDET experta en Retail y E-commerce.
 Tu objetivo es evitar defectos que afecten conversión, ingresos o experiencia.
@@ -91,7 +43,7 @@ Reglas:
 - Devuelve pasos Playwright claros y estables.
 - Usa selectores robustos (data-testid > id > role/text).
 - Espera visibilidad antes de interactuar.
-- No expliques: ejecuta (solo JSON de steps si se te pide).
+- No expliques: ejecuta (siempre JSON en ejecución cuando se pida).
 """
 
 
@@ -105,11 +57,7 @@ def _client() -> OpenAI:
 
 
 def _persona(prompt: str, mode: str) -> str:
-    """
-    Mantiene tu lógica: por defecto lead, pero en execute usa automation
-    (y permite override manual por prompt).
-    """
-    p = H.low(prompt)
+    p = (prompt or "").lower()
     if "modo automation" in p or "modo automatizacion" in p:
         return "automation"
     if "modo lead" in p:
@@ -139,99 +87,153 @@ def _confidence(mode: str, prompt: str, base_url: Optional[str]) -> Dict[str, An
 
 
 # ============================================================
+# JSON helpers
+# ============================================================
+def _safe_json_loads(s: str) -> Optional[Dict[str, Any]]:
+    try:
+        return json.loads(s)
+    except Exception:
+        return None
+
+
+def _extract_json_object(raw: str) -> Optional[Dict[str, Any]]:
+    """
+    Intenta extraer un objeto JSON dict del texto.
+    - directo
+    - rescate por regex { ... }
+    """
+    if not raw:
+        return None
+    txt = raw.strip()
+    obj = _safe_json_loads(txt)
+    if isinstance(obj, dict):
+        return obj
+
+    m = re.search(r"\{.*\}", txt, flags=re.S)
+    if not m:
+        return None
+    obj = _safe_json_loads(m.group(0))
+    return obj if isinstance(obj, dict) else None
+
+
+# ============================================================
+# DOC renderer (compat UI actual)
+# ============================================================
+def _render_doc_answer_from_json(doc: Dict[str, Any]) -> str:
+    ev = doc.get("executive_view", {}) if isinstance(doc, dict) else {}
+    title = ev.get("title", "Artefacto QA")
+    objective = ev.get("objective", "")
+
+    lines: List[str] = []
+    lines.append(f"## {title}")
+    if objective:
+        lines.append(f"**Objetivo:** {objective}")
+
+    risks = ev.get("top_risks") or []
+    if risks:
+        lines.append("\n### Riesgos principales")
+        for r in risks:
+            pr = r.get("priority", "")
+            rk = r.get("risk", "")
+            im = r.get("impact", "")
+            line = f"- **{pr}**: {rk}"
+            if im:
+                line += f" — {im}"
+            lines.append(line)
+
+    matrix = ev.get("matrix_summary") or []
+    if matrix:
+        lines.append("\n### Matriz resumida")
+        lines.append("| ID | Escenario | Resultado esperado | Prioridad |")
+        lines.append("|---|---|---|---|")
+        for row in matrix:
+            lines.append(
+                f"| {row.get('id','')} | {row.get('scenario','')} | {row.get('expected','')} | {row.get('priority','')} |"
+            )
+
+    lines.append("\n> Tip: Usa las pestañas Executive / QA para ver el detalle técnico.")
+    return "\n".join(lines).strip()
+
+
+# ============================================================
 # MEMORY (NO execute)
 # ============================================================
 def _is_memory_query(prompt: str) -> bool:
-    p = H.low(prompt)
+    p = (prompt or "").lower()
     keys = [
-        "recuérdame", "recuerdame",
-        "última prueba", "ultima prueba",
-        "qué validamos", "que validamos",
-        "resultado", "evidence", "evidencia",
-        "qué pasó", "que paso",
-        "resumen de la prueba", "summary de la prueba",
+        "recuérdame", "recuerdame", "última prueba", "ultima prueba",
+        "qué validamos", "que validamos", "resultado", "evidence", "evidencia",
+        "qué pasó", "que paso", "resumen de la prueba", "summary de la prueba",
     ]
     return any(k in p for k in keys)
 
 
-def _find_last_execute(history_msgs: List[Dict[str, Any]]) -> Optional[Tuple[int, Dict[str, Any]]]:
-    for i in range(len(history_msgs) - 1, -1, -1):
-        m = history_msgs[i] or {}
+def _summarize_last_execute(history_msgs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """
+    Busca el último mensaje assistant con meta.mode == execute y arma un resumen.
+    """
+    for m in reversed(history_msgs or []):
         if (m.get("role") or "").strip() != "assistant":
             continue
         meta = m.get("meta") or m.get("meta_json") or {}
-        if (meta.get("mode") or "").strip() == "execute":
-            return i, m
+        if isinstance(meta, str):
+            meta = _safe_json_loads(meta) or {}
+        if not isinstance(meta, dict):
+            meta = {}
+
+        if meta.get("mode") != "execute":
+            continue
+
+        runner = meta.get("runner") or {}
+        status = (runner.get("status") or "").strip() or meta.get("runner_status")
+        base_url = meta.get("base_url")
+        evidence_url = meta.get("evidence_url") or runner.get("screenshot_url") or runner.get("evidence_url")
+        report_url = meta.get("report_url")
+        duration_ms = meta.get("duration_ms") or runner.get("duration_ms")
+
+        answer = m.get("content") or ""
+        if not answer.strip():
+            answer = "Resumen: ejecución registrada (sin mensaje)."
+
+        return {
+            "answer": answer,
+            "runner_status": status,
+            "base_url": base_url,
+            "evidence_url": evidence_url,
+            "report_url": report_url,
+            "duration_ms": duration_ms,
+        }
+
     return None
 
 
-def _summarize_last_execute(history_msgs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    hit = _find_last_execute(history_msgs)
-    if not hit:
-        return None
-
-    idx, exec_msg = hit
-    meta = exec_msg.get("meta") or exec_msg.get("meta_json") or {}
-
-    user_prompt = ""
-    for j in range(idx - 1, -1, -1):
-        mj = history_msgs[j] or {}
-        if (mj.get("role") or "").strip() == "user":
-            user_prompt = (mj.get("content") or "").strip()
-            if user_prompt:
-                break
-
-    base_url = (meta.get("base_url") or "").strip() or None
-    status = (meta.get("runner_status") or "").strip() or "ok"
-    duration_ms = meta.get("duration_ms")
-    evidence_url = (meta.get("evidence_url") or "").strip() or None
-    report_url = (meta.get("report_url") or "").strip() or None
-
-    pieces: List[str] = []
-    if user_prompt:
-        pieces.append(f"**Última prueba:** {user_prompt}")
-    if base_url:
-        pieces.append(f"**URL:** {base_url}")
-    pieces.append(f"**Resultado:** {status.upper()}")
-    if isinstance(duration_ms, int):
-        pieces.append(f"**Duración:** {duration_ms} ms")
-    if evidence_url:
-        pieces.append(f"**Evidence:** {evidence_url}")
-    if report_url:
-        pieces.append(f"**Reporte:** {report_url}")
-
-    answer = "\n".join(pieces).strip()
-    return {
-        "answer": answer or "La última prueba fue ejecutada, pero no pude armar el resumen.",
-        "base_url": base_url,
-        "runner_status": status,
-        "evidence_url": evidence_url,
-        "report_url": report_url,
-        "duration_ms": duration_ms,
-    }
-
-
 # ============================================================
-# EXECUTION: deterministic parser (tu lógica, con mínimos fixes)
+# EXECUTE helpers
 # ============================================================
 def _looks_like_saucedemo(url: str) -> bool:
-    return "saucedemo.com" in (url or "").lower()
+    s = (url or "").lower()
+    return "saucedemo.com" in s
 
 
 def _strip_quotes(s: str) -> str:
-    s = (s or "").strip()
-    if (s.startswith('"') and s.endswith('"')) or (s.startswith("'") and s.endswith("'")):
-        return s[1:-1].strip()
-    return s
+    ss = (s or "").strip()
+    if len(ss) >= 2 and ((ss[0] == ss[-1] == '"') or (ss[0] == ss[-1] == "'")):
+        return ss[1:-1]
+    return ss
 
 
 def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[str, Any]]]:
+    """
+    Parser determinístico: si el usuario ya especificó fill/click/assert,
+    generamos steps sin depender del LLM.
+    (Basado en tu versión) :contentReference[oaicite:2]{index=2}
+    """
     p = (prompt or "").strip()
     low = p.lower()
 
     steps: List[Dict[str, Any]] = [{"action": "goto", "url": base_url}, {"action": "wait_ms", "ms": 250}]
 
-    # Visibilidad por lista de selectores
+    # visibles
     if "visibles" in low or "visible" in low:
         selectors = re.findall(r'(["\']?)(#[-\w]+|\.[-\w]+|\[[^\]]+\])\1', p)
         seen: List[str] = []
@@ -242,9 +244,9 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
             seen = ["#user-name", "#password", "#login-button"]
         for sel in seen:
             steps.append({"action": "assert_visible", "selector": sel})
-        return steps if len(steps) > 2 else None
+        return steps
 
-    # Fill
+    # fill
     fill_patterns = [
         r'(?:llena|fill)\s+(".*?"|\'.*?\'|#[-\w]+|\.[-\w]+|\[[^\]]+\])\s+(?:con|with)\s+(".*?"|\'.*?\')',
     ]
@@ -254,7 +256,7 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
             val = _strip_quotes(m.group(2))
             steps.append({"action": "fill", "selector": sel, "text": val})
 
-    # Click
+    # click
     click_patterns = [
         r'(?:haz\s+click\s+en|haz\s+clic\s+en|click)\s+(".*?"|\'.*?\'|#[-\w]+|\.[-\w]+|\[[^\]]+\])',
     ]
@@ -263,7 +265,7 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
             sel = _strip_quotes(m.group(1))
             steps.append({"action": "click", "selector": sel})
 
-    # Assert text
+    # assert text
     text_patterns = [
         r'(?:valida|validar|verify|assert)\s+.*?(?:texto|text).*?(".*?"|\'.*?\')',
         r'(?:assert_text_contains)\s+(".*?"|\'.*?\')',
@@ -283,9 +285,6 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
     return steps
 
 
-# ============================================================
-# Helpers: evidence data-url
-# ============================================================
 def _make_png_data_url(b64_or_data_url: Optional[str]) -> Optional[str]:
     if not b64_or_data_url:
         return None
@@ -296,6 +295,157 @@ def _make_png_data_url(b64_or_data_url: Optional[str]) -> Optional[str]:
         return s
     return f"data:image/png;base64,{s}"
 
+
+def _render_execute_answer(status: str, msg: str, evidence_url: Optional[str], report_url: Optional[str]) -> str:
+    parts = [f"✅ Ejecutado ({status})." + (f" {msg}" if msg else "")]
+    if evidence_url:
+        parts.append(f"Evidence: {evidence_url}")
+    if report_url:
+        parts.append(f"Report: {report_url}")
+    return "\n".join(parts).strip()
+
+
+def _handle_execute_mode(
+    req: Any,
+    session: Dict[str, Any],
+    prompt: str,
+    thread_id: str,
+    persona: str,
+    messages: List[Dict[str, str]],
+) -> Dict[str, Any]:
+    base_url = H.pick_base_url(req, session, prompt)
+
+    # Si falta URL, aquí sí pedimos (solo execute). :contentReference[oaicite:3]{index=3}
+    if not base_url:
+        answer = (
+            "Para ejecutar necesito:\n"
+            "- URL (o dime “la misma”)\n"
+            "- Qué validar (botón / campo / texto esperado)\n"
+            "- Credenciales (si aplica)"
+        )
+        store.add_message(thread_id, "assistant", answer, meta={"mode": "execute", "persona": persona})
+        return {
+            "mode": "execute",
+            "persona": persona,
+            "session_id": session.get("id"),
+            "thread_id": thread_id,
+            "answer": answer,
+            **_confidence("execute", prompt, None),
+        }
+
+    # 0) parser determinístico
+    steps = _parse_steps_from_prompt(prompt, base_url)
+
+    # 1) fallback LLM para steps
+    if not steps:
+        client = _client()
+        resp = client.chat.completions.create(
+            model=settings.OPENAI_MODEL,
+            messages=messages
+            + [
+                {
+                    "role": "user",
+                    "content": (
+                        f"URL base: {base_url}\n"
+                        f"Genera pasos Playwright para:\n{prompt}\n"
+                        "Devuelve SOLO JSON con {\"steps\": [...]}."
+                    ),
+                }
+            ],
+            temperature=settings.EXEC_TEMPERATURE,
+            max_tokens=settings.EXEC_MAX_TOKENS,
+        )
+        raw = (resp.choices[0].message.content or "").strip()
+        steps = H.extract_steps_from_text(raw)
+
+    if not steps:
+        answer = "No pude generar pasos ejecutables. Dime el botón/campo exacto y el texto esperado."
+        store.add_message(thread_id, "assistant", answer, meta={"mode": "execute", "persona": persona, "base_url": base_url})
+        return {
+            "mode": "execute",
+            "persona": persona,
+            "session_id": session.get("id"),
+            "thread_id": thread_id,
+            "answer": answer,
+            **_confidence("execute", prompt, base_url),
+        }
+
+    # 2) ejecutar runner
+    t0 = time.time()
+    runner: Dict[str, Any] = {}
+    evidence_url = None
+    report_url = None
+
+    try:
+        runner = execute_test(
+            base_url=base_url,
+            steps=steps,
+            headless=bool(getattr(req, "headless", True)),
+            timeout_s=settings.RUNNER_TIMEOUT_S,
+        ) or {}
+    except Exception as e:
+        # runner crash controlado
+        runner = {"ok": False, "status": "error", "message": f"{type(e).__name__}: {str(e)}"}
+
+    duration_ms = int((time.time() - t0) * 1000)
+
+    # evidencia
+    screenshot_b64 = runner.get("screenshot_b64") or runner.get("screenshotBase64") or runner.get("screenshot_base64")
+    screenshot_data_url = _make_png_data_url(screenshot_b64) if screenshot_b64 else None
+
+    if screenshot_b64 and settings.HAS_CLOUDINARY:
+        try:
+            evidence_url = cloud_upload_screenshot_b64(screenshot_b64)
+        except Exception:
+            logger.exception("Cloudinary screenshot upload failed")
+
+    # pdf report (si existe evidencia o runner)
+    try:
+        pdf_bytes = generate_pdf_report(
+            prompt=prompt,
+            base_url=base_url,
+            steps=steps,
+            runner=runner,
+            duration_ms=duration_ms,
+            evidence_url=evidence_url,
+        )
+        if pdf_bytes and settings.HAS_CLOUDINARY:
+            report_url = cloud_upload_pdf_bytes(pdf_bytes, filename="report.pdf")
+    except Exception:
+        logger.exception("PDF report generation/upload failed")
+
+    ok = bool(runner.get("ok", True))
+    status = (runner.get("status") or ("ok" if ok else "fail")).strip()
+    msg = (runner.get("message") or runner.get("detail") or "").strip()
+
+    answer = _render_execute_answer(status=status, msg=msg, evidence_url=evidence_url, report_url=report_url)
+
+    meta = {
+        "mode": "execute",
+        "persona": persona,
+        "base_url": base_url,
+        "steps": steps,
+        "runner": {**runner, "screenshot_data_url": screenshot_data_url},
+        "evidence_url": evidence_url,
+        "report_url": report_url,
+        "duration_ms": duration_ms,
+    }
+
+    store.add_message(thread_id, "assistant", answer, meta=meta)
+
+    return {
+        "mode": "execute",
+        "persona": persona,
+        "thread_id": thread_id,
+        "answer": answer,
+        "runner": meta["runner"],
+        "evidence_url": evidence_url,
+        "report_url": report_url,
+        "duration_ms": duration_ms,
+        **_confidence("execute", prompt, base_url),
+    }
+
+
 # ============================================================
 # MAIN
 # ============================================================
@@ -304,40 +454,35 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
     Producto: routing determinístico + respuestas seguras.
     - DOC: fuerza JSON estructurado (Executive/QA) y nunca truena.
     - EXECUTE: corre runner si aplica; si falla, mensaje útil (no solo "error").
-    - ADVISE: respuesta normal QA lead.
+    - ADVISE: respuesta QA lead.
     """
     prompt = H.norm(getattr(req, "prompt", "") or "")
     if not prompt:
         raise HTTPException(status_code=400, detail="Prompt vacío")
 
-    # ---------- defaults seguros (evita UnboundLocalError) ----------
-    answer: str = ""
+    # defaults seguros (evita UnboundLocalError) :contentReference[oaicite:4]{index=4}
     mode: str = "advise"
     persona: str = "lead"
+    answer: str = ""
     doc_json: Optional[dict] = None
-    meta: Dict[str, Any] = {}
 
-    # ---------- session ----------
+    # session
     session_id, session = H.get_session(getattr(req, "session_id", None))
+    session["id"] = session_id  # para usarlo en execute
 
-    # ---------- thread ----------
+    # thread
     thread_id = (getattr(req, "thread_id", None) or "").strip() or None
     if not thread_id:
         t = store.create_thread(title=(prompt[:60] or "New chat"))
         thread_id = t["id"]
 
-    # ---------- persist USER message (correcto: role=user) ----------
+    # persist USER message (correcto: role=user) :contentReference[oaicite:5]{index=5}
     try:
-        store.add_message(
-            thread_id,
-            "user",
-            prompt,
-            meta={"mode_hint": "input"},
-        )
+        store.add_message(thread_id, "user", prompt, meta={"mode_hint": "input"})
     except Exception:
         logger.warning("Failed to persist user message (continuing)", exc_info=True)
 
-    # ---------- load history ----------
+    # history
     try:
         thread = store.get_thread(thread_id)
         history_msgs = (thread.get("messages") or [])[-settings.MAX_HISTORY_MSGS :]
@@ -345,143 +490,62 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         logger.warning("Failed to load thread history (continuing)", exc_info=True)
         history_msgs = []
 
-    # ---------- decide mode determinísticamente ----------
-    p = prompt.lower()
-
-    DOC_TRIGGERS = (
-        "matriz", "casos de prueba", "casos prueba", "gherkin", "escenarios",
-        "checklist", "plan de pruebas", "test plan", "test cases", "matriz de pruebas",
-    )
-    EXEC_TRIGGERS = (
-        "ve a ", "abre ", "navega", "haz click", "da click", "inicia sesión", "login",
-        "valida", "verifica", "ejecuta", "ejecutar", "prueba ui", "playwright",
-        "https://", "http://",
-    )
-
-    wants_doc = any(k in p for k in DOC_TRIGGERS)
-    wants_execute = any(k in p for k in EXEC_TRIGGERS)
-
-    # Regla de producto:
-    # - Si pide artefacto -> DOC
-    # - Si pide ejecutar UI -> EXECUTE
-    # - Si viene mezclado, prioriza EXECUTE si hay URL + acción, si no DOC
-    if wants_execute and ("http://" in p or "https://" in p or "saucedemo" in p or "valida" in p or "inicia sesión" in p):
-        mode = "execute"
-        persona = "automation"
-    elif wants_doc:
-        mode = "doc"
-        persona = "doc"
-    else:
-        mode = "advise"
-        persona = "lead"
-
-    # ---------- build messages ----------
-    # Nota: usa tu formato de mensajes existente (history + system + user)
-    messages = H.build_messages(history_msgs, prompt, mode=mode, persona=persona)
-
-    client = _client()
-
-    # ============================================================
-    # DOC (FORZADO) — siempre devuelve doc_json válido
-    # ============================================================
-    if mode == "doc":
-        def _extract_json_object(raw: str) -> Optional[dict]:
-            if not raw:
-                return None
-            raw = raw.strip()
-
-            obj = _safe_json_loads(raw)
-            if isinstance(obj, dict):
-                return obj
-
-            import re
-            m = re.search(r"\{.*\}", raw, re.S)
-            if not m:
-                return None
-            obj = _safe_json_loads(m.group(0))
-            return obj if isinstance(obj, dict) else None
-
-        try:
-            resp = client.chat.completions.create(
-                model=settings.OPENAI_MODEL,
-                messages=messages,
-                temperature=settings.DOC_TEMPERATURE,
-                max_tokens=settings.DOC_MAX_TOKENS,
-            )
-            raw = (resp.choices[0].message.content or "").strip()
-            doc_json = _extract_json_object(raw)
-
-            if not isinstance(doc_json, dict):
-                # fallback de producto (JSON válido siempre)
-                doc_json = {
-                    "executive_view": {
-                        "title": "Artefacto QA",
-                        "objective": "No se recibió JSON válido del modelo. Se entrega vista de respaldo.",
-                        "top_risks": [],
-                        "matrix_summary": [],
-                    },
-                    "qa_view": {
-                        "sections": [
-                            {
-                                "title": "Salida del modelo (respaldo)",
-                                "content": (raw[:4000] if raw else "Sin contenido"),
-                            }
-                        ]
-                    },
-                }
-
-            answer = _render_doc_answer_from_json(doc_json)
-
-            meta = {
-                "mode": "doc",
-                "persona": persona,
-                "doc_json": doc_json,
-                "doc_schema": "v1",
-            }
-
-            store.add_message(thread_id, "assistant", answer, meta=meta)
-
+    # MEMORY (siempre advise) :contentReference[oaicite:6]{index=6}
+    if _is_memory_query(prompt):
+        mem = _summarize_last_execute(history_msgs)
+        if not mem:
+            answer = "Aún no veo una ejecución previa en este chat. Pídeme que ejecute una prueba y luego te resumo el resultado."
+            store.add_message(thread_id, "assistant", answer, meta={"mode": "advise", "memory": True})
             return {
-                "mode": "doc",
-                "persona": persona,
+                "mode": "advise",
+                "persona": _persona(prompt, "advise"),
                 "session_id": session_id,
                 "thread_id": thread_id,
                 "answer": answer,
-                "doc_json": doc_json,
-                **_confidence("doc", prompt, None),
+                **_confidence("advise", prompt, None),
             }
 
-        except Exception as e:
-            logger.exception("DOC failure (safe fallback)")
-            answer = "Ocurrió un problema generando el artefacto QA. Intenta de nuevo con más detalle (flujo/alcance) o reduce el número de casos."
-            meta = {"mode": "doc", "persona": persona, "error": f"{type(e).__name__}: {str(e)}", "safe_fallback": True}
-            try:
-                store.add_message(thread_id, "assistant", answer, meta=meta)
-            except Exception:
-                pass
-            return {
-                "mode": "doc",
-                "persona": persona,
-                "session_id": session_id,
-                "thread_id": thread_id,
-                "answer": answer,
-                "error": meta["error"],
-                **_confidence("doc", prompt, None),
-            }
+        answer = mem["answer"]
+        store.add_message(thread_id, "assistant", answer, meta={"mode": "advise", "memory": True, **mem})
+        return {
+            "mode": "advise",
+            "persona": _persona(prompt, "advise"),
+            "session_id": session_id,
+            "thread_id": thread_id,
+            "answer": answer,
+            "evidence_url": mem.get("evidence_url"),
+            "report_url": mem.get("report_url"),
+            "duration_ms": mem.get("duration_ms"),
+            **_confidence("advise", prompt, mem.get("base_url")),
+        }
 
-    # ============================================================
-    # EXECUTE — si falla, respuesta útil + runner si existe
-    # ============================================================
+    # INTENT (execute tiene prioridad; doc no compite con execute) :contentReference[oaicite:7]{index=7}
+    wants_execute = bool(H.wants_execute(prompt, session))
+    wants_doc = bool(H.wants_doc(prompt)) if not wants_execute else False
+    mode = "execute" if wants_execute else "doc" if wants_doc else "advise"
+    persona = _persona(prompt, mode)
+
+    # build messages
+    messages: List[Dict[str, str]] = [{"role": "system", "content": _system_prompt(persona)}]
+    for m in history_msgs:
+        role = (m.get("role") or "assistant").strip()
+        content = (m.get("content") or "").strip()
+        if content:
+            messages.append({"role": role, "content": content})
+
+    # EXECUTE
     if mode == "execute":
         try:
-            # tus helpers actuales deberían resolver base_url / pasos / runner
-            # y devolver un dict con answer + meta/runner/evidence
-            result = _handle_execute_mode(req=req, session=session, prompt=prompt, thread_id=thread_id, messages=messages)
-
-            # garantiza que siempre exista answer para el frontend
-            if isinstance(result, dict):
-                if not (result.get("answer") or "").strip():
-                    result["answer"] = "Ejecución completada. Revisa evidencia y resultado."
+            result = _handle_execute_mode(
+                req=req,
+                session=session,
+                prompt=prompt,
+                thread_id=thread_id,
+                persona=persona,
+                messages=messages,
+            )
+            if isinstance(result, dict) and (result.get("answer") or "").strip():
+                result["session_id"] = session_id
                 return result
 
             # fallback raro
@@ -521,10 +585,52 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
                 **_confidence("execute", prompt, H.pick_base_url(req, session, prompt)),
             }
 
-    # ============================================================
-    # ADVISE — QA lead normal, estable
-    # ============================================================
+    # DOC / ADVISE (nunca debe romper endpoint)
     try:
+        client = _client()
+
+        # DOC
+        if mode == "doc":
+            resp = client.chat.completions.create(
+                model=settings.OPENAI_MODEL,
+                messages=messages + [
+                    {"role": "user", "content": "Devuelve exclusivamente un JSON válido. No agregues texto adicional."}
+                ],
+                temperature=settings.DOC_TEMPERATURE,
+                max_tokens=settings.DOC_MAX_TOKENS,
+            )
+            raw = (resp.choices[0].message.content or "").strip()
+            doc_json = _extract_json_object(raw)
+
+            if not isinstance(doc_json, dict):
+                doc_json = {
+                    "executive_view": {
+                        "title": "Artefacto QA",
+                        "objective": "El modelo no devolvió JSON válido. Se muestra salida de respaldo.",
+                        "top_risks": [],
+                        "matrix_summary": [],
+                    },
+                    "qa_view": {
+                        "sections": [
+                            {"title": "Salida del modelo", "content": raw[:4000] if raw else "Sin contenido"}
+                        ]
+                    },
+                }
+
+            answer = _render_doc_answer_from_json(doc_json)
+            store.add_message(thread_id, "assistant", answer, meta={"mode": "doc", "persona": persona, "doc_json": doc_json, "doc_schema": "v1"})
+
+            return {
+                "mode": "doc",
+                "persona": persona,
+                "session_id": session_id,
+                "thread_id": thread_id,
+                "answer": answer,
+                "doc_json": doc_json,
+                **_confidence("doc", prompt, None),
+            }
+
+        # ADVISE
         resp = client.chat.completions.create(
             model=settings.OPENAI_MODEL,
             messages=messages,
@@ -532,24 +638,31 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             max_tokens=settings.ADV_MAX_TOKENS,
         )
         answer = (resp.choices[0].message.content or "").strip() or "¿Puedes darme más contexto?"
+        store.add_message(thread_id, "assistant", answer, meta={"mode": "advise", "persona": persona})
+
+        base_url_hint = H.pick_base_url(req, session, prompt)
+        return {
+            "mode": "advise",
+            "persona": persona,
+            "session_id": session_id,
+            "thread_id": thread_id,
+            "answer": answer,
+            **_confidence("advise", prompt, base_url_hint),
+        }
 
     except Exception as e:
-        logger.exception("ADVISE failed (safe fallback)")
-        answer = "Ocurrió un problema generando la respuesta. Intenta nuevamente."
-
-    meta = {"mode": "advise", "persona": persona}
-    try:
-        store.add_message(thread_id, "assistant", answer, meta=meta)
-    except Exception:
-        logger.warning("Failed to persist assistant message (continuing)", exc_info=True)
-
-    base_url_hint = H.pick_base_url(req, session, prompt)
-
-    return {
-        "mode": "advise",
-        "persona": persona,
-        "session_id": session_id,
-        "thread_id": thread_id,
-        "answer": answer,
-        **_confidence("advise", prompt, base_url_hint),
-    }
+        # fallback final: nunca 500
+        msg = "Ocurrió un problema generando la respuesta. Intenta nuevamente o ajusta el alcance."
+        logger.exception("DOC/ADVISE failure")
+        try:
+            store.add_message(thread_id, "assistant", msg, meta={"mode": mode, "persona": persona, "error": str(e)})
+        except Exception:
+            pass
+        return {
+            "mode": mode,
+            "persona": persona,
+            "session_id": session_id,
+            "thread_id": thread_id,
+            "answer": msg,
+            "error": f"{type(e).__name__}: {str(e)}",
+        }
