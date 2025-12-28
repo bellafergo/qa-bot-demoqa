@@ -67,6 +67,12 @@ REGLAS CRÍTICAS
   Comprar, Agregar al carrito, Checkout, Confirmación de pago.
 - NO expliques, NO narres, NO justifiques.
 - La salida debe ser SOLO el tool-call run_qa_test.
+- Si el usuario pide validar que un usuario "exista" (login exitoso),
+DEBES agregar al final:
+- assert_url_contains "inventory" (o assert_visible ".inventory_list")
+- y opcional: assert_not_visible "[data-test='error']"
+- Toda ejecución debe incluir mínimo un assert_visible o assert_text_contains
+- Para login: assert de elemento post-login o URL
 """
 
 SYSTEM_PROMPT_DOC = """
