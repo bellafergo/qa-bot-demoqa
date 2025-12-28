@@ -4,6 +4,8 @@
 # - Ejecuta steps Playwright
 # - Devuelve screenshot_b64 para UI
 # - Soporta timeout global (timeout_s) SIN afectar screenshot robust
+# - NO corta el run en asserts fallidos (continúa)
+# - SÍ corta en acciones fatales (goto/click/fill/press)
 # ============================================================
 
 from __future__ import annotations
@@ -56,12 +58,6 @@ def _pick_timeout_ms(step: Dict[str, Any], default_ms: int) -> int:
     return _as_int(step.get("timeout_ms"), default_ms)
 
 
-def _step_label(i: int, step: Dict[str, Any]) -> str:
-    a = _normalize_action(step)
-    tgt = step.get("selector") or step.get("url") or step.get("text") or ""
-    return f"{i+1:02d}. {a} {tgt}".strip()
-
-
 def _selector_from_step(step: Dict[str, Any]) -> str:
     # prefer selector; fallbacks used by generator sometimes
     sel = step.get("selector") or step.get("target") or step.get("loc") or ""
@@ -72,6 +68,7 @@ def _url_from_step(step: Dict[str, Any], base_url: Optional[str]) -> str:
     url = (step.get("url") or step.get("href") or "").strip()
     if url:
         return url
+
     # compat: sometimes generator sends {"action":"goto","path":"/login"}
     path = (step.get("path") or "").strip()
     if path and base_url:
@@ -80,7 +77,17 @@ def _url_from_step(step: Dict[str, Any], base_url: Optional[str]) -> str:
         if (not base_url.endswith("/")) and (not path.startswith("/")):
             return base_url + "/" + path
         return base_url + path
+
     return base_url or ""
+
+
+def _is_assert_action(action: str) -> bool:
+    return action in ("assert_visible", "assert_text_contains")
+
+
+def _is_fatal_action(action: str) -> bool:
+    # acciones que, si fallan, ya no es confiable seguir
+    return action in ("goto", "fill", "click", "press")
 
 
 # ============================================================
@@ -107,7 +114,6 @@ def take_screenshot_robust(page) -> Tuple[Optional[str], List[str]]:
     last_err = None
     for attempt in range(RETRIES + 1):
         try:
-            # full_page=True puede fallar en sitios pesados; intentamos primero full y luego normal
             png = page.screenshot(full_page=True, timeout=SHOT_TIMEOUT_MS)
             b64 = _b64_png(png)
             logs.append(f"Screenshot: ok (full_page) [attempt {attempt+1}]")
@@ -130,7 +136,9 @@ def take_screenshot_robust(page) -> Tuple[Optional[str], List[str]]:
         except Exception:
             pass
 
-    logs.append(f"Screenshot: failed окончательно: {type(last_err).__name__}: {last_err}" if last_err else "Screenshot: failed")
+    logs.append(
+        f"Screenshot: failed final: {type(last_err).__name__}: {last_err}" if last_err else "Screenshot: failed"
+    )
     return None, logs
 
 
@@ -152,6 +160,10 @@ def execute_test(
     Compatibilidad:
       wait_for, wait_for_selector -> assert_visible
 
+    Reglas de ejecución:
+      - asserts fallidos NO cortan el run (continúa)
+      - acciones fatales fallidas (goto/fill/click/press) cortan el run
+
     Retorna:
       {
         ok: bool,
@@ -159,6 +171,8 @@ def execute_test(
         error: str | None,
         evidence_id: str,
         steps: [...],
+        failed_asserts: [...],
+        summary: { passed, failed, errors },
         logs: [...],
         screenshot_b64: str | None,
         duration_ms: int,
@@ -169,6 +183,7 @@ def execute_test(
 
     screenshot_b64: Optional[str] = None
     report_steps: List[Dict[str, Any]] = []
+    failed_asserts: List[Dict[str, Any]] = []
     logs: List[str] = []
     evidence_id = f"EV-{uuid.uuid4().hex[:10]}"
 
@@ -179,6 +194,8 @@ def execute_test(
             "error": "steps vacío o inválido",
             "evidence_id": evidence_id,
             "steps": [],
+            "failed_asserts": [],
+            "summary": {"passed": 0, "failed": 0, "errors": 0},
             "logs": ["Runner error: steps vacío o inválido"],
             "screenshot_b64": None,
             "duration_ms": int((time.time() - t0) * 1000),
@@ -197,19 +214,28 @@ def execute_test(
     vw = _as_int(viewport.get("width"), 1366)
     vh = _as_int(viewport.get("height"), 768)
 
-    status = "passed"
-    ok = True
+    status: str = "passed"
+    ok: bool = True
     error_msg: Optional[str] = None
 
-    def _record_step(i: int, step: Dict[str, Any], st: str, err: Optional[str] = None, extra: Optional[Dict[str, Any]] = None):
+    has_assert_fail: bool = False
+    had_fatal_error: bool = False
+
+    def _record_step(
+        i: int,
+        step: Dict[str, Any],
+        st: str,
+        err: Optional[str] = None,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> None:
         payload: Dict[str, Any] = {
             "index": i,
             "action": _normalize_action(step),
             "raw_action": step.get("action"),
-            "selector": step.get("selector"),
-            "url": step.get("url"),
+            "selector": step.get("selector") or step.get("target") or step.get("loc"),
+            "url": step.get("url") or step.get("href") or step.get("path"),
             "value": step.get("value"),
-            "text": step.get("text"),
+            "text": step.get("text") or step.get("expected"),
             "status": st,
             "error": err,
             "ts_ms": _now_ms(),
@@ -218,14 +244,23 @@ def execute_test(
             payload.update(extra)
         report_steps.append(payload)
 
+    def _push_failed_assert(i: int, action: str, step: Dict[str, Any], err: str) -> None:
+        failed_asserts.append(
+            {
+                "index": i,
+                "action": action,
+                "selector": _selector_from_step(step) or None,
+                "error": err,
+            }
+        )
+
     # Execute in Playwright
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=headless)
             context = browser.new_context(viewport={"width": vw, "height": vh})
 
-            # ✅ Timeout global (A): aplica a toda interacción/espera,
-            #    pero NO tocamos screenshot_robust (por decisión).
+            # ✅ Timeout global: aplica a interacciones/esperas, NO screenshots
             if timeout_ms_global is not None:
                 context.set_default_timeout(timeout_ms_global)
                 context.set_default_navigation_timeout(timeout_ms_global)
@@ -233,7 +268,7 @@ def execute_test(
 
             page = context.new_page()
 
-            # Base URL: si no viene, la intentamos inferir de un goto inicial
+            # Base URL: si no viene, inferir del primer goto
             inferred_base_url = base_url
             for st in steps:
                 if _normalize_action(st) == "goto":
@@ -242,7 +277,9 @@ def execute_test(
                         inferred_base_url = base_url or u
                     break
 
+            # ============================================================
             # Ejecutar steps
+            # ============================================================
             for i, step in enumerate(steps):
                 action = _normalize_action(step)
                 timeout_ms = _pick_timeout_ms(step, default_step_timeout_ms)
@@ -252,7 +289,6 @@ def execute_test(
                         url = _url_from_step(step, inferred_base_url)
                         if not url:
                             raise ValueError("goto requiere url/base_url")
-                        # OJO: dejamos el goto con timeout por step si viene; si no, usa default/global
                         page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
                         _record_step(i, step, "passed", extra={"resolved_url": url})
                         continue
@@ -294,67 +330,134 @@ def execute_test(
                         continue
 
                     if action == "assert_text_contains":
-                        # puede venir selector + expected o solo expected (en ese caso usa body)
                         expected = _safe_str(step.get("expected") or step.get("text") or "").strip()
                         if not expected:
                             raise ValueError("assert_text_contains requiere expected/text")
+
                         target_sel = _selector_from_step(step) or "body"
                         loc = page.locator(target_sel)
                         loc.wait_for(state="visible", timeout=timeout_ms)
                         content = (loc.inner_text(timeout=timeout_ms) or "").strip()
+
                         if expected not in content:
                             raise AssertionError(f"Texto no encontrado. Expected contiene: '{expected}'")
+
                         _record_step(i, step, "passed", extra={"target": target_sel})
                         continue
 
                     raise ValueError(f"Acción no soportada: {action}")
 
+                # ============================================================
+                # TIMEOUT
+                # ============================================================
                 except (PlaywrightTimeoutError,) as e:
-                    ok = False
-                    status = "fail"
-                    error_msg = f"Timeout en step {i+1}: {action} — {type(e).__name__}: {e}"
-                    logs.append(error_msg)
-                    _record_step(i, step, "failed", err=error_msg)
-                    # screenshot en fallo (NO depende de timeout global)
-                    shot, shot_logs = take_screenshot_robust(page)
-                    logs.extend(shot_logs)
-                    screenshot_b64 = shot
-                    break
+                    err = f"Timeout en step {i+1}: {action} — {type(e).__name__}: {e}"
+                    logs.append(err)
 
+                    if _is_assert_action(action):
+                        ok = False
+                        status = "fail"
+                        has_assert_fail = True
+                        error_msg = err  # último error “visible”
+                        _record_step(i, step, "failed", err=err)
+                        _push_failed_assert(i, action, step, err)
+
+                        # Screenshot del último assert fallido (B)
+                        shot, shot_logs = take_screenshot_robust(page)
+                        logs.extend(shot_logs)
+                        screenshot_b64 = shot
+
+                        continue  # ✅ NO cortar
+                    else:
+                        ok = False
+                        status = "fail"
+                        error_msg = err
+                        had_fatal_error = True
+                        _record_step(i, step, "failed", err=err)
+
+                        shot, shot_logs = take_screenshot_robust(page)
+                        logs.extend(shot_logs)
+                        screenshot_b64 = shot
+
+                        break  # 🛑 cortar en no-assert
+
+                # ============================================================
+                # ASSERT / VALUE ERROR
+                # ============================================================
                 except (AssertionError, ValueError) as e:
-                    ok = False
-                    status = "fail"
-                    error_msg = f"Fallo en step {i+1}: {action} — {type(e).__name__}: {e}"
-                    logs.append(error_msg)
-                    _record_step(i, step, "failed", err=error_msg)
-                    shot, shot_logs = take_screenshot_robust(page)
-                    logs.extend(shot_logs)
-                    screenshot_b64 = shot
-                    break
+                    err = f"Fallo en step {i+1}: {action} — {type(e).__name__}: {e}"
+                    logs.append(err)
 
+                    if _is_assert_action(action):
+                        ok = False
+                        status = "fail"
+                        has_assert_fail = True
+                        error_msg = err
+                        _record_step(i, step, "failed", err=err)
+                        _push_failed_assert(i, action, step, err)
+
+                        # Screenshot del último assert fallido (B)
+                        shot, shot_logs = take_screenshot_robust(page)
+                        logs.extend(shot_logs)
+                        screenshot_b64 = shot
+
+                        continue  # ✅ NO cortar
+                    else:
+                        # Si un ValueError viene en acción fatal o acción no-assert, cortamos
+                        ok = False
+                        status = "fail"
+                        error_msg = err
+                        had_fatal_error = True
+                        _record_step(i, step, "failed", err=err)
+
+                        shot, shot_logs = take_screenshot_robust(page)
+                        logs.extend(shot_logs)
+                        screenshot_b64 = shot
+
+                        break
+
+                # ============================================================
+                # PLAYWRIGHT ERROR
+                # ============================================================
                 except PlaywrightError as e:
+                    err = f"Playwright error en step {i+1}: {action} — {type(e).__name__}: {e}"
+                    logs.append(err)
                     ok = False
                     status = "error"
-                    error_msg = f"Playwright error en step {i+1}: {action} — {type(e).__name__}: {e}"
-                    logs.append(error_msg)
-                    _record_step(i, step, "error", err=error_msg)
+                    error_msg = err
+                    had_fatal_error = True
+                    _record_step(i, step, "error", err=err)
+
                     shot, shot_logs = take_screenshot_robust(page)
                     logs.extend(shot_logs)
                     screenshot_b64 = shot
+
                     break
 
+                # ============================================================
+                # UNEXPECTED
+                # ============================================================
                 except Exception as e:
+                    err = f"Error inesperado en step {i+1}: {action} — {type(e).__name__}: {e}"
+                    logs.append(err)
                     ok = False
                     status = "error"
-                    error_msg = f"Error inesperado en step {i+1}: {action} — {type(e).__name__}: {e}"
-                    logs.append(error_msg)
-                    _record_step(i, step, "error", err=error_msg)
+                    error_msg = err
+                    had_fatal_error = True
+                    _record_step(i, step, "error", err=err)
+
                     shot, shot_logs = take_screenshot_robust(page)
                     logs.extend(shot_logs)
                     screenshot_b64 = shot
+
                     break
 
-            # Screenshot final (si pasó y aún no hay)
+            # Si no hubo error fatal, pero sí asserts fallidos, aseguramos status=fail
+            if (not had_fatal_error) and has_assert_fail:
+                ok = False
+                status = "fail"
+
+            # Screenshot final (si no hay ninguno)
             if screenshot_b64 is None:
                 try:
                     shot, shot_logs = take_screenshot_robust(page)
@@ -380,12 +483,19 @@ def execute_test(
 
     duration_ms = int((time.time() - t0) * 1000)
 
+    # Summary
+    passed = sum(1 for s in report_steps if s.get("status") == "passed")
+    failed = sum(1 for s in report_steps if s.get("status") == "failed")
+    errors = sum(1 for s in report_steps if s.get("status") == "error")
+
     return {
         "ok": ok,
         "status": status,
         "error": error_msg,
         "evidence_id": evidence_id,
         "steps": report_steps,
+        "failed_asserts": failed_asserts,
+        "summary": {"passed": passed, "failed": failed, "errors": errors},
         "logs": logs,
         "screenshot_b64": screenshot_b64,
         "duration_ms": duration_ms,
