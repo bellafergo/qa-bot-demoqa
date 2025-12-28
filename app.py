@@ -32,12 +32,9 @@ app = FastAPI(
 
 
 # ============================================================
-# CORS (IMPORTANT)
+# HELPERS
 # ============================================================
 def _normalize_origins(origins):
-    """
-    Normaliza orígenes (quita / final), filtra vacíos y elimina duplicados.
-    """
     out = []
     for o in (origins or []):
         if not o:
@@ -47,7 +44,7 @@ def _normalize_origins(origins):
             continue
         s = s[:-1] if s.endswith("/") else s
         out.append(s)
-    # dedupe preservando orden
+
     seen = set()
     uniq = []
     for o in out:
@@ -58,7 +55,30 @@ def _normalize_origins(origins):
     return uniq
 
 
-# Asegura que SIEMPRE se permita el origin del frontend
+def _safe_mount_static(url_path: str, directory: str, name: str):
+    try:
+        p = Path(directory)
+        if p.exists() and p.is_dir():
+            app.mount(url_path, StaticFiles(directory=str(p)), name=name)
+            logger.info(f"Static mounted: {url_path} -> {p}")
+        else:
+            logger.warning(f"Static NOT mounted (missing dir): {url_path} -> {p}")
+    except Exception:
+        logger.exception(f"Static mount failed: {url_path} -> {directory}")
+
+
+def _is_prod() -> bool:
+    env = (os.getenv("ENV") or os.getenv("ENVIRONMENT") or "").lower().strip()
+    if env in ("prod", "production"):
+        return True
+    if os.getenv("RENDER", "").strip().lower() in ("1", "true", "yes"):
+        return True
+    return False
+
+
+# ============================================================
+# CORS
+# ============================================================
 DEFAULT_FRONTEND_ORIGINS = [
     "https://valtre-vanya.vercel.app",
     "http://localhost:5173",
@@ -80,64 +100,19 @@ app.add_middleware(
 # ============================================================
 # STATIC (Evidence/Reports)
 # ============================================================
-def _safe_mount_static(url_path: str, directory: str, name: str):
-    """
-    Monta StaticFiles solo si el directorio existe.
-    Evita que el app truene si en Render no está la carpeta.
-    """
-    try:
-        p = Path(directory)
-        if p.exists() and p.is_dir():
-            app.mount(url_path, StaticFiles(directory=str(p)), name=name)
-            logger.info(f"Static mounted: {url_path} -> {p}")
-        else:
-            logger.warning(f"Static NOT mounted (missing dir): {url_path} -> {p}")
-    except Exception as e:
-        logger.exception(f"Static mount failed: {url_path} -> {directory} ({e})")
-
-
-# Evidence dir (configurable)
 _safe_mount_static("/evidence", str(settings.EVIDENCE_DIR), "evidence")
-
-# Reports dentro de evidence/reports (mantengo tu ruta)
 _safe_mount_static("/reports", "evidence/reports", "reports")
 
 
 # ============================================================
 # ERROR HANDLER
 # ============================================================
-def _is_prod() -> bool:
-    """
-    Detecta ambiente prod. Ajusta si tu settings maneja otra bandera.
-    """
-    env = (os.getenv("ENV") or os.getenv("ENVIRONMENT") or "").lower().strip()
-    if env in ("prod", "production"):
-        return True
-    # Render normalmente usa RENDER=true
-    if os.getenv("RENDER", "").strip().lower() in ("1", "true", "yes"):
-        return True
-    return False
-
-
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
-    """
-    Importante: En PROD no regresamos el stack/exception al cliente para no filtrar.
-    Pero SI loggeamos todo.
-    """
     logger.exception("Unhandled error")
-
     if _is_prod():
-        return JSONResponse(
-            status_code=500,
-            content={"detail": "Internal Server Error"},
-        )
-
-    # En dev sí ayudamos con detalle
-    return JSONResponse(
-        status_code=500,
-        content={"detail": f"{type(exc).__name__}: {str(exc)}"},
-    )
+        return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
+    return JSONResponse(status_code=500, content={"detail": f"{type(exc).__name__}: {str(exc)}"})
 
 
 # ============================================================
@@ -145,11 +120,14 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 # ============================================================
 @app.on_event("startup")
 def on_startup():
-    # Ajusta logging si quieres ver logs en Render
-    logging.basicConfig(level=getattr(logging, (settings.LOG_LEVEL or "INFO").upper(), logging.INFO))
+    # ✅ No dependas de settings.LOG_LEVEL (no existe en tu Settings)
+    # Puedes controlar con env LOG_LEVEL si quieres (opcional)
+    env_level = (os.getenv("LOG_LEVEL") or "INFO").upper().strip()
+    level = getattr(logging, env_level, logging.INFO)
+    logging.basicConfig(level=level)
 
-    # ✅ Solo inicializa DB si existe DATABASE_URL
-    if settings.HAS_DB:
+    # ✅ DB init
+    if getattr(settings, "HAS_DB", False):
         init_db()
         logger.info("DB enabled: init_db() executed")
     else:
