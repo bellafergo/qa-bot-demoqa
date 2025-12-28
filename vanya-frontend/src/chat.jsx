@@ -265,10 +265,10 @@ export default function Chat(props) {
     const docJson = pickDocJson(m);
 
     const isExecute = isExecuteMessage(m);
-    const execStatus = role === "bot" && isExecute ? pickExecStatus(m) : null;
 
-    // evidencia: si hay URL, muéstrala (sobre todo en execute)
-    const showEvidence = !!evidenceUrl && (isExecute || role === "bot");
+    const showEvidence = !!evidenceUrl;
+    const showReport   = !!reportUrl;
+
 
     // reporte: mostrar SIEMPRE que exista la URL
     const showReport = role === "bot" && !!reportUrl;
