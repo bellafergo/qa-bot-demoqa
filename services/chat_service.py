@@ -70,13 +70,6 @@ def _render_doc_answer_from_json(doc: Dict[str, Any]) -> str:
     lines.append("\n> Tip: Usa las pestañas Executive / QA para ver el detalle técnico.")
     return "\n".join(lines).strip()
 
-meta={
-    "mode": "doc",
-    "persona": persona,
-    "doc_json": doc_json,
-    "doc_schema": "v1"
-}
-
 
 # ============================================================
 # SYSTEM PROMPTS (ligeros; el "modo" lo define el router principal)
@@ -322,7 +315,17 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         thread_id = t["id"]
 
     # Persist user message
-    store.add_message(thread_id, "user", prompt, meta={"source": "chat"})
+    store.add_message(
+    thread_id,
+    "assistant",
+    answer,
+    meta={
+        "mode": "doc",
+        "persona": persona,
+        "doc_json": doc_json,
+        "doc_schema": "v1",
+    },
+)
 
     # Load history
     try:
