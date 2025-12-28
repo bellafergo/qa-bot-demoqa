@@ -100,6 +100,16 @@ app.add_middleware(
 # ============================================================
 # STATIC (Evidence/Reports)
 # ============================================================
+from pathlib import Path
+
+# Crea carpetas en runtime (Render-safe, no requiere Git)
+try:
+    Path(settings.EVIDENCE_DIR).mkdir(parents=True, exist_ok=True)
+    Path("evidence/reports").mkdir(parents=True, exist_ok=True)
+    logger.info("Runtime directories ensured: evidence/, evidence/reports/")
+except Exception:
+    logger.exception("Failed to create runtime evidence directories")
+
 _safe_mount_static("/evidence", str(settings.EVIDENCE_DIR), "evidence")
 _safe_mount_static("/reports", "evidence/reports", "reports")
 
