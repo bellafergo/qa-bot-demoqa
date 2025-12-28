@@ -1,5 +1,6 @@
 // vanya-frontend/src/chat.jsx
 import React, { useMemo, useCallback, useState } from "react";
+import DocArtifactTabs from "./components/DocArtifactTabs";
 
 export default function Chat(props) {
   const {
@@ -224,6 +225,35 @@ export default function Chat(props) {
     return null;
   };
 
+  const pickExecStatus = (m) => {
+    // Detecta PASS/FAIL robusto (por runner/meta/content)
+    const meta = getMeta(m);
+    const runner = pickRunner(m);
+    const txt = String(m?.content || "").toLowerCase();
+
+    // 1) campos estructurados (si existen)
+    const ok = runner?.ok ?? runner?.success ?? meta?.runner?.ok ?? meta?.runner?.success;
+    if (ok === true) return "PASSED";
+    if (ok === false) return "FAILED";
+
+    const status = String(runner?.status || meta?.runner?.status || "").toLowerCase().trim();
+    if (status.includes("pass")) return "PASSED";
+    if (status.includes("fail")) return "FAILED";
+
+    // 2) fallback por texto
+    if (txt.includes("(fail)") || txt.includes(" fail") || txt.includes("failed")) return "FAILED";
+    if (txt.includes("(pass)") || txt.includes(" pass") || txt.includes("passed")) return "PASSED";
+
+    return null;
+  };
+
+  const statusColor = (status) =>
+    status === "FAILED"
+      ? "#ff4d4f"
+      : status === "PASSED"
+      ? "#52c41a"
+      : "rgba(255,255,255,0.75)";
+
   const renderMsg = (m, idx) => {
     const role = m?.role === "user" ? "user" : "bot";
     const content = typeof m?.content === "string" ? m.content : "";
@@ -235,11 +265,12 @@ export default function Chat(props) {
     const docJson = pickDocJson(m);
 
     const isExecute = isExecuteMessage(m);
+    const execStatus = role === "bot" && isExecute ? pickExecStatus(m) : null;
 
     // evidencia: si hay URL, muéstrala (sobre todo en execute)
     const showEvidence = !!evidenceUrl && (isExecute || role === "bot");
 
-    // reporte: mostrar SIEMPRE que exista la URL (sin depender de isExecute)
+    // reporte: mostrar SIEMPRE que exista la URL
     const showReport = role === "bot" && !!reportUrl;
 
     const meta = getMeta(m);
@@ -271,13 +302,36 @@ export default function Chat(props) {
             wordBreak: "break-word",
           }}
         >
-          <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>
-            {role === "user" ? "Tú" : "Vanya"}
-            {evidenceId ? (
-              <span style={{ marginLeft: 8, opacity: 0.8 }}>
-                · evid: {evidenceId}
+          {/* Header */}
+          <div
+            style={{
+              fontSize: 12,
+              marginBottom: 6,
+              display: "flex",
+              gap: 8,
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
+            <span style={{ opacity: 0.75 }}>{role === "user" ? "Tú" : "Vanya"}</span>
+
+            {execStatus ? (
+              <span
+                style={{
+                  padding: "2px 8px",
+                  borderRadius: 999,
+                  fontWeight: 900,
+                  fontSize: 11,
+                  color: statusColor(execStatus),
+                  border: `1px solid ${statusColor(execStatus)}`,
+                  textTransform: "uppercase",
+                }}
+              >
+                {execStatus}
               </span>
             ) : null}
+
+            {evidenceId ? <span style={{ opacity: 0.7 }}>· evid: {evidenceId}</span> : null}
           </div>
 
           {/* Texto (si hay doc_json, el texto sirve como summary; se mantiene) */}
@@ -361,203 +415,6 @@ export default function Chat(props) {
           {isLoading ? "..." : "Enviar"}
         </button>
       </div>
-    </div>
-  );
-}
-
-// ============================================================
-// DOC UI: Tabs Executive / QA
-// ============================================================
-function DocArtifactTabs({ doc }) {
-  const [tab, setTab] = useState("executive");
-
-  const ev = doc?.executive_view || {};
-  const qv = doc?.qa_view || {};
-
-  const topRisks = Array.isArray(ev?.top_risks) ? ev.top_risks : [];
-  const matrix = Array.isArray(ev?.matrix_summary) ? ev.matrix_summary : [];
-  const assumptions = Array.isArray(qv?.assumptions) ? qv.assumptions : [];
-  const questions = Array.isArray(qv?.questions_to_clarify) ? qv.questions_to_clarify : [];
-  const cases = Array.isArray(qv?.cases) ? qv.cases : [];
-
-  const Button = ({ active, children, onClick }) => (
-    <button
-      onClick={onClick}
-      style={{
-        padding: "8px 12px",
-        borderRadius: 10,
-        border: "1px solid rgba(255,255,255,0.16)",
-        background: active ? "rgba(255,255,255,0.10)" : "transparent",
-        color: "inherit",
-        cursor: "pointer",
-        fontWeight: 800,
-        fontSize: 12,
-      }}
-    >
-      {children}
-    </button>
-  );
-
-  return (
-    <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <Button active={tab === "executive"} onClick={() => setTab("executive")}>
-          Executive
-        </Button>
-        <Button active={tab === "qa"} onClick={() => setTab("qa")}>
-          QA
-        </Button>
-      </div>
-
-      {tab === "executive" ? (
-        <div style={{ display: "grid", gap: 10 }}>
-          {ev?.title ? (
-            <div style={{ fontSize: 16, fontWeight: 900 }}>{ev.title}</div>
-          ) : null}
-
-          {ev?.objective ? (
-            <div style={{ opacity: 0.9 }}>
-              <b>Objetivo:</b> {ev.objective}
-            </div>
-          ) : null}
-
-          {topRisks.length ? (
-            <>
-              <div style={{ fontWeight: 900, marginTop: 4 }}>Riesgos principales</div>
-              <SimpleTable
-                columns={["Prioridad", "Riesgo", "Impacto"]}
-                rows={topRisks.map((r) => ({
-                  Prioridad: r?.priority || "",
-                  Riesgo: r?.risk || "",
-                  Impacto: r?.impact || "",
-                }))}
-              />
-            </>
-          ) : null}
-
-          {matrix.length ? (
-            <>
-              <div style={{ fontWeight: 900, marginTop: 4 }}>Matriz resumida</div>
-              <SimpleTable
-                columns={["ID", "Escenario", "Resultado esperado", "Prioridad"]}
-                rows={matrix.map((r) => ({
-                  ID: r?.id || "",
-                  Escenario: r?.scenario || "",
-                  "Resultado esperado": r?.expected || "",
-                  Prioridad: r?.priority || "",
-                }))}
-              />
-            </>
-          ) : null}
-        </div>
-      ) : (
-        <div style={{ display: "grid", gap: 10 }}>
-          {assumptions.length ? (
-            <div>
-              <div style={{ fontWeight: 900 }}>Supuestos</div>
-              <ul style={{ marginTop: 6 }}>
-                {assumptions.map((a, i) => (
-                  <li key={i}>{a}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-
-          {questions.length ? (
-            <div>
-              <div style={{ fontWeight: 900 }}>Preguntas para aclarar</div>
-              <ul style={{ marginTop: 6 }}>
-                {questions.map((q, i) => (
-                  <li key={i}>{q}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-
-          {cases.length ? (
-            <>
-              <div style={{ fontWeight: 900 }}>Casos detallados</div>
-              <SimpleTable
-                columns={[
-                  "ID",
-                  "Escenario",
-                  "Prioridad",
-                  "Tipo",
-                  "Precondiciones",
-                  "Pasos",
-                  "Resultado esperado",
-                ]}
-                rows={cases.map((c) => ({
-                  ID: c?.id || "",
-                  Escenario: c?.scenario || "",
-                  Prioridad: c?.priority || "",
-                  Tipo: c?.type || "",
-                  Precondiciones: Array.isArray(c?.preconditions) ? c.preconditions.join(" • ") : "",
-                  Pasos: Array.isArray(c?.steps)
-                    ? c.steps.map((s, i) => `${i + 1}. ${s}`).join("\n")
-                    : "",
-                  "Resultado esperado": c?.expected || "",
-                }))}
-              />
-            </>
-          ) : (
-            <div style={{ opacity: 0.8, fontSize: 12 }}>
-              No hay detalle técnico en este artefacto (qa_view.cases vacío).
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SimpleTable({ columns = [], rows = [] }) {
-  return (
-    <div
-      style={{
-        overflowX: "auto",
-        borderRadius: 12,
-        border: "1px solid rgba(255,255,255,0.12)",
-      }}
-    >
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-        <thead>
-          <tr>
-            {columns.map((c) => (
-              <th
-                key={c}
-                style={{
-                  textAlign: "left",
-                  padding: "10px 12px",
-                  borderBottom: "1px solid rgba(255,255,255,0.12)",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {c}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {(rows || []).map((r, idx) => (
-            <tr key={idx}>
-              {columns.map((c) => (
-                <td
-                  key={c}
-                  style={{
-                    padding: "10px 12px",
-                    verticalAlign: "top",
-                    borderBottom: "1px solid rgba(255,255,255,0.06)",
-                    whiteSpace: c === "Pasos" ? "pre-wrap" : "normal",
-                  }}
-                >
-                  {r?.[c] ?? ""}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   );
 }
