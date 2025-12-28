@@ -191,6 +191,25 @@ def _summarize_last_execute(history_msgs: List[Dict[str, Any]]) -> Optional[Dict
         report_url = meta.get("report_url")
         duration_ms = meta.get("duration_ms") or runner.get("duration_ms")
 
+        # Determinar expectativa según intención del usuario
+        expects_success = "pueda iniciar sesión" in prompt.lower() \
+            or "login exitoso" in prompt.lower()
+
+        expects_error = "muestre un error" in prompt.lower() \
+            or "debe fallar" in prompt.lower()
+
+        if expects_success:
+            # login esperado exitoso
+            status = "passed" if login_success else "failed"
+
+        elif expects_error:
+            # error esperado
+            status = "passed" if error_visible else "failed"
+
+        else:
+            # fallback conservador
+            status = runner.get("status", "failed")
+
         answer = m.get("content") or ""
         if not answer.strip():
             answer = "Resumen: ejecución registrada (sin mensaje)."
@@ -370,55 +389,39 @@ def _handle_execute_mode(
             **_confidence("execute", prompt, base_url),
         }
 
-    # 2) ejecutar runner
-    t0 = time.time()
-    runner: Dict[str, Any] = {}
-    evidence_url = None
-    report_url = None
-
-    try:
-        runner = execute_test(
-            base_url=base_url,
-            steps=steps,
-            headless=bool(getattr(req, "headless", True)),
-            timeout_s=settings.RUNNER_TIMEOUT_S,
-        ) or {}
-    except Exception as e:
-        # runner crash controlado
-        runner = {"ok": False, "status": "error", "message": f"{type(e).__name__}: {str(e)}"}
-
-    duration_ms = int((time.time() - t0) * 1000)
-
-    # evidencia
-    screenshot_b64 = runner.get("screenshot_b64") or runner.get("screenshotBase64") or runner.get("screenshot_base64")
-    screenshot_data_url = _make_png_data_url(screenshot_b64) if screenshot_b64 else None
-
-    if screenshot_b64 and settings.HAS_CLOUDINARY:
-        try:
-            evidence_url = cloud_upload_screenshot_b64(screenshot_b64)
-        except Exception:
-            logger.exception("Cloudinary screenshot upload failed")
-
-    # pdf report (si existe evidencia o runner)
-    try:
-        pdf_bytes = generate_pdf_report(
-            prompt=prompt,
-            base_url=base_url,
-            steps=steps,
-            runner=runner,
-            duration_ms=duration_ms,
-            evidence_url=evidence_url,
-        )
-        if pdf_bytes and settings.HAS_CLOUDINARY:
-            report_url = cloud_upload_pdf_bytes(pdf_bytes, filename="report.pdf")
-    except Exception:
-        logger.exception("PDF report generation/upload failed")
-
     ok = bool(runner.get("ok", True))
     status = (runner.get("status") or ("ok" if ok else "fail")).strip()
     msg = (runner.get("message") or runner.get("detail") or "").strip()
 
     answer = _render_execute_answer(status=status, msg=msg, evidence_url=evidence_url, report_url=report_url)
+
+    # ============================================================
+    # REPORTE PDF (UNA SOLA VEZ, BIEN HECHO)
+    # ============================================================
+    report_url = None
+    try:
+        rep = generate_pdf_report(
+            prompt=prompt,
+            base_url=base_url,
+            runner=runner,
+            steps=steps,
+            evidence_id=runner.get("evidence_id"),
+            meta={
+                "thread_id": thread_id,
+                "session_id": session.get("id"),
+                "headless": getattr(req, "headless", True),
+            },
+        )
+
+        if settings.HAS_CLOUDINARY:
+            up = cloud_upload_pdf_bytes(
+                open(rep["report_path"], "rb").read(),
+                filename=rep["report_filename"],
+            )
+            report_url = up
+
+    except Exception:
+        logger.exception("PDF report generation/upload failed")
 
     # ============================================================
     # Guardar run y adjuntar runner correctamente
