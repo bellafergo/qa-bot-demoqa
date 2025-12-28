@@ -1,5 +1,7 @@
 # api/routes/chat.py
 import logging
+import os
+import uuid
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -8,7 +10,6 @@ from pydantic import BaseModel
 from services.chat_service import handle_chat_run
 
 logger = logging.getLogger("vanya")
-
 router = APIRouter()
 
 
@@ -18,6 +19,11 @@ class ChatRunRequest(BaseModel):
     headless: bool = True
     base_url: Optional[str] = None
     thread_id: Optional[str] = None
+
+
+def _is_prod() -> bool:
+    env = (os.getenv("ENV") or os.getenv("ENVIRONMENT") or "").strip().lower()
+    return env in ("prod", "production") or (os.getenv("RENDER") or "").strip().lower() in ("1", "true", "yes")
 
 
 def _ensure_data_url(obj: Any) -> None:
@@ -41,10 +47,7 @@ def _ensure_data_url(obj: Any) -> None:
 
     if isinstance(b64, str) and b64.strip():
         s = b64.strip()
-        if s.startswith("data:image/"):
-            obj["screenshot_data_url"] = s
-        else:
-            obj["screenshot_data_url"] = "data:image/png;base64," + s
+        obj["screenshot_data_url"] = s if s.startswith("data:image/") else ("data:image/png;base64," + s)
 
 
 def _post_process_result(result: Any) -> None:
@@ -67,9 +70,8 @@ def _post_process_result(result: Any) -> None:
 def chat_run(req: ChatRunRequest) -> Dict[str, Any]:
     """
     Wrapper del service:
-    - Mantiene el comportamiento actual
     - Garantiza screenshot_data_url para que el frontend renderice evidencia inline
-    - Nunca deja que un error interno "opaque" la respuesta en frontend (evita Failed to fetch)
+    - Evita "Failed to fetch" entregando respuesta utilizable incluso si el service truena
     """
     try:
         result = handle_chat_run(req)
@@ -81,12 +83,23 @@ def chat_run(req: ChatRunRequest) -> Dict[str, Any]:
         raise
 
     except Exception as e:
-        # 🔒 Fallback final: nunca 500 sin cuerpo "usable"
-        logger.exception("chat_run crashed")
+        request_id = str(uuid.uuid4())
+        logger.exception(f"chat_run crashed request_id={request_id}")
 
+        # 🔒 Producto: no filtrar stack/errores internos al cliente en prod
+        if _is_prod():
+            return {
+                "mode": "error",
+                "answer": "Ocurrió un error procesando tu solicitud. Intenta nuevamente.",
+                "request_id": request_id,
+                "meta": {"safe_error": True},
+            }
+
+        # Dev: sí mostrar el tipo de error para debug rápido
         return {
             "mode": "error",
             "answer": "Ocurrió un error procesando tu solicitud. Intenta nuevamente.",
             "error": f"{type(e).__name__}: {str(e)}",
+            "request_id": request_id,
             "meta": {"safe_error": True},
         }

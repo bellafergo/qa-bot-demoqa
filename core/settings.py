@@ -13,14 +13,31 @@ load_dotenv()
 def _csv_list(val: str) -> List[str]:
     """
     Convierte "a,b,c" -> ["a","b","c"] limpiando espacios y vacíos.
+    Además quita slash final para normalizar origins.
     """
     if not val:
         return []
-    return [x.strip().rstrip("/") for x in val.split(",") if x.strip()]
+    out = []
+    for x in val.split(","):
+        s = (x or "").strip()
+        if not s:
+            continue
+        out.append(s.rstrip("/"))
+    return out
+
+
+def _truthy(val: str) -> bool:
+    return (val or "").strip().lower() in ("1", "true", "yes", "y", "on")
 
 
 @dataclass(frozen=True)
 class Settings:
+    # ----------------------------
+    # Entorno
+    # ----------------------------
+    ENV: str = (os.getenv("ENV") or os.getenv("ENVIRONMENT") or "dev").strip().lower()
+    DEBUG_ERRORS: bool = _truthy(os.getenv("DEBUG_ERRORS", ""))
+
     # ----------------------------
     # OpenAI
     # ----------------------------
@@ -101,7 +118,6 @@ class Settings:
     @property
     def EVIDENCE_DIR(self) -> Path:
         p = Path(os.getenv("EVIDENCE_DIR", str(self.BASE_DIR / "evidence")))
-        # asegura que exista para StaticFiles / guardado
         try:
             p.mkdir(parents=True, exist_ok=True)
         except Exception:
@@ -114,26 +130,42 @@ class Settings:
     @property
     def CORS_ORIGINS(self) -> List[str]:
         """
-        Permite override via env:
+        Override via env:
           CORS_ORIGINS="http://localhost:5173,https://valtre-vanya.vercel.app"
         """
         env_val = (os.getenv("CORS_ORIGINS") or "").strip()
         if env_val:
             return _csv_list(env_val)
 
-        # defaults seguros
         defaults = [
             "http://localhost:5173",
             "http://localhost:5174",
             "https://valtre-vanya.vercel.app",
         ]
-        # normaliza (sin slash final)
         return [x.rstrip("/") for x in defaults]
+
+    @property
+    def CORS_ORIGIN_REGEX(self) -> str:
+        """
+        Regex opcional para permitir previews (ej. Vercel):
+          CORS_ORIGIN_REGEX="^https:\\/\\/.*-valtre-vanya\\.vercel\\.app$"
+        """
+        return (os.getenv("CORS_ORIGIN_REGEX") or "").strip()
 
     # Backwards compat con tu código viejo
     @property
     def CORS_ALLOW_ORIGINS(self) -> List[str]:
         return self.CORS_ORIGINS
+
+    # ----------------------------
+    # Convenience
+    # ----------------------------
+    @property
+    def IS_PROD(self) -> bool:
+        # DEBUG_ERRORS fuerza "no prod" para poder ver detail en respuestas
+        if self.DEBUG_ERRORS:
+            return False
+        return self.ENV in ("prod", "production")
 
 
 # Singleton
