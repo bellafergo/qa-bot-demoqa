@@ -2,6 +2,285 @@
 import React, { useMemo, useCallback, useState } from "react";
 import DocArtifactTabs from "./components/DocArtifactTabs";
 
+/**
+ * ✅ PRODUCT READY CHAT
+ * - Meta parsing robusto (meta/meta_json/metaJson)
+ * - Runner picking + compat aliases
+ * - Evidence picking: data-url, b64->data-url, urls
+ * - Report picking: url o fallback desde texto si PDF
+ * - Exec status real: PASSED / FAILED / PASSED (negativo) / FAILED (debió fallar)
+ * - EvidenceBlock: evita blanco si URL inválida, cache-buster solo http(s)
+ * - RunDebugBlock: details, copy json
+ */
+
+const BUILD_TAG = "product-chat-2025-12-29-01";
+
+// ---------- helpers ----------
+const safeJsonParse = (v) => {
+  if (!v) return null;
+  if (typeof v === "object") return v;
+  if (typeof v !== "string") return null;
+  try {
+    return JSON.parse(v);
+  } catch {
+    return null;
+  }
+};
+
+const getMeta = (m) => {
+  const direct = m?.meta && typeof m.meta === "object" ? m.meta : null;
+  if (direct) return direct;
+
+  const parsed = safeJsonParse(m?.meta_json) || safeJsonParse(m?.metaJson);
+  if (parsed && typeof parsed === "object") return parsed;
+
+  if (m?.meta_json && typeof m.meta_json === "object") return m.meta_json;
+
+  return {};
+};
+
+const pickDocJson = (m) => {
+  if (!m) return null;
+
+  // 1) top-level (backend puede enviarlo así)
+  if (m.doc_json && typeof m.doc_json === "object") return m.doc_json;
+
+  // 2) dentro de meta
+  const meta = getMeta(m);
+  if (meta?.doc_json && typeof meta.doc_json === "object") return meta.doc_json;
+
+  // 3) por si algún día viene como string JSON
+  const parsed = safeJsonParse(meta?.doc_json);
+  if (parsed && typeof parsed === "object") return parsed;
+
+  return null;
+};
+
+const extractUrlFromText = (content) => {
+  const text = typeof content === "string" ? content : "";
+
+  // Report: / Reporte:
+  let m = text.match(/Report(?:e)?\s*:\s*(https?:\/\/\S+)/i);
+  if (m && m[1]) return m[1].trim();
+
+  // Evidence:
+  m = text.match(/Evidence\s*:\s*(https?:\/\/\S+)/i);
+  if (m && m[1]) return m[1].trim();
+
+  // cualquier URL
+  m = text.match(/(https?:\/\/[^\s)]+)\b/i);
+  if (m && m[1]) return m[1].trim();
+
+  return null;
+};
+
+const toDataUrl = (b64) => {
+  const s = String(b64 || "").trim();
+  if (!s) return null;
+  if (s.startsWith("data:image/")) return s;
+  return "data:image/png;base64," + s;
+};
+
+const isProbablyPdfUrl = (u) => {
+  const s = String(u || "").toLowerCase().trim();
+  if (!s) return false;
+  if (s.includes("res.cloudinary.com") && s.includes("/raw/upload")) return true;
+  if (s.endsWith(".pdf") || s.includes(".pdf?")) return true;
+  return false;
+};
+
+const hasValidHttpUrl = (u) => {
+  const s = String(u || "").trim();
+  return s.startsWith("http://") || s.startsWith("https://");
+};
+
+const hasValidEvidence = (u) => {
+  const s = String(u || "").trim();
+  if (!s) return false;
+  if (s.startsWith("data:image/")) return true;
+  return hasValidHttpUrl(s);
+};
+
+const pickRunner = (m) => {
+  const meta = getMeta(m);
+  const r1 = meta?.runner && typeof meta.runner === "object" ? meta.runner : null;
+  const r2 = m?.runner && typeof m.runner === "object" ? m.runner : null;
+  const r = r1 || r2 || null;
+  return r && typeof r === "object" ? r : null;
+};
+
+const pickEvidenceId = (m) => {
+  const meta = getMeta(m);
+  const runner = pickRunner(m);
+
+  const candidates = [
+    runner?.evidence_id,
+    runner?.evidenceId,
+    meta?.evidence_id,
+    meta?.evidenceId,
+    meta?.runner?.evidence_id,
+    meta?.runner?.evidenceId,
+    m?.evidence_id,
+    m?.evidenceId,
+  ].filter((x) => typeof x === "string" && x.trim());
+
+  return candidates.length ? candidates[0].trim() : null;
+};
+
+const pickEvidenceUrl = (m) => {
+  const meta = getMeta(m);
+  const runner = pickRunner(m) || meta?.runner || {};
+
+  // ✅ Prioridad 1: screenshot_data_url directo
+  const dataUrl =
+    runner?.screenshot_data_url ||
+    runner?.screenshotDataUrl ||
+    meta?.screenshot_data_url ||
+    meta?.screenshotDataUrl ||
+    meta?.runner?.screenshot_data_url ||
+    meta?.runner?.screenshotDataUrl ||
+    null;
+
+  if (typeof dataUrl === "string" && dataUrl.trim()) return dataUrl.trim();
+
+  // ✅ Prioridad 2: base64 -> data url
+  const b64 =
+    runner?.screenshot_b64 ||
+    runner?.screenshotB64 ||
+    meta?.screenshot_b64 ||
+    meta?.screenshotB64 ||
+    meta?.runner?.screenshot_b64 ||
+    meta?.runner?.screenshotB64 ||
+    null;
+
+  const asData = toDataUrl(b64);
+  if (typeof asData === "string" && asData.trim()) return asData.trim();
+
+  // ✅ Prioridad 3: URLs típicas
+  const candidates = [
+    runner?.evidence_url,
+    runner?.evidenceUrl,
+    runner?.screenshot_url,
+    runner?.screenshotUrl,
+
+    meta?.evidence_url,
+    meta?.evidenceUrl,
+    meta?.screenshot_url,
+    meta?.screenshotUrl,
+
+    meta?.runner?.evidence_url,
+    meta?.runner?.evidenceUrl,
+    meta?.runner?.screenshot_url,
+    meta?.runner?.screenshotUrl,
+
+    m?.evidence_url,
+    m?.evidenceUrl,
+    m?.screenshot_url,
+    m?.screenshotUrl,
+  ].filter((x) => typeof x === "string" && x.trim());
+
+  if (candidates.length) return candidates[0].trim();
+
+  // ✅ fallback: intenta sacarlo del texto
+  const fromText = extractUrlFromText(m?.content);
+  if (fromText) return fromText.trim();
+
+  return null;
+};
+
+const pickReportUrl = (m) => {
+  const meta = getMeta(m);
+  const runner = pickRunner(m) || meta?.runner || {};
+
+  const candidates = [
+    m?.report_url,
+    m?.reportUrl,
+
+    meta?.report_url,
+    meta?.reportUrl,
+
+    runner?.report_url,
+    runner?.reportUrl,
+
+    meta?.runner?.report_url,
+    meta?.runner?.reportUrl,
+  ].filter((x) => typeof x === "string" && x.trim());
+
+  if (candidates.length) return candidates[0].trim();
+
+  // fallback desde texto
+  const fromText = extractUrlFromText(m?.content);
+  if (fromText && isProbablyPdfUrl(fromText)) return fromText.trim();
+
+  return null;
+};
+
+/**
+ * ✅ Exec status "producto"
+ * - Usa runner.expected + runner.outcome + runner.status + runner.ok
+ * - Etiquetas:
+ *   PASSED
+ *   FAILED
+ *   PASSED (negativo)
+ *   FAILED (debió fallar)
+ */
+const pickExecBadge = (m) => {
+  const meta = getMeta(m);
+  const runner = pickRunner(m) || meta?.runner || null;
+  const txt = String(m?.content || "").toLowerCase();
+
+  if (!runner || typeof runner !== "object") {
+    // fallback por texto
+    if (txt.includes("(fail)") || txt.includes(" failed") || txt.includes("ejecutado (fail)")) {
+      return { label: "FAILED", kind: "bad" };
+    }
+    if (txt.includes("(pass)") || txt.includes(" passed") || txt.includes("ejecutado (pass)")) {
+      return { label: "PASSED", kind: "ok" };
+    }
+    return null;
+  }
+
+  const ok = runner?.ok ?? runner?.success ?? meta?.runner?.ok ?? meta?.runner?.success;
+  const statusRaw = String(runner?.status || meta?.runner?.status || "").toLowerCase().trim();
+  const expected = String(runner?.expected || "").toLowerCase().trim() || "pass";
+  const outcome = String(runner?.outcome || "").toLowerCase().trim() || (ok === false ? "fail" : "pass");
+
+  // 1) si runner ya trae "passed/failed"
+  if (statusRaw.includes("passed")) {
+    if (expected === "fail" && outcome === "fail") return { label: "PASSED (negativo)", kind: "ok" };
+    return { label: "PASSED", kind: "ok" };
+  }
+  if (statusRaw.includes("failed")) {
+    if (expected === "fail" && outcome === "pass") return { label: "FAILED (debió fallar)", kind: "bad" };
+    return { label: "FAILED", kind: "bad" };
+  }
+  if (statusRaw.includes("error")) return { label: "ERROR", kind: "bad" };
+
+  // 2) si solo trae ok boolean
+  if (ok === true) {
+    if (expected === "fail") return { label: "FAILED (debió fallar)", kind: "bad" };
+    return { label: "PASSED", kind: "ok" };
+  }
+  if (ok === false) {
+    if (expected === "fail") return { label: "PASSED (negativo)", kind: "ok" };
+    return { label: "FAILED", kind: "bad" };
+  }
+
+  // 3) fallback por texto
+  if (txt.includes("(fail)") || txt.includes(" failed") || txt.includes("ejecutado (fail)")) {
+    if (expected === "fail") return { label: "PASSED (negativo)", kind: "ok" };
+    return { label: "FAILED", kind: "bad" };
+  }
+  if (txt.includes("(pass)") || txt.includes(" passed") || txt.includes("ejecutado (pass)")) {
+    if (expected === "fail") return { label: "FAILED (debió fallar)", kind: "bad" };
+    return { label: "PASSED", kind: "ok" };
+  }
+
+  return null;
+};
+
+const badgeColor = (kind) => (kind === "bad" ? "#ff4d4f" : kind === "ok" ? "#52c41a" : "rgba(255,255,255,0.75)");
+
 export default function Chat(props) {
   const {
     messages = [],
@@ -15,14 +294,7 @@ export default function Chat(props) {
     chatEndRef = null,
   } = props || {};
 
-  <div style={{ fontSize: 11, opacity: 0.55, padding: "8px 12px" }}>
-  build: {BUILD_TAG}
-</div>
-
-  const safeMessages = useMemo(
-    () => (Array.isArray(messages) ? messages : []),
-    [messages]
-  );
+  const safeMessages = useMemo(() => (Array.isArray(messages) ? messages : []), [messages]);
 
   const onEnter = useCallback(
     (e) => {
@@ -34,337 +306,121 @@ export default function Chat(props) {
     [handleSend, isLoading]
   );
 
-  const BUILD_TAG = "execStatus-fix-2025-12-28-02";
-
-  // ---------- helpers ----------
-  const safeJsonParse = (v) => {
-    if (!v) return null;
-    if (typeof v === "object") return v;
-    if (typeof v !== "string") return null;
-    try {
-      return JSON.parse(v);
-    } catch {
-      return null;
-    }
-  };
-
-  const getMeta = (m) => {
-    const direct = m?.meta && typeof m.meta === "object" ? m.meta : null;
-    if (direct) return direct;
-
-    const parsed = safeJsonParse(m?.meta_json) || safeJsonParse(m?.metaJson);
-    if (parsed && typeof parsed === "object") return parsed;
-
-    if (m?.meta_json && typeof m.meta_json === "object") return m.meta_json;
-
-    return {};
-  };
-
-  const pickDocJson = (m) => {
-    if (!m) return null;
-
-    // 1) top-level (backend puede enviarlo así)
-    if (m.doc_json && typeof m.doc_json === "object") return m.doc_json;
-
-    // 2) dentro de meta
-    const meta = getMeta(m);
-    if (meta?.doc_json && typeof meta.doc_json === "object") return meta.doc_json;
-
-    // 3) por si algún día viene como string JSON
-    const parsed = safeJsonParse(meta?.doc_json);
-    if (parsed && typeof parsed === "object") return parsed;
-
-    return null;
-  };
-
-  const extractUrlFromText = (content) => {
-    const text = typeof content === "string" ? content : "";
-
-    // Report: / Reporte:
-    let m = text.match(/Report(?:e)?\s*:\s*(https?:\/\/\S+)/i);
-    if (m && m[1]) return m[1].trim();
-
-    // Evidence:
-    m = text.match(/Evidence\s*:\s*(https?:\/\/\S+)/i);
-    if (m && m[1]) return m[1].trim();
-
-    // cualquier URL
-    m = text.match(/(https?:\/\/[^\s)]+)\b/i);
-    if (m && m[1]) return m[1].trim();
-
-    return null;
-  };
-
-  const toDataUrl = (b64) => {
-    const s = String(b64 || "").trim();
-    if (!s) return null;
-    if (s.startsWith("data:image/")) return s;
-    return "data:image/png;base64," + s;
-  };
-
-  const isProbablyPdfUrl = (u) => {
-    const s = String(u || "").toLowerCase().trim();
-    if (!s) return false;
-    if (s.includes("res.cloudinary.com") && s.includes("/raw/upload")) return true;
-    if (s.endsWith(".pdf") || s.includes(".pdf?")) return true;
-    return false;
-  };
-
-  const pickRunner = (m) => {
-    const meta = getMeta(m);
-    const r1 = meta?.runner && typeof meta.runner === "object" ? meta.runner : null;
-    const r2 = m?.runner && typeof m.runner === "object" ? m.runner : null;
-    return r1 || r2 || {};
-  };
-
-  const isExecuteMessage = (m) => {
-    const meta = getMeta(m);
-    const mode = String(m?.mode || meta?.mode || meta?.runner?.mode || "")
-      .trim()
-      .toLowerCase();
-    return mode.includes("execute");
-  };
-
-  const pickEvidenceId = (m) => {
-    const meta = getMeta(m);
-    const runner = pickRunner(m);
-
-    const candidates = [
-      runner?.evidence_id,
-      runner?.evidenceId,
-      meta?.evidence_id,
-      meta?.evidenceId,
-      meta?.runner?.evidence_id,
-      meta?.runner?.evidenceId,
-      m?.evidence_id,
-      m?.evidenceId,
-    ].filter((x) => typeof x === "string" && x.trim());
-
-    return candidates.length ? candidates[0].trim() : null;
-  };
-
-  const pickEvidenceUrl = (m) => {
-    const meta = getMeta(m);
-    const runner = pickRunner(m);
-
-    // ✅ Prioridad 1: screenshot_data_url directo
-    const dataUrl =
-      runner?.screenshot_data_url ||
-      runner?.screenshotDataUrl ||
-      meta?.screenshot_data_url ||
-      meta?.screenshotDataUrl ||
-      meta?.runner?.screenshot_data_url ||
-      meta?.runner?.screenshotDataUrl ||
-      null;
-
-    if (typeof dataUrl === "string" && dataUrl.trim()) return dataUrl.trim();
-
-    // ✅ Prioridad 2: base64 -> data url
-    const b64 =
-      runner?.screenshot_b64 ||
-      runner?.screenshotB64 ||
-      meta?.screenshot_b64 ||
-      meta?.screenshotB64 ||
-      meta?.runner?.screenshot_b64 ||
-      meta?.runner?.screenshotB64 ||
-      null;
-
-    const asData = toDataUrl(b64);
-    if (typeof asData === "string" && asData.trim()) return asData.trim();
-
-    // ✅ Prioridad 3: URLs típicas
-    const candidates = [
-      runner?.evidence_url,
-      runner?.evidenceUrl,
-      runner?.screenshot_url,
-      runner?.screenshotUrl,
-
-      meta?.evidence_url,
-      meta?.evidenceUrl,
-      meta?.screenshot_url,
-      meta?.screenshotUrl,
-
-      meta?.runner?.evidence_url,
-      meta?.runner?.evidenceUrl,
-      meta?.runner?.screenshot_url,
-      meta?.runner?.screenshotUrl,
-
-      m?.evidence_url,
-      m?.evidenceUrl,
-      m?.screenshot_url,
-      m?.screenshotUrl,
-    ].filter((x) => typeof x === "string" && x.trim());
-
-    if (candidates.length) return candidates[0].trim();
-
-    // ✅ fallback: intenta sacarlo del texto
-    const fromText = extractUrlFromText(m?.content);
-    if (fromText) return fromText.trim();
-
-    return null;
-  };
-
-  const pickReportUrl = (m) => {
-    const meta = getMeta(m);
-    const runner = pickRunner(m);
-
-    const candidates = [
-      m?.report_url,
-      m?.reportUrl,
-
-      meta?.report_url,
-      meta?.reportUrl,
-
-      runner?.report_url,
-      runner?.reportUrl,
-
-      meta?.runner?.report_url,
-      meta?.runner?.reportUrl,
-    ].filter((x) => typeof x === "string" && x.trim());
-
-    if (candidates.length) return candidates[0].trim();
-
-    // fallback desde texto
-    const fromText = extractUrlFromText(m?.content);
-    if (fromText && isProbablyPdfUrl(fromText)) return fromText.trim();
-
-    return null;
-  };
-
-  const pickExecStatus = (m) => {
-    // Detecta PASS/FAIL robusto (por runner/meta/content)
-    const meta = getMeta(m);
-    const runner = pickRunner(m);
-    const txt = String(m?.content || "").toLowerCase();
-
-    // 1) campos estructurados (si existen)
-    const ok = runner?.ok ?? runner?.success ?? meta?.runner?.ok ?? meta?.runner?.success;
-    if (ok === true) return "PASSED";
-    if (ok === false) return "FAILED";
-
-    const status = String(runner?.status || meta?.runner?.status || "").toLowerCase().trim();
-    if (status.includes("pass")) return "PASSED";
-    if (status.includes("fail")) return "FAILED";
-
-    // 2) fallback por texto
-    if (txt.includes("(fail)") || txt.includes(" fail") || txt.includes("failed")) return "FAILED";
-    if (txt.includes("(pass)") || txt.includes(" pass") || txt.includes("passed")) return "PASSED";
-
-    return null;
-  };
-
-  const statusColor = (status) =>
-    status === "FAILED"
-      ? "#ff4d4f"
-      : status === "PASSED"
-      ? "#52c41a"
-      : "rgba(255,255,255,0.75)";
-
   const renderMsg = (m, idx) => {
-  const role = m?.role === "user" ? "user" : "bot";
-  const content = typeof m?.content === "string" ? m.content : "";
-  const html = formatText(content);
+    const role = m?.role === "user" ? "user" : "bot";
+    const isBot = role === "bot";
+    const content = typeof m?.content === "string" ? m.content : "";
+    const html = formatText(content);
 
-  // meta siempre existe (tu getMeta ya regresa {})
-  const meta = getMeta(m);
-  const key = String(m?.id || meta?.id || `${role}-${idx}`);
+    const meta = getMeta(m);
+    const key = String(m?.id || meta?.id || `${role}-${idx}`);
 
-  // URLs / data
-  const evidenceUrl = pickEvidenceUrl(m);
-  const evidenceId = pickEvidenceId(m);
-  const reportUrl = pickReportUrl(m);
-  const docJson = pickDocJson(m);
+    // URLs / data
+    const evidenceUrl = pickEvidenceUrl(m);
+    const evidenceId = pickEvidenceId(m);
+    const reportUrl = pickReportUrl(m);
+    const docJson = pickDocJson(m);
 
-  // ✅ FIX CRASH: siempre definido
-  const execStatus = pickExecStatus(m); // "PASSED" | "FAILED" | null
+    const badge = isBot ? pickExecBadge(m) : null;
 
-  // Mostrar solo en mensajes del bot (limpio)
-  const isBot = role === "bot";
-  const showEvidence = isBot && !!evidenceUrl;
-  const showReport = isBot && !!reportUrl;
-  const showDocTabs = isBot && !!docJson;
+    const runner = isBot ? pickRunner(m) : null;
+    const showRunDebug = isBot && runner && (Array.isArray(runner.steps) || Array.isArray(runner.logs));
 
-  return (
-    <div
-      key={key}
-      style={{
-        display: "flex",
-        justifyContent: role === "user" ? "flex-end" : "flex-start",
-        marginBottom: 12,
-        padding: "0 6px",
-      }}
-    >
+    // ✅ mostrar solo si realmente es válido (evita blancos)
+    const showEvidence = isBot && hasValidEvidence(evidenceUrl);
+    const showReport = isBot && hasValidHttpUrl(reportUrl);
+    const showDocTabs = isBot && !!docJson;
+
+    // reason / mensaje corto si existe
+    const reason =
+      (runner && typeof runner.reason === "string" && runner.reason.trim()) ||
+      (meta?.runner && typeof meta.runner.reason === "string" && meta.runner.reason.trim()) ||
+      "";
+
+    return (
       <div
+        key={key}
         style={{
-          maxWidth: 760,
-          padding: "10px 12px",
-          borderRadius: 14,
-          background:
-            role === "user"
-              ? "rgba(120,160,255,0.18)"
-              : "rgba(255,255,255,0.08)",
-          border: "1px solid rgba(255,255,255,0.12)",
-          color: "white",
-          wordBreak: "break-word",
+          display: "flex",
+          justifyContent: role === "user" ? "flex-end" : "flex-start",
+          marginBottom: 12,
+          padding: "0 6px",
         }}
       >
-        {/* Header */}
         <div
           style={{
-            fontSize: 12,
-            marginBottom: 6,
-            display: "flex",
-            gap: 8,
-            alignItems: "center",
-            flexWrap: "wrap",
+            maxWidth: 760,
+            padding: "10px 12px",
+            borderRadius: 14,
+            background: role === "user" ? "rgba(120,160,255,0.18)" : "rgba(255,255,255,0.08)",
+            border: "1px solid rgba(255,255,255,0.12)",
+            color: "white",
+            wordBreak: "break-word",
           }}
         >
-          <span style={{ opacity: 0.75 }}>{isBot ? "Vanya" : "Tú"}</span>
-
-          {execStatus ? (
-            <span
-              style={{
-                padding: "2px 8px",
-                borderRadius: 999,
-                fontWeight: 900,
-                fontSize: 11,
-                color: statusColor(execStatus),
-                border: `1px solid ${statusColor(execStatus)}`,
-                textTransform: "uppercase",
-              }}
-            >
-              {execStatus}
-            </span>
-          ) : null}
-
-          {evidenceId ? (
-            <span style={{ opacity: 0.7 }}>· evid: {evidenceId}</span>
-          ) : null}
-        </div>
-
-        {/* Texto */}
-        {content ? (
+          {/* Header */}
           <div
-            dangerouslySetInnerHTML={{ __html: html }}
-            style={{ lineHeight: 1.35 }}
-          />
-        ) : null}
+            style={{
+              fontSize: 12,
+              marginBottom: 6,
+              display: "flex",
+              gap: 8,
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
+            <span style={{ opacity: 0.75 }}>{isBot ? "Vanya" : "Tú"}</span>
 
-        {/* DOC Tabs */}
-        {showDocTabs ? <DocArtifactTabs doc={docJson} /> : null}
+            {badge ? (
+              <span
+                style={{
+                  padding: "2px 8px",
+                  borderRadius: 999,
+                  fontWeight: 900,
+                  fontSize: 11,
+                  color: badgeColor(badge.kind),
+                  border: `1px solid ${badgeColor(badge.kind)}`,
+                  textTransform: "uppercase",
+                }}
+                title={reason || ""}
+              >
+                {badge.label}
+              </span>
+            ) : null}
 
-        {/* Evidencia */}
-        {showEvidence ? <EvidenceBlock evidenceUrl={evidenceUrl} /> : null}
+            {evidenceId ? <span style={{ opacity: 0.7 }}>· evid: {evidenceId}</span> : null}
+          </div>
 
-        {/* Reporte */}
-        {showReport ? <ReportBlock reportUrl={reportUrl} /> : null}
+          {/* Reason corto si existe */}
+          {isBot && reason ? (
+            <div style={{ fontSize: 12, opacity: 0.75, marginBottom: content ? 8 : 0 }}>{reason}</div>
+          ) : null}
+
+          {/* Texto */}
+          {content ? (
+            <div dangerouslySetInnerHTML={{ __html: html }} style={{ lineHeight: 1.35 }} />
+          ) : null}
+
+          {/* DOC Tabs */}
+          {showDocTabs ? <DocArtifactTabs doc={docJson} /> : null}
+
+          {/* Evidencia */}
+          {showEvidence ? <EvidenceBlock evidenceUrl={evidenceUrl} /> : null}
+
+          {/* Reporte */}
+          {showReport ? <ReportBlock reportUrl={reportUrl} /> : null}
+
+          {/* Debug */}
+          {showRunDebug ? <RunDebugBlock runner={runner} /> : null}
+        </div>
       </div>
-    </div>
-  );
-};
+    );
+  };
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      <div style={{ fontSize: 11, opacity: 0.55, padding: "8px 12px" }}>build: {BUILD_TAG}</div>
+
       <div style={{ flex: 1, overflow: "auto", padding: 14 }}>
         {!threadId ? (
           <div style={{ color: "rgba(255,255,255,0.7)", padding: 12 }}>
@@ -411,9 +467,7 @@ export default function Chat(props) {
             padding: "10px 14px",
             borderRadius: 12,
             border: "1px solid rgba(255,255,255,0.14)",
-            background: isLoading
-              ? "rgba(255,255,255,0.08)"
-              : "rgba(120,160,255,0.35)",
+            background: isLoading ? "rgba(255,255,255,0.08)" : "rgba(120,160,255,0.35)",
             color: "white",
             cursor: isLoading ? "not-allowed" : "pointer",
             fontWeight: 700,
@@ -435,6 +489,7 @@ function EvidenceBlock({ evidenceUrl }) {
   if (!url) return null;
 
   const lower = url.toLowerCase();
+
   const looksImage =
     lower.startsWith("data:image/") ||
     /\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(lower) ||
@@ -445,16 +500,18 @@ function EvidenceBlock({ evidenceUrl }) {
   const imgSrc = (() => {
     if (!url) return "";
     if (lower.startsWith("data:image/")) return url;
+    if (!hasValidHttpUrl(url)) return url;
     return url.includes("?") ? `${url}&cb=${Date.now()}` : `${url}?cb=${Date.now()}`;
   })();
 
+  // Si ya falló, no intentes renderizar img otra vez
+  const canRenderImg = looksImage && !failed;
+
   return (
     <div style={{ marginTop: 10 }}>
-      <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 6 }}>
-        Evidencia (captura)
-      </div>
+      <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 6 }}>Evidencia (captura)</div>
 
-      {looksImage && !failed ? (
+      {canRenderImg ? (
         <img
           src={imgSrc}
           alt="evidence"
@@ -465,18 +522,27 @@ function EvidenceBlock({ evidenceUrl }) {
             border: "1px solid rgba(255,255,255,0.10)",
             background: "rgba(0,0,0,0.25)",
           }}
+          loading="lazy"
           onError={() => setFailed(true)}
         />
       ) : (
         <div style={{ fontSize: 12, opacity: 0.85 }}>
           <a
-            href={url}
+            href={hasValidHttpUrl(url) ? url : undefined}
             target="_blank"
             rel="noreferrer"
             style={{ color: "rgba(160,200,255,0.95)" }}
+            onClick={(e) => {
+              // si no es http(s), evita click raro
+              if (!hasValidHttpUrl(url)) e.preventDefault();
+            }}
+            title={url}
           >
             Abrir evidencia
           </a>
+          {!hasValidHttpUrl(url) ? (
+            <div style={{ marginTop: 6, opacity: 0.7, wordBreak: "break-all" }}>{url}</div>
+          ) : null}
         </div>
       )}
     </div>
@@ -501,9 +567,7 @@ function RunDebugBlock({ runner }) {
   return (
     <div style={{ marginTop: 10 }}>
       <details style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: 10 }}>
-        <summary style={{ cursor: "pointer", fontWeight: 800, opacity: 0.9 }}>
-          Detalles (steps/logs)
-        </summary>
+        <summary style={{ cursor: "pointer", fontWeight: 800, opacity: 0.9 }}>Detalles (runner)</summary>
 
         <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
           <button
@@ -524,58 +588,74 @@ function RunDebugBlock({ runner }) {
           {runner?.evidence_id ? (
             <span style={{ opacity: 0.7, fontSize: 12 }}>evidence_id: {runner.evidence_id}</span>
           ) : null}
+
+          {runner?.status ? (
+            <span style={{ opacity: 0.7, fontSize: 12 }}>status: {String(runner.status)}</span>
+          ) : null}
+
+          {runner?.expected ? (
+            <span style={{ opacity: 0.7, fontSize: 12 }}>expected: {String(runner.expected)}</span>
+          ) : null}
+
+          {runner?.outcome ? (
+            <span style={{ opacity: 0.7, fontSize: 12 }}>outcome: {String(runner.outcome)}</span>
+          ) : null}
         </div>
 
         {/* Steps */}
-        <div style={{ marginTop: 10 }}>
-          <div style={{ fontWeight: 800, marginBottom: 6 }}>Steps</div>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-              <thead>
-                <tr style={{ opacity: 0.8 }}>
-                  <th style={{ textAlign: "left", padding: 6 }}>#</th>
-                  <th style={{ textAlign: "left", padding: 6 }}>action</th>
-                  <th style={{ textAlign: "left", padding: 6 }}>selector/url</th>
-                  <th style={{ textAlign: "left", padding: 6 }}>status</th>
-                  <th style={{ textAlign: "left", padding: 6 }}>error</th>
-                </tr>
-              </thead>
-              <tbody>
-                {steps.map((s, i) => (
-                  <tr key={i} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-                    <td style={{ padding: 6, opacity: 0.8 }}>{s.index ?? i + 1}</td>
-                    <td style={{ padding: 6, fontWeight: 800 }}>{String(s.action || "")}</td>
-                    <td style={{ padding: 6, opacity: 0.9 }}>
-                      {s.url ? `url: ${s.url}` : s.selector ? `sel: ${s.selector}` : ""}
-                    </td>
-                    <td style={{ padding: 6 }}>{String(s.status || "")}</td>
-                    <td style={{ padding: 6, opacity: 0.8 }}>{s.error ? String(s.error) : ""}</td>
+        {steps.length ? (
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontWeight: 800, marginBottom: 6 }}>Steps</div>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead>
+                  <tr style={{ opacity: 0.8 }}>
+                    <th style={{ textAlign: "left", padding: 6 }}>#</th>
+                    <th style={{ textAlign: "left", padding: 6 }}>action</th>
+                    <th style={{ textAlign: "left", padding: 6 }}>selector/url</th>
+                    <th style={{ textAlign: "left", padding: 6 }}>status</th>
+                    <th style={{ textAlign: "left", padding: 6 }}>error</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {steps.map((s, i) => (
+                    <tr key={i} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+                      <td style={{ padding: 6, opacity: 0.8 }}>{s.index ?? i + 1}</td>
+                      <td style={{ padding: 6, fontWeight: 800 }}>{String(s.action || "")}</td>
+                      <td style={{ padding: 6, opacity: 0.9 }}>
+                        {s.url ? `url: ${s.url}` : s.selector ? `sel: ${s.selector}` : ""}
+                      </td>
+                      <td style={{ padding: 6 }}>{String(s.status || "")}</td>
+                      <td style={{ padding: 6, opacity: 0.8 }}>{s.error ? String(s.error) : ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        ) : null}
 
         {/* Logs */}
-        <div style={{ marginTop: 12 }}>
-          <div style={{ fontWeight: 800, marginBottom: 6 }}>Logs</div>
-          <pre
-            style={{
-              whiteSpace: "pre-wrap",
-              fontSize: 12,
-              lineHeight: 1.3,
-              background: "rgba(0,0,0,0.25)",
-              border: "1px solid rgba(255,255,255,0.10)",
-              borderRadius: 12,
-              padding: 10,
-              maxHeight: 240,
-              overflow: "auto",
-            }}
-          >
-            {logs.join("\n")}
-          </pre>
-        </div>
+        {logs.length ? (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontWeight: 800, marginBottom: 6 }}>Logs</div>
+            <pre
+              style={{
+                whiteSpace: "pre-wrap",
+                fontSize: 12,
+                lineHeight: 1.3,
+                background: "rgba(0,0,0,0.25)",
+                border: "1px solid rgba(255,255,255,0.10)",
+                borderRadius: 12,
+                padding: 10,
+                maxHeight: 240,
+                overflow: "auto",
+              }}
+            >
+              {logs.join("\n")}
+            </pre>
+          </div>
+        ) : null}
       </details>
     </div>
   );
@@ -586,15 +666,15 @@ function ReportBlock({ reportUrl }) {
   const url = String(reportUrl || "").trim();
   if (!url) return null;
 
+  const safe = hasValidHttpUrl(url);
+
   return (
     <div style={{ marginTop: 10 }}>
-      <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 6 }}>
-        Reporte (PDF)
-      </div>
+      <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 6 }}>Reporte (PDF)</div>
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <a
-          href={url}
+          href={safe ? url : undefined}
           target="_blank"
           rel="noreferrer"
           style={{
@@ -608,13 +688,14 @@ function ReportBlock({ reportUrl }) {
             fontWeight: 700,
             fontSize: 12,
           }}
+          onClick={(e) => {
+            if (!safe) e.preventDefault();
+          }}
         >
           Abrir reporte
         </a>
 
-        <span style={{ fontSize: 12, opacity: 0.75, wordBreak: "break-all" }}>
-          {url}
-        </span>
+        <span style={{ fontSize: 12, opacity: 0.75, wordBreak: "break-all" }}>{url}</span>
       </div>
     </div>
   );
