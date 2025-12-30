@@ -19,7 +19,7 @@ from reportlab.platypus import (
 )
 from reportlab.lib.styles import getSampleStyleSheet
 
-REPORTS_DIR = os.path.join("evidence", "reports")
+REPORTS_DIR = os.path.join("/tmp", "vanya_reports")
 
 
 def _utc_iso() -> str:
@@ -75,9 +75,28 @@ def generate_pdf_report(
     meta = meta or {}
     evidence_id = (evidence_id or runner.get("evidence_id") or "EV-unknown").strip()
 
+    # 1) status default consistente
     status = (runner.get("status") or "").strip()
     if not status:
-        status = "passed" if runner.get("ok", True) else "fail"
+        status = "passed" if runner.get("ok", True) else "failed"
+
+    # 2) numeración de steps consistente con runner.py
+    ...
+    table_data = [["#", "Acción", "Resultado", "Duración (ms)", "Error"]]
+    for idx, s in enumerate(rows_src, start=1):
+        action = str(s.get("action") or s.get("name") or "").strip()
+        st = str(s.get("status") or "").strip()
+        dur = s.get("duration_ms")
+        err = s.get("error")
+
+        table_data.append([
+            str(s.get("index", idx)),
+            action,
+            st,
+            str(dur) if dur is not None else "",
+            str(err) if err else "",
+        ])
+
 
     error_msg = runner.get("error")
     duration_ms = runner.get("duration_ms")
@@ -131,7 +150,7 @@ def generate_pdf_report(
         err = s.get("error")
 
         table_data.append([
-            str(s.get("i") or idx),
+            str(s.get("index", idx)),
             action,
             st,
             str(dur) if dur is not None else "",

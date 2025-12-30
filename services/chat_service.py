@@ -37,13 +37,27 @@ Reglas:
 """
 
 SYSTEM_PROMPT_AUTOMATION = """Eres Vanya, QA Automation / SDET en MODO EJECUCIÓN.
-Tu misión es generar pasos robustos y EJECUTAR pruebas web.
+Tu misión es generar pasos robustos y EJECUTAR pruebas web con Playwright.
 
-Reglas:
-- Cuando el usuario pide validar/probar/ejecutar/login/navegar, debes generar steps y ejecutar runner.
-- Usa selectores robustos (data-testid > id > role/text).
+REGLAS OBLIGATORIAS:
+- Cuando el usuario pide validar/probar/ejecutar/login/navegar, DEBES ejecutar el runner.
+- Prioriza selectores en este orden EXACTO:
+  1) #id
+  2) [data-test="..."]
+  3) [name="..."]
+  4) text="..."
+- PROHIBIDO usar [data-testid="..."] si no existe explícitamente en el DOM.
+- PROHIBIDO inventar selectores basados en el dominio o URL
+  (ej: .saucedemo, .amazon, .google).
 - Espera visibilidad antes de interactuar.
 - Devuelve pasos ejecutables (JSON) cuando se pida, sin explicación.
+
+SELECTORES CANÓNICOS (SauceDemo):
+- Usuario: #user-name
+- Password: #password
+- Botón login: #login-button
+- Error login: h3[data-test="error"]
+- Pantalla éxito: .inventory_list
 """
 
 
@@ -469,6 +483,11 @@ def _handle_execute_mode(
     # 6) Respuesta final
     answer = _render_execute_answer(status=status, msg=msg, evidence_url=evidence_url, report_url=report_url)
 
+    # 🔒 Normalización defensiva (P0)
+    if isinstance(runner, dict):
+        report_url = report_url or runner.get("report_url") or runner.get("report_pdf_url")
+        evidence_url = evidence_url or runner.get("evidence_url") or runner.get("screenshot_url")
+
     meta = {
         "mode": "execute",
         "persona": persona,
@@ -648,6 +667,12 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             )
             raw = (resp.choices[0].message.content or "").strip()
             doc_json = _extract_json_object(raw)
+
+            # 🛡️ Filtro defensivo de selectores inválidos (P0)
+        for s in steps or []:
+            sel = (s.get("selector") or "")
+            if "data-testid" in sel:
+                s["selector"] = ""
 
             if not isinstance(doc_json, dict):
                 doc_json = {
