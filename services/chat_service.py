@@ -22,43 +22,13 @@ from services.report_service import generate_pdf_report
 
 logger = logging.getLogger("vanya.chat_service")
 
+# Importar prompts desde core para evitar NameError
+try:
+    from core.prompts import SYSTEM_PROMPT_AUTOMATION, SYSTEM_PROMPT_LEAD
+except ImportError:
+    SYSTEM_PROMPT_AUTOMATION = "Eres Vanya en modo ejecución."
+    SYSTEM_PROMPT_LEAD = "Eres Vanya Lead QA."
 
-# ============================================================
-# SYSTEM PROMPTS
-# ============================================================
-SYSTEM_PROMPT_LEAD = """Eres Vanya, QA Lead / SDET experta en Retail y E-commerce.
-Tu objetivo es evitar defectos que afecten conversión, ingresos o experiencia.
-
-Reglas:
-- Señala riesgos CRÍTICOS en login, checkout, pagos, promociones, stock y performance.
-- Prioriza acciones (P0 / P1 / P2).
-- Pide solo la información mínima necesaria.
-- Sé clara, directa y orientada a negocio.
-"""
-
-SYSTEM_PROMPT_AUTOMATION = """Eres Vanya, QA Automation / SDET en MODO EJECUCIÓN.
-Tu misión es generar pasos robustos y EJECUTAR pruebas web con Playwright.
-
-REGLAS OBLIGATORIAS:
-- Cuando el usuario pide validar/probar/ejecutar/login/navegar, DEBES ejecutar el runner.
-- Prioriza selectores en este orden EXACTO:
-  1) #id
-  2) [data-test="..."]
-  3) [name="..."]
-  4) text="..."
-- PROHIBIDO usar [data-testid="..."] si no existe explícitamente en el DOM.
-- PROHIBIDO inventar selectores basados en el dominio o URL
-  (ej: .saucedemo, .amazon, .google).
-- Espera visibilidad antes de interactuar.
-- Devuelve pasos ejecutables (JSON) cuando se pida, sin explicación.
-
-SELECTORES CANÓNICOS (SauceDemo):
-- Usuario: #user-name
-- Password: #password
-- Botón login: #login-button
-- Error login: h3[data-test="error"]
-- Pantalla éxito: .inventory_list
-"""
 
 
 # ============================================================
@@ -292,8 +262,10 @@ def _make_png_data_url(b64_or_data_url: Optional[str]) -> Optional[str]:
     if not b64_or_data_url:
         return None
     s = str(b64_or_data_url).strip()
-    if not s:
+    if not s or s == "None":
         return None
+
+    
     if s.startswith("data:image"):
         return s
     return f"data:image/png;base64,{s}"
@@ -436,8 +408,14 @@ def _handle_execute_mode(
         evidence_id = (runner.get("evidence_id") or "").strip()
 
         if b64 and settings.HAS_CLOUDINARY:
-            fname = f"{evidence_id}.png" if evidence_id else "evidence.png"
-            evidence_url = cloud_upload_screenshot_b64(str(b64), filename=fname)
+            # Usa evidence_id si tu servicio Cloudinary lo soporta, de lo contrario mantén filename
+            if hasattr(cloud_upload_screenshot_b64, "__call__"):
+                try:
+                    evidence_url = cloud_upload_screenshot_b64(str(b64), evidence_id=evidence_id or "EV-unknown")
+            except TypeError:
+                fname = f"{evidence_id}.png" if evidence_id else "evidence.png"
+                evidence_url = cloud_upload_screenshot_b64(str(b64), filename=fname)
+
 
         if not evidence_url:
             evidence_url = runner.get("screenshot_url") or runner.get("evidence_url")
@@ -457,7 +435,14 @@ def _handle_execute_mode(
         if settings.HAS_CLOUDINARY and rep and rep.get("report_path"):
             with open(rep["report_path"], "rb") as f:
                 pdf_bytes = f.read()
-            report_url = cloud_upload_pdf_bytes(pdf_bytes, filename=rep.get("report_filename") or "report.pdf")
+    # Usa evidence_id si tu servicio Cloudinary lo soporta, de lo contrario mantén filename
+    try:
+        report_url = cloud_upload_pdf_bytes(pdf_bytes, evidence_id=evidence_id or "EV-unknown")
+    except TypeError:
+        report_url = cloud_upload_pdf_bytes(pdf_bytes, filename=rep.get("report_filename") or "report.pdf")
+
+
+
     except Exception:
         logger.exception("PDF report generation/upload failed (continuing)")
 
@@ -530,7 +515,7 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
     # 👇 evita NameError en ADVISE/DOC si algo intenta leer steps
     steps = None
     runner = None
-    
+
     # defaults
     mode: str = "advise"
     persona: str = "lead"
