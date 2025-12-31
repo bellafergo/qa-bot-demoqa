@@ -526,7 +526,11 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
     prompt = H.norm(getattr(req, "prompt", "") or "")
     if not prompt:
         raise HTTPException(status_code=400, detail="Prompt vacío")
-
+    
+    # 👇 evita NameError en ADVISE/DOC si algo intenta leer steps
+    steps = None
+    runner = None
+    
     # defaults
     mode: str = "advise"
     persona: str = "lead"
@@ -669,7 +673,7 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             doc_json = _extract_json_object(raw)
 
             # 🛡️ Filtro defensivo de selectores inválidos (P0)
-        for s in steps or []:
+        for s in (steps or []):
             sel = (s.get("selector") or "")
             if "data-testid" in sel:
                 s["selector"] = ""
