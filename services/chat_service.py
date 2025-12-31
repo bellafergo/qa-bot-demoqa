@@ -30,7 +30,6 @@ except ImportError:
     SYSTEM_PROMPT_LEAD = "Eres Vanya Lead QA."
 
 
-
 # ============================================================
 # OpenAI client
 # ============================================================
@@ -139,10 +138,22 @@ def _render_doc_answer_from_json(doc: Dict[str, Any]) -> str:
 def _is_memory_query(prompt: str) -> bool:
     p = (prompt or "").lower()
     keys = [
-        "recuérdame", "recuerdame", "última prueba", "ultima prueba",
-        "qué validamos", "que validamos", "resultado", "evidence", "evidencia",
-        "qué pasó", "que paso", "resumen de la prueba", "summary de la prueba",
-        "run", "logs", "steps",
+        "recuérdame",
+        "recuerdame",
+        "última prueba",
+        "ultima prueba",
+        "qué validamos",
+        "que validamos",
+        "resultado",
+        "evidence",
+        "evidencia",
+        "qué pasó",
+        "que paso",
+        "resumen de la prueba",
+        "summary de la prueba",
+        "run",
+        "logs",
+        "steps",
     ]
     return any(k in p for k in keys)
 
@@ -182,6 +193,7 @@ def _summarize_last_execute(history_msgs: List[Dict[str, Any]]) -> Optional[Dict
             "duration_ms": duration_ms,
         }
     return None
+
 
 # ============================================================
 # EXECUTE helpers (PRODUCT)
@@ -264,8 +276,6 @@ def _make_png_data_url(b64_or_data_url: Optional[str]) -> Optional[str]:
     s = str(b64_or_data_url).strip()
     if not s or s == "None":
         return None
-
-    
     if s.startswith("data:image"):
         return s
     return f"data:image/png;base64,{s}"
@@ -327,7 +337,7 @@ def _handle_execute_mode(
                     "content": (
                         f"URL base: {base_url}\n"
                         f"Genera pasos Playwright para:\n{prompt}\n"
-                        "Devuelve SOLO JSON con {\"steps\": [...]}."
+                        'Devuelve SOLO JSON con {"steps": [...]}.'
                     ),
                 }
             ],
@@ -359,14 +369,18 @@ def _handle_execute_mode(
     evidence_url: Optional[str] = None
     report_url: Optional[str] = None
     screenshot_data_url: Optional[str] = None
+    pdf_bytes: Optional[bytes] = None  # ✅ defensa: puede quedarse None
 
     try:
-        runner = execute_test(
-            base_url=base_url,
-            steps=steps,
-            headless=bool(getattr(req, "headless", True)),
-            timeout_s=settings.RUNNER_TIMEOUT_S,
-        ) or {}
+        runner = (
+            execute_test(
+                base_url=base_url,
+                steps=steps,
+                headless=bool(getattr(req, "headless", True)),
+                timeout_s=settings.RUNNER_TIMEOUT_S,
+            )
+            or {}
+        )
     except Exception as e:
         logger.exception("Runner execution failed")
         answer = (
@@ -381,7 +395,13 @@ def _handle_execute_mode(
             thread_id,
             "assistant",
             answer,
-            meta={"mode": "execute", "persona": persona, "error": f"{type(e).__name__}: {e}", "base_url": base_url, "steps": steps},
+            meta={
+                "mode": "execute",
+                "persona": persona,
+                "error": f"{type(e).__name__}: {e}",
+                "base_url": base_url,
+                "steps": steps,
+            },
         )
         return {
             "mode": "execute",
@@ -402,9 +422,14 @@ def _handle_execute_mode(
         duration_ms = int((time.time() - t0) * 1000)
 
     # 3) Evidencia (screenshot -> Cloudinary) best-effort
+    evidence_id = ""
     try:
         b64 = runner.get("screenshot_b64") or runner.get("screenshotBase64") or runner.get("screenshotB64")
-        screenshot_data_url = _make_png_data_url(b64) if b64 else (runner.get("screenshot_data_url") or runner.get("screenshotDataUrl"))
+        screenshot_data_url = (
+            _make_png_data_url(b64)
+            if b64
+            else (runner.get("screenshot_data_url") or runner.get("screenshotDataUrl"))
+        )
         evidence_id = (runner.get("evidence_id") or "").strip()
 
         if b64 and settings.HAS_CLOUDINARY:
@@ -412,17 +437,16 @@ def _handle_execute_mode(
             if hasattr(cloud_upload_screenshot_b64, "__call__"):
                 try:
                     evidence_url = cloud_upload_screenshot_b64(str(b64), evidence_id=evidence_id or "EV-unknown")
-            except TypeError:
-                fname = f"{evidence_id}.png" if evidence_id else "evidence.png"
-                evidence_url = cloud_upload_screenshot_b64(str(b64), filename=fname)
-
+                except TypeError:
+                    fname = f"{evidence_id}.png" if evidence_id else "evidence.png"
+                    evidence_url = cloud_upload_screenshot_b64(str(b64), filename=fname)
 
         if not evidence_url:
             evidence_url = runner.get("screenshot_url") or runner.get("evidence_url")
     except Exception:
         logger.exception("Evidence upload failed (continuing)")
 
-    # 4) Reporte PDF best-effort (nunca rompe)
+    # 4) Reporte PDF best-effort (nunca rompe)  ✅ FIX: try/except correcto
     try:
         rep = generate_pdf_report(
             prompt=prompt,
@@ -430,18 +454,25 @@ def _handle_execute_mode(
             runner={**runner, "screenshot_data_url": screenshot_data_url} if screenshot_data_url else runner,
             steps=steps,
             evidence_id=runner.get("evidence_id"),
-            meta={"thread_id": thread_id, "session_id": session.get("id"), "headless": getattr(req, "headless", True)},
+            meta={
+                "thread_id": thread_id,
+                "session_id": session.get("id"),
+                "headless": getattr(req, "headless", True),
+            },
         )
+
         if settings.HAS_CLOUDINARY and rep and rep.get("report_path"):
             with open(rep["report_path"], "rb") as f:
                 pdf_bytes = f.read()
-    # Usa evidence_id si tu servicio Cloudinary lo soporta, de lo contrario mantén filename
-    try:
-        report_url = cloud_upload_pdf_bytes(pdf_bytes, evidence_id=evidence_id or "EV-unknown")
-    except TypeError:
-        report_url = cloud_upload_pdf_bytes(pdf_bytes, filename=rep.get("report_filename") or "report.pdf")
 
-
+            if pdf_bytes:
+                # Usa evidence_id si tu servicio Cloudinary lo soporta, de lo contrario mantén filename
+                try:
+                    report_url = cloud_upload_pdf_bytes(pdf_bytes, evidence_id=evidence_id or "EV-unknown")
+                except TypeError:
+                    report_url = cloud_upload_pdf_bytes(
+                        pdf_bytes, filename=rep.get("report_filename") or "report.pdf"
+                    )
 
     except Exception:
         logger.exception("PDF report generation/upload failed (continuing)")
@@ -450,18 +481,21 @@ def _handle_execute_mode(
     try:
         # Ideal: importar desde un módulo sin ciclo (store/run_store). Si hoy lo tienes en app.py, lo dejamos best-effort.
         from app import save_run  # noqa
-        save_run({
-            **(runner if isinstance(runner, dict) else {}),
-            "base_url": base_url,
-            "prompt": prompt,
-            "steps": steps,
-            "evidence_url": evidence_url,
-            "report_url": report_url,
-            "duration_ms": duration_ms,
-            "thread_id": thread_id,
-            "session_id": session.get("id"),
-            "mode": "execute",
-        })
+
+        save_run(
+            {
+                **(runner if isinstance(runner, dict) else {}),
+                "base_url": base_url,
+                "prompt": prompt,
+                "steps": steps,
+                "evidence_url": evidence_url,
+                "report_url": report_url,
+                "duration_ms": duration_ms,
+                "thread_id": thread_id,
+                "session_id": session.get("id"),
+                "mode": "execute",
+            }
+        )
     except Exception:
         logger.exception("save_run failed (continuing)")
 
@@ -498,6 +532,7 @@ def _handle_execute_mode(
         **_confidence("execute", prompt, base_url),
     }
 
+
 # ============================================================
 # MAIN
 # ============================================================
@@ -511,7 +546,7 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
     prompt = H.norm(getattr(req, "prompt", "") or "")
     if not prompt:
         raise HTTPException(status_code=400, detail="Prompt vacío")
-    
+
     # 👇 evita NameError en ADVISE/DOC si algo intenta leer steps
     steps = None
     runner = None
@@ -605,7 +640,12 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
                 return result
 
             answer = "No pude completar la ejecución. Reintenta indicando URL, credenciales y qué validar."
-            store.add_message(thread_id, "assistant", answer, meta={"mode": "execute", "persona": persona, "safe_fallback": True})
+            store.add_message(
+                thread_id,
+                "assistant",
+                answer,
+                meta={"mode": "execute", "persona": persona, "safe_fallback": True},
+            )
             return {
                 "mode": "execute",
                 "persona": persona,
@@ -625,7 +665,12 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
                 "- Qué validación exacta quieres (texto/botón/elemento)\n"
                 "Y reintenta."
             )
-            meta = {"mode": "execute", "persona": persona, "error": f"{type(e).__name__}: {str(e)}", "safe_fallback": True}
+            meta = {
+                "mode": "execute",
+                "persona": persona,
+                "error": f"{type(e).__name__}: {str(e)}",
+                "safe_fallback": True,
+            }
             try:
                 store.add_message(thread_id, "assistant", answer, meta=meta)
             except Exception:
@@ -648,9 +693,8 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         if mode == "doc":
             resp = client.chat.completions.create(
                 model=settings.OPENAI_MODEL,
-                messages=messages + [
-                    {"role": "user", "content": "Devuelve exclusivamente un JSON válido. No agregues texto adicional."}
-                ],
+                messages=messages
+                + [{"role": "user", "content": "Devuelve exclusivamente un JSON válido. No agregues texto adicional."}],
                 temperature=settings.DOC_TEMPERATURE,
                 max_tokens=settings.DOC_MAX_TOKENS,
             )
@@ -658,10 +702,10 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             doc_json = _extract_json_object(raw)
 
             # 🛡️ Filtro defensivo de selectores inválidos (P0)
-        for s in (steps or []):
-            sel = (s.get("selector") or "")
-            if "data-testid" in sel:
-                s["selector"] = ""
+            for s in (steps or []):
+                sel = (s.get("selector") or "")
+                if "data-testid" in sel:
+                    s["selector"] = ""
 
             if not isinstance(doc_json, dict):
                 doc_json = {
@@ -672,14 +716,17 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
                         "matrix_summary": [],
                     },
                     "qa_view": {
-                        "sections": [
-                            {"title": "Salida del modelo", "content": raw[:4000] if raw else "Sin contenido"}
-                        ]
+                        "sections": [{"title": "Salida del modelo", "content": raw[:4000] if raw else "Sin contenido"}]
                     },
                 }
 
             answer = _render_doc_answer_from_json(doc_json)
-            store.add_message(thread_id, "assistant", answer, meta={"mode": "doc", "persona": persona, "doc_json": doc_json, "doc_schema": "v1"})
+            store.add_message(
+                thread_id,
+                "assistant",
+                answer,
+                meta={"mode": "doc", "persona": persona, "doc_json": doc_json, "doc_schema": "v1"},
+            )
 
             return {
                 "mode": "doc",
