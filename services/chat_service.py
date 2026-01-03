@@ -659,7 +659,6 @@ def _handle_execute_mode(
         **_confidence("execute", prompt, base_url),
     }
 
-
 # ============================================================
 # MAIN
 # ============================================================
@@ -671,23 +670,12 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
     - ADVISE: respuesta QA lead.
     """
 
-    intent = _detect_intent(prompt)
-    mode = "execute" if intent == "execute" else "doc" if intent == "doc" else "advise"
-    persona = _persona(prompt, mode)
-
+    # ------------------------------------------------------------
+    # 0) Prompt SIEMPRE primero (evita UnboundLocalError)
+    # ------------------------------------------------------------
     prompt = H.norm(getattr(req, "prompt", "") or "")
     if not prompt:
         raise HTTPException(status_code=400, detail="Prompt vacío")
-
-    # 👇 evita NameError en ADVISE/DOC si algo intenta leer steps
-    steps = None
-    runner = None
-
-    # defaults
-    mode: str = "advise"
-    persona: str = "lead"
-    answer: str = ""
-    doc_json: Optional[dict] = None
 
     # session
     session_id, session = H.get_session(getattr(req, "session_id", None))
@@ -699,13 +687,13 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         t = store.create_thread(title=(prompt[:60] or "New chat"))
         thread_id = t["id"]
 
-    # persist USER message
+    # persist USER message (best-effort)
     try:
         store.add_message(thread_id, "user", prompt, meta={"mode_hint": "input"})
     except Exception:
         logger.warning("Failed to persist user message (continuing)", exc_info=True)
 
-    # history
+    # history (best-effort)
     try:
         thread = store.get_thread(thread_id)
         history_msgs = (thread.get("messages") or [])[-settings.MAX_HISTORY_MSGS :]
@@ -713,12 +701,20 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         logger.warning("Failed to load thread history (continuing)", exc_info=True)
         history_msgs = []
 
-    # MEMORY
+    # ------------------------------------------------------------
+    # 1) MEMORY (solo resumen; no ejecuta)
+    # ------------------------------------------------------------
     if _is_memory_query(prompt):
         mem = _summarize_last_execute(history_msgs)
         if not mem:
-            answer = "Aún no veo una ejecución previa en este chat. Pídeme que ejecute una prueba y luego te resumo el resultado."
-            store.add_message(thread_id, "assistant", answer, meta={"mode": "advise", "memory": True})
+            answer = (
+                "Aún no veo una ejecución previa en este chat. "
+                "Pídeme que ejecute una prueba y luego te resumo el resultado."
+            )
+            try:
+                store.add_message(thread_id, "assistant", answer, meta={"mode": "advise", "memory": True})
+            except Exception:
+                pass
             return {
                 "mode": "advise",
                 "persona": _persona(prompt, "advise"),
@@ -729,7 +725,11 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             }
 
         answer = mem["answer"]
-        store.add_message(thread_id, "assistant", answer, meta={"mode": "advise", "memory": True, **mem})
+        try:
+            store.add_message(thread_id, "assistant", answer, meta={"mode": "advise", "memory": True, **mem})
+        except Exception:
+            pass
+
         return {
             "mode": "advise",
             "persona": _persona(prompt, "advise"),
@@ -742,21 +742,23 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             **_confidence("advise", prompt, mem.get("base_url")),
         }
 
-    # INTENT (P1 Router determinístico)
+    # ------------------------------------------------------------
+    # 2) INTENT → MODE → PERSONA (router determinístico)
+    # ------------------------------------------------------------
     intent = _detect_intent(prompt)  # "execute" | "doc" | "chat"
-
-    # compat con tu nomenclatura: chat -> advise
     mode = "execute" if intent == "execute" else "doc" if intent == "doc" else "advise"
     persona = _persona(prompt, mode)
 
-    # opcional: guarda pista en sesión (útil para debugging / analytics)
+    # pista en sesión (debug)
     try:
         session["last_intent"] = intent
         session["last_mode"] = mode
     except Exception:
         pass
 
-    # build messages
+    # ------------------------------------------------------------
+    # 3) Build messages
+    # ------------------------------------------------------------
     messages: List[Dict[str, str]] = [{"role": "system", "content": _system_prompt_for_mode(mode)}]
     for m in history_msgs:
         role = (m.get("role") or "assistant").strip()
@@ -764,7 +766,9 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         if content:
             messages.append({"role": role, "content": content})
 
-    # EXECUTE
+    # ------------------------------------------------------------
+    # 4) EXECUTE
+    # ------------------------------------------------------------
     if mode == "execute":
         try:
             result = _handle_execute_mode(
@@ -825,11 +829,15 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
                 **_confidence("execute", prompt, H.pick_base_url(req, session, prompt)),
             }
 
-    # DOC / ADVISE
+   # ------------------------------------------------------------
+    # 5) DOC / ADVISE
+    # ------------------------------------------------------------
     try:
         client = _client()
 
+        # -------------------------
         # DOC
+        # -------------------------
         if mode == "doc":
             resp = client.chat.completions.create(
                 model=settings.OPENAI_MODEL,
@@ -841,12 +849,6 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             raw = (resp.choices[0].message.content or "").strip()
             doc_json = _extract_json_object(raw)
 
-            # 🛡️ Filtro defensivo de selectores inválidos (P0)
-            for s in (steps or []):
-                sel = (s.get("selector") or "")
-                if "data-testid" in sel:
-                    s["selector"] = ""
-
             if not isinstance(doc_json, dict):
                 doc_json = {
                     "executive_view": {
@@ -856,7 +858,9 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
                         "matrix_summary": [],
                     },
                     "qa_view": {
-                        "sections": [{"title": "Salida del modelo", "content": raw[:4000] if raw else "Sin contenido"}]
+                        "sections": [
+                            {"title": "Salida del modelo", "content": raw[:4000] if raw else "Sin contenido"}
+                        ]
                     },
                 }
 
@@ -867,11 +871,6 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
                 answer,
                 meta={"mode": "doc", "persona": persona, "doc_json": doc_json, "doc_schema": "v1"},
             )
-            risk = _build_risk_brief(prompt)
-            messages.append({"role": "user", "content": f"Dominio inferido: {risk['domain']}. Prioriza P0 primero."})
-
-            neg = build_negative_and_edge_cases(risk["domain"])
-
 
             return {
                 "mode": "doc",
@@ -883,46 +882,38 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
                 **_confidence("doc", prompt, None),
             }
 
+        # -------------------------
         # ADVISE
+        # -------------------------
+        # 👉 Aquí SÍ va el contexto QA
+        try:
+            risk = build_risk_brief(prompt)
+            neg = build_negative_and_edge_cases(risk["domain"])
+
+            messages.append({
+                "role": "user",
+                "content": (
+                    "Contexto QA (no repitas literal, úsalo para priorizar):\n\n"
+                    "Riesgos sugeridos:\n"
+                    "P0:\n- " + "\n- ".join(risk["p0"][:3]) +
+                    "\nP1:\n- " + "\n- ".join(risk["p1"][:3]) +
+                    "\nP2:\n- " + "\n- ".join(risk["p2"][:3]) +
+                    "\n\nCasos NEGATIVOS sugeridos:\n- " + "\n- ".join(neg["negative"]) +
+                    "\n\nEdge cases sugeridos:\n- " + "\n- ".join(neg["edge"])
+                )
+            })
+        except Exception:
+            logger.warning("risk engine failed (continuing)", exc_info=True)
+
         resp = client.chat.completions.create(
             model=settings.OPENAI_MODEL,
             messages=messages,
             temperature=settings.ADV_TEMPERATURE,
             max_tokens=settings.ADV_MAX_TOKENS,
         )
+
         answer = (resp.choices[0].message.content or "").strip() or "¿Puedes darme más contexto?"
         store.add_message(thread_id, "assistant", answer, meta={"mode": "advise", "persona": persona})
-
-        risk = _build_risk_brief(prompt)
-
-        messages.insert(
-            1,
-            {
-                "role": "system",
-                "content": (
-                    "Siempre entrega valor como QA Lead.\n"
-                    f"Contexto inferido: {risk['domain']}.\n"
-                    "Incluye SIEMPRE:\n"
-                    "- Riesgos P0/P1/P2 (máx 3 por nivel)\n"
-                    "- Acciones recomendadas (máx 6 bullets)\n"
-                    "- Si falta info, 3 preguntas mínimas.\n"
-                ),
-            },
-        )
-
-        # también puedes pasarle los riesgos como “data” en el usuario
-        messages.append({
-            "role": "user",
-            "content": (
-                "Contexto QA (no repitas literal, úsalo para priorizar):\n\n"
-                "Riesgos sugeridos:\n"
-                "P0:\n- " + "\n- ".join(risk["p0"][:3]) +
-                "\nP1:\n- " + "\n- ".join(risk["p1"][:3]) +
-                "\nP2:\n- " + "\n- ".join(risk["p2"][:3]) +
-                "\n\nCasos NEGATIVOS sugeridos:\n- " + "\n- ".join(neg["negative"]) +
-                "\n\nEdge cases sugeridos:\n- " + "\n- ".join(neg["edge"])
-            )
-        })
 
         base_url_hint = H.pick_base_url(req, session, prompt)
         return {
@@ -934,6 +925,38 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             **_confidence("advise", prompt, base_url_hint),
         }
 
+    except Exception as e:
+        msg = "Ocurrió un problema generando la respuesta. Intenta nuevamente."
+        logger.exception("DOC/ADVISE failure")
+        try:
+            store.add_message(thread_id, "assistant", msg, meta={"mode": mode, "persona": persona, "error": str(e)})
+        except Exception:
+            pass
+        return {
+            "mode": mode,
+            "persona": persona,
+            "session_id": session_id,
+            "thread_id": thread_id,
+            "answer": msg,
+            "error": f"{type(e).__name__}: {str(e)}",
+        }
+
+    except Exception as e:
+        msg = "Ocurrió un problema generando la respuesta. Intenta nuevamente o ajusta el alcance."
+        logger.exception("DOC/ADVISE failure")
+        try:
+            store.add_message(thread_id, "assistant", msg, meta={"mode": mode, "persona": persona, "error": str(e)})
+        except Exception:
+            pass
+        return {
+            "mode": mode,
+            "persona": persona,
+            "session_id": session_id,
+            "thread_id": thread_id,
+            "answer": msg,
+            "error": f"{type(e).__name__}: {str(e)}",
+        }
+        
     except Exception as e:
         msg = "Ocurrió un problema generando la respuesta. Intenta nuevamente o ajusta el alcance."
         logger.exception("DOC/ADVISE failure")
