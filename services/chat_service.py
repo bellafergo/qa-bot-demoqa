@@ -14,20 +14,25 @@ from core.settings import settings
 from core import chat_helpers as H
 from services import store
 from runner import execute_test
+from core.qa_risk_engine import build_negative_and_edge_cases
 
 # Cloudinary (evidence + pdf) - usa tus servicios existentes
 from services.cloudinary_service import upload_screenshot_b64 as cloud_upload_screenshot_b64
 from services.cloudinary_service import upload_pdf_bytes as cloud_upload_pdf_bytes
 from services.report_service import generate_pdf_report
 
+from core.intent_router import detect_intent as _detect_intent
+from core.qa_risk_engine import build_risk_brief as _build_risk_brief
+
 logger = logging.getLogger("vanya.chat_service")
 
 # Importar prompts desde core para evitar NameError
 try:
-    from core.prompts import SYSTEM_PROMPT_AUTOMATION, SYSTEM_PROMPT_LEAD
+    from core.prompts import SYSTEM_PROMPT, SYSTEM_PROMPT_DOC, SYSTEM_PROMPT_EXECUTE
 except ImportError:
-    SYSTEM_PROMPT_AUTOMATION = "Eres Vanya en modo ejecución."
-    SYSTEM_PROMPT_LEAD = "Eres Vanya Lead QA."
+    SYSTEM_PROMPT = "Eres Vanya QA Lead."
+    SYSTEM_PROMPT_DOC = "Eres Vanya. Genera artefactos QA."
+    SYSTEM_PROMPT_EXECUTE = "Eres Vanya en modo ejecución."
 
 
 # ============================================================
@@ -51,6 +56,13 @@ def _persona(prompt: str, mode: str) -> str:
 def _system_prompt(persona: str) -> str:
     return SYSTEM_PROMPT_AUTOMATION if persona == "automation" else SYSTEM_PROMPT_LEAD
 
+def _system_prompt_for_mode(mode: str) -> str:
+    # mode: execute | doc | advise
+    if mode == "execute":
+        return SYSTEM_PROMPT_EXECUTE
+    if mode == "doc":
+        return SYSTEM_PROMPT_DOC
+    return SYSTEM_PROMPT  # advise
 
 def _confidence(mode: str, prompt: str, base_url: Optional[str]) -> Dict[str, Any]:
     score = 0.55
@@ -92,6 +104,77 @@ def _extract_json_object(raw: str) -> Optional[Dict[str, Any]]:
     obj = _safe_json_loads(m.group(0))
     return obj if isinstance(obj, dict) else None
 
+def _normalize_runner_meta(meta: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Deja SIEMPRE un contrato estable para UI:
+      meta["runner"]["status"]
+      meta["runner"]["evidence_url"]
+      meta["runner"]["report_url"]
+      meta["runner"]["duration_ms"]
+    y también compat arriba: meta["evidence_url"], meta["report_url"], meta["runner_status"], meta["duration_ms"].
+    """
+    meta = meta or {}
+
+    runner = meta.get("runner") or {}
+    if not isinstance(runner, dict):
+        runner = {}
+
+    # evidence
+    evidence_url = (
+        runner.get("evidence_url")
+        or runner.get("screenshot_url")
+        or runner.get("screenshotUrl")
+        or meta.get("evidence_url")
+        or meta.get("screenshot_url")
+        or meta.get("evidenceUrl")
+        or meta.get("screenshotUrl")
+    )
+
+    # report
+    report_url = (
+        runner.get("report_url")
+        or runner.get("report_pdf_url")
+        or runner.get("reportUrl")
+        or meta.get("report_url")
+        or meta.get("report_pdf_url")
+        or meta.get("reportUrl")
+    )
+
+    # status
+    status = (
+        runner.get("status")
+        or meta.get("runner_status")
+        or meta.get("runnerStatus")
+        or meta.get("status")
+        or "unknown"
+    )
+    if isinstance(status, str):
+        status = status.strip() or "unknown"
+
+    # duration
+    duration_ms = (
+        runner.get("duration_ms")
+        or runner.get("durationMs")
+        or meta.get("duration_ms")
+        or meta.get("durationMs")
+    )
+
+    # runner estable (ojo: NO tiramos tu runner original; lo guardamos en raw)
+    meta["runner"] = {
+        "status": status,
+        "evidence_url": evidence_url,
+        "report_url": report_url,
+        "duration_ms": duration_ms,
+        "raw": runner,
+    }
+
+    # compat para tu UI actual / respuestas
+    meta["evidence_url"] = evidence_url
+    meta["report_url"] = report_url
+    meta["runner_status"] = status
+    meta["duration_ms"] = duration_ms
+
+    return meta
 
 # ============================================================
 # DOC renderer (compat UI actual)
@@ -173,15 +256,19 @@ def _summarize_last_execute(history_msgs: List[Dict[str, Any]]) -> Optional[Dict
         if not isinstance(meta, dict):
             meta = {}
 
+        # ✅ primero valida modo
         if meta.get("mode") != "execute":
             continue
 
+        # ✅ normaliza UNA sola vez
+        meta = _normalize_runner_meta(meta)
         runner = meta.get("runner") or {}
-        status = (runner.get("status") or meta.get("runner_status") or "").strip() or "unknown"
+
+        status = runner.get("status", "unknown")
+        evidence_url = runner.get("evidence_url")
+        report_url = runner.get("report_url")
+        duration_ms = runner.get("duration_ms")
         base_url = meta.get("base_url") or ""
-        evidence_url = meta.get("evidence_url") or runner.get("screenshot_url") or runner.get("evidence_url")
-        report_url = meta.get("report_url")
-        duration_ms = meta.get("duration_ms") or runner.get("duration_ms")
 
         answer = (m.get("content") or "").strip() or "Resumen: ejecución registrada."
         return {
@@ -192,7 +279,45 @@ def _summarize_last_execute(history_msgs: List[Dict[str, Any]]) -> Optional[Dict
             "report_url": report_url,
             "duration_ms": duration_ms,
         }
+
     return None
+
+def _detect_intent(prompt: str) -> str:
+    p = (prompt or "").strip().lower()
+    if not p:
+        return "chat"
+
+    exec_kw = [
+        "ejecuta", "ejecutar", "corre", "correr", "run", "playwright",
+        "abre", "abrir", "ve a", "ir a", "navega", "navegar",
+        "haz click", "da click", "clic", "click",
+        "login", "inicia sesión", "iniciar sesion",
+        "valida", "validar", "verifica", "verificar", "probar", "prueba",
+        "checkout", "carrito", "pagar", "pago",
+        "llena", "llenar", "escribe", "escribir", "selecciona", "seleccionar",
+    ]
+    doc_kw = [
+        "matriz", "casos de prueba", "test cases", "gherkin", "given", "when", "then",
+        "invest", "criterios de aceptación", "criterios de aceptacion",
+        "plan de pruebas", "estrategia de pruebas", "checklist",
+        "riesgos", "matriz de riesgos", "casos negativos", "edge cases",
+        "scripts", "automatización", "automatizacion", "selenium",
+    ]
+
+    has_url = ("http://" in p) or ("https://" in p)
+
+    # EXECUTE manda si hay verbo de acción (con o sin URL; sin URL _handle_execute_mode pedirá base_url)
+    if any(k in p for k in exec_kw):
+        return "execute"
+
+    if any(k in p for k in doc_kw):
+        return "doc"
+
+    # si trae URL pero no pidió doc, normalmente es ejecución/navegación
+    if has_url:
+        return "execute"
+
+    return "chat"
 
 
 # ============================================================
@@ -518,6 +643,8 @@ def _handle_execute_mode(
         "duration_ms": duration_ms,
     }
 
+    meta = _normalize_runner_meta(meta)  # ✅ P0: contrato estable para UI
+
     store.add_message(thread_id, "assistant", answer, meta=meta)
 
     return {
@@ -543,6 +670,11 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
     - EXECUTE: corre runner; si falla, mensaje útil (y error trazable).
     - ADVISE: respuesta QA lead.
     """
+
+    intent = _detect_intent(prompt)
+    mode = "execute" if intent == "execute" else "doc" if intent == "doc" else "advise"
+    persona = _persona(prompt, mode)
+
     prompt = H.norm(getattr(req, "prompt", "") or "")
     if not prompt:
         raise HTTPException(status_code=400, detail="Prompt vacío")
@@ -610,14 +742,22 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             **_confidence("advise", prompt, mem.get("base_url")),
         }
 
-    # INTENT
-    wants_execute = bool(H.wants_execute(prompt, session))
-    wants_doc = bool(H.wants_doc(prompt)) if not wants_execute else False
-    mode = "execute" if wants_execute else "doc" if wants_doc else "advise"
+    # INTENT (P1 Router determinístico)
+    intent = _detect_intent(prompt)  # "execute" | "doc" | "chat"
+
+    # compat con tu nomenclatura: chat -> advise
+    mode = "execute" if intent == "execute" else "doc" if intent == "doc" else "advise"
     persona = _persona(prompt, mode)
 
+    # opcional: guarda pista en sesión (útil para debugging / analytics)
+    try:
+        session["last_intent"] = intent
+        session["last_mode"] = mode
+    except Exception:
+        pass
+
     # build messages
-    messages: List[Dict[str, str]] = [{"role": "system", "content": _system_prompt(persona)}]
+    messages: List[Dict[str, str]] = [{"role": "system", "content": _system_prompt_for_mode(mode)}]
     for m in history_msgs:
         role = (m.get("role") or "assistant").strip()
         content = (m.get("content") or "").strip()
@@ -727,6 +867,11 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
                 answer,
                 meta={"mode": "doc", "persona": persona, "doc_json": doc_json, "doc_schema": "v1"},
             )
+            risk = _build_risk_brief(prompt)
+            messages.append({"role": "user", "content": f"Dominio inferido: {risk['domain']}. Prioriza P0 primero."})
+
+            neg = build_negative_and_edge_cases(risk["domain"])
+
 
             return {
                 "mode": "doc",
@@ -747,6 +892,37 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         )
         answer = (resp.choices[0].message.content or "").strip() or "¿Puedes darme más contexto?"
         store.add_message(thread_id, "assistant", answer, meta={"mode": "advise", "persona": persona})
+
+        risk = _build_risk_brief(prompt)
+
+        messages.insert(
+            1,
+            {
+                "role": "system",
+                "content": (
+                    "Siempre entrega valor como QA Lead.\n"
+                    f"Contexto inferido: {risk['domain']}.\n"
+                    "Incluye SIEMPRE:\n"
+                    "- Riesgos P0/P1/P2 (máx 3 por nivel)\n"
+                    "- Acciones recomendadas (máx 6 bullets)\n"
+                    "- Si falta info, 3 preguntas mínimas.\n"
+                ),
+            },
+        )
+
+        # también puedes pasarle los riesgos como “data” en el usuario
+        messages.append({
+            "role": "user",
+            "content": (
+                "Contexto QA (no repitas literal, úsalo para priorizar):\n\n"
+                "Riesgos sugeridos:\n"
+                "P0:\n- " + "\n- ".join(risk["p0"][:3]) +
+                "\nP1:\n- " + "\n- ".join(risk["p1"][:3]) +
+                "\nP2:\n- " + "\n- ".join(risk["p2"][:3]) +
+                "\n\nCasos NEGATIVOS sugeridos:\n- " + "\n- ".join(neg["negative"]) +
+                "\n\nEdge cases sugeridos:\n- " + "\n- ".join(neg["edge"])
+            )
+        })
 
         base_url_hint = H.pick_base_url(req, session, prompt)
         return {
@@ -773,3 +949,133 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             "answer": msg,
             "error": f"{type(e).__name__}: {str(e)}",
         }
+CRITICAL_AREAS = [
+    "login", "checkout", "pagos", "promociones", "stock", "performance", "seguridad"
+]
+
+def _infer_domain(prompt: str) -> str:
+    p = (prompt or "").lower()
+    if any(k in p for k in ["checkout", "carrito", "pagar", "pago", "tarjeta", "orden", "pedido"]):
+        return "checkout/pagos"
+    if any(k in p for k in ["login", "inicia sesión", "iniciar sesion", "password", "contraseña", "usuario"]):
+        return "login"
+    if any(k in p for k in ["promo", "promoción", "cupon", "cupón", "descuento", "2x1", "oferta"]):
+        return "promociones"
+    if any(k in p for k in ["stock", "inventario", "disponible", "agotado", "backorder"]):
+        return "stock"
+    if any(k in p for k in ["lento", "performance", "tiempo de carga", "latencia", "k6", "jmeter"]):
+        return "performance"
+    if any(k in p for k in ["csrf", "xss", "inyección", "sql injection", "seguridad", "token"]):
+        return "seguridad"
+    return "general"
+
+def _risk_template(domain: str) -> Dict[str, List[str]]:
+    # P0 = rompe conversión/ingresos/operación
+    if domain == "checkout/pagos":
+        return {
+            "P0": [
+                "Cobro duplicado / cargo sin orden confirmada",
+                "Fallo de autorización y mensajes confusos",
+                "Totales incorrectos (impuestos/envío/descuentos)",
+                "Método de pago no disponible o intermitente",
+                "Timeout/latencia en pago (abandono de carrito)"
+            ],
+            "P1": [
+                "Cupones aplican mal (stacking indebido)",
+                "Reintentos generan órdenes duplicadas",
+                "Problemas de stock al confirmar orden",
+            ],
+            "P2": [
+                "UX: validaciones tardías, campos sin máscara",
+                "Accesibilidad: focus/errores no anunciados",
+            ],
+        }
+    if domain == "login":
+        return {
+            "P0": [
+                "Usuarios válidos no pueden entrar (bloqueo de sesión)",
+                "Reset password no funciona / enlaces expirados",
+                "Rate limiting inexistente (ataques)",
+                "Errores 500 intermitentes en autenticación"
+            ],
+            "P1": [
+                "Mensajes de error ambiguos (sube soporte, baja conversión)",
+                "Sesión expira inesperadamente",
+            ],
+            "P2": [
+                "UX: teclado móvil, autofill, caps lock",
+            ],
+        }
+    if domain == "promociones":
+        return {
+            "P0": [
+                "Promos rompen totales o permiten descuento indebido",
+                "Cupones se aplican a productos excluidos",
+                "Promos no se reflejan en checkout/orden"
+            ],
+            "P1": [
+                "Reglas por canal (app/web) inconsistentes",
+                "Redondeos por moneda/IVA",
+            ],
+            "P2": [
+                "Copy confuso de términos y condiciones",
+            ],
+        }
+    if domain == "stock":
+        return {
+            "P0": [
+                "Se vende sin inventario (oversell)",
+                "Stock cambia en checkout y orden se cae",
+                "Reservas de inventario no liberan"
+            ],
+            "P1": [
+                "Backorder mal comunicado",
+                "Tiempos de entrega inconsistentes",
+            ],
+            "P2": [
+                "UX: avisos tardíos de disponibilidad",
+            ],
+        }
+    if domain == "performance":
+        return {
+            "P0": [
+                "LCP alto en home/PLP/PDP (baja conversión)",
+                "Timeout en APIs críticas (search, cart, checkout)",
+            ],
+            "P1": [
+                "Picos de error en campañas (Black Friday)",
+                "Rendimiento peor en móvil",
+            ],
+            "P2": [
+                "Imágenes sin optimizar / caché deficiente",
+            ],
+        }
+    if domain == "seguridad":
+        return {
+            "P0": [
+                "Token/session hijacking por cookies mal configuradas",
+                "Falta de CSRF en acciones críticas",
+                "Exposición de datos sensibles en logs/respuestas",
+            ],
+            "P1": [
+                "XSS en campos de búsqueda/comentarios",
+            ],
+            "P2": [
+                "Headers de seguridad incompletos",
+            ],
+        }
+    return {
+        "P0": ["Riesgo crítico no identificado: define flujo (login/checkout/pagos/promos/stock/perf)."],
+        "P1": [],
+        "P2": [],
+    }
+
+def _build_risk_brief(prompt: str) -> Dict[str, Any]:
+    domain = _infer_domain(prompt)
+    risks = _risk_template(domain)
+    return {
+        "domain": domain,
+        "p0": risks.get("P0", []),
+        "p1": risks.get("P1", []),
+        "p2": risks.get("P2", []),
+    }
