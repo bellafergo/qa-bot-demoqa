@@ -1,6 +1,7 @@
 # services/chat_service.py
 from __future__ import annotations
 
+import os
 import json
 import logging
 import re
@@ -650,6 +651,16 @@ def _handle_execute_mode(
             },
         )
 
+        logger.info(f"[PDF] generate_pdf_report returned: {rep}")
+
+        if not rep or not isinstance(rep, dict):
+            logger.warning("[PDF] rep is empty or not a dict -> skipping upload")
+        elif not rep.get("report_path"):
+            logger.warning("[PDF] rep has no report_path -> skipping upload")
+        else:
+            rp = rep["report_path"]
+            logger.info(f"[PDF] report_path={rp} exists={os.path.exists(rp)} size={(os.path.getsize(rp) if os.path.exists(rp) else 0)}")
+
         if getattr(settings, "HAS_CLOUDINARY", False) and rep and rep.get("report_path"):
             with open(rep["report_path"], "rb") as f:
                 pdf_bytes = f.read()
@@ -659,6 +670,8 @@ def _handle_execute_mode(
                     pdf_bytes,
                     evidence_id=(evidence_id or "EV-unknown"),
                 )
+                logger.info(f"[PDF] cloudinary upload result keys: {list(res_pdf.keys()) if isinstance(res_pdf, dict) else type(res_pdf)}")
+                logger.info(f"[PDF] cloudinary secure_url/url: {(res_pdf.get('secure_url') or res_pdf.get('url')) if isinstance(res_pdf, dict) else res_pdf}")
 
                 if isinstance(res_pdf, dict):
                     report_url = (res_pdf.get("secure_url") or res_pdf.get("url") or "").strip() or None
