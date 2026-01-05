@@ -1,9 +1,9 @@
 # services/cloudinary_service.py
 from __future__ import annotations
 
-import os
 import base64
-from typing import Any, Dict, Optional
+import os
+from typing import Any, Dict, Optional, Sequence
 
 import cloudinary
 import cloudinary.uploader
@@ -11,51 +11,112 @@ import cloudinary.uploader
 
 def _configure_cloudinary() -> None:
     """
-    Cloudinary se puede configurar con:
-      - CLOUDINARY_URL (recomendado)  ej: cloudinary://API_KEY:API_SECRET@CLOUD_NAME
-    o con variables separadas:
-      - CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET
+    Configura Cloudinary.
+    Preferido:
+      - CLOUDINARY_URL = cloudinary://API_KEY:API_SECRET@CLOUD_NAME
+
+    Fallback:
+      - CLOUDINARY_CLOUD_NAME
+      - CLOUDINARY_API_KEY
+      - CLOUDINARY_API_SECRET
     """
-    # Si ya viene CLOUDINARY_URL, Cloudinary lo toma solo.
-    # Aun así, permitimos fallback por variables separadas.
+    # Si existe CLOUDINARY_URL, cloudinary normalmente lo toma automáticamente.
+    # Pero llamar config con secure=True no hace daño y ayuda a consistencia.
+    cloud_url = os.getenv("CLOUDINARY_URL", "").strip()
+    if cloud_url:
+        cloudinary.config(secure=True)
+        return
+
     cloud_name = os.getenv("CLOUDINARY_CLOUD_NAME", "").strip()
     api_key = os.getenv("CLOUDINARY_API_KEY", "").strip()
     api_secret = os.getenv("CLOUDINARY_API_SECRET", "").strip()
 
-    if cloud_name and api_key and api_secret:
-        cloudinary.config(
-            cloud_name=cloud_name,
-            api_key=api_key,
-            api_secret=api_secret,
-            secure=True,
+    if not (cloud_name and api_key and api_secret):
+        raise RuntimeError(
+            "Cloudinary no configurado. Define CLOUDINARY_URL o "
+            "(CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET)."
         )
+
+    cloudinary.config(
+        cloud_name=cloud_name,
+        api_key=api_key,
+        api_secret=api_secret,
+        secure=True,
+    )
+
+
+def _to_data_url_png(s: str) -> str:
+    """
+    Acepta:
+      - data:image/png;base64,....
+      - base64 puro (sin prefijo)
+    Retorna SIEMPRE data-url válido para Cloudinary.
+    """
+    s = (s or "").strip()
+    if not s:
+        raise ValueError("Screenshot vacío")
+
+    if s.startswith("data:image"):
+        return s
+
+    # base64 puro -> data-url
+    return f"data:image/png;base64,{s}"
 
 
 def upload_screenshot_b64(
-    data_url: str,
+    screenshot_b64_or_data_url: str,
     *,
     evidence_id: str,
     folder: str = "vanya/evidence",
-    tags: Optional[list[str]] = None,
+    tags: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     """
-    Sube un screenshot (data:image/png;base64,...) a Cloudinary.
-    Retorna dict con secure_url, public_id, etc.
+    Sube un screenshot a Cloudinary.
+    - Acepta base64 puro (runner) o data-url.
+    - Retorna el dict de Cloudinary (incluye secure_url).
     """
     _configure_cloudinary()
 
-    if not data_url or len(str(data_url)) < 500:
+    if not evidence_id or not str(evidence_id).strip():
+        raise ValueError("evidence_id requerido")
+
+    data_url = _to_data_url_png(str(screenshot_b64_or_data_url))
+
+    # umbral razonable: un PNG real en base64 suele superar esto
+    if len(data_url) < 800:
         raise ValueError("Screenshot inválido o muy pequeño")
 
     public_id = f"{folder}/{evidence_id}".replace("//", "/")
 
     return cloudinary.uploader.upload(
-        str(data_url).strip(),
+        data_url,
         public_id=public_id,
         overwrite=True,
         resource_type="image",
-        tags=tags or ["vanya", "evidence"],
+        tags=list(tags) if tags else ["vanya", "evidence"],
     )
+
+
+def upload_screenshot_b64_url(
+    screenshot_b64_or_data_url: str,
+    *,
+    evidence_id: str,
+    folder: str = "vanya/evidence",
+    tags: Optional[Sequence[str]] = None,
+) -> str:
+    """
+    Helper: sube screenshot y devuelve SOLO la URL segura.
+    """
+    res = upload_screenshot_b64(
+        screenshot_b64_or_data_url,
+        evidence_id=evidence_id,
+        folder=folder,
+        tags=tags,
+    )
+    url = (res.get("secure_url") or res.get("url") or "").strip()
+    if not url:
+        raise RuntimeError("Cloudinary no devolvió secure_url/url")
+    return url
 
 
 def upload_pdf_bytes(
@@ -63,14 +124,17 @@ def upload_pdf_bytes(
     *,
     evidence_id: str,
     folder: str = "vanya/reports",
-    tags: Optional[list[str]] = None,
+    tags: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     """
     Sube un PDF a Cloudinary como RAW.
-    Cloudinary funciona más estable si lo subimos como data-url:
+    Recomendado como data-url:
       data:application/pdf;base64,....
     """
     _configure_cloudinary()
+
+    if not evidence_id or not str(evidence_id).strip():
+        raise ValueError("evidence_id requerido")
 
     if not pdf_bytes or len(pdf_bytes) < 800:
         raise ValueError("PDF vacío o inválido")
@@ -83,7 +147,29 @@ def upload_pdf_bytes(
     return cloudinary.uploader.upload(
         data_url,
         public_id=public_id,
-        resource_type="raw",  # 👈 CLAVE: RAW para PDFs
+        resource_type="raw",
         overwrite=True,
-        tags=tags or ["vanya", "report"],
+        tags=list(tags) if tags else ["vanya", "report"],
     )
+
+
+def upload_pdf_bytes_url(
+    pdf_bytes: bytes,
+    *,
+    evidence_id: str,
+    folder: str = "vanya/reports",
+    tags: Optional[Sequence[str]] = None,
+) -> str:
+    """
+    Helper: sube PDF y devuelve SOLO la URL segura.
+    """
+    res = upload_pdf_bytes(
+        pdf_bytes,
+        evidence_id=evidence_id,
+        folder=folder,
+        tags=tags,
+    )
+    url = (res.get("secure_url") or res.get("url") or "").strip()
+    if not url:
+        raise RuntimeError("Cloudinary no devolvió secure_url/url")
+    return url

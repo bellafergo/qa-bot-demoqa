@@ -10,6 +10,8 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi import HTTPException
 
+from services.run_store import get_run
+
 from core.settings import settings
 
 from api.routes.health import router as health_router
@@ -22,37 +24,6 @@ from db import init_db
 logger = logging.getLogger("vanya")
 
 app = FastAPI(title="Vanya QA Bot", version="1.0.0")
-
-# ============================================================
-# RUN STORE (in-memory) - para ver steps/logs por evidence_id
-# ============================================================
-import time
-from typing import Dict, Any, Optional
-
-_RUNS: Dict[str, Dict[str, Any]] = {}
-_RUNS_TTL_S = int(os.getenv("RUNS_TTL_S", "86400"))  # 24h por default
-
-def _runs_cleanup():
-    now = time.time()
-    kill = []
-    for evid, item in _RUNS.items():
-        ts = item.get("ts", 0)
-        if now - ts > _RUNS_TTL_S:
-            kill.append(evid)
-    for evid in kill:
-        _RUNS.pop(evid, None)
-
-def save_run(run_payload: Dict[str, Any]) -> None:
-    evid = run_payload.get("evidence_id")
-    if not evid:
-        return
-    _runs_cleanup()
-    _RUNS[evid] = {"ts": time.time(), "data": run_payload}
-
-def get_run(evidence_id: str) -> Optional[Dict[str, Any]]:
-    _runs_cleanup()
-    item = _RUNS.get(evidence_id)
-    return item["data"] if item else None
 
 
 # ============================================================

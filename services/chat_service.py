@@ -5,7 +5,7 @@ import json
 import logging
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import HTTPException
 from openai import OpenAI
@@ -14,25 +14,18 @@ from core.settings import settings
 from core import chat_helpers as H
 from services import store
 from runner import execute_test
-from core.qa_risk_engine import build_negative_and_edge_cases
 
-# Cloudinary (evidence + pdf) - usa tus servicios existentes
+from core.intent_router import detect_intent
+from core.lang import detect_language
+from core.prompts import pick_system_prompt, language_style_header
+from core.qa_risk_engine import build_risk_brief, build_negative_and_edge_cases
+
+# Evidence + report (best-effort)
 from services.cloudinary_service import upload_screenshot_b64 as cloud_upload_screenshot_b64
 from services.cloudinary_service import upload_pdf_bytes as cloud_upload_pdf_bytes
 from services.report_service import generate_pdf_report
 
-from core.intent_router import detect_intent as _detect_intent
-from core.qa_risk_engine import build_risk_brief as _build_risk_brief
-
 logger = logging.getLogger("vanya.chat_service")
-
-# Importar prompts desde core para evitar NameError
-try:
-    from core.prompts import SYSTEM_PROMPT, SYSTEM_PROMPT_DOC, SYSTEM_PROMPT_EXECUTE
-except ImportError:
-    SYSTEM_PROMPT = "Eres Vanya QA Lead."
-    SYSTEM_PROMPT_DOC = "Eres Vanya. Genera artefactos QA."
-    SYSTEM_PROMPT_EXECUTE = "Eres Vanya en modo ejecución."
 
 
 # ============================================================
@@ -44,34 +37,15 @@ def _client() -> OpenAI:
     return OpenAI(api_key=settings.OPENAI_API_KEY)
 
 
-def _persona(prompt: str, mode: str) -> str:
-    p = (prompt or "").lower()
-    if "modo automation" in p or "modo automatizacion" in p:
-        return "automation"
-    if "modo lead" in p:
-        return "lead"
-    return "automation" if mode == "execute" else "lead"
-
-
-def _system_prompt(persona: str) -> str:
-    return SYSTEM_PROMPT_AUTOMATION if persona == "automation" else SYSTEM_PROMPT_LEAD
-
-def _system_prompt_for_mode(mode: str) -> str:
-    # mode: execute | doc | advise
-    if mode == "execute":
-        return SYSTEM_PROMPT_EXECUTE
-    if mode == "doc":
-        return SYSTEM_PROMPT_DOC
-    return SYSTEM_PROMPT  # advise
-
+# ============================================================
+# Confidence helper (UI-friendly)
+# ============================================================
 def _confidence(mode: str, prompt: str, base_url: Optional[str]) -> Dict[str, Any]:
     score = 0.55
     if mode == "execute":
         score = 0.65 + (0.15 if base_url else -0.15)
     elif mode == "doc":
         score = 0.60
-    else:
-        score = 0.55
 
     if len(prompt or "") < 25:
         score -= 0.10
@@ -92,26 +66,40 @@ def _safe_json_loads(s: str) -> Optional[Dict[str, Any]]:
 
 
 def _extract_json_object(raw: str) -> Optional[Dict[str, Any]]:
+    """
+    Extrae un objeto JSON del texto:
+    - Intenta parseo completo
+    - Si falla, toma primer bloque { ... } best-effort
+    """
     if not raw:
         return None
     txt = raw.strip()
+
     obj = _safe_json_loads(txt)
     if isinstance(obj, dict):
         return obj
-    m = re.search(r"\{.*\}", txt, flags=re.S)
-    if not m:
+
+    start = txt.find("{")
+    end = txt.rfind("}")
+    if start == -1 or end == -1 or end <= start:
         return None
-    obj = _safe_json_loads(m.group(0))
+
+    snippet = txt[start : end + 1]
+    obj = _safe_json_loads(snippet)
     return obj if isinstance(obj, dict) else None
 
+
+# ============================================================
+# Runner meta normalizer (contract stable for UI)
+# ============================================================
 def _normalize_runner_meta(meta: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """
-    Deja SIEMPRE un contrato estable para UI:
+    Contrato estable:
       meta["runner"]["status"]
       meta["runner"]["evidence_url"]
       meta["runner"]["report_url"]
       meta["runner"]["duration_ms"]
-    y también compat arriba: meta["evidence_url"], meta["report_url"], meta["runner_status"], meta["duration_ms"].
+      meta["runner"]["raw"]  (runner original)
     """
     meta = meta or {}
 
@@ -119,7 +107,6 @@ def _normalize_runner_meta(meta: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if not isinstance(runner, dict):
         runner = {}
 
-    # evidence
     evidence_url = (
         runner.get("evidence_url")
         or runner.get("screenshot_url")
@@ -130,7 +117,6 @@ def _normalize_runner_meta(meta: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         or meta.get("screenshotUrl")
     )
 
-    # report
     report_url = (
         runner.get("report_url")
         or runner.get("report_pdf_url")
@@ -140,7 +126,6 @@ def _normalize_runner_meta(meta: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         or meta.get("reportUrl")
     )
 
-    # status
     status = (
         runner.get("status")
         or meta.get("runner_status")
@@ -151,7 +136,6 @@ def _normalize_runner_meta(meta: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if isinstance(status, str):
         status = status.strip() or "unknown"
 
-    # duration
     duration_ms = (
         runner.get("duration_ms")
         or runner.get("durationMs")
@@ -159,16 +143,17 @@ def _normalize_runner_meta(meta: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         or meta.get("durationMs")
     )
 
-    # runner estable (ojo: NO tiramos tu runner original; lo guardamos en raw)
+    raw_runner = runner.get("raw") if isinstance(runner.get("raw"), dict) else runner
+
     meta["runner"] = {
         "status": status,
         "evidence_url": evidence_url,
         "report_url": report_url,
         "duration_ms": duration_ms,
-        "raw": runner,
+        "raw": raw_runner,
     }
 
-    # compat para tu UI actual / respuestas
+    # compat top-level (por si tu UI lo lee directo)
     meta["evidence_url"] = evidence_url
     meta["report_url"] = report_url
     meta["runner_status"] = status
@@ -176,16 +161,16 @@ def _normalize_runner_meta(meta: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
     return meta
 
+
 # ============================================================
-# DOC renderer (compat UI actual)
+# DOC renderer (para tu UI actual)
 # ============================================================
 def _render_doc_answer_from_json(doc: Dict[str, Any]) -> str:
     ev = doc.get("executive_view", {}) if isinstance(doc, dict) else {}
     title = ev.get("title", "Artefacto QA")
     objective = ev.get("objective", "")
 
-    lines: List[str] = []
-    lines.append(f"## {title}")
+    lines: List[str] = [f"## {title}"]
     if objective:
         lines.append(f"**Objetivo:** {objective}")
 
@@ -216,36 +201,84 @@ def _render_doc_answer_from_json(doc: Dict[str, Any]) -> str:
 
 
 # ============================================================
+# One-time intro (recomendado: basado en historial del thread)
+# ============================================================
+def _should_introduce(history_msgs: List[Dict[str, Any]]) -> bool:
+    for m in history_msgs or []:
+        if (m.get("role") or "").strip() == "assistant":
+            return False
+    return True
+
+
+def _intro_text() -> str:
+    return "Hola, soy Vanya, tu Agente de QA inteligente.\n\n"
+
+
+# ============================================================
+# MODE / PERSONA / PROMPT helpers
+# ============================================================
+def _detect_intent(prompt: str) -> str:
+    # detect_intent puede devolver: "execute" | "doc" | "chat" (o similar)
+    try:
+        out = detect_intent(prompt)
+        if isinstance(out, str):
+            return out.strip().lower()
+    except Exception:
+        pass
+    return "chat"
+
+
+def _persona(prompt: str, mode: str) -> str:
+    # Solo etiqueta para UI/telemetría
+    if mode == "execute":
+        return "automation"
+    if mode == "doc":
+        return "doc"
+    return "lead"
+
+
+def _system_prompt_for_mode(mode: str, lang: str, introduced: bool) -> str:
+    # pick_system_prompt ya trae tus prompts por modo/persona
+    sys = pick_system_prompt(mode=mode)
+    # Encabezado de estilo por idioma (una vez por chat/hilo)
+    header = language_style_header(lang=lang, introduced=introduced)
+    return f"{header}{sys}".strip()
+
+
+# ============================================================
 # MEMORY (NO execute)
 # ============================================================
+_MEMORY_PATTERNS = [
+    # ES
+    r"\b(última|ultima)\s+(prueba|ejecución|ejecucion|corrida|run)\b",
+    r"\b(recu[ée]rdame|recuerda)\b",
+    r"\b(qu[ée]\s+pas[óo]|qu[ée]\s+sal[ióio])\b",
+    r"\b(resumen|summary)\b.*\b(prueba|ejecución|run)\b",
+    r"\b(estatus|status|resultado)\b.*\b(prueba|run|ejecución)\b",
+    r"\b(evidencia|evidence|reporte|report)\b",
+    r"\b(qu[ée]\s+validamos|qu[ée]\s+se\s+valid[óo])\b",
+    # EN
+    r"\b(last|previous)\s+(test|run|execution)\b",
+    r"\b(what\s+happened|result|status)\b.*\b(test|run|execution)\b",
+]
+
+
 def _is_memory_query(prompt: str) -> bool:
-    p = (prompt or "").lower()
-    keys = [
-        "recuérdame",
-        "recuerdame",
-        "última prueba",
-        "ultima prueba",
-        "qué validamos",
-        "que validamos",
-        "resultado",
-        "evidence",
-        "evidencia",
-        "qué pasó",
-        "que paso",
-        "resumen de la prueba",
-        "summary de la prueba",
-        "run",
-        "logs",
-        "steps",
-    ]
-    return any(k in p for k in keys)
+    p = (prompt or "").strip().lower()
+    if not p:
+        return False
+
+    # Si suena a ejecución, NO es memoria
+    if any(w in p for w in ["ve a", "abre", "ejecuta", "ejecutar", "valida", "haz clic", "da click", "login", "inicia sesión", "iniciar sesion"]):
+        return False
+
+    for pat in _MEMORY_PATTERNS:
+        if re.search(pat, p, flags=re.IGNORECASE):
+            return True
+    return False
 
 
 def _summarize_last_execute(history_msgs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """
-    Busca el último mensaje assistant con meta.mode == execute y arma un resumen estable.
-    No recalcula PASSED/FAILED: usa lo que realmente ocurrió en el último run.
-    """
     for m in reversed(history_msgs or []):
         if (m.get("role") or "").strip() != "assistant":
             continue
@@ -254,78 +287,39 @@ def _summarize_last_execute(history_msgs: List[Dict[str, Any]]) -> Optional[Dict
         if isinstance(meta, str):
             meta = _safe_json_loads(meta) or {}
         if not isinstance(meta, dict):
-            meta = {}
-
-        # ✅ primero valida modo
-        if meta.get("mode") != "execute":
             continue
 
-        # ✅ normaliza UNA sola vez
+        if (meta.get("mode") or "").strip() != "execute":
+            continue
+
         meta = _normalize_runner_meta(meta)
         runner = meta.get("runner") or {}
 
-        status = runner.get("status", "unknown")
-        evidence_url = runner.get("evidence_url")
-        report_url = runner.get("report_url")
-        duration_ms = runner.get("duration_ms")
-        base_url = meta.get("base_url") or ""
+        status = runner.get("status") or "unknown"
+        if isinstance(status, str):
+            status = status.strip() or "unknown"
 
         answer = (m.get("content") or "").strip() or "Resumen: ejecución registrada."
         return {
             "answer": answer,
             "runner_status": status,
-            "base_url": base_url,
-            "evidence_url": evidence_url,
-            "report_url": report_url,
-            "duration_ms": duration_ms,
+            "status_label": "PASSED" if str(status).lower() in ("passed", "ok", "success") else "FAILED" if str(status).lower() in ("failed", "error") else "UNKNOWN",
+            "base_url": meta.get("base_url") or "",
+            "evidence_url": runner.get("evidence_url"),
+            "report_url": runner.get("report_url"),
+            "duration_ms": runner.get("duration_ms"),
+            "has_evidence": bool(runner.get("evidence_url")),
+            "has_report": bool(runner.get("report_url")),
         }
 
     return None
 
-def _detect_intent(prompt: str) -> str:
-    p = (prompt or "").strip().lower()
-    if not p:
-        return "chat"
-
-    exec_kw = [
-        "ejecuta", "ejecutar", "corre", "correr", "run", "playwright",
-        "abre", "abrir", "ve a", "ir a", "navega", "navegar",
-        "haz click", "da click", "clic", "click",
-        "login", "inicia sesión", "iniciar sesion",
-        "valida", "validar", "verifica", "verificar", "probar", "prueba",
-        "checkout", "carrito", "pagar", "pago",
-        "llena", "llenar", "escribe", "escribir", "selecciona", "seleccionar",
-    ]
-    doc_kw = [
-        "matriz", "casos de prueba", "test cases", "gherkin", "given", "when", "then",
-        "invest", "criterios de aceptación", "criterios de aceptacion",
-        "plan de pruebas", "estrategia de pruebas", "checklist",
-        "riesgos", "matriz de riesgos", "casos negativos", "edge cases",
-        "scripts", "automatización", "automatizacion", "selenium",
-    ]
-
-    has_url = ("http://" in p) or ("https://" in p)
-
-    # EXECUTE manda si hay verbo de acción (con o sin URL; sin URL _handle_execute_mode pedirá base_url)
-    if any(k in p for k in exec_kw):
-        return "execute"
-
-    if any(k in p for k in doc_kw):
-        return "doc"
-
-    # si trae URL pero no pidió doc, normalmente es ejecución/navegación
-    if has_url:
-        return "execute"
-
-    return "chat"
-
 
 # ============================================================
-# EXECUTE helpers (PRODUCT)
+# EXECUTE helpers
 # ============================================================
 def _looks_like_saucedemo(url: str) -> bool:
-    s = (url or "").lower()
-    return "saucedemo.com" in s
+    return "saucedemo.com" in (url or "").lower()
 
 
 def _strip_quotes(s: str) -> str:
@@ -333,66 +327,6 @@ def _strip_quotes(s: str) -> str:
     if len(ss) >= 2 and ((ss[0] == ss[-1] == '"') or (ss[0] == ss[-1] == "'")):
         return ss[1:-1]
     return ss
-
-
-def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[str, Any]]]:
-    """
-    Parser determinístico (si el usuario menciona acciones/selector/texto).
-    Si no hay suficiente, devuelve None y se usa LLM.
-    """
-    p = (prompt or "").strip()
-    low = p.lower()
-
-    steps: List[Dict[str, Any]] = [{"action": "goto", "url": base_url}, {"action": "wait_ms", "ms": 250}]
-
-    # visibles
-    if "visibles" in low or "visible" in low:
-        selectors = re.findall(r'(["\']?)(#[-\w]+|\.[-\w]+|\[[^\]]+\])\1', p)
-        seen: List[str] = []
-        for _, sel in selectors:
-            if sel and sel not in seen:
-                seen.append(sel)
-        if _looks_like_saucedemo(base_url) and not seen:
-            seen = ["#user-name", "#password", "#login-button"]
-        for sel in seen:
-            steps.append({"action": "assert_visible", "selector": sel})
-        return steps
-
-    # fill
-    fill_patterns = [
-        r'(?:llena|fill)\s+(".*?"|\'.*?\'|#[-\w]+|\.[-\w]+|\[[^\]]+\])\s+(?:con|with)\s+(".*?"|\'.*?\')',
-    ]
-    for pat in fill_patterns:
-        for m in re.finditer(pat, p, flags=re.IGNORECASE):
-            sel = _strip_quotes(m.group(1))
-            val = _strip_quotes(m.group(2))
-            steps.append({"action": "fill", "selector": sel, "text": val})
-
-    # click
-    click_patterns = [
-        r'(?:haz\s+click\s+en|haz\s+clic\s+en|click)\s+(".*?"|\'.*?\'|#[-\w]+|\.[-\w]+|\[[^\]]+\])',
-    ]
-    for pat in click_patterns:
-        for m in re.finditer(pat, p, flags=re.IGNORECASE):
-            sel = _strip_quotes(m.group(1))
-            steps.append({"action": "click", "selector": sel})
-
-    # assert text
-    text_patterns = [
-        r'(?:valida|validar|verify|assert)\s+.*?(?:texto|text).*?(".*?"|\'.*?\')',
-        r'(?:assert_text_contains)\s+(".*?"|\'.*?\')',
-    ]
-    found_text = None
-    for pat in text_patterns:
-        mm = re.search(pat, p, flags=re.IGNORECASE)
-        if mm:
-            found_text = _strip_quotes(mm.group(1))
-            break
-    if found_text:
-        steps.append({"action": "assert_text_contains", "text": found_text})
-
-    useful = [s for s in steps if s["action"] not in ("goto", "wait_ms")]
-    return steps if useful else None
 
 
 def _make_png_data_url(b64_or_data_url: Optional[str]) -> Optional[str]:
@@ -406,15 +340,128 @@ def _make_png_data_url(b64_or_data_url: Optional[str]) -> Optional[str]:
     return f"data:image/png;base64,{s}"
 
 
+def _ensure_has_assert(steps: List[Dict[str, Any]], base_url: str) -> List[Dict[str, Any]]:
+    if not steps:
+        return steps
+
+    if any(str(s.get("action", "")).startswith("assert_") for s in steps):
+        return steps
+
+    if _looks_like_saucedemo(base_url):
+        steps.append({"action": "assert_visible", "selector": "#user-name"})
+        return steps
+
+    # Generic fallback
+    steps.append({"action": "assert_visible", "selector": "body"})
+    return steps
+
+
+def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[str, Any]]]:
+    p = (prompt or "").strip()
+    low = p.lower()
+    if not p:
+        return None
+
+    steps: List[Dict[str, Any]] = [
+        {"action": "goto", "url": base_url},
+        {"action": "wait_ms", "ms": 250},
+    ]
+
+    if "visibles" in low or "visible" in low:
+        selectors = re.findall(r'(["\']?)(#[-\w]+|\.[-\w]+|\[[^\]]+\])\1', p)
+        seen: List[str] = []
+        for _, sel in selectors:
+            if sel and sel not in seen:
+                seen.append(sel)
+
+        if _looks_like_saucedemo(base_url) and not seen:
+            seen = ["#user-name", "#password", "#login-button"]
+
+        for sel in seen:
+            steps.append({"action": "assert_visible", "selector": sel})
+
+        return _ensure_has_assert(steps, base_url)
+
+    # fills (ES/EN)
+    fill_patterns = [
+        r'(?:llena|escribe|ingresa|teclea|fill|type)\s+(".*?"|\'.*?\'|#[-\w]+|\.[-\w]+|\[[^\]]+\])\s+(?:con|with)\s+(".*?"|\'.*?\')',
+    ]
+    for pat in fill_patterns:
+        for m in re.finditer(pat, p, flags=re.IGNORECASE):
+            sel = _strip_quotes(m.group(1))
+            val = _strip_quotes(m.group(2))
+            steps.append({"action": "assert_visible", "selector": sel})
+            steps.append({"action": "fill", "selector": sel, "text": val})
+
+    # clicks (ES/EN)
+    click_patterns = [
+        r'(?:haz\s+click\s+en|haz\s+clic\s+en|da\s+click\s+en|click)\s+(".*?"|\'.*?\'|#[-\w]+|\.[-\w]+|\[[^\]]+\])',
+    ]
+    for pat in click_patterns:
+        for m in re.finditer(pat, p, flags=re.IGNORECASE):
+            sel = _strip_quotes(m.group(1))
+            steps.append({"action": "assert_visible", "selector": sel})
+            steps.append({"action": "click", "selector": sel})
+
+    # press Enter
+    if re.search(r"\b(enter|intro|presiona\s+enter|presiona\s+intro)\b", low):
+        steps.append({"action": "press", "key": "Enter"})
+
+    # assert text contains
+    text_patterns = [
+        r'(?:valida|validar|verify|assert)\s+.*?(?:texto|text).*?(".*?"|\'.*?\')',
+        r'(?:assert_text_contains)\s+(".*?"|\'.*?\')',
+    ]
+    found_text = None
+    for pat in text_patterns:
+        mm = re.search(pat, p, flags=re.IGNORECASE)
+        if mm:
+            found_text = _strip_quotes(mm.group(1))
+            break
+    if found_text:
+        steps.append({"action": "wait_ms", "ms": 300})
+        steps.append({"action": "assert_text_contains", "text": found_text})
+
+    useful = [s for s in steps if s.get("action") not in ("goto", "wait_ms")]
+    if not useful:
+        return None
+
+    return _ensure_has_assert(steps, base_url)
+
+
 def _render_execute_answer(status: str, msg: str, evidence_url: Optional[str], report_url: Optional[str]) -> str:
-    parts = [f"✅ Ejecutado ({status})." + (f" {msg}" if msg else "")]
+    st = (status or "unknown").strip()
+    prefix = "✅ Ejecutado" if st.lower() in ("passed", "ok", "success") else "⚠️ Ejecutado"
+    parts = [f"{prefix} ({st})." + (f" {msg}" if msg else "")]
     if evidence_url:
-        parts.append(f"Evidence: {evidence_url}")
+        parts.append(f"📸 Evidencia: {evidence_url}")
     if report_url:
-        parts.append(f"Report: {report_url}")
+        parts.append(f"📄 Reporte: {report_url}")
     return "\n".join(parts).strip()
 
 
+def _pull_evidence_fields(runner: Dict[str, Any]) -> Tuple[str, Optional[str]]:
+    """
+    FIX CRÍTICO:
+    - Tu runner REAL manda screenshot en runner.raw.screenshot_b64 y evidence_id en runner.raw.evidence_id
+    - También soporta top-level por compat.
+    """
+    raw = runner.get("raw") if isinstance(runner.get("raw"), dict) else {}
+    evidence_id = str(runner.get("evidence_id") or raw.get("evidence_id") or "").strip()
+    b64 = (
+        runner.get("screenshot_b64")
+        or runner.get("screenshotBase64")
+        or runner.get("screenshotB64")
+        or raw.get("screenshot_b64")
+        or raw.get("screenshotBase64")
+        or raw.get("screenshotB64")
+    )
+    return evidence_id, (str(b64) if b64 else None)
+
+
+# ============================================================
+# EXECUTE mode handler
+# ============================================================
 def _handle_execute_mode(
     req: Any,
     session: Dict[str, Any],
@@ -425,9 +472,11 @@ def _handle_execute_mode(
 ) -> Dict[str, Any]:
     """
     Flujo estable:
-    base_url -> steps -> runner -> evidence_url -> report_url -> save_run -> persist -> return
+    base_url -> steps -> runner -> (upload evidence) -> (pdf report) -> save_run -> persist -> return
     """
     t0 = time.time()
+    session_id = session.get("id")
+
     base_url = H.pick_base_url(req, session, prompt)
 
     if not base_url:
@@ -441,16 +490,16 @@ def _handle_execute_mode(
         return {
             "mode": "execute",
             "persona": persona,
-            "session_id": session.get("id"),
+            "session_id": session_id,
             "thread_id": thread_id,
             "answer": answer,
             **_confidence("execute", prompt, None),
         }
 
-    # 0) Parser determinístico
+    # 1) Parser determinístico
     steps = _parse_steps_from_prompt(prompt, base_url)
 
-    # 1) Fallback LLM para steps
+    # 2) Fallback LLM para steps
     if not steps:
         client = _client()
         resp = client.chat.completions.create(
@@ -460,9 +509,9 @@ def _handle_execute_mode(
                 {
                     "role": "user",
                     "content": (
-                        f"URL base: {base_url}\n"
-                        f"Genera pasos Playwright para:\n{prompt}\n"
-                        'Devuelve SOLO JSON con {"steps": [...]}.'
+                        f"Base URL: {base_url}\n"
+                        f"Generate Playwright steps to:\n{prompt}\n"
+                        'Return ONLY valid JSON: {"steps": [...]}'
                     ),
                 }
             ],
@@ -483,29 +532,26 @@ def _handle_execute_mode(
         return {
             "mode": "execute",
             "persona": persona,
-            "session_id": session.get("id"),
+            "session_id": session_id,
             "thread_id": thread_id,
             "answer": answer,
             **_confidence("execute", prompt, base_url),
         }
 
-    # 2) Ejecutar runner (SIEMPRE inicializar para evitar NameError)
+    steps = _ensure_has_assert(steps, base_url)
+
+    # 3) Ejecutar runner
+    runner_any: Any = {}
     runner: Dict[str, Any] = {}
-    evidence_url: Optional[str] = None
-    report_url: Optional[str] = None
-    screenshot_data_url: Optional[str] = None
-    pdf_bytes: Optional[bytes] = None  # ✅ defensa: puede quedarse None
 
     try:
-        runner = (
-            execute_test(
-                base_url=base_url,
-                steps=steps,
-                headless=bool(getattr(req, "headless", True)),
-                timeout_s=settings.RUNNER_TIMEOUT_S,
-            )
-            or {}
+        runner_any = execute_test(
+            base_url=base_url,
+            steps=steps,
+            headless=bool(getattr(req, "headless", True)),
+            timeout_s=settings.RUNNER_TIMEOUT_S,
         )
+        runner = runner_any if isinstance(runner_any, dict) else {}
     except Exception as e:
         logger.exception("Runner execution failed")
         answer = (
@@ -531,7 +577,7 @@ def _handle_execute_mode(
         return {
             "mode": "execute",
             "persona": persona,
-            "session_id": session.get("id"),
+            "session_id": session_id,
             "thread_id": thread_id,
             "answer": answer,
             "error": f"{type(e).__name__}: {e}",
@@ -539,77 +585,96 @@ def _handle_execute_mode(
         }
 
     ok = bool(runner.get("ok", True))
-    status = (runner.get("status") or ("passed" if ok else "failed")).strip()
-    msg = (runner.get("message") or runner.get("detail") or "").strip()
+    status = str(runner.get("status") or ("passed" if ok else "failed")).strip().lower() or ("passed" if ok else "failed")
+    if status not in ("passed", "failed", "unknown"):
+        status = "passed" if ok else "failed"
 
+    msg = str(runner.get("message") or runner.get("detail") or runner.get("reason") or "").strip()
+
+    # duration
     duration_ms = runner.get("duration_ms")
-    if not isinstance(duration_ms, int):
+    try:
+        duration_ms = int(duration_ms) if duration_ms is not None else int((time.time() - t0) * 1000)
+    except Exception:
         duration_ms = int((time.time() - t0) * 1000)
 
-    # 3) Evidencia (screenshot -> Cloudinary) best-effort
-    evidence_id = ""
+    status_label = "PASSED" if status == "passed" else "FAILED" if status == "failed" else "UNKNOWN"
+
+    evidence_url: Optional[str] = None
+    report_url: Optional[str] = None
+    screenshot_data_url: Optional[str] = None
+
+    # 4) Evidence: raw.screenshot_b64 -> Cloudinary
+    evidence_id, b64 = _pull_evidence_fields(runner)
+    if b64:
+        screenshot_data_url = _make_png_data_url(b64)
+
     try:
-        b64 = runner.get("screenshot_b64") or runner.get("screenshotBase64") or runner.get("screenshotB64")
-        screenshot_data_url = (
-            _make_png_data_url(b64)
-            if b64
-            else (runner.get("screenshot_data_url") or runner.get("screenshotDataUrl"))
-        )
-        evidence_id = (runner.get("evidence_id") or "").strip()
+        if b64 and getattr(settings, "HAS_CLOUDINARY", False):
+            # cloud_upload_screenshot_b64 returns dict -> extract secure_url/url
+            res = cloud_upload_screenshot_b64(
+                str(screenshot_data_url),  # NOTE: if your cloudinary_service expects data-url, pass screenshot_data_url instead
+                evidence_id=(evidence_id or "EV-unknown"),
+            )
 
-        if b64 and settings.HAS_CLOUDINARY:
-            # Usa evidence_id si tu servicio Cloudinary lo soporta, de lo contrario mantén filename
-            if hasattr(cloud_upload_screenshot_b64, "__call__"):
-                try:
-                    evidence_url = cloud_upload_screenshot_b64(str(b64), evidence_id=evidence_id or "EV-unknown")
-                except TypeError:
-                    fname = f"{evidence_id}.png" if evidence_id else "evidence.png"
-                    evidence_url = cloud_upload_screenshot_b64(str(b64), filename=fname)
+            if isinstance(res, dict):
+                evidence_url = (res.get("secure_url") or res.get("url") or "").strip() or None
+            else:
+                evidence_url = str(res).strip() or None
 
+        # fallback: if runner already provides a URL
         if not evidence_url:
-            evidence_url = runner.get("screenshot_url") or runner.get("evidence_url")
+            raw = runner.get("raw", {}) or {}
+            evidence_url = (
+                runner.get("evidence_url")
+                or runner.get("screenshot_url")
+                or raw.get("evidence_url")
+                or raw.get("screenshot_url")
+            )
+
     except Exception:
         logger.exception("Evidence upload failed (continuing)")
 
-    # 4) Reporte PDF best-effort (nunca rompe)  ✅ FIX: try/except correcto
+    # 5) PDF report best-effort (never breaks)
     try:
         rep = generate_pdf_report(
             prompt=prompt,
             base_url=base_url,
             runner={**runner, "screenshot_data_url": screenshot_data_url} if screenshot_data_url else runner,
             steps=steps,
-            evidence_id=runner.get("evidence_id"),
+            evidence_id=evidence_id,
             meta={
                 "thread_id": thread_id,
-                "session_id": session.get("id"),
+                "session_id": session_id,
                 "headless": getattr(req, "headless", True),
             },
         )
 
-        if settings.HAS_CLOUDINARY and rep and rep.get("report_path"):
+        if getattr(settings, "HAS_CLOUDINARY", False) and rep and rep.get("report_path"):
             with open(rep["report_path"], "rb") as f:
                 pdf_bytes = f.read()
 
             if pdf_bytes:
-                # Usa evidence_id si tu servicio Cloudinary lo soporta, de lo contrario mantén filename
-                try:
-                    report_url = cloud_upload_pdf_bytes(pdf_bytes, evidence_id=evidence_id or "EV-unknown")
-                except TypeError:
-                    report_url = cloud_upload_pdf_bytes(
-                        pdf_bytes, filename=rep.get("report_filename") or "report.pdf"
-                    )
+                res_pdf = cloud_upload_pdf_bytes(
+                    pdf_bytes,
+                    evidence_id=(evidence_id or "EV-unknown"),
+                )
+
+                if isinstance(res_pdf, dict):
+                    report_url = (res_pdf.get("secure_url") or res_pdf.get("url") or "").strip() or None
+                else:
+                    report_url = str(res_pdf).strip() or None
 
     except Exception:
         logger.exception("PDF report generation/upload failed (continuing)")
 
-    # 5) Guardar run best-effort
+    # 6) Guardar run best-effort (sin import cíclico)
     try:
-        # Ideal: importar desde un módulo sin ciclo (store/run_store). Si hoy lo tienes en app.py, lo dejamos best-effort.
-        from app import save_run  # noqa
-
+        from services.run_store import save_run
         save_run(
             {
                 **(runner if isinstance(runner, dict) else {}),
+                "evidence_id": evidence_id,
                 "base_url": base_url,
                 "prompt": prompt,
                 "steps": steps,
@@ -617,47 +682,63 @@ def _handle_execute_mode(
                 "report_url": report_url,
                 "duration_ms": duration_ms,
                 "thread_id": thread_id,
-                "session_id": session.get("id"),
+                "session_id": session_id,
                 "mode": "execute",
+                "status": status,
+                "status_label": status_label,
             }
         )
     except Exception:
         logger.exception("save_run failed (continuing)")
 
-    # 6) Respuesta final
+    # 7) Respuesta final + meta estable
     answer = _render_execute_answer(status=status, msg=msg, evidence_url=evidence_url, report_url=report_url)
 
-    # 🔒 Normalización defensiva (P0)
-    if isinstance(runner, dict):
-        report_url = report_url or runner.get("report_url") or runner.get("report_pdf_url")
-        evidence_url = evidence_url or runner.get("evidence_url") or runner.get("screenshot_url")
+    # runner “raw” debe preservar el original completo para debug
+    meta_runner = dict(runner) if isinstance(runner, dict) else {}
+    meta_runner.setdefault("status", status)
+    meta_runner.setdefault("duration_ms", duration_ms)
+    # deja la captura data_url solo para reporte/UI si la necesitas
+    if screenshot_data_url:
+        meta_runner["screenshot_data_url"] = screenshot_data_url
 
     meta = {
         "mode": "execute",
         "persona": persona,
         "base_url": base_url,
         "steps": steps,
-        "runner": {**runner, "screenshot_data_url": screenshot_data_url} if isinstance(runner, dict) else runner,
+        "runner": {
+            "status": status,
+            "evidence_url": evidence_url,
+            "report_url": report_url,
+            "duration_ms": duration_ms,
+            "raw": meta_runner,
+        },
         "evidence_url": evidence_url,
         "report_url": report_url,
         "duration_ms": duration_ms,
+        "status_label": status_label,
+        "evidence_id": evidence_id,
     }
 
-    meta = _normalize_runner_meta(meta)  # ✅ P0: contrato estable para UI
-
+    meta = _normalize_runner_meta(meta)
     store.add_message(thread_id, "assistant", answer, meta=meta)
 
     return {
         "mode": "execute",
         "persona": persona,
+        "session_id": session_id,
         "thread_id": thread_id,
         "answer": answer,
         "runner": meta["runner"],
-        "evidence_url": evidence_url,
-        "report_url": report_url,
-        "duration_ms": duration_ms,
+        "status_label": status_label,
+        "evidence_id": evidence_id,
+        "evidence_url": meta["runner"].get("evidence_url"),
+        "report_url": meta["runner"].get("report_url"),
+        "duration_ms": meta["runner"].get("duration_ms"),
         **_confidence("execute", prompt, base_url),
     }
+
 
 # ============================================================
 # MAIN
@@ -669,31 +750,35 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
     - EXECUTE: corre runner; si falla, mensaje útil (y error trazable).
     - ADVISE: respuesta QA lead.
     """
-
-    # ------------------------------------------------------------
-    # 0) Prompt SIEMPRE primero (evita UnboundLocalError)
-    # ------------------------------------------------------------
+    # 0) Prompt siempre primero
     prompt = H.norm(getattr(req, "prompt", "") or "")
     if not prompt:
         raise HTTPException(status_code=400, detail="Prompt vacío")
 
-    # session
+    # 1) Session SIEMPRE antes de lang (FIX bug de 'session' no definido)
     session_id, session = H.get_session(getattr(req, "session_id", None))
     session["id"] = session_id
 
-    # thread
+    # 2) Lang
+    try:
+        lang = detect_language(prompt, session)
+    except Exception:
+        lang = "es"
+    session["lang"] = lang
+
+    # 3) Thread
     thread_id = (getattr(req, "thread_id", None) or "").strip() or None
     if not thread_id:
         t = store.create_thread(title=(prompt[:60] or "New chat"))
         thread_id = t["id"]
 
-    # persist USER message (best-effort)
+    # 4) Persist user message
     try:
         store.add_message(thread_id, "user", prompt, meta={"mode_hint": "input"})
     except Exception:
         logger.warning("Failed to persist user message (continuing)", exc_info=True)
 
-    # history (best-effort)
+    # 5) Load history
     try:
         thread = store.get_thread(thread_id)
         history_msgs = (thread.get("messages") or [])[-settings.MAX_HISTORY_MSGS :]
@@ -701,9 +786,9 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         logger.warning("Failed to load thread history (continuing)", exc_info=True)
         history_msgs = []
 
-    # ------------------------------------------------------------
-    # 1) MEMORY (solo resumen; no ejecuta)
-    # ------------------------------------------------------------
+    introduced = not _should_introduce(history_msgs)
+
+    # 6) MEMORY (solo resumen; no ejecuta)
     if _is_memory_query(prompt):
         mem = _summarize_last_execute(history_msgs)
         if not mem:
@@ -742,363 +827,114 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             **_confidence("advise", prompt, mem.get("base_url")),
         }
 
-    # ------------------------------------------------------------
-    # 2) INTENT → MODE → PERSONA (router determinístico)
-    # ------------------------------------------------------------
-    intent = _detect_intent(prompt)  # "execute" | "doc" | "chat"
+    # 7) Intent -> mode/persona
+    intent = _detect_intent(prompt)  # execute | doc | chat
     mode = "execute" if intent == "execute" else "doc" if intent == "doc" else "advise"
     persona = _persona(prompt, mode)
 
-    # pista en sesión (debug)
-    try:
-        session["last_intent"] = intent
-        session["last_mode"] = mode
-    except Exception:
-        pass
+    # 8) Build messages
+    sys_prompt = _system_prompt_for_mode(mode=mode, lang=lang, introduced=introduced)
+    messages: List[Dict[str, str]] = [{"role": "system", "content": sys_prompt}]
 
-    # ------------------------------------------------------------
-    # 3) Build messages
-    # ------------------------------------------------------------
-    messages: List[Dict[str, str]] = [{"role": "system", "content": _system_prompt_for_mode(mode)}]
+    # historial (solo contenido)
     for m in history_msgs:
         role = (m.get("role") or "assistant").strip()
         content = (m.get("content") or "").strip()
         if content:
             messages.append({"role": role, "content": content})
 
-    # ------------------------------------------------------------
-    # 4) EXECUTE
-    # ------------------------------------------------------------
+    # 9) EXECUTE
     if mode == "execute":
-        try:
-            result = _handle_execute_mode(
-                req=req,
-                session=session,
-                prompt=prompt,
-                thread_id=thread_id,
-                persona=persona,
-                messages=messages,
-            )
-            if isinstance(result, dict) and (result.get("answer") or "").strip():
-                result["session_id"] = session_id
-                return result
-
-            answer = "No pude completar la ejecución. Reintenta indicando URL, credenciales y qué validar."
-            store.add_message(
-                thread_id,
-                "assistant",
-                answer,
-                meta={"mode": "execute", "persona": persona, "safe_fallback": True},
-            )
-            return {
-                "mode": "execute",
-                "persona": persona,
-                "session_id": session_id,
-                "thread_id": thread_id,
-                "answer": answer,
-                **_confidence("execute", prompt, H.pick_base_url(req, session, prompt)),
-            }
-
-        except Exception as e:
-            logger.exception("EXECUTE crashed (safe fallback)")
-            answer = (
-                "No pude ejecutar la prueba.\n"
-                "Verifica:\n"
-                "- URL accesible\n"
-                "- Credenciales correctas (si aplica)\n"
-                "- Qué validación exacta quieres (texto/botón/elemento)\n"
-                "Y reintenta."
-            )
-            meta = {
-                "mode": "execute",
-                "persona": persona,
-                "error": f"{type(e).__name__}: {str(e)}",
-                "safe_fallback": True,
-            }
-            try:
-                store.add_message(thread_id, "assistant", answer, meta=meta)
-            except Exception:
-                pass
-            return {
-                "mode": "execute",
-                "persona": persona,
-                "session_id": session_id,
-                "thread_id": thread_id,
-                "answer": answer,
-                "error": meta["error"],
-                **_confidence("execute", prompt, H.pick_base_url(req, session, prompt)),
-            }
-
-   # ------------------------------------------------------------
-    # 5) DOC / ADVISE
-    # ------------------------------------------------------------
-    try:
-        client = _client()
-
-        # -------------------------
-        # DOC
-        # -------------------------
-        if mode == "doc":
-            resp = client.chat.completions.create(
-                model=settings.OPENAI_MODEL,
-                messages=messages
-                + [{"role": "user", "content": "Devuelve exclusivamente un JSON válido. No agregues texto adicional."}],
-                temperature=settings.DOC_TEMPERATURE,
-                max_tokens=settings.DOC_MAX_TOKENS,
-            )
-            raw = (resp.choices[0].message.content or "").strip()
-            doc_json = _extract_json_object(raw)
-
-            if not isinstance(doc_json, dict):
-                doc_json = {
-                    "executive_view": {
-                        "title": "Artefacto QA",
-                        "objective": "El modelo no devolvió JSON válido. Se muestra salida de respaldo.",
-                        "top_risks": [],
-                        "matrix_summary": [],
-                    },
-                    "qa_view": {
-                        "sections": [
-                            {"title": "Salida del modelo", "content": raw[:4000] if raw else "Sin contenido"}
-                        ]
-                    },
-                }
-
-            answer = _render_doc_answer_from_json(doc_json)
-            store.add_message(
-                thread_id,
-                "assistant",
-                answer,
-                meta={"mode": "doc", "persona": persona, "doc_json": doc_json, "doc_schema": "v1"},
-            )
-
-            return {
-                "mode": "doc",
-                "persona": persona,
-                "session_id": session_id,
-                "thread_id": thread_id,
-                "answer": answer,
-                "doc_json": doc_json,
-                **_confidence("doc", prompt, None),
-            }
-
-        # -------------------------
-        # ADVISE
-        # -------------------------
-        # 👉 Aquí SÍ va el contexto QA
-        try:
-            risk = build_risk_brief(prompt)
-            neg = build_negative_and_edge_cases(risk["domain"])
-
-            messages.append({
-                "role": "user",
-                "content": (
-                    "Contexto QA (no repitas literal, úsalo para priorizar):\n\n"
-                    "Riesgos sugeridos:\n"
-                    "P0:\n- " + "\n- ".join(risk["p0"][:3]) +
-                    "\nP1:\n- " + "\n- ".join(risk["p1"][:3]) +
-                    "\nP2:\n- " + "\n- ".join(risk["p2"][:3]) +
-                    "\n\nCasos NEGATIVOS sugeridos:\n- " + "\n- ".join(neg["negative"]) +
-                    "\n\nEdge cases sugeridos:\n- " + "\n- ".join(neg["edge"])
-                )
-            })
-        except Exception:
-            logger.warning("risk engine failed (continuing)", exc_info=True)
-
-        resp = client.chat.completions.create(
-            model=settings.OPENAI_MODEL,
+        return _handle_execute_mode(
+            req=req,
+            session=session,
+            prompt=prompt,
+            thread_id=thread_id,
+            persona=persona,
             messages=messages,
-            temperature=settings.ADV_TEMPERATURE,
-            max_tokens=settings.ADV_MAX_TOKENS,
         )
 
-        answer = (resp.choices[0].message.content or "").strip() or "¿Puedes darme más contexto?"
-        store.add_message(thread_id, "assistant", answer, meta={"mode": "advise", "persona": persona})
+    # 10) DOC / ADVISE
+    client = _client()
 
-        base_url_hint = H.pick_base_url(req, session, prompt)
+    if mode == "doc":
+        resp = client.chat.completions.create(
+            model=settings.OPENAI_MODEL,
+            messages=messages
+            + [{"role": "user", "content": "Devuelve exclusivamente un JSON válido. No agregues texto adicional."}],
+            temperature=settings.DOC_TEMPERATURE,
+            max_tokens=settings.DOC_MAX_TOKENS,
+        )
+        raw = (resp.choices[0].message.content or "").strip()
+        doc_json = _extract_json_object(raw)
+
+        if not isinstance(doc_json, dict):
+            doc_json = {
+                "executive_view": {
+                    "title": "Artefacto QA",
+                    "objective": "El modelo no devolvió JSON válido. Se muestra salida de respaldo.",
+                    "top_risks": [],
+                    "matrix_summary": [],
+                },
+                "qa_view": {
+                    "sections": [{"title": "Salida del modelo", "content": raw[:4000] if raw else "Sin contenido"}]
+                },
+            }
+
+        answer = _render_doc_answer_from_json(doc_json)
+        store.add_message(
+            thread_id,
+            "assistant",
+            answer,
+            meta={"mode": "doc", "persona": persona, "doc_json": doc_json, "doc_schema": "v1"},
+        )
         return {
-            "mode": "advise",
+            "mode": "doc",
             "persona": persona,
             "session_id": session_id,
             "thread_id": thread_id,
             "answer": answer,
-            **_confidence("advise", prompt, base_url_hint),
+            "doc_json": doc_json,
+            **_confidence("doc", prompt, None),
         }
 
-    except Exception as e:
-        msg = "Ocurrió un problema generando la respuesta. Intenta nuevamente."
-        logger.exception("DOC/ADVISE failure")
-        try:
-            store.add_message(thread_id, "assistant", msg, meta={"mode": mode, "persona": persona, "error": str(e)})
-        except Exception:
-            pass
-        return {
-            "mode": mode,
-            "persona": persona,
-            "session_id": session_id,
-            "thread_id": thread_id,
-            "answer": msg,
-            "error": f"{type(e).__name__}: {str(e)}",
-        }
+    # ADVISE
+    try:
+        risk = build_risk_brief(prompt)
+        neg = build_negative_and_edge_cases(risk.get("domain", "general"))
+        messages.append(
+            {
+                "role": "user",
+                "content": (
+                    "Contexto QA (no repitas literal, úsalo para priorizar):\n\n"
+                    "Riesgos sugeridos:\n"
+                    "P0:\n- " + "\n- ".join((risk.get("p0") or [])[:3]) +
+                    "\nP1:\n- " + "\n- ".join((risk.get("p1") or [])[:3]) +
+                    "\nP2:\n- " + "\n- ".join((risk.get("p2") or [])[:3]) +
+                    "\n\nCasos NEGATIVOS sugeridos:\n- " + "\n- ".join((neg.get("negative") or [])[:8]) +
+                    "\n\nEdge cases sugeridos:\n- " + "\n- ".join((neg.get("edge") or [])[:8])
+                ),
+            }
+        )
+    except Exception:
+        logger.warning("risk engine failed (continuing)", exc_info=True)
 
-    except Exception as e:
-        msg = "Ocurrió un problema generando la respuesta. Intenta nuevamente o ajusta el alcance."
-        logger.exception("DOC/ADVISE failure")
-        try:
-            store.add_message(thread_id, "assistant", msg, meta={"mode": mode, "persona": persona, "error": str(e)})
-        except Exception:
-            pass
-        return {
-            "mode": mode,
-            "persona": persona,
-            "session_id": session_id,
-            "thread_id": thread_id,
-            "answer": msg,
-            "error": f"{type(e).__name__}: {str(e)}",
-        }
-        
-    except Exception as e:
-        msg = "Ocurrió un problema generando la respuesta. Intenta nuevamente o ajusta el alcance."
-        logger.exception("DOC/ADVISE failure")
-        try:
-            store.add_message(thread_id, "assistant", msg, meta={"mode": mode, "persona": persona, "error": str(e)})
-        except Exception:
-            pass
-        return {
-            "mode": mode,
-            "persona": persona,
-            "session_id": session_id,
-            "thread_id": thread_id,
-            "answer": msg,
-            "error": f"{type(e).__name__}: {str(e)}",
-        }
-CRITICAL_AREAS = [
-    "login", "checkout", "pagos", "promociones", "stock", "performance", "seguridad"
-]
+    resp = client.chat.completions.create(
+        model=settings.OPENAI_MODEL,
+        messages=messages,
+        temperature=settings.ADV_TEMPERATURE,
+        max_tokens=settings.ADV_MAX_TOKENS,
+    )
+    answer = (resp.choices[0].message.content or "").strip() or "¿Puedes darme más contexto?"
 
-def _infer_domain(prompt: str) -> str:
-    p = (prompt or "").lower()
-    if any(k in p for k in ["checkout", "carrito", "pagar", "pago", "tarjeta", "orden", "pedido"]):
-        return "checkout/pagos"
-    if any(k in p for k in ["login", "inicia sesión", "iniciar sesion", "password", "contraseña", "usuario"]):
-        return "login"
-    if any(k in p for k in ["promo", "promoción", "cupon", "cupón", "descuento", "2x1", "oferta"]):
-        return "promociones"
-    if any(k in p for k in ["stock", "inventario", "disponible", "agotado", "backorder"]):
-        return "stock"
-    if any(k in p for k in ["lento", "performance", "tiempo de carga", "latencia", "k6", "jmeter"]):
-        return "performance"
-    if any(k in p for k in ["csrf", "xss", "inyección", "sql injection", "seguridad", "token"]):
-        return "seguridad"
-    return "general"
+    store.add_message(thread_id, "assistant", answer, meta={"mode": "advise", "persona": persona})
+    base_url_hint = H.pick_base_url(req, session, prompt)
 
-def _risk_template(domain: str) -> Dict[str, List[str]]:
-    # P0 = rompe conversión/ingresos/operación
-    if domain == "checkout/pagos":
-        return {
-            "P0": [
-                "Cobro duplicado / cargo sin orden confirmada",
-                "Fallo de autorización y mensajes confusos",
-                "Totales incorrectos (impuestos/envío/descuentos)",
-                "Método de pago no disponible o intermitente",
-                "Timeout/latencia en pago (abandono de carrito)"
-            ],
-            "P1": [
-                "Cupones aplican mal (stacking indebido)",
-                "Reintentos generan órdenes duplicadas",
-                "Problemas de stock al confirmar orden",
-            ],
-            "P2": [
-                "UX: validaciones tardías, campos sin máscara",
-                "Accesibilidad: focus/errores no anunciados",
-            ],
-        }
-    if domain == "login":
-        return {
-            "P0": [
-                "Usuarios válidos no pueden entrar (bloqueo de sesión)",
-                "Reset password no funciona / enlaces expirados",
-                "Rate limiting inexistente (ataques)",
-                "Errores 500 intermitentes en autenticación"
-            ],
-            "P1": [
-                "Mensajes de error ambiguos (sube soporte, baja conversión)",
-                "Sesión expira inesperadamente",
-            ],
-            "P2": [
-                "UX: teclado móvil, autofill, caps lock",
-            ],
-        }
-    if domain == "promociones":
-        return {
-            "P0": [
-                "Promos rompen totales o permiten descuento indebido",
-                "Cupones se aplican a productos excluidos",
-                "Promos no se reflejan en checkout/orden"
-            ],
-            "P1": [
-                "Reglas por canal (app/web) inconsistentes",
-                "Redondeos por moneda/IVA",
-            ],
-            "P2": [
-                "Copy confuso de términos y condiciones",
-            ],
-        }
-    if domain == "stock":
-        return {
-            "P0": [
-                "Se vende sin inventario (oversell)",
-                "Stock cambia en checkout y orden se cae",
-                "Reservas de inventario no liberan"
-            ],
-            "P1": [
-                "Backorder mal comunicado",
-                "Tiempos de entrega inconsistentes",
-            ],
-            "P2": [
-                "UX: avisos tardíos de disponibilidad",
-            ],
-        }
-    if domain == "performance":
-        return {
-            "P0": [
-                "LCP alto en home/PLP/PDP (baja conversión)",
-                "Timeout en APIs críticas (search, cart, checkout)",
-            ],
-            "P1": [
-                "Picos de error en campañas (Black Friday)",
-                "Rendimiento peor en móvil",
-            ],
-            "P2": [
-                "Imágenes sin optimizar / caché deficiente",
-            ],
-        }
-    if domain == "seguridad":
-        return {
-            "P0": [
-                "Token/session hijacking por cookies mal configuradas",
-                "Falta de CSRF en acciones críticas",
-                "Exposición de datos sensibles en logs/respuestas",
-            ],
-            "P1": [
-                "XSS en campos de búsqueda/comentarios",
-            ],
-            "P2": [
-                "Headers de seguridad incompletos",
-            ],
-        }
     return {
-        "P0": ["Riesgo crítico no identificado: define flujo (login/checkout/pagos/promos/stock/perf)."],
-        "P1": [],
-        "P2": [],
-    }
-
-def _build_risk_brief(prompt: str) -> Dict[str, Any]:
-    domain = _infer_domain(prompt)
-    risks = _risk_template(domain)
-    return {
-        "domain": domain,
-        "p0": risks.get("P0", []),
-        "p1": risks.get("P1", []),
-        "p2": risks.get("P2", []),
+        "mode": "advise",
+        "persona": persona,
+        "session_id": session_id,
+        "thread_id": thread_id,
+        "answer": answer,
+        **_confidence("advise", prompt, base_url_hint),
     }
