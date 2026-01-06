@@ -87,6 +87,7 @@ IF INFORMATION IS MISSING
 - Declare assumptions clearly.
 - Add a short “Questions to Clarify” section.
 - Do NOT block delivery.
+"""
 
 # ============================================================
 # EXECUTE (Playwright execution)
