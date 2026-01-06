@@ -76,27 +76,21 @@ def generate_pdf_report(
     evidence_id = (evidence_id or runner.get("evidence_id") or "EV-unknown").strip()
 
     # 1) status default consistente
-    status = (runner.get("status") or "").strip()
+    status = str(runner.get("status") or "").strip()
     if not status:
         status = "passed" if runner.get("ok", True) else "failed"
 
-    # 2) numeración de steps consistente con runner.py
-    ...
-    table_data = [["#", "Acción", "Resultado", "Duración (ms)", "Error"]]
-    for idx, s in enumerate(rows_src, start=1):
-        action = str(s.get("action") or s.get("name") or "").strip()
-        st = str(s.get("status") or "").strip()
-        dur = s.get("duration_ms")
-        err = s.get("error")
+    # 2) Fuente de pasos: primero runner.steps, si no, usa steps recibidos
+    rows_src: List[Dict[str, Any]] = []
+    if isinstance(runner.get("steps"), list):
+        rows_src = runner.get("steps")  # type: ignore[assignment]
+    elif isinstance(steps, list):
+        rows_src = steps
+    else:
+        rows_src = []
 
-        table_data.append([
-            str(s.get("index", idx)),
-            action,
-            st,
-            str(dur) if dur is not None else "",
-            str(err) if err else "",
-        ])
-
+    # Normaliza: solo dicts
+    rows_src = [s for s in rows_src if isinstance(s, dict)]
 
     error_msg = runner.get("error")
     duration_ms = runner.get("duration_ms")
@@ -140,36 +134,44 @@ def generate_pdf_report(
     # =========================
     story.append(Paragraph("Pasos ejecutados", styles["Heading2"]))
 
-    rows_src = runner.get("steps") if isinstance(runner.get("steps"), list) else (steps or [])
+    table_data: List[List[str]] = [["#", "Acción", "Resultado", "Duración (ms)", "Error"]]
 
-    table_data = [["#", "Acción", "Resultado", "Duración (ms)", "Error"]]
-    for idx, s in enumerate(rows_src, start=1):
-        action = str(s.get("action") or s.get("name") or "").strip()
-        st = str(s.get("status") or "").strip()
-        dur = s.get("duration_ms")
-        err = s.get("error")
+    if not rows_src:
+        table_data.append(["-", "(sin pasos)", "-", "-", "-"])
+    else:
+        for idx, s in enumerate(rows_src, start=1):
+            action = str(s.get("action") or s.get("name") or "").strip()
+            st = str(s.get("status") or "").strip()
+            dur = s.get("duration_ms")
+            err = s.get("error")
 
-        table_data.append([
-            str(s.get("index", idx)),
-            action,
-            st,
-            str(dur) if dur is not None else "",
-            str(err) if err else "",
-        ])
+            table_data.append(
+                [
+                    str(s.get("index", idx)),
+                    action,
+                    st,
+                    str(dur) if dur is not None else "",
+                    str(err) if err else "",
+                ]
+            )
 
     tbl = Table(
         table_data,
         colWidths=[0.5 * inch, 2.3 * inch, 1.0 * inch, 1.1 * inch, 2.6 * inch],
     )
-    tbl.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#222222")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, 0), 10),
-        ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
-        ("FONTSIZE", (0, 1), (-1, -1), 9),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-    ]))
+    tbl.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#222222")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, 0), 10),
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+                ("FONTSIZE", (0, 1), (-1, -1), 9),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+        )
+    )
     story.append(tbl)
     story.append(Spacer(1, 0.25 * inch))
 
@@ -184,7 +186,7 @@ def generate_pdf_report(
         if b64:
             s_data = "data:image/png;base64," + str(b64).strip()
 
-    img_bytes = _decode_data_url_to_png(s_data) if s_data else None
+    img_bytes = _decode_data_url_to_png(str(s_data)) if s_data else None
     if img_bytes:
         png_path = os.path.join(REPORTS_DIR, f"{evidence_id}.png")
         try:

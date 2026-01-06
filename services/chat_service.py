@@ -697,11 +697,12 @@ def _handle_execute_mode(
     except Exception:
         logger.exception("Evidence upload failed (continuing)")
 
-    # 5) PDF report: always build bytes; upload best-effort; NEVER silent
+    # 5) PDF report: ALWAYS build bytes (fallback). Upload best-effort. Surface pdf_error.
     pdf_error: Optional[str] = None
-    try:
-        pdf_bytes: Optional[bytes] = None
+    pdf_bytes: Optional[bytes] = None
 
+    # 5.1) Try report_service FIRST, but do NOT let it abort the fallback
+    try:
         rep = generate_pdf_report(
             prompt=prompt,
             base_url=base_url,
@@ -715,45 +716,48 @@ def _handle_execute_mode(
             },
         )
 
-        # If it returned a file path, read it (filesystem can be flaky on PaaS)
+        # If it returned a file path, try to read it
         if isinstance(rep, dict) and rep.get("report_path"):
             rp = str(rep.get("report_path") or "").strip()
-            if rp:
-                if os.path.exists(rp):
-                    try:
-                        with open(rp, "rb") as f:
-                            pdf_bytes = f.read()
-                    except Exception as e:
-                        pdf_error = f"Could not read report_path: {type(e).__name__}: {e}"
-                else:
-                    pdf_error = f"report_path does not exist: {rp}"
+            if rp and os.path.exists(rp):
+                with open(rp, "rb") as f:
+                    pdf_bytes = f.read()
 
-        # Fallback: always generate a minimal PDF in memory (no filesystem)
-        if not pdf_bytes:
-            try:
-                pdf_bytes = _build_fallback_pdf_bytes(
-                    prompt=prompt,
-                    base_url=base_url,
-                    status=status,
-                    duration_ms=duration_ms,
-                    evidence_id=evidence_id,
-                    evidence_url=evidence_url,
-                    steps=steps,
-                    runner=runner,
-                )
-            except Exception as e:
-                pdf_error = f"Fallback PDF failed: {type(e).__name__}: {e}"
-                pdf_bytes = None
+    except Exception as e:
+        # IMPORTANT: keep going to fallback
+        pdf_error = f"report_service failed: {type(e).__name__}: {e}"
+        logger.exception("report_service generate_pdf_report failed (will fallback)")
 
-        # Upload bytes to Cloudinary RAW
-        if not getattr(settings, "HAS_CLOUDINARY", False):
-            pdf_error = pdf_error or "HAS_CLOUDINARY is false"
-        elif not pdf_bytes:
-            pdf_error = pdf_error or "pdf_bytes empty"
-        elif len(pdf_bytes) <= 800:
-            pdf_error = pdf_error or f"pdf_bytes too small: {len(pdf_bytes)}"
-        else:
-            res_pdf = cloud_upload_pdf_bytes(pdf_bytes, evidence_id=evidence_id)
+    # 5.2) Fallback: ALWAYS build a minimal PDF in memory if we don't have bytes yet
+    if not pdf_bytes:
+        try:
+            pdf_bytes = _build_fallback_pdf_bytes(
+                prompt=prompt,
+                base_url=base_url,
+                status=status,
+                duration_ms=duration_ms,
+                evidence_id=(evidence_id or "EV-unknown"),
+                evidence_url=evidence_url,
+                steps=steps,
+                runner=runner,
+            )
+        except Exception as e:
+            pdf_error = (pdf_error or "") + f" | fallback_pdf failed: {type(e).__name__}: {e}"
+            logger.exception("fallback PDF generation failed")
+
+    # 5.3) Upload to Cloudinary RAW (best-effort)
+    if not getattr(settings, "HAS_CLOUDINARY", False):
+        pdf_error = pdf_error or "HAS_CLOUDINARY is false"
+    elif not pdf_bytes:
+        pdf_error = pdf_error or "pdf_bytes empty"
+    elif len(pdf_bytes) <= 800:
+        pdf_error = pdf_error or f"pdf_bytes too small: {len(pdf_bytes)}"
+    else:
+        try:
+            res_pdf = cloud_upload_pdf_bytes(
+                pdf_bytes,
+                evidence_id=(evidence_id or "EV-unknown"),
+            )
 
             if isinstance(res_pdf, dict):
                 report_url = (res_pdf.get("secure_url") or res_pdf.get("url") or "").strip() or None
@@ -761,11 +765,11 @@ def _handle_execute_mode(
                 report_url = str(res_pdf).strip() or None
 
             if not report_url:
-                pdf_error = "Cloudinary upload returned no secure_url/url"
+                pdf_error = pdf_error or "Cloudinary upload returned no secure_url/url"
 
-    except Exception as e:
-        pdf_error = f"{type(e).__name__}: {e}"
-        logger.exception("PDF report generation/upload failed")
+        except Exception as e:
+            pdf_error = pdf_error or f"cloudinary upload failed: {type(e).__name__}: {e}"
+            logger.exception("Cloudinary PDF upload failed")
 
     # 6) Save run best-effort (include pdf_error)
     try:
