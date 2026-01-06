@@ -683,10 +683,11 @@ def _handle_execute_mode(
         }
 
     # 0) Login Intent Resolver (determinístico, evita falsos PASSED)
-    # - Solo aplica si el prompt trae señales claras de login + credenciales
     steps = None
     try:
         steps = build_login_steps(base_url=base_url, prompt=prompt)
+        if steps:
+            logger.info("Login intent resolver applied (deterministic steps)")
     except Exception:
         logger.exception("build_login_steps failed (continuing with normal parser)")
 

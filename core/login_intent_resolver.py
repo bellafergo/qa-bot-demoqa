@@ -2,99 +2,188 @@
 from __future__ import annotations
 
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
-def _looks_like_login(prompt: str) -> bool:
-    p = (prompt or "").lower()
-    # señales fuertes
-    strong = [
-        "login", "log in", "sign in", "inicia sesión", "iniciar sesion",
-        "usuario", "username", "password", "contraseña", "contrasena",
+# ============================================================
+# Intent detection
+# ============================================================
+def _has_login_intent(prompt: str) -> bool:
+    """
+    Dispara SOLO si hay intención clara de autenticación.
+    Evita falsos positivos por frases como "valida que mi usuario exista".
+    """
+    p = (prompt or "").strip().lower()
+    if not p:
+        return False
+
+    # verbos/acciones claras de login
+    verbs = [
+        "login",
+        "log in",
+        "sign in",
+        "inicia sesión",
+        "iniciar sesion",
+        "inicia sesion",
+        "entrar",
+        "autentica",
+        "autenticar",
+        "iniciar sesión en",
+        "iniciar sesion en",
     ]
-    return any(k in p for k in strong)
+
+    # señales débiles (NO suficientes solas)
+    weak = [
+        "username",
+        "usuario",
+        "password",
+        "contraseña",
+        "contrasena",
+    ]
+
+    has_verbs = any(v in p for v in verbs)
+    has_weak = any(w in p for w in weak)
+
+    # Requiere verbo. (Opcionalmente acompañado de weak)
+    return has_verbs or (has_verbs and has_weak)
+
+
+def _negative_expected(prompt: str) -> bool:
+    """
+    Si el usuario indica que debe fallar (caso negativo),
+    marcamos expected="fail" para que el runner lo considere éxito si falla.
+    """
+    p = (prompt or "").lower()
+    return any(k in p for k in [
+        "debe fallar",
+        "should fail",
+        "inválido",
+        "invalido",
+        "incorrecto",
+        "wrong",
+        "invalid",
+        "no existe",
+        "usuario no existe",
+        "password incorrecta",
+        "contraseña incorrecta",
+        "contrasena incorrecta",
+    ])
+
+
+# ============================================================
+# Cred extraction
+# ============================================================
+def _strip_quotes(s: str) -> str:
+    s = (s or "").strip()
+    if len(s) >= 2 and ((s[0] == s[-1] == '"') or (s[0] == s[-1] == "'")):
+        return s[1:-1]
+    return s
 
 
 def _extract_creds(prompt: str) -> Tuple[Optional[str], Optional[str]]:
     """
-    Soporta formatos:
+    Soporta formatos tolerantes:
       - username: foo password: bar
-      - user foo pass bar
-      - usuario foo contraseña bar
+      - username=foo password=bar
+      - usuario "foo" contraseña "bar"
+      - usuario: foo contrasena: bar
+      - user: foo pass: bar
     """
     p = (prompt or "").strip()
 
-    # username: X ... password: Y
-    m = re.search(r"(?:username|user|usuario)\s*[:=]\s*([^\s]+)", p, flags=re.IGNORECASE)
-    u = m.group(1).strip() if m else None
+    u = None
+    pw = None
 
-    m2 = re.search(r"(?:password|pass|contrase(?:ñ|n)a)\s*[:=]\s*([^\s]+)", p, flags=re.IGNORECASE)
-    pw = m2.group(1).strip() if m2 else None
+    m_u = re.search(
+        r'(?:\busername\b|\buser\b|\busuario\b)\s*[:=]?\s*(".*?"|\'.*?\'|\S+)',
+        p,
+        flags=re.IGNORECASE,
+    )
+    if m_u:
+        u = _strip_quotes(m_u.group(1))
 
-    return u, pw
+    m_p = re.search(
+        r'(?:\bpassword\b|\bpass\b|\bcontrase(?:ñ|n)a\b)\s*[:=]?\s*(".*?"|\'.*?\'|\S+)',
+        p,
+        flags=re.IGNORECASE,
+    )
+    if m_p:
+        pw = _strip_quotes(m_p.group(1))
+
+    # Limpieza simple
+    if u:
+        u = u.strip()
+    if pw:
+        pw = pw.strip()
+
+    return (u or None), (pw or None)
 
 
+# ============================================================
+# Site detection
+# ============================================================
 def _is_saucedemo(url: str) -> bool:
     return "saucedemo.com" in (url or "").lower()
 
 
-def build_login_steps(*, base_url: str, prompt: str) -> Optional[List[Dict[str, object]]]:
+# ============================================================
+# Public API
+# ============================================================
+def build_login_steps(*, base_url: str, prompt: str) -> Optional[List[Dict[str, Any]]]:
     """
-    Retorna steps si detecta intención clara de login con credenciales.
-    Si no, retorna None y el flujo normal sigue intacto.
+    Retorna steps SOLO si detecta un login “accionable” y seguro (por ahora SauceDemo).
+    Si no aplica, retorna None para que tu flujo normal siga intacto.
     """
-    if not _looks_like_login(prompt):
+    if not base_url:
         return None
 
+    if not _has_login_intent(prompt):
+        return None
+
+    # Scope: SauceDemo (determinístico)
+    if not _is_saucedemo(base_url):
+        return None
+
+    neg = _negative_expected(prompt)
     username, password = _extract_creds(prompt)
-    if not username or not password:
-        # sin credenciales, no forzamos login; dejamos que el flujo normal pregunte
-        return None
 
-    steps: List[Dict[str, object]] = [
-        {"action": "goto", "url": base_url},
+    expected = "fail" if neg else "pass"
+
+    # Siempre validamos que la UI de login está presente
+    steps: List[Dict[str, Any]] = [
+        {"action": "goto", "url": base_url, "expected": expected},
         {"action": "wait_ms", "ms": 250},
+        {"action": "assert_visible", "selector": "#user-name"},
+        {"action": "assert_visible", "selector": "#password"},
+        {"action": "assert_visible", "selector": "#login-button"},
     ]
 
-    # ======== SauceDemo (determinístico) ========
-    if _is_saucedemo(base_url):
-        # fill user/pass + click login
-        steps += [
-            {"action": "assert_visible", "selector": "#user-name"},
-            {"action": "fill", "selector": "#user-name", "text": username},
-            {"action": "assert_visible", "selector": "#password"},
-            {"action": "fill", "selector": "#password", "text": password},
-            {"action": "assert_visible", "selector": "#login-button"},
-            {"action": "click", "selector": "#login-button"},
-            {"action": "wait_ms", "ms": 500},
-        ]
-
-        # ✅ Validación REAL (evita falsos PASSED):
-        # - Si login falla, aparece error visible
-        # - Si login pasa, aparece "Products" o URL inventory
-        #
-        # Como tu runner no tiene "assert_url_contains", validamos por texto/elementos.
-        steps += [
-            # Éxito: en inventory aparece el título Products
-            {"action": "assert_text_contains", "text": "Products"},
-        ]
+    # Si NO hay credenciales, NO forzamos submit (evita “PASSED” engañoso)
+    if not username and not password:
         return steps
 
-    # ======== Genérico (fallback) ========
-    # Intentamos detectar campos comunes; si no existen, mejor no forzar.
-    # (No queremos “romper” otros sitios.)
-    common_user_selectors = ["#username", 'input[name="username"]', 'input[type="email"]']
-    common_pass_selectors = ["#password", 'input[name="password"]', 'input[type="password"]']
-    common_submit_selectors = ['button[type="submit"]', 'input[type="submit"]']
+    # Fill (usa value, que es lo que tu runner lee)
+    if username:
+        steps.append({"action": "fill", "selector": "#user-name", "value": username})
+    if password:
+        steps.append({"action": "fill", "selector": "#password", "value": password})
 
-    # Aquí no podemos “probar” selectores sin ejecutar, así que:
-    # dejamos una ruta conservadora: solo si el prompt trae selectores explícitos.
-    # Ej: "llena #user-name con foo y #password con bar y da click #login"
-    # Si no, regresamos None para que tu LLM fallback genere algo más acorde al sitio.
-    p = (prompt or "")
-    has_selector = bool(re.search(r"(#[-\w]+|\[[^\]]+\]|\.{1}[-\w]+)", p))
-    if not has_selector:
-        return None
+    # Submit
+    steps += [
+        {"action": "click", "selector": "#login-button"},
+        {"action": "wait_ms", "ms": 600},
+    ]
 
-    # Si el prompt ya trae selectores, tu _parse_steps_from_prompt lo resolverá mejor.
-    return None
+    if neg:
+        # Caso negativo esperado: error visible
+        steps.append({"action": "assert_visible", "selector": "[data-test='error']"})
+        return steps
+
+    # Caso positivo: NO debe haber error + debe navegar a inventory + debe verse "Products"
+    steps += [
+        {"action": "assert_not_visible", "selector": "[data-test='error']"},
+        {"action": "assert_url_contains", "value": "inventory.html"},
+        # En SauceDemo el título "Products" está en .title
+        {"action": "assert_text_contains", "selector": ".title", "expected": "Products"},
+    ]
+    return steps
