@@ -515,7 +515,13 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
     # Press: runner exige selector -> usamos body por default
     # -----------------------------------------
     if re.search(r"\b(enter|intro|presiona\s+enter|presiona\s+intro)\b", low):
-        steps.append({"action": "press", "selector": "body", "key": "Enter"})
+        last_sel = None
+        for s in reversed(steps):
+            if s.get("action") == "fill" and s.get("selector"):
+                last_sel = s.get("selector")
+                break
+        if last_sel:
+            steps.append({"action": "press", "selector": last_sel, "key": "Enter"})
 
     # -----------------------------------------
     # Assert text
