@@ -25,6 +25,7 @@ from core.intent_router import detect_intent as detect_intent_router
 from core.lang import detect_language
 from core.prompts import pick_system_prompt, language_style_header
 from core.qa_risk_engine import build_risk_brief, build_negative_and_edge_cases
+from core.login_intent_resolver import build_login_steps
 
 # Evidence + report (best-effort)
 from services.cloudinary_service import upload_screenshot_b64 as cloud_upload_screenshot_b64
@@ -348,15 +349,34 @@ def _ensure_has_assert(steps: List[Dict[str, Any]], base_url: str) -> List[Dict[
     if not steps:
         return steps
 
+    # si ya hay asserts, no tocar
     if any(str(s.get("action", "")).startswith("assert_") for s in steps):
         return steps
 
+    # Detecta si el flujo intenta "login" (por pasos)
+    did_fill_user = any(s.get("action") == "fill" and str(s.get("selector") or "") in ("#user-name", "input[name='user-name']") for s in steps)
+    did_fill_pass = any(s.get("action") == "fill" and str(s.get("selector") or "") in ("#password", "input[name='password']") for s in steps)
+    did_click_login = any(s.get("action") == "click" and str(s.get("selector") or "") in ("#login-button", "button[type='submit']") for s in steps)
+    looks_like_login_flow = did_click_login or (did_fill_user and did_fill_pass)
+
+    # SauceDemo: asserts de "login exitoso" vs solo "pantalla existe"
     if _looks_like_saucedemo(base_url):
+        if looks_like_login_flow:
+            # ✅ éxito real: no error + URL inventory
+            steps.append({"action": "wait_ms", "ms": 450})
+            steps.append({"action": "assert_not_visible", "selector": "[data-test='error']"})
+            steps.append({"action": "assert_url_contains", "value": "inventory.html"})
+            return steps
+
+        # si NO es login flow, al menos valida que el form existe (neutral)
         steps.append({"action": "assert_visible", "selector": "#user-name"})
         return steps
 
+    # Default genérico: deja un assert mínimo para que no quede vacío,
+    # pero intenta ser un poquito más útil que "body"
     steps.append({"action": "assert_visible", "selector": "body"})
     return steps
+
 
 
 def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[str, Any]]]:
@@ -365,17 +385,97 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
     if not p:
         return None
 
+    # -----------------------------------------
+    # 0) Login intent resolver (SauceDemo)
+    # -----------------------------------------
+    if _looks_like_saucedemo(base_url) and any(k in low for k in ["login", "inicia sesión", "iniciar sesion", "usuario", "username", "password", "contraseña", "contrasena"]):
+        # Heurística: si el usuario dice "no existe / inválido / incorrecto / debe fallar" => negativo esperado
+        negative = any(k in low for k in ["no existe", "invalido", "inválido", "incorrecto", "debe fallar", "should fail", "invalid", "wrong"])
+
+        # Intento simple de extraer credenciales (muy tolerante)
+        # Acepta: username "x" password "y" | usuario "x" contraseña "y"
+        u = None
+        pw = None
+
+        m_u = re.search(r'(?:username|usuario)\s*[:=]?\s*(".*?"|\'.*?\'|\S+)', p, flags=re.IGNORECASE)
+        if m_u:
+            u = _strip_quotes(m_u.group(1))
+
+        m_p = re.search(r'(?:password|pass|contraseñ?a)\s*[:=]?\s*(".*?"|\'.*?\'|\S+)', p, flags=re.IGNORECASE)
+        if m_p:
+            pw = _strip_quotes(m_p.group(1))
+
+        # Si no vienen credenciales, igual podemos validar UI del login (campos visibles)
+        steps: List[Dict[str, Any]] = [
+            {"action": "goto", "url": base_url},
+            {"action": "wait_ms", "ms": 250},
+            {"action": "assert_visible", "selector": "#user-name"},
+            {"action": "assert_visible", "selector": "#password"},
+            {"action": "assert_visible", "selector": "#login-button"},
+        ]
+
+        if u is not None:
+            steps.append({"action": "fill", "selector": "#user-name", "value": u})
+        if pw is not None:
+            steps.append({"action": "fill", "selector": "#password", "value": pw})
+
+        # Si nos dieron algo que parece intento de login, damos click
+        if (u is not None) or (pw is not None) or any(k in low for k in ["haz click", "da click", "click", "submit", "entrar", "login"]):
+            steps.append({"action": "click", "selector": "#login-button"})
+            steps.append({"action": "wait_ms", "ms": 450})
+
+            if negative:
+                # Negativo esperado: debe aparecer error
+                steps.insert(0, {"expected": "fail"})
+                steps.append({"action": "assert_visible", "selector": "[data-test='error']"})
+            else:
+                # Positivo: NO debe aparecer error + debe navegar a inventory
+                steps.append({"action": "assert_not_visible", "selector": "[data-test='error']"})
+                steps.append({"action": "assert_url_contains", "value": "inventory.html"})
+
+        return steps  # ya trae asserts correctos
+
+    # -----------------------------------------
+    # Base steps
+    # -----------------------------------------
     steps: List[Dict[str, Any]] = [
         {"action": "goto", "url": base_url},
         {"action": "wait_ms", "ms": 250},
     ]
 
+    # -----------------------------------------
+    # Helpers para detectar selectores más allá de # . [ ]
+    # - soporta tags: h1, button, input[name="q"], etc.
+    # - soporta comillas: "h1"
+    # -----------------------------------------
+    def _extract_selectors_anywhere(text: str) -> List[str]:
+        out: List[str] = []
+
+        # 1) CSS típicos: #id, .class, [attr=...]
+        for _, sel in re.findall(r'(["\']?)(#[-\w]+|\.[-\w]+|\[[^\]]+\])\1', text):
+            if sel and sel not in out:
+                out.append(sel)
+
+        # 2) Tags simples citados: "h1" / 'h1'
+        for m in re.finditer(r'(["\'])([a-zA-Z][a-zA-Z0-9_-]*)\1', text):
+            sel = m.group(2)
+            if sel and sel not in out:
+                out.append(sel)
+
+        # 3) Tags simples sin comillas cuando viene como "selector h1"
+        m = re.search(r'(?:selector|elemento|element|tag)\s+([a-zA-Z][a-zA-Z0-9_-]*)', text, flags=re.IGNORECASE)
+        if m:
+            sel = m.group(1)
+            if sel and sel not in out:
+                out.append(sel)
+
+        return out
+
+    # -----------------------------------------
+    # Caso: "visibles"
+    # -----------------------------------------
     if "visibles" in low or "visible" in low:
-        selectors = re.findall(r'(["\']?)(#[-\w]+|\.[-\w]+|\[[^\]]+\])\1', p)
-        seen: List[str] = []
-        for _, sel in selectors:
-            if sel and sel not in seen:
-                seen.append(sel)
+        seen = _extract_selectors_anywhere(p)
 
         if _looks_like_saucedemo(base_url) and not seen:
             seen = ["#user-name", "#password", "#login-button"]
@@ -385,18 +485,25 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
 
         return _ensure_has_assert(steps, base_url)
 
+    # -----------------------------------------
+    # Fill patterns
+    # OJO: runner espera "value" (NO "text")
+    # -----------------------------------------
     fill_patterns = [
-        r'(?:llena|escribe|ingresa|teclea|fill|type)\s+(".*?"|\'.*?\'|#[-\w]+|\.[-\w]+|\[[^\]]+\])\s+(?:con|with)\s+(".*?"|\'.*?\')',
+        r'(?:llena|escribe|ingresa|teclea|fill|type)\s+(".*?"|\'.*?\'|#[-\w]+|\.[-\w]+|\[[^\]]+\]|[a-zA-Z][a-zA-Z0-9_-]*)\s+(?:con|with)\s+(".*?"|\'.*?\')',
     ]
     for pat in fill_patterns:
         for m in re.finditer(pat, p, flags=re.IGNORECASE):
             sel = _strip_quotes(m.group(1))
             val = _strip_quotes(m.group(2))
             steps.append({"action": "assert_visible", "selector": sel})
-            steps.append({"action": "fill", "selector": sel, "text": val})
+            steps.append({"action": "fill", "selector": sel, "value": val})
 
+    # -----------------------------------------
+    # Click patterns (también acepta tags "button" si lo ponen así)
+    # -----------------------------------------
     click_patterns = [
-        r'(?:haz\s+click\s+en|haz\s+clic\s+en|da\s+click\s+en|click)\s+(".*?"|\'.*?\'|#[-\w]+|\.[-\w]+|\[[^\]]+\])',
+        r'(?:haz\s+click\s+en|haz\s+clic\s+en|da\s+click\s+en|click)\s+(".*?"|\'.*?\'|#[-\w]+|\.[-\w]+|\[[^\]]+\]|[a-zA-Z][a-zA-Z0-9_-]*)',
     ]
     for pat in click_patterns:
         for m in re.finditer(pat, p, flags=re.IGNORECASE):
@@ -404,9 +511,17 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
             steps.append({"action": "assert_visible", "selector": sel})
             steps.append({"action": "click", "selector": sel})
 
+    # -----------------------------------------
+    # Press: runner exige selector -> usamos body por default
+    # -----------------------------------------
     if re.search(r"\b(enter|intro|presiona\s+enter|presiona\s+intro)\b", low):
-        steps.append({"action": "press", "key": "Enter"})
+        steps.append({"action": "press", "selector": "body", "key": "Enter"})
 
+    # -----------------------------------------
+    # Assert text
+    # Si no ponen selector, el runner usará body (porque _selector_from_step devuelve "" y runner usa "body")
+    # pero aquí lo mandamos explícito para evitar ambigüedad
+    # -----------------------------------------
     text_patterns = [
         r'(?:valida|validar|verify|assert)\s+.*?(?:texto|text).*?(".*?"|\'.*?\')',
         r'(?:assert_text_contains)\s+(".*?"|\'.*?\')',
@@ -419,7 +534,16 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
             break
     if found_text:
         steps.append({"action": "wait_ms", "ms": 300})
-        steps.append({"action": "assert_text_contains", "text": found_text})
+        steps.append({"action": "assert_text_contains", "selector": "body", "text": found_text})
+
+    # -----------------------------------------
+    # Assert selector exists (ej: "valida que exista el selector "h1"")
+    # -----------------------------------------
+    if re.search(r"(?:valida|validar|verify|assert).*(?:selector|elemento|element)", low):
+        sels = _extract_selectors_anywhere(p)
+        # si sólo viene uno como "h1", nos sirve
+        for sel in sels[:3]:
+            steps.append({"action": "assert_visible", "selector": sel})
 
     useful = [s for s in steps if s.get("action") not in ("goto", "wait_ms")]
     if not useful:
@@ -558,8 +682,17 @@ def _handle_execute_mode(
             **_confidence("execute", prompt, None),
         }
 
+    # 0) Login Intent Resolver (determinístico, evita falsos PASSED)
+    # - Solo aplica si el prompt trae señales claras de login + credenciales
+    steps = None
+    try:
+        steps = build_login_steps(base_url=base_url, prompt=prompt)
+    except Exception:
+        logger.exception("build_login_steps failed (continuing with normal parser)")
+
     # 1) Deterministic parser
-    steps = _parse_steps_from_prompt(prompt, base_url)
+    if not steps:
+        steps = _parse_steps_from_prompt(prompt, base_url)
 
     # 2) LLM fallback for steps
     if not steps:
