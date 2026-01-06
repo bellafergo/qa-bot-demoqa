@@ -636,56 +636,84 @@ def _handle_execute_mode(
     except Exception:
         logger.exception("Evidence upload failed (continuing)")
 
-    # 5) PDF report: try report_service, fallback to in-memory PDF (always works)
+        # 5) PDF report: always build bytes; upload best-effort; NEVER silent
+    pdf_error: Optional[str] = None
     try:
         pdf_bytes: Optional[bytes] = None
 
+        # 5.1) Try your existing report generator first (if it creates a file path)
         rep = generate_pdf_report(
             prompt=prompt,
             base_url=base_url,
             runner={**runner, "screenshot_data_url": screenshot_data_url} if screenshot_data_url else runner,
             steps=steps,
             evidence_id=evidence_id,
-            meta={"thread_id": thread_id, "session_id": session_id, "headless": getattr(req, "headless", True)},
+            meta={
+                "thread_id": thread_id,
+                "session_id": session_id,
+                "headless": getattr(req, "headless", True),
+            },
         )
 
-        # If report_service produced a file path, read it
+        # 5.2) If it returned a file path, read it (filesystem may be flaky on PaaS)
         if isinstance(rep, dict) and rep.get("report_path"):
-            rp = rep["report_path"]
-            try:
+            rp = str(rep.get("report_path") or "").strip()
+            if rp:
                 if os.path.exists(rp):
-                    with open(rp, "rb") as f:
-                        pdf_bytes = f.read()
-            except Exception:
-                logger.warning("Could not read report_path from generate_pdf_report", exc_info=True)
+                    try:
+                        with open(rp, "rb") as f:
+                            pdf_bytes = f.read()
+                    except Exception as e:
+                        pdf_error = f"Could not read report_path: {type(e).__name__}: {e}"
+                else:
+                    pdf_error = f"report_path does not exist: {rp}"
 
-        # Fallback: always build a small PDF in memory
+        # 5.3) Fallback: always generate a minimal PDF in memory (no filesystem)
         if not pdf_bytes:
-            pdf_bytes = _build_fallback_pdf_bytes(
-                prompt=prompt,
-                base_url=base_url,
-                status=status,
-                duration_ms=duration_ms,
+            try:
+                pdf_bytes = _build_fallback_pdf_bytes(
+                    prompt=prompt,
+                    base_url=base_url,
+                    status=status,
+                    duration_ms=duration_ms,
+                    evidence_id=(evidence_id or "EV-unknown"),
+                    evidence_url=evidence_url,
+                    steps=steps,
+                    runner=runner,
+                )
+            except Exception as e:
+                pdf_error = f"Fallback PDF failed: {type(e).__name__}: {e}"
+                pdf_bytes = None
+
+        # 5.4) Upload bytes to Cloudinary RAW (and extract secure_url)
+        if not getattr(settings, "HAS_CLOUDINARY", False):
+            pdf_error = pdf_error or "HAS_CLOUDINARY is false"
+        elif not pdf_bytes:
+            pdf_error = pdf_error or "pdf_bytes empty"
+        elif len(pdf_bytes) <= 800:
+            pdf_error = pdf_error or f"pdf_bytes too small: {len(pdf_bytes)}"
+        else:
+            res_pdf = cloud_upload_pdf_bytes(
+                pdf_bytes,
                 evidence_id=(evidence_id or "EV-unknown"),
-                evidence_url=evidence_url,
-                steps=steps,
-                runner=runner,
             )
 
-        # Upload bytes to Cloudinary (RAW)
-        if getattr(settings, "HAS_CLOUDINARY", False) and pdf_bytes and len(pdf_bytes) > 800:
-            res_pdf = cloud_upload_pdf_bytes(pdf_bytes, evidence_id=(evidence_id or "EV-unknown"))
             if isinstance(res_pdf, dict):
                 report_url = (res_pdf.get("secure_url") or res_pdf.get("url") or "").strip() or None
             else:
                 report_url = str(res_pdf).strip() or None
 
-    except Exception:
-        logger.exception("PDF report generation/upload failed (continuing)")
+            if not report_url:
+                pdf_error = "Cloudinary upload returned no secure_url/url"
 
-    # 6) Save run best-effort
+    except Exception as e:
+        pdf_error = f"{type(e).__name__}: {e}"
+        logger.exception("PDF report generation/upload failed")
+
+    # 6) Save run best-effort (include pdf_error)
     try:
         from services.run_store import save_run
+
         save_run(
             {
                 **(runner if isinstance(runner, dict) else {}),
@@ -695,6 +723,7 @@ def _handle_execute_mode(
                 "steps": steps,
                 "evidence_url": evidence_url,
                 "report_url": report_url,
+                "pdf_error": pdf_error,
                 "duration_ms": duration_ms,
                 "thread_id": thread_id,
                 "session_id": session_id,
@@ -707,7 +736,17 @@ def _handle_execute_mode(
         logger.exception("save_run failed (continuing)")
 
     # 7) Final answer + stable meta
-    answer = _render_execute_answer(status=status, msg=msg, evidence_url=evidence_url, report_url=report_url, evidence_id=(evidence_id or ""))
+    answer = _render_execute_answer(
+        status=status,
+        msg=msg,
+        evidence_url=evidence_url,
+        report_url=report_url,
+        evidence_id=(evidence_id or ""),
+    )
+
+    # If no report, surface why (so you don't have to check logs)
+    if (not report_url) and pdf_error:
+        answer = f"{answer}\n📄 Report: not available ({pdf_error})"
 
     meta_runner = dict(runner) if isinstance(runner, dict) else {}
     meta_runner.setdefault("status", status)
@@ -726,9 +765,11 @@ def _handle_execute_mode(
             "report_url": report_url,
             "duration_ms": duration_ms,
             "raw": meta_runner,
+            "pdf_error": pdf_error,
         },
         "evidence_url": evidence_url,
         "report_url": report_url,
+        "pdf_error": pdf_error,
         "duration_ms": duration_ms,
         "status_label": status_label,
         "evidence_id": evidence_id,
@@ -750,148 +791,4 @@ def _handle_execute_mode(
         "report_url": meta["runner"].get("report_url"),
         "duration_ms": meta["runner"].get("duration_ms"),
         **_confidence("execute", prompt, base_url),
-    }
-
-
-# ============================================================
-# MAIN
-# ============================================================
-def handle_chat_run(req: Any) -> Dict[str, Any]:
-    prompt = H.norm(getattr(req, "prompt", "") or "")
-    if not prompt:
-        raise HTTPException(status_code=400, detail="Empty prompt")
-
-    session_id, session = H.get_session(getattr(req, "session_id", None))
-    session["id"] = session_id
-
-    try:
-        lang = detect_language(prompt, session)
-    except Exception:
-        lang = "es"
-    session["lang"] = lang
-
-    thread_id = (getattr(req, "thread_id", None) or "").strip() or None
-    if not thread_id:
-        t = store.create_thread(title=(prompt[:60] or "New chat"))
-        thread_id = t["id"]
-
-    try:
-        store.add_message(thread_id, "user", prompt, meta={"mode_hint": "input"})
-    except Exception:
-        logger.warning("Failed to persist user message (continuing)", exc_info=True)
-
-    try:
-        thread = store.get_thread(thread_id)
-        history_msgs = (thread.get("messages") or [])[-settings.MAX_HISTORY_MSGS :]
-    except Exception:
-        logger.warning("Failed to load thread history (continuing)", exc_info=True)
-        history_msgs = []
-
-    should_intro = _should_introduce(history_msgs)
-
-    if _is_memory_query(prompt):
-        mem = _summarize_last_execute(history_msgs)
-        if not mem:
-            answer = "I don't see a previous execution in this chat yet. Ask me to run a test first."
-            try:
-                store.add_message(thread_id, "assistant", answer, meta={"mode": "advise", "memory": True})
-            except Exception:
-                pass
-            return {"mode": "advise", "persona": _persona(prompt, "advise"), "session_id": session_id, "thread_id": thread_id, "answer": answer, **_confidence("advise", prompt, None)}
-
-        answer = mem["answer"]
-        try:
-            store.add_message(thread_id, "assistant", answer, meta={"mode": "advise", "memory": True, **mem})
-        except Exception:
-            pass
-
-        return {
-            "mode": "advise",
-            "persona": _persona(prompt, "advise"),
-            "session_id": session_id,
-            "thread_id": thread_id,
-            "answer": answer,
-            "evidence_url": mem.get("evidence_url"),
-            "report_url": mem.get("report_url"),
-            "duration_ms": mem.get("duration_ms"),
-            **_confidence("advise", prompt, mem.get("base_url")),
-        }
-
-    intent = _detect_intent(prompt)
-    mode = "execute" if intent == "execute" else "doc" if intent == "doc" else "advise"
-    persona = _persona(prompt, mode)
-
-    sys_prompt = _system_prompt_for_mode(mode=mode, lang=lang, should_intro=should_intro)
-    messages: List[Dict[str, str]] = [{"role": "system", "content": sys_prompt}]
-
-    for m in history_msgs:
-        role = (m.get("role") or "assistant").strip()
-        content = (m.get("content") or "").strip()
-        if content:
-            messages.append({"role": role, "content": content})
-
-    if mode == "execute":
-        return _handle_execute_mode(req=req, session=session, prompt=prompt, thread_id=thread_id, persona=persona, messages=messages)
-
-    client = _client()
-
-    if mode == "doc":
-        resp = client.chat.completions.create(
-            model=settings.OPENAI_MODEL,
-            messages=messages + [{"role": "user", "content": "Return ONLY valid JSON. No additional text."}],
-            temperature=settings.DOC_TEMPERATURE,
-            max_tokens=settings.DOC_MAX_TOKENS,
-        )
-        raw = (resp.choices[0].message.content or "").strip()
-        doc_json = _extract_json_object(raw)
-
-        if not isinstance(doc_json, dict):
-            doc_json = {
-                "executive_view": {"title": "QA Artifact", "objective": "Model did not return valid JSON. Fallback shown.", "top_risks": [], "matrix_summary": []},
-                "qa_view": {"sections": [{"title": "Model output", "content": raw[:4000] if raw else "No content"}]},
-            }
-
-        answer = _render_doc_answer_from_json(doc_json)
-        store.add_message(thread_id, "assistant", answer, meta={"mode": "doc", "persona": persona, "doc_json": doc_json, "doc_schema": "v1"})
-        return {"mode": "doc", "persona": persona, "session_id": session_id, "thread_id": thread_id, "answer": answer, "doc_json": doc_json, **_confidence("doc", prompt, None)}
-
-    # ADVISE
-    try:
-        risk = build_risk_brief(prompt)
-        neg = build_negative_and_edge_cases(risk.get("domain", "general"))
-        messages.append(
-            {
-                "role": "user",
-                "content": (
-                    "QA context (do not repeat verbatim; use it to prioritize):\n\n"
-                    "Suggested risks:\n"
-                    "P0:\n- " + "\n- ".join((risk.get("p0") or [])[:3]) +
-                    "\nP1:\n- " + "\n- ".join((risk.get("p1") or [])[:3]) +
-                    "\nP2:\n- " + "\n- ".join((risk.get("p2") or [])[:3]) +
-                    "\n\nSuggested NEGATIVE cases:\n- " + "\n- ".join((neg.get("negative") or [])[:8]) +
-                    "\n\nSuggested EDGE cases:\n- " + "\n- ".join((neg.get("edge") or [])[:8])
-                ),
-            }
-        )
-    except Exception:
-        logger.warning("risk engine failed (continuing)", exc_info=True)
-
-    resp = client.chat.completions.create(
-        model=settings.OPENAI_MODEL,
-        messages=messages,
-        temperature=settings.ADV_TEMPERATURE,
-        max_tokens=settings.ADV_MAX_TOKENS,
-    )
-    answer = (resp.choices[0].message.content or "").strip() or "Can you share a bit more context?"
-
-    store.add_message(thread_id, "assistant", answer, meta={"mode": "advise", "persona": persona})
-    base_url_hint = H.pick_base_url(req, session, prompt)
-
-    return {
-        "mode": "advise",
-        "persona": persona,
-        "session_id": session_id,
-        "thread_id": thread_id,
-        "answer": answer,
-        **_confidence("advise", prompt, base_url_hint),
     }
