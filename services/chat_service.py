@@ -614,7 +614,7 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             **_confidence("doc", prompt, None),
         }
 
-    # ADVISE (análisis + contexto de riesgos)
+  # ADVISE: solo agregar contexto en modo advise
     if mode == "advise":
         try:
             risk = build_risk_brief(prompt)
