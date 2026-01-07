@@ -325,13 +325,17 @@ def _detect_intent(prompt: str) -> str:
         return "doc"
 
     # 3) Fallback: usamos el intent_router como sugerencia,
-    #    pero solo aceptamos execute/doc explícitos
+    #    pero SOLO confiamos en execute, y en doc solo si también hay keywords.
     try:
         out = detect_intent_router(prompt)
         if isinstance(out, str):
             out_norm = out.strip().lower()
-            if out_norm in ("execute", "doc"):
-                return out_norm
+            # El router puede forzar execute
+            if out_norm == "execute":
+                return "execute"
+            # Para doc, exigimos doble condición: router + keywords
+            if out_norm == "doc" and any(kw in p for kw in doc_keywords):
+                return "doc"
     except Exception:
         pass
 
