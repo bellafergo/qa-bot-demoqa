@@ -353,24 +353,11 @@ def _persona(prompt: str, mode: str) -> str:
 
 def _system_prompt_for_mode(mode: str, lang: str, should_intro: bool) -> str:
     """
-    - advise / clarify: system prompt + style header (saludo, español/inglés, etc.)
-    - doc: SOLO system prompt DOC, porque ahí exigimos JSON estricto.
-    - execute: system prompt EXECUTE sin header (se gestiona aparte).
+    Devuelve el system prompt según modo e idioma.
+    - EXECUTE: prompts.py ya evita contaminar tool-calls.
+    - advise/doc/clarify: prompts.py agrega estilo e intro (si aplica).
     """
-    m = (mode or "").lower().strip()
-
-    if m == "execute":
-        # EXECUTE no lleva header para no contaminar el tool-call / pasos
-        return pick_system_prompt(mode=mode)
-
-    if m == "doc":
-        # DOC: JSON estricto, mejor sin texto extra de estilo
-        return pick_system_prompt(mode=mode)
-
-    # advise / clarify: sí usamos header de estilo
-    sys = pick_system_prompt(mode=mode)
-    header = language_style_header(lang=lang, introduced=should_intro)
-    return f"{header}{sys}".strip()
+    return pick_system_prompt(mode=mode, lang=lang, introduce=should_intro)
 
 
 # ============================================================
