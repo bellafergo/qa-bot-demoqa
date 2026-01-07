@@ -2,6 +2,13 @@
 import React, { useMemo, useCallback, useState } from "react";
 import DocArtifactTabs from "./components/DocArtifactTabs";
 
+const getRunnerContract = (m) => {
+  const meta = getMeta(m);
+  const runner = meta?.runner;
+  if (runner && typeof runner === "object") return runner;
+  return null;
+};
+
 /**
  * ✅ PRODUCT READY CHAT
  * - Meta parsing robusto (meta/meta_json/metaJson)
@@ -217,12 +224,6 @@ const pickReportUrl = (m) => {
 
 /**
  * ✅ Exec status "producto"
- * - Usa runner.expected + runner.outcome + runner.status + runner.ok
- * - Etiquetas:
- *   PASSED
- *   FAILED
- *   PASSED (negativo)
- *   FAILED (debió fallar)
  */
 const pickExecBadge = (m) => {
   const meta = getMeta(m);
@@ -245,7 +246,6 @@ const pickExecBadge = (m) => {
   const expected = String(runner?.expected || "").toLowerCase().trim() || "pass";
   const outcome = String(runner?.outcome || "").toLowerCase().trim() || (ok === false ? "fail" : "pass");
 
-  // 1) si runner ya trae "passed/failed"
   if (statusRaw.includes("passed")) {
     if (expected === "fail" && outcome === "fail") return { label: "PASSED (negativo)", kind: "ok" };
     return { label: "PASSED", kind: "ok" };
@@ -256,7 +256,6 @@ const pickExecBadge = (m) => {
   }
   if (statusRaw.includes("error")) return { label: "ERROR", kind: "bad" };
 
-  // 2) si solo trae ok boolean
   if (ok === true) {
     if (expected === "fail") return { label: "FAILED (debió fallar)", kind: "bad" };
     return { label: "PASSED", kind: "ok" };
@@ -266,7 +265,6 @@ const pickExecBadge = (m) => {
     return { label: "FAILED", kind: "bad" };
   }
 
-  // 3) fallback por texto
   if (txt.includes("(fail)") || txt.includes(" failed") || txt.includes("ejecutado (fail)")) {
     if (expected === "fail") return { label: "PASSED (negativo)", kind: "ok" };
     return { label: "FAILED", kind: "bad" };
@@ -279,7 +277,8 @@ const pickExecBadge = (m) => {
   return null;
 };
 
-const badgeColor = (kind) => (kind === "bad" ? "#ff4d4f" : kind === "ok" ? "#52c41a" : "rgba(255,255,255,0.75)");
+const badgeColor = (kind) =>
+  kind === "bad" ? "#ff4d4f" : kind === "ok" ? "#52c41a" : "rgba(255,255,255,0.75)";
 
 export default function Chat(props) {
   const {
@@ -315,23 +314,22 @@ export default function Chat(props) {
     const meta = getMeta(m);
     const key = String(m?.id || meta?.id || `${role}-${idx}`);
 
-    // URLs / data
-    const evidenceUrl = pickEvidenceUrl(m);
-    const evidenceId = pickEvidenceId(m);
-    const reportUrl = pickReportUrl(m);
-    const docJson = pickDocJson(m);
+    // Runner + meta normalizados
+    const runner = isBot ? pickRunner(m) : null;
+
+    // URLs / data ya normalizados
+    const evidenceUrl = isBot ? pickEvidenceUrl(m) : null;
+    const reportUrl = isBot ? pickReportUrl(m) : null;
+    const evidenceId = isBot ? pickEvidenceId(m) : null;
+    const docJson = isBot ? pickDocJson(m) : null;
 
     const badge = isBot ? pickExecBadge(m) : null;
-
-    const runner = isBot ? pickRunner(m) : null;
     const showRunDebug = isBot && runner && (Array.isArray(runner.steps) || Array.isArray(runner.logs));
 
-    // ✅ mostrar solo si realmente es válido (evita blancos)
     const showEvidence = isBot && hasValidEvidence(evidenceUrl);
     const showReport = isBot && hasValidHttpUrl(reportUrl);
     const showDocTabs = isBot && !!docJson;
 
-    // reason / mensaje corto si existe
     const reason =
       (runner && typeof runner.reason === "string" && runner.reason.trim()) ||
       (meta?.runner && typeof meta.runner.reason === "string" && meta.runner.reason.trim()) ||
@@ -496,7 +494,6 @@ function EvidenceBlock({ evidenceUrl }) {
     lower.includes("res.cloudinary.com") ||
     lower.includes("/image/upload");
 
-  // Cache-buster SOLO para http(s); para data:image NO
   const imgSrc = (() => {
     if (!url) return "";
     if (lower.startsWith("data:image/")) return url;
@@ -504,7 +501,6 @@ function EvidenceBlock({ evidenceUrl }) {
     return url.includes("?") ? `${url}&cb=${Date.now()}` : `${url}?cb=${Date.now()}`;
   })();
 
-  // Si ya falló, no intentes renderizar img otra vez
   const canRenderImg = looksImage && !failed;
 
   return (
@@ -533,7 +529,6 @@ function EvidenceBlock({ evidenceUrl }) {
             rel="noreferrer"
             style={{ color: "rgba(160,200,255,0.95)" }}
             onClick={(e) => {
-              // si no es http(s), evita click raro
               if (!hasValidHttpUrl(url)) e.preventDefault();
             }}
             title={url}
@@ -602,7 +597,6 @@ function RunDebugBlock({ runner }) {
           ) : null}
         </div>
 
-        {/* Steps */}
         {steps.length ? (
           <div style={{ marginTop: 10 }}>
             <div style={{ fontWeight: 800, marginBottom: 6 }}>Steps</div>
@@ -635,7 +629,6 @@ function RunDebugBlock({ runner }) {
           </div>
         ) : null}
 
-        {/* Logs */}
         {logs.length ? (
           <div style={{ marginTop: 12 }}>
             <div style={{ fontWeight: 800, marginBottom: 6 }}>Logs</div>
