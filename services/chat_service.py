@@ -1,36 +1,24 @@
 # services/chat_service.py
 from __future__ import annotations
 
-import os
-import io
 import json
 import logging
 import re
-import time
-import uuid
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 from openai import OpenAI
 
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
-
 from core.settings import settings
 from core import chat_helpers as H
 from services import store
-from runner import execute_test
 
 from core.intent_router import detect_intent as detect_intent_router
 from core.lang import detect_language
-from core.prompts import pick_system_prompt, language_style_header
+from core.prompts import pick_system_prompt
 from core.qa_risk_engine import build_risk_brief, build_negative_and_edge_cases
-from core.login_intent_resolver import build_login_steps
 
-# Evidence + report (best-effort)
-from services.cloudinary_service import upload_screenshot_b64 as cloud_upload_screenshot_b64
-from services.cloudinary_service import upload_pdf_bytes as cloud_upload_pdf_bytes
-from services.report_service import generate_pdf_report
+from services.execute_engine import handle_execute_mode  # nuevo engine
 
 logger = logging.getLogger("vanya.chat_service")
 
@@ -45,7 +33,7 @@ def _client() -> OpenAI:
 
 
 # ============================================================
-# Confidence helper (UI-friendly)
+# Confidence helper (ADVISE / DOC)
 # ============================================================
 def _confidence(mode: str, prompt: str, base_url: Optional[str]) -> Dict[str, Any]:
     score = 0.55
@@ -92,7 +80,7 @@ def _extract_json_object(raw: str) -> Optional[Dict[str, Any]]:
 
 
 # ============================================================
-# Runner meta normalizer (contract stable for UI)
+# Runner meta normalizer (para memoria)
 # ============================================================
 def _normalize_runner_meta(meta: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     meta = meta or {}
@@ -157,8 +145,66 @@ def _normalize_runner_meta(meta: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 # ============================================================
-# DOC renderer (para tu UI actual)
+# DOC helpers (nuevo contrato executive/qa/artifact)
 # ============================================================
+def _normalize_doc_json(doc: Dict[str, Any], raw: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Normaliza la salida de DOC a un esquema estable para la UI.
+
+    Soporta:
+    - v2 (nuevo): {"executive": "...", "qa": "...", "artifact": "..."}
+    - v1 (legacy): con claves "executive_view"/"qa_view"
+    - Fallback cuando el modelo devuelve algo raro.
+    """
+    if not isinstance(doc, dict):
+        doc = {}
+
+    # 🆕 v2: contrato nuevo del prompt
+    if all(k in doc for k in ("executive", "qa", "artifact")):
+        executive_text = str(doc.get("executive") or "").strip()
+        qa_text = str(doc.get("qa") or "").strip()
+        artifact_text = str(doc.get("artifact") or "").strip()
+
+        return {
+            "executive_view": {
+                "title": "QA Artifact",
+                "objective": executive_text,
+                "top_risks": [],
+                "matrix_summary": [],
+            },
+            "qa_view": {
+                "sections": [
+                    {"title": "QA analysis", "content": qa_text},
+                    {"title": "QA artifact", "content": artifact_text},
+                ]
+            },
+            "raw_v2": doc,
+        }
+
+    # v1 legacy
+    if "executive_view" in doc or "qa_view" in doc:
+        return doc
+
+    # Fallback genérico
+    return {
+        "executive_view": {
+            "title": "QA Artifact",
+            "objective": "Model did not return valid JSON. Fallback shown.",
+            "top_risks": [],
+            "matrix_summary": [],
+        },
+        "qa_view": {
+            "sections": [
+                {
+                    "title": "Model output",
+                    "content": (raw or "")[:4000] if isinstance(raw, str) else "No content",
+                }
+            ],
+        },
+        "raw_fallback": doc,
+    }
+
+
 def _render_doc_answer_from_json(doc: Dict[str, Any]) -> str:
     ev = doc.get("executive_view", {}) if isinstance(doc, dict) else {}
     title = ev.get("title", "QA Artifact")
@@ -191,7 +237,8 @@ def _render_doc_answer_from_json(doc: Dict[str, Any]) -> str:
             if not isinstance(row, dict):
                 continue
             lines.append(
-                f"| {row.get('id','')} | {row.get('scenario','')} | {row.get('expected','')} | {row.get('priority','')} |"
+                f"| {row.get('id','')} | {row.get('scenario','')} | "
+                f"{row.get('expected','')} | {row.get('priority','')} |"
             )
 
     lines.append("\n> Tip: Use the Executive / QA tabs for full detail.")
@@ -230,9 +277,19 @@ def _persona(prompt: str, mode: str) -> str:
 
 
 def _system_prompt_for_mode(mode: str, lang: str, should_intro: bool) -> str:
-    sys = pick_system_prompt(mode=mode)
-    header = language_style_header(lang=lang, introduced=should_intro)
-    return f"{header}{sys}".strip()
+    """
+    mode: advise | doc | execute | clarify
+    lang: es | en
+    should_intro: si debe presentarse en este turno
+    """
+    m = (mode or "").lower().strip()
+
+    # EXECUTE: system prompt sin header extra para no contaminar tool-calls
+    if m == "execute":
+        return pick_system_prompt(mode="execute", lang=lang, introduce=False).strip()
+
+    # ADVISE / DOC / CLARIFY ya incluyen STYLE + intro según parámetros
+    return pick_system_prompt(mode=m, lang=lang, introduce=should_intro).strip()
 
 
 # ============================================================
@@ -321,678 +378,6 @@ def _summarize_last_execute(history_msgs: List[Dict[str, Any]]) -> Optional[Dict
 
 
 # ============================================================
-# EXECUTE helpers
-# ============================================================
-def _looks_like_saucedemo(url: str) -> bool:
-    return "saucedemo.com" in (url or "").lower()
-
-
-def _strip_quotes(s: str) -> str:
-    ss = (s or "").strip()
-    if len(ss) >= 2 and ((ss[0] == ss[-1] == '"') or (ss[0] == ss[-1] == "'")):
-        return ss[1:-1]
-    return ss
-
-
-def _make_png_data_url(b64_or_data_url: Optional[str]) -> Optional[str]:
-    if not b64_or_data_url:
-        return None
-    s = str(b64_or_data_url).strip()
-    if not s or s == "None":
-        return None
-    if s.startswith("data:image"):
-        return s
-    return f"data:image/png;base64,{s}"
-
-
-def _ensure_has_assert(steps: List[Dict[str, Any]], base_url: str) -> List[Dict[str, Any]]:
-    if not steps:
-        return steps
-
-    # si ya hay asserts, no tocar
-    if any(str(s.get("action", "")).startswith("assert_") for s in steps):
-        return steps
-
-    # Detecta si el flujo intenta "login" (por pasos)
-    did_fill_user = any(s.get("action") == "fill" and str(s.get("selector") or "") in ("#user-name", "input[name='user-name']") for s in steps)
-    did_fill_pass = any(s.get("action") == "fill" and str(s.get("selector") or "") in ("#password", "input[name='password']") for s in steps)
-    did_click_login = any(s.get("action") == "click" and str(s.get("selector") or "") in ("#login-button", "button[type='submit']") for s in steps)
-    looks_like_login_flow = did_click_login or (did_fill_user and did_fill_pass)
-
-    # SauceDemo: asserts de "login exitoso" vs solo "pantalla existe"
-    if _looks_like_saucedemo(base_url):
-        if looks_like_login_flow:
-            # ✅ éxito real: no error + URL inventory
-            steps.append({"action": "wait_ms", "ms": 450})
-            steps.append({"action": "assert_not_visible", "selector": "[data-test='error']"})
-            steps.append({"action": "assert_url_contains", "value": "inventory.html"})
-            return steps
-
-        # si NO es login flow, al menos valida que el form existe (neutral)
-        steps.append({"action": "assert_visible", "selector": "#user-name"})
-        return steps
-
-    # Default genérico: deja un assert mínimo para que no quede vacío,
-    # pero intenta ser un poquito más útil que "body"
-    steps.append({"action": "assert_visible", "selector": "body"})
-    return steps
-
-
-
-def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[str, Any]]]:
-    p = (prompt or "").strip()
-    low = p.lower()
-    if not p:
-        return None
-
-    # -----------------------------------------
-    # 0) Login intent resolver (SauceDemo)
-    # -----------------------------------------
-    if _looks_like_saucedemo(base_url) and any(k in low for k in ["login", "inicia sesión", "iniciar sesion", "usuario", "username", "password", "contraseña", "contrasena"]):
-        # Heurística: si el usuario dice "no existe / inválido / incorrecto / debe fallar" => negativo esperado
-        negative = any(k in low for k in ["no existe", "invalido", "inválido", "incorrecto", "debe fallar", "should fail", "invalid", "wrong"])
-
-        # Intento simple de extraer credenciales (muy tolerante)
-        # Acepta: username "x" password "y" | usuario "x" contraseña "y"
-        u = None
-        pw = None
-
-        m_u = re.search(r'(?:username|usuario)\s*[:=]?\s*(".*?"|\'.*?\'|\S+)', p, flags=re.IGNORECASE)
-        if m_u:
-            u = _strip_quotes(m_u.group(1))
-
-        m_p = re.search(r'(?:password|pass|contraseñ?a)\s*[:=]?\s*(".*?"|\'.*?\'|\S+)', p, flags=re.IGNORECASE)
-        if m_p:
-            pw = _strip_quotes(m_p.group(1))
-
-        # Si no vienen credenciales, igual podemos validar UI del login (campos visibles)
-        steps: List[Dict[str, Any]] = [
-            {"action": "goto", "url": base_url},
-            {"action": "wait_ms", "ms": 250},
-            {"action": "assert_visible", "selector": "#user-name"},
-            {"action": "assert_visible", "selector": "#password"},
-            {"action": "assert_visible", "selector": "#login-button"},
-        ]
-
-        if u is not None:
-            steps.append({"action": "fill", "selector": "#user-name", "value": u})
-        if pw is not None:
-            steps.append({"action": "fill", "selector": "#password", "value": pw})
-
-        # Si nos dieron algo que parece intento de login, damos click
-        if (u is not None) or (pw is not None) or any(k in low for k in ["haz click", "da click", "click", "submit", "entrar", "login"]):
-            steps.append({"action": "click", "selector": "#login-button"})
-            steps.append({"action": "wait_ms", "ms": 450})
-
-            if negative:
-                # Negativo esperado: debe aparecer error
-                steps.insert(0, {"expected": "fail"})
-                steps.append({"action": "assert_visible", "selector": "[data-test='error']"})
-            else:
-                # Positivo: NO debe aparecer error + debe navegar a inventory
-                steps.append({"action": "assert_not_visible", "selector": "[data-test='error']"})
-                steps.append({"action": "assert_url_contains", "value": "inventory.html"})
-
-        return steps  # ya trae asserts correctos
-
-    # -----------------------------------------
-    # Base steps
-    # -----------------------------------------
-    steps: List[Dict[str, Any]] = [
-        {"action": "goto", "url": base_url},
-        {"action": "wait_ms", "ms": 250},
-    ]
-
-    # -----------------------------------------
-    # Helpers para detectar selectores más allá de # . [ ]
-    # - soporta tags: h1, button, input[name="q"], etc.
-    # - soporta comillas: "h1"
-    # -----------------------------------------
-    def _extract_selectors_anywhere(text: str) -> List[str]:
-        out: List[str] = []
-
-        # 1) CSS típicos: #id, .class, [attr=...]
-        for _, sel in re.findall(r'(["\']?)(#[-\w]+|\.[-\w]+|\[[^\]]+\])\1', text):
-            if sel and sel not in out:
-                out.append(sel)
-
-        # 2) Tags simples citados: "h1" / 'h1'
-        for m in re.finditer(r'(["\'])([a-zA-Z][a-zA-Z0-9_-]*)\1', text):
-            sel = m.group(2)
-            if sel and sel not in out:
-                out.append(sel)
-
-        # 3) Tags simples sin comillas cuando viene como "selector h1"
-        m = re.search(r'(?:selector|elemento|element|tag)\s+([a-zA-Z][a-zA-Z0-9_-]*)', text, flags=re.IGNORECASE)
-        if m:
-            sel = m.group(1)
-            if sel and sel not in out:
-                out.append(sel)
-
-        return out
-
-    # -----------------------------------------
-    # Caso: "visibles"
-    # -----------------------------------------
-    if "visibles" in low or "visible" in low:
-        seen = _extract_selectors_anywhere(p)
-
-        if _looks_like_saucedemo(base_url) and not seen:
-            seen = ["#user-name", "#password", "#login-button"]
-
-        for sel in seen:
-            steps.append({"action": "assert_visible", "selector": sel})
-
-        return _ensure_has_assert(steps, base_url)
-
-    # -----------------------------------------
-    # Fill patterns
-    # OJO: runner espera "value" (NO "text")
-    # -----------------------------------------
-    fill_patterns = [
-        r'(?:llena|escribe|ingresa|teclea|fill|type)\s+(".*?"|\'.*?\'|#[-\w]+|\.[-\w]+|\[[^\]]+\]|[a-zA-Z][a-zA-Z0-9_-]*)\s+(?:con|with)\s+(".*?"|\'.*?\')',
-    ]
-    for pat in fill_patterns:
-        for m in re.finditer(pat, p, flags=re.IGNORECASE):
-            sel = _strip_quotes(m.group(1))
-            val = _strip_quotes(m.group(2))
-            steps.append({"action": "assert_visible", "selector": sel})
-            steps.append({"action": "fill", "selector": sel, "value": val})
-
-    # -----------------------------------------
-    # Click patterns (también acepta tags "button" si lo ponen así)
-    # -----------------------------------------
-    click_patterns = [
-        r'(?:haz\s+click\s+en|haz\s+clic\s+en|da\s+click\s+en|click)\s+(".*?"|\'.*?\'|#[-\w]+|\.[-\w]+|\[[^\]]+\]|[a-zA-Z][a-zA-Z0-9_-]*)',
-    ]
-    for pat in click_patterns:
-        for m in re.finditer(pat, p, flags=re.IGNORECASE):
-            sel = _strip_quotes(m.group(1))
-            steps.append({"action": "assert_visible", "selector": sel})
-            steps.append({"action": "click", "selector": sel})
-
-    # -----------------------------------------
-    # Press: runner exige selector -> usamos body por default
-    # -----------------------------------------
-    if re.search(r"\b(enter|intro|presiona\s+enter|presiona\s+intro)\b", low):
-        last_sel = None
-        for s in reversed(steps):
-            if s.get("action") == "fill" and s.get("selector"):
-                last_sel = s.get("selector")
-                break
-        if last_sel:
-            steps.append({"action": "press", "selector": last_sel, "key": "Enter"})
-
-    # -----------------------------------------
-    # Assert text
-    # Si no ponen selector, el runner usará body (porque _selector_from_step devuelve "" y runner usa "body")
-    # pero aquí lo mandamos explícito para evitar ambigüedad
-    # -----------------------------------------
-    text_patterns = [
-        r'(?:valida|validar|verify|assert)\s+.*?(?:texto|text).*?(".*?"|\'.*?\')',
-        r'(?:assert_text_contains)\s+(".*?"|\'.*?\')',
-    ]
-    found_text = None
-    for pat in text_patterns:
-        mm = re.search(pat, p, flags=re.IGNORECASE)
-        if mm:
-            found_text = _strip_quotes(mm.group(1))
-            break
-    if found_text:
-        steps.append({"action": "wait_ms", "ms": 300})
-        steps.append({"action": "assert_text_contains", "selector": "body", "text": found_text})
-
-    # -----------------------------------------
-    # Assert selector exists (ej: "valida que exista el selector "h1"")
-    # -----------------------------------------
-    if re.search(r"(?:valida|validar|verify|assert).*(?:selector|elemento|element)", low):
-        sels = _extract_selectors_anywhere(p)
-        # si sólo viene uno como "h1", nos sirve
-        for sel in sels[:3]:
-            steps.append({"action": "assert_visible", "selector": sel})
-
-    useful = [s for s in steps if s.get("action") not in ("goto", "wait_ms")]
-    if not useful:
-        return None
-
-    return _ensure_has_assert(steps, base_url)
-
-
-def _render_execute_answer(
-    status: str,
-    msg: str,
-    evidence_url: Optional[str],
-    report_url: Optional[str],
-    evidence_id: str,
-    pdf_error: Optional[str] = None,
-) -> str:
-    st = (status or "unknown").strip()
-    prefix = "✅ Executed" if st.lower() in ("passed", "ok", "success") else "⚠️ Executed"
-    parts = [f"{prefix} ({st})." + (f" {msg}" if msg else "")]
-    if evidence_id:
-        parts.insert(1, f"· evid: {evidence_id}")
-    if evidence_url:
-        parts.append(f"📸 Evidence: {evidence_url}")
-    if report_url:
-        parts.append(f"📄 Report: {report_url}")
-    elif pdf_error:
-        parts.append(f"📄 Report: not available ({pdf_error})")
-    return "\n".join(parts).strip()
-
-
-def _pull_evidence_fields(runner: Dict[str, Any]) -> Tuple[str, Optional[str]]:
-    raw = runner.get("raw") if isinstance(runner.get("raw"), dict) else {}
-    evidence_id = str(runner.get("evidence_id") or raw.get("evidence_id") or "").strip()
-    b64 = (
-        runner.get("screenshot_b64")
-        or runner.get("screenshotBase64")
-        or runner.get("screenshotB64")
-        or raw.get("screenshot_b64")
-        or raw.get("screenshotBase64")
-        or raw.get("screenshotB64")
-    )
-    return evidence_id, (str(b64) if b64 else None)
-
-
-def _build_fallback_pdf_bytes(
-    *,
-    prompt: str,
-    base_url: str,
-    status: str,
-    duration_ms: int,
-    evidence_id: str,
-    evidence_url: Optional[str],
-    steps: List[Dict[str, Any]],
-    runner: Dict[str, Any],
-) -> bytes:
-    """
-    Always-works PDF generator (no filesystem). Keeps deploys stable on Render.
-    """
-    buf = io.BytesIO()
-    c = canvas.Canvas(buf, pagesize=letter)
-    w, h = letter
-
-    y = h - 50
-    c.setFont("Helvetica-Bold", 14)
-    c.drawString(50, y, "Vanya QA Run Report")
-    y -= 24
-
-    c.setFont("Helvetica", 10)
-    c.drawString(50, y, f"Base URL: {base_url}")
-    y -= 14
-    c.drawString(50, y, f"Status: {status}   Duration: {duration_ms} ms   Evidence ID: {evidence_id}")
-    y -= 14
-    c.drawString(50, y, f"Prompt: {prompt[:1200]}")
-    y -= 18
-
-    if evidence_url:
-        c.drawString(50, y, f"Evidence URL: {evidence_url}")
-        y -= 18
-
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(50, y, "Steps")
-    y -= 14
-    c.setFont("Helvetica", 9)
-    for i, s in enumerate(steps[:80], start=1):
-        line = f"{i}. {s.get('action')} " + (
-            " ".join(
-                [
-                    f"{k}={s.get(k)}"
-                    for k in ("url", "selector", "text", "key", "ms")
-                    if s.get(k) is not None
-                ]
-            )
-        )
-        c.drawString(55, y, line[:120])
-        y -= 11
-        if y < 80:
-            c.showPage()
-            y = h - 50
-            c.setFont("Helvetica", 9)
-
-    c.showPage()
-    c.save()
-    return buf.getvalue()
-
-
-# ============================================================
-# EXECUTE mode handler
-# ============================================================
-def _handle_execute_mode(
-    req: Any,
-    session: Dict[str, Any],
-    prompt: str,
-    thread_id: str,
-    persona: str,
-    messages: List[Dict[str, str]],
-) -> Dict[str, Any]:
-    t0 = time.time()
-    session_id = session.get("id")
-
-    base_url = H.pick_base_url(req, session, prompt)
-
-    if not base_url:
-        answer = (
-            "To execute I need:\n"
-            "- URL (or say “same”)\n"
-            "- What to validate (button / field / expected text)\n"
-            "- Credentials (if applicable)"
-        )
-        store.add_message(thread_id, "assistant", answer, meta={"mode": "execute", "persona": persona})
-        return {
-            "mode": "execute",
-            "persona": persona,
-            "session_id": session_id,
-            "thread_id": thread_id,
-            "answer": answer,
-            **_confidence("execute", prompt, None),
-        }
-
-    # 0) Login Intent Resolver (determinístico, evita falsos PASSED)
-    steps = None
-    try:
-        steps = build_login_steps(base_url=base_url, prompt=prompt)
-        if steps:
-            logger.info("Login intent resolver applied (deterministic steps)")
-    except Exception:
-        logger.exception("build_login_steps failed (continuing with normal parser)")
-
-    # 1) Deterministic parser
-    if not steps:
-        steps = _parse_steps_from_prompt(prompt, base_url)
-
-    # 2) LLM fallback for steps
-    if not steps:
-        client = _client()
-        resp = client.chat.completions.create(
-            model=settings.OPENAI_MODEL,
-            messages=messages
-            + [
-                {
-                    "role": "user",
-                    "content": (
-                        f"Base URL: {base_url}\n"
-                        f"Generate Playwright steps to:\n{prompt}\n"
-                        'Return ONLY valid JSON: {"steps": [...]}'
-                    ),
-                }
-            ],
-            temperature=settings.EXEC_TEMPERATURE,
-            max_tokens=settings.EXEC_MAX_TOKENS,
-        )
-        raw = (resp.choices[0].message.content or "").strip()
-        steps = H.extract_steps_from_text(raw)
-
-    if not steps:
-        answer = "I couldn't generate executable steps. Tell me the exact element (selector) or expected text."
-        store.add_message(
-            thread_id,
-            "assistant",
-            answer,
-            meta={"mode": "execute", "persona": persona, "base_url": base_url},
-        )
-        return {
-            "mode": "execute",
-            "persona": persona,
-            "session_id": session_id,
-            "thread_id": thread_id,
-            "answer": answer,
-            **_confidence("execute", prompt, base_url),
-        }
-
-    steps = _ensure_has_assert(steps, base_url)
-
-    # 3) Execute runner
-    runner_any: Any = {}
-    runner: Dict[str, Any] = {}
-
-    try:
-        runner_any = execute_test(
-            base_url=base_url,
-            steps=steps,
-            headless=bool(getattr(req, "headless", True)),
-            timeout_s=settings.RUNNER_TIMEOUT_S,
-        )
-        runner = runner_any if isinstance(runner_any, dict) else {}
-    except Exception as e:
-        logger.exception("Runner execution failed")
-        answer = (
-            "I couldn't run the test.\n"
-            "Check:\n"
-            "- URL accessible\n"
-            "- Credentials (if any)\n"
-            "- What exactly to validate (text/button/element)\n"
-            "Then retry."
-        )
-        store.add_message(
-            thread_id,
-            "assistant",
-            answer,
-            meta={
-                "mode": "execute",
-                "persona": persona,
-                "error": f"{type(e).__name__}: {e}",
-                "base_url": base_url,
-                "steps": steps,
-            },
-        )
-        return {
-            "mode": "execute",
-            "persona": persona,
-            "session_id": session_id,
-            "thread_id": thread_id,
-            "answer": answer,
-            "error": f"{type(e).__name__}: {e}",
-            **_confidence("execute", prompt, base_url),
-        }
-
-    ok = bool(runner.get("ok", True))
-    status = str(runner.get("status") or ("passed" if ok else "failed")).strip().lower() or (
-        "passed" if ok else "failed"
-    )
-    if status not in ("passed", "failed", "unknown"):
-        status = "passed" if ok else "failed"
-
-    msg = str(runner.get("message") or runner.get("detail") or runner.get("reason") or "").strip()
-
-    duration_ms = runner.get("duration_ms")
-    try:
-        duration_ms = int(duration_ms) if duration_ms is not None else int((time.time() - t0) * 1000)
-    except Exception:
-        duration_ms = int((time.time() - t0) * 1000)
-
-    status_label = "PASSED" if status == "passed" else "FAILED" if status == "failed" else "UNKNOWN"
-
-    evidence_url: Optional[str] = None
-    report_url: Optional[str] = None
-    screenshot_data_url: Optional[str] = None
-
-    # 4) Evidence: runner.raw.screenshot_b64 -> Cloudinary
-    evidence_id, b64 = _pull_evidence_fields(runner)
-    if not evidence_id:
-        evidence_id = f"EV-{uuid.uuid4().hex[:10]}"
-
-    if b64:
-        screenshot_data_url = _make_png_data_url(b64)
-
-    try:
-        if screenshot_data_url and getattr(settings, "HAS_CLOUDINARY", False):
-            res = cloud_upload_screenshot_b64(
-                str(screenshot_data_url),
-                evidence_id=evidence_id,
-            )
-            if isinstance(res, dict):
-                evidence_url = (res.get("secure_url") or res.get("url") or "").strip() or None
-            else:
-                evidence_url = str(res).strip() or None
-
-        if not evidence_url:
-            raw0 = runner.get("raw", {}) if isinstance(runner.get("raw"), dict) else {}
-            evidence_url = (
-                runner.get("evidence_url")
-                or runner.get("screenshot_url")
-                or raw0.get("evidence_url")
-                or raw0.get("screenshot_url")
-            )
-    except Exception:
-        logger.exception("Evidence upload failed (continuing)")
-
-    # 5) PDF report: ALWAYS build bytes (fallback). Upload best-effort. Surface pdf_error.
-    pdf_error: Optional[str] = None
-    pdf_bytes: Optional[bytes] = None
-
-    # 5.1) Try report_service FIRST, but do NOT let it abort the fallback
-    try:
-        rep = generate_pdf_report(
-            prompt=prompt,
-            base_url=base_url,
-            runner={**runner, "screenshot_data_url": screenshot_data_url} if screenshot_data_url else runner,
-            steps=steps,
-            evidence_id=evidence_id,
-            meta={
-                "thread_id": thread_id,
-                "session_id": session_id,
-                "headless": getattr(req, "headless", True),
-            },
-        )
-
-        # If it returned a file path, try to read it
-        if isinstance(rep, dict) and rep.get("report_path"):
-            rp = str(rep.get("report_path") or "").strip()
-            if rp and os.path.exists(rp):
-                with open(rp, "rb") as f:
-                    pdf_bytes = f.read()
-
-    except Exception as e:
-        # IMPORTANT: keep going to fallback
-        pdf_error = f"report_service failed: {type(e).__name__}: {e}"
-        logger.exception("report_service generate_pdf_report failed (will fallback)")
-
-    # 5.2) Fallback: ALWAYS build a minimal PDF in memory if we don't have bytes yet
-    if not pdf_bytes:
-        try:
-            pdf_bytes = _build_fallback_pdf_bytes(
-                prompt=prompt,
-                base_url=base_url,
-                status=status,
-                duration_ms=duration_ms,
-                evidence_id=(evidence_id or "EV-unknown"),
-                evidence_url=evidence_url,
-                steps=steps,
-                runner=runner,
-            )
-        except Exception as e:
-            pdf_error = (pdf_error or "") + f" | fallback_pdf failed: {type(e).__name__}: {e}"
-            logger.exception("fallback PDF generation failed")
-
-    # 5.3) Upload to Cloudinary RAW (best-effort)
-    if not getattr(settings, "HAS_CLOUDINARY", False):
-        pdf_error = pdf_error or "HAS_CLOUDINARY is false"
-    elif not pdf_bytes:
-        pdf_error = pdf_error or "pdf_bytes empty"
-    elif len(pdf_bytes) <= 800:
-        pdf_error = pdf_error or f"pdf_bytes too small: {len(pdf_bytes)}"
-    else:
-        try:
-            res_pdf = cloud_upload_pdf_bytes(
-                pdf_bytes,
-                evidence_id=(evidence_id or "EV-unknown"),
-            )
-
-            if isinstance(res_pdf, dict):
-                report_url = (res_pdf.get("secure_url") or res_pdf.get("url") or "").strip() or None
-            else:
-                report_url = str(res_pdf).strip() or None
-
-            if not report_url:
-                pdf_error = pdf_error or "Cloudinary upload returned no secure_url/url"
-
-        except Exception as e:
-            pdf_error = pdf_error or f"cloudinary upload failed: {type(e).__name__}: {e}"
-            logger.exception("Cloudinary PDF upload failed")
-
-    # 6) Save run best-effort (include pdf_error)
-    try:
-        from services.run_store import save_run
-
-        save_run(
-            {
-                **(runner if isinstance(runner, dict) else {}),
-                "evidence_id": evidence_id,
-                "base_url": base_url,
-                "prompt": prompt,
-                "steps": steps,
-                "evidence_url": evidence_url,
-                "report_url": report_url,
-                "pdf_error": pdf_error,
-                "duration_ms": duration_ms,
-                "thread_id": thread_id,
-                "session_id": session_id,
-                "mode": "execute",
-                "status": status,
-                "status_label": status_label,
-            }
-        )
-    except Exception:
-        logger.exception("save_run failed (continuing)")
-
-    # 7) Final answer + stable meta
-    answer = _render_execute_answer(
-        status=status,
-        msg=msg,
-        evidence_url=evidence_url,
-        report_url=report_url,
-        evidence_id=evidence_id,
-        pdf_error=pdf_error,
-    )
-
-    meta_runner = dict(runner) if isinstance(runner, dict) else {}
-    meta_runner.setdefault("status", status)
-    meta_runner.setdefault("duration_ms", duration_ms)
-    if screenshot_data_url:
-        meta_runner["screenshot_data_url"] = screenshot_data_url
-
-    meta = {
-        "mode": "execute",
-        "persona": persona,
-        "base_url": base_url,
-        "steps": steps,
-        "runner": {
-            "status": status,
-            "evidence_url": evidence_url,
-            "report_url": report_url,
-            "duration_ms": duration_ms,
-            "raw": meta_runner,
-            "pdf_error": pdf_error,
-        },
-        "evidence_url": evidence_url,
-        "report_url": report_url,
-        "pdf_error": pdf_error,
-        "duration_ms": duration_ms,
-        "status_label": status_label,
-        "evidence_id": evidence_id,
-    }
-
-    meta = _normalize_runner_meta(meta)
-    store.add_message(thread_id, "assistant", answer, meta=meta)
-
-    return {
-        "mode": "execute",
-        "persona": persona,
-        "session_id": session_id,
-        "thread_id": thread_id,
-        "answer": answer,
-        "runner": meta["runner"],
-        "status_label": status_label,
-        "evidence_id": evidence_id,
-        "evidence_url": meta["runner"].get("evidence_url"),
-        "report_url": meta["runner"].get("report_url"),
-        "duration_ms": meta["runner"].get("duration_ms"),
-        **_confidence("execute", prompt, base_url),
-    }
-
-
-# ============================================================
 # MAIN
 # ============================================================
 def handle_chat_run(req: Any) -> Dict[str, Any]:
@@ -1000,25 +385,30 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
     if not prompt:
         raise HTTPException(status_code=400, detail="Empty prompt")
 
+    # Session
     session_id, session = H.get_session(getattr(req, "session_id", None))
     session["id"] = session_id
 
+    # Language
     try:
         lang = detect_language(prompt, session)
     except Exception:
         lang = "es"
     session["lang"] = lang
 
+    # Thread
     thread_id = (getattr(req, "thread_id", None) or "").strip() or None
     if not thread_id:
         t = store.create_thread(title=(prompt[:60] or "New chat"))
         thread_id = t["id"]
 
+    # Persist user message
     try:
         store.add_message(thread_id, "user", prompt, meta={"mode_hint": "input"})
     except Exception:
         logger.warning("Failed to persist user message (continuing)", exc_info=True)
 
+    # History
     try:
         thread = store.get_thread(thread_id)
         history_msgs = (thread.get("messages") or [])[-settings.MAX_HISTORY_MSGS :]
@@ -1028,12 +418,18 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
 
     should_intro = _should_introduce(history_msgs)
 
+    # MEMORY branch
     if _is_memory_query(prompt):
         mem = _summarize_last_execute(history_msgs)
         if not mem:
-            answer = "I don't see a previous execution in this chat yet. Ask me to run a test first."
+            answer = (
+                "I don't see a previous execution in this chat yet. "
+                "Ask me to run a test first."
+            )
             try:
-                store.add_message(thread_id, "assistant", answer, meta={"mode": "advise", "memory": True})
+                store.add_message(
+                    thread_id, "assistant", answer, meta={"mode": "advise", "memory": True}
+                )
             except Exception:
                 pass
             return {
@@ -1047,7 +443,12 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
 
         answer = mem["answer"]
         try:
-            store.add_message(thread_id, "assistant", answer, meta={"mode": "advise", "memory": True, **mem})
+            store.add_message(
+                thread_id,
+                "assistant",
+                answer,
+                meta={"mode": "advise", "memory": True, **mem},
+            )
         except Exception:
             pass
 
@@ -1063,21 +464,25 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             **_confidence("advise", prompt, mem.get("base_url")),
         }
 
+    # Intent -> mode
     intent = _detect_intent(prompt)
     mode = "execute" if intent == "execute" else "doc" if intent == "doc" else "advise"
     persona = _persona(prompt, mode)
 
+    # System prompt
     sys_prompt = _system_prompt_for_mode(mode=mode, lang=lang, should_intro=should_intro)
     messages: List[Dict[str, str]] = [{"role": "system", "content": sys_prompt}]
 
+    # Context/history
     for m in history_msgs:
         role = (m.get("role") or "assistant").strip()
         content = (m.get("content") or "").strip()
         if content:
             messages.append({"role": role, "content": content})
 
+    # EXECUTE
     if mode == "execute":
-        return _handle_execute_mode(
+        return handle_execute_mode(
             req=req,
             session=session,
             prompt=prompt,
@@ -1088,33 +493,35 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
 
     client = _client()
 
+    # DOC
     if mode == "doc":
         resp = client.chat.completions.create(
             model=settings.OPENAI_MODEL,
-            messages=messages + [{"role": "user", "content": "Return ONLY valid JSON. No additional text."}],
+            messages=messages
+            + [
+                {
+                    "role": "user",
+                    "content": (
+                        "Generate the QA artifact for the previous request.\n"
+                        "Return ONLY one valid JSON object with keys: executive, qa, artifact.\n"
+                        "No additional text, no markdown, no comments."
+                    ),
+                }
+            ],
             temperature=settings.DOC_TEMPERATURE,
             max_tokens=settings.DOC_MAX_TOKENS,
         )
         raw = (resp.choices[0].message.content or "").strip()
-        doc_json = _extract_json_object(raw)
 
-        if not isinstance(doc_json, dict):
-            doc_json = {
-                "executive_view": {
-                    "title": "QA Artifact",
-                    "objective": "Model did not return valid JSON. Fallback shown.",
-                    "top_risks": [],
-                    "matrix_summary": [],
-                },
-                "qa_view": {"sections": [{"title": "Model output", "content": raw[:4000] if raw else "No content"}]},
-            }
+        doc_raw = _extract_json_object(raw)
+        doc_json = _normalize_doc_json(doc_raw or {}, raw)
 
         answer = _render_doc_answer_from_json(doc_json)
         store.add_message(
             thread_id,
             "assistant",
             answer,
-            meta={"mode": "doc", "persona": persona, "doc_json": doc_json, "doc_schema": "v1"},
+            meta={"mode": "doc", "persona": persona, "doc_json": doc_json, "doc_schema": "v2"},
         )
         return {
             "mode": "doc",
@@ -1136,11 +543,16 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
                 "content": (
                     "QA context (do not repeat verbatim; use it to prioritize):\n\n"
                     "Suggested risks:\n"
-                    "P0:\n- " + "\n- ".join((risk.get("p0") or [])[:3]) +
-                    "\nP1:\n- " + "\n- ".join((risk.get("p1") or [])[:3]) +
-                    "\nP2:\n- " + "\n- ".join((risk.get("p2") or [])[:3]) +
-                    "\n\nSuggested NEGATIVE cases:\n- " + "\n- ".join((neg.get("negative") or [])[:8]) +
-                    "\n\nSuggested EDGE cases:\n- " + "\n- ".join((neg.get("edge") or [])[:8])
+                    "P0:\n- "
+                    + "\n- ".join((risk.get("p0") or [])[:3])
+                    + "\nP1:\n- "
+                    + "\n- ".join((risk.get("p1") or [])[:3])
+                    + "\nP2:\n- "
+                    + "\n- ".join((risk.get("p2") or [])[:3])
+                    + "\n\nSuggested NEGATIVE cases:\n- "
+                    + "\n- ".join((neg.get("negative") or [])[:8])
+                    + "\n\nSuggested EDGE cases:\n- "
+                    + "\n- ".join((neg.get("edge") or [])[:8])
                 ),
             }
         )
