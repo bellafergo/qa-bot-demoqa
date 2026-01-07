@@ -1,23 +1,20 @@
-# Imagen oficial de Playwright (YA TRAE CHROMIUM)
+# Usa la imagen oficial de Playwright para Python (ya incluye Chromium y dependencias)
 FROM mcr.microsoft.com/playwright/python:v1.49.0-jammy
 
-# Variables Python
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-
-# Directorio de trabajo
+# Directorio de trabajo dentro del contenedor
 WORKDIR /app
 
-# Copiar dependencias
+# Copiamos solo requirements primero para aprovechar cache
 COPY requirements.txt .
 
-RUN pip install --upgrade pip && pip install -r requirements.txt
+# Instalamos dependencias de Python (incluye playwright en tu requirements)
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copiar el código
+# Copiamos el resto del proyecto
 COPY . .
 
-# Puerto FastAPI
-EXPOSE 8000
+# Render expone el puerto vía la variable de entorno PORT
+ENV PORT=10000
 
-# Arranque
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+# Comando de arranque – usa el PORT que le da Render
+CMD ["bash", "-c", "uvicorn app:app --host 0.0.0.0 --port ${PORT}"]
