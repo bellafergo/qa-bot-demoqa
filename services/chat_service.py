@@ -614,11 +614,14 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             **_confidence("doc", prompt, None),
         }
 
-  # ADVISE: solo agregar contexto en modo advise
+    # ============================================================
+    # ADVISE CONTEXT (riesgos / negativos / edge ONLY para advise)
+    # ============================================================
     if mode == "advise":
         try:
             risk = build_risk_brief(prompt)
             neg = build_negative_and_edge_cases(risk.get("domain", "general"))
+
             messages.append(
                 {
                     "role": "user",
