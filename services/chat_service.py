@@ -259,12 +259,83 @@ def _should_introduce(history_msgs: List[Dict[str, Any]]) -> bool:
 # MODE / PERSONA / PROMPT helpers
 # ============================================================
 def _detect_intent(prompt: str) -> str:
+    """
+    Decide el modo: execute | doc | chat (que luego mapeamos a advise).
+    Regla:
+    - Web + verbo de acción => execute
+    - Palabras de artefacto / matriz / Gherkin => doc
+    - Sino, usamos el intent_router como apoyo, pero nunca forzamos doc/execute
+      si no hay señales claras.
+    """
+    p = (prompt or "").lower()
+
+    if not p:
+        return "chat"
+
+    # 1) EXECUTE forzado: URL + verbo de acción
+    has_url = ("http://" in p) or ("https://" in p) or ("www." in p)
+    has_web_verb = any(
+        kw in p
+        for kw in [
+            "ve a",
+            "vete a",
+            "abre ",
+            "abrir ",
+            "ejecuta",
+            "ejecutar",
+            "valida",
+            "validar",
+            "prueba ",
+            "probar ",
+            "haz click",
+            "haz clic",
+            "da click",
+            "da clic",
+            "click en",
+            "login",
+            "inicia sesión",
+            "iniciar sesion",
+        ]
+    )
+
+    if has_url and has_web_verb:
+        return "execute"
+
+    # 2) DOC forzado: cuando claramente piden artefacto / matriz / casos
+    doc_keywords = [
+        "artefacto qa",
+        "artefacto de qa",
+        "matriz de pruebas",
+        "matriz de test",
+        "matriz de casos",
+        "casos de prueba",
+        "casos de test",
+        "escenarios gherkin",
+        "escenario gherkin",
+        "feature gherkin",
+        "documenta este flujo",
+        "documenta el flujo",
+        "documentación de pruebas",
+        "documentacion de pruebas",
+        "formato de casos",
+        "plantilla de pruebas",
+        "plantilla de casos",
+    ]
+    if any(kw in p for kw in doc_keywords):
+        return "doc"
+
+    # 3) Fallback: usamos el intent_router como sugerencia,
+    #    pero solo aceptamos execute/doc explícitos
     try:
         out = detect_intent_router(prompt)
         if isinstance(out, str):
-            return out.strip().lower()
+            out_norm = out.strip().lower()
+            if out_norm in ("execute", "doc"):
+                return out_norm
     except Exception:
         pass
+
+    # 4) Default: chat => lo mapeamos a ADVISE
     return "chat"
 
 
