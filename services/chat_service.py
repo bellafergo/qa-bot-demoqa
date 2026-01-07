@@ -550,7 +550,7 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
 
     # EXECUTE
     if mode == "execute":
-        return _handle_execute_mode(
+        return handle_execute_mode(
             req=req,
             session=session,
             prompt=prompt,
