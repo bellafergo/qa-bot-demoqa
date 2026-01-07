@@ -563,7 +563,7 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
 
     # EXECUTE
     if mode == "execute":
-        return handle_execute_mode(
+        return _handle_execute_mode(
             req=req,
             session=session,
             prompt=prompt,
@@ -574,7 +574,7 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
 
     client = _client()
 
-    # DOC
+    # DOC (artefactos QA en JSON estricto)
     if mode == "doc":
         resp = client.chat.completions.create(
             model=settings.OPENAI_MODEL,
@@ -582,20 +582,33 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             + [
                 {
                     "role": "user",
-                    "content": (
-                        "Generate the QA artifact for the previous request.\n"
-                        "Return ONLY one valid JSON object with keys: executive, qa, artifact.\n"
-                        "No additional text, no markdown, no comments."
-                    ),
+                    "content": "Return ONLY valid JSON. No additional text.",
                 }
             ],
             temperature=settings.DOC_TEMPERATURE,
             max_tokens=settings.DOC_MAX_TOKENS,
         )
         raw = (resp.choices[0].message.content or "").strip()
+        doc_json = _extract_json_object(raw)
 
-        doc_raw = _extract_json_object(raw)
-        doc_json = _normalize_doc_json(doc_raw or {}, raw)
+        # Fallback si el modelo no devuelve JSON válido
+        if not isinstance(doc_json, dict):
+            doc_json = {
+                "executive_view": {
+                    "title": "QA Artifact",
+                    "objective": "Model did not return valid JSON. Fallback shown.",
+                    "top_risks": [],
+                    "matrix_summary": [],
+                },
+                "qa_view": {
+                    "sections": [
+                        {
+                            "title": "Model output",
+                            "content": raw[:4000] if raw else "No content",
+                        }
+                    ]
+                },
+            }
 
         answer = _render_doc_answer_from_json(doc_json)
         store.add_message(
@@ -614,32 +627,34 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
             **_confidence("doc", prompt, None),
         }
 
-    # ADVISE
-    try:
-        risk = build_risk_brief(prompt)
-        neg = build_negative_and_edge_cases(risk.get("domain", "general"))
-        messages.append(
-            {
-                "role": "user",
-                "content": (
-                    "QA context (do not repeat verbatim; use it to prioritize):\n\n"
-                    "Suggested risks:\n"
-                    "P0:\n- "
-                    + "\n- ".join((risk.get("p0") or [])[:3])
-                    + "\nP1:\n- "
-                    + "\n- ".join((risk.get("p1") or [])[:3])
-                    + "\nP2:\n- "
-                    + "\n- ".join((risk.get("p2") or [])[:3])
-                    + "\n\nSuggested NEGATIVE cases:\n- "
-                    + "\n- ".join((neg.get("negative") or [])[:8])
-                    + "\n\nSuggested EDGE cases:\n- "
-                    + "\n- ".join((neg.get("edge") or [])[:8])
-                ),
-            }
-        )
-    except Exception:
-        logger.warning("risk engine failed (continuing)", exc_info=True)
+    # ADVISE (análisis + contexto de riesgos)
+    if mode == "advise":
+        try:
+            risk = build_risk_brief(prompt)
+            neg = build_negative_and_edge_cases(risk.get("domain", "general"))
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "QA context (do not repeat verbatim; use it to prioritize):\n\n"
+                        "Suggested risks:\n"
+                        "P0:\n- "
+                        + "\n- ".join((risk.get("p0") or [])[:3])
+                        + "\nP1:\n- "
+                        + "\n- ".join((risk.get("p1") or [])[:3])
+                        + "\nP2:\n- "
+                        + "\n- ".join((risk.get("p2") or [])[:3])
+                        + "\n\nSuggested NEGATIVE cases:\n- "
+                        + "\n- ".join((neg.get("negative") or [])[:8])
+                        + "\n\nSuggested EDGE cases:\n- "
+                        + "\n- ".join((neg.get("edge") or [])[:8])
+                    ),
+                }
+            )
+        except Exception:
+            logger.warning("risk engine failed (continuing)", exc_info=True)
 
+    # Llamada al modelo para ADVISE
     resp = client.chat.completions.create(
         model=settings.OPENAI_MODEL,
         messages=messages,
