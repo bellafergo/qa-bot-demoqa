@@ -447,6 +447,114 @@ def _summarize_last_execute(history_msgs: List[Dict[str, Any]]) -> Optional[Dict
 
 
 # ============================================================
+# HEB EXECUTE HELPER
+# ============================================================
+def _handle_heb_execute(
+    req: Any,
+    session: Dict[str, Any],
+    prompt: str,
+    thread_id: str,
+    persona: str,
+) -> Dict[str, Any]:
+    """
+    Atajo especial para compras completas en HEB.
+    Usa execute_heb_full_purchase del runner y respeta el contrato de respuesta
+    de modo 'execute' para la UI.
+    """
+    base_url = "https://www.heb.com.mx"
+    logs: List[str] = []
+
+    try:
+        runner_result = execute_heb_full_purchase(
+            headless=True,
+            timeout_s=90,
+            expected="pass",
+        )
+    except Exception as e:
+        reason = f"Error ejecutando flujo HEB: {type(e).__name__}: {e}"
+        logs.append(reason)
+        answer = (
+            "Intenté ejecutar la compra completa en HEB pero ocurrió un error técnico.\n\n"
+            f"Detalle: {reason}"
+        )
+        meta = {
+            "mode": "execute",
+            "persona": persona,
+            "base_url": base_url,
+            "runner": {
+                "status": "error",
+                "evidence_url": None,
+                "report_url": None,
+                "duration_ms": None,
+                "raw": {"error": reason},
+            },
+        }
+        meta = _normalize_runner_meta(meta)
+
+        try:
+            store.add_message(thread_id, "assistant", answer, meta=meta)
+        except Exception:
+            logger.warning("Failed to persist HEB error answer", exc_info=True)
+
+        return {
+            "mode": "execute",
+            "persona": persona,
+            "session_id": session["id"],
+            "thread_id": thread_id,
+            "answer": answer,
+            "runner": meta.get("runner"),
+            "evidence_url": meta.get("evidence_url"),
+            "report_url": meta.get("report_url"),
+            "duration_ms": meta.get("duration_ms"),
+            **_confidence("execute", prompt, base_url),
+        }
+
+    # Si llegó aquí, el runner terminó y tenemos runner_result
+    status = (runner_result.get("status") or "unknown").strip()
+    reason = runner_result.get("reason") or "Flujo HEB ejecutado."
+
+    human_status = "PASÓ ✅" if status == "passed" else "FALLÓ ❌"
+    answer = (
+        f"Ejecuté una compra completa en HEB (flujo automatizado).\n\n"
+        f"- Status del runner: **{status.upper()}** ({human_status})\n"
+        f"- Detalle: {reason}\n"
+        f"- Duración: {runner_result.get('duration_ms', 0)} ms"
+    )
+
+    meta = {
+        "mode": "execute",
+        "persona": persona,
+        "base_url": base_url,
+        "runner": {
+            "status": status,
+            "evidence_url": None,
+            "report_url": None,
+            "duration_ms": runner_result.get("duration_ms"),
+            "raw": runner_result,
+        },
+    }
+    meta = _normalize_runner_meta(meta)
+
+    try:
+        store.add_message(thread_id, "assistant", answer, meta=meta)
+    except Exception:
+        logger.warning("Failed to persist HEB execute answer", exc_info=True)
+
+    return {
+        "mode": "execute",
+        "persona": persona,
+        "session_id": session["id"],
+        "thread_id": thread_id,
+        "answer": answer,
+        "runner": meta.get("runner"),
+        "evidence_url": meta.get("evidence_url"),
+        "report_url": meta.get("report_url"),
+        "duration_ms": meta.get("duration_ms"),
+        **_confidence("execute", prompt, base_url),
+    }
+
+
+# ============================================================
 # MAIN
 # ============================================================
 def handle_chat_run(req: Any) -> Dict[str, Any]:
@@ -551,6 +659,30 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
 
     # EXECUTE
     if mode == "execute":
+        p_low = (prompt or "").lower()
+
+        # Atajo especial HEB: si el usuario habla de HEB y de comprar, usamos el runner dedicado
+        if ("heb" in p_low or "heb.com.mx" in p_low) and any(
+            kw in p_low
+            for kw in [
+                "compra completa",
+                "compra en heb",
+                "haz una compra",
+                "realiza una compra",
+                "finaliza la compra",
+                "termina la compra",
+                "comprar en heb",
+            ]
+        ):
+            return _handle_heb_execute(
+                req=req,
+                session=session,
+                prompt=prompt,
+                thread_id=thread_id,
+                persona=persona,
+            )
+
+        # Para todo lo demás, seguimos usando el engine normal
         return handle_execute_mode(
             req=req,
             session=session,

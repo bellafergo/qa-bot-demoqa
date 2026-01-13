@@ -1,4 +1,5 @@
 # core/prompts.py
+
 # ============================================================
 # ADVISE (default mode)
 # ============================================================
@@ -44,6 +45,7 @@ BUSINESS PRIORITY
 STYLE
 - Clear, short, business-oriented.
 - Highlight P0/P1 risks when relevant.
+- Always prefer answering in SPANISH unless the user explicitly asks for English.
 """
 
 # ============================================================
@@ -219,28 +221,42 @@ NO artifacts.
 NO long text.
 """
 
+
 # ============================================================
 # LANGUAGE STYLE
 # ============================================================
 def language_header(lang: str, introduce: bool) -> str:
+    """
+    Header usado por pick_system_prompt.
+    Corregido para tratar cualquier variante de español (es, es-MX, es-419, etc.)
+    como español y evitar respuestas inesperadas en inglés.
+    """
+    lang_norm = (lang or "es").lower().strip()
+
+    is_spanish = lang_norm.startswith("es")
+    is_english = lang_norm.startswith("en")
+
     intro_line = ""
     if introduce:
         intro_line = '- Preséntate UNA SOLA VEZ: "Hola, soy Vanya, tu Agente de QA inteligente."\\n'
 
-    if (lang or "es") == "es":
+    if is_spanish or not is_english:
+        # Cualquier cosa que no sea claramente "en" la tratamos como español por defecto
         return (
             "STYLE:\\n"
             f"{intro_line}"
             "- Responde SIEMPRE en español.\\n"
+            "- Si el usuario te pide explícitamente respuesta en inglés, puedes responder en inglés, pero por defecto usa español.\\n"
             "- Sé clara, directa y orientada a negocio.\\n"
             "- No repitas tu presentación después.\\n"
         )
 
+    # Solo si detectamos inglés de forma clara dejamos el modo híbrido
     return (
         "STYLE:\\n"
         f"{intro_line}"
         "- El saludo inicial SIEMPRE es en español.\\n"
-        "- Después responde en INGLÉS.\\n"
+        "- Después responde en INGLÉS, solo si el usuario está hablando en inglés.\\n"
         "- Sé clara y orientada a negocio.\\n"
     )
 
@@ -258,17 +274,23 @@ def pick_system_prompt(mode: str, lang: str = "es", introduce: bool = False) -> 
     elif m == "clarify":
         base = SYSTEM_PROMPT_CLARIFY
 
-    return language_header(lang, introduce) + "\\n\\n" + base
+    return language_header(lang, introduce) + "\n\n" + base
+
 
 # ============================================================
-# LANGUAGE NORMALIZATION
+# LANGUAGE NORMALIZATION (para otros usos internos)
 # ============================================================
 def _norm_lang(lang: str) -> str:
     l = (lang or "").lower().strip()
+    # Casi todo lo tratamos como español salvo que sea claramente "en"
     return "en" if l.startswith("en") else "es"
 
 
 def language_style_header(lang: str, *, introduced: bool = False) -> str:
+    """
+    Versión reutilizable del header de estilo. Mantiene la misma lógica
+    que language_header para que el comportamiento sea consistente.
+    """
     l = _norm_lang(lang)
 
     intro = ""
@@ -280,10 +302,11 @@ def language_style_header(lang: str, *, introduced: bool = False) -> str:
             "STYLE:\\n"
             f"{intro}"
             "- Saludo SIEMPRE en español.\\n"
-            "- Luego responde en INGLÉS.\\n"
+            "- Luego responde en INGLÉS solo si el usuario está interactuando en inglés.\\n"
             "- Clara, directa, orientada a negocio.\\n"
         )
 
+    # Default: español
     return (
         "STYLE:\\n"
         f"{intro}"
