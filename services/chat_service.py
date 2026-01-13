@@ -571,6 +571,18 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         lang = detect_language(prompt, session)
     except Exception:
         lang = "es"
+
+    # 🔧 Fix: si el detector dice "en" pero el texto tiene pinta de español, forzamos "es"
+    p_lower = prompt.lower()
+    spanish_markers = [
+        " hola", "¿", "¡", "prueba", "pruebas",
+        "ejecuta", "ejecutar", "sesión", "sesion",
+        "login", "flujo", "historia de usuario", "casos de prueba",
+        "qué ", "que ", "valida", "validar",
+    ]
+    if (lang or "").lower().startswith("en") and any(m in p_lower for m in spanish_markers):
+        lang = "es"
+
     session["lang"] = lang
 
     # Thread

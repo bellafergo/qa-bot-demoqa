@@ -8,7 +8,7 @@
 # ============================================================
 
 from __future__ import annotations
-
+import re
 import base64
 import time
 import uuid
@@ -171,7 +171,6 @@ def take_screenshot_robust(page) -> Tuple[Optional[str], List[str]]:
     )
     return None, logs
 
-
 # ============================================================
 # Runner ESPECIAL HEB (flujo fijo de compra completa)
 # ============================================================
@@ -252,6 +251,8 @@ def execute_heb_full_purchase(
         timeout_ms_global = max(1000, int(timeout_s) * 1000)
 
     page = None
+    browser = None
+    context = None
 
     try:
         with sync_playwright() as p:
@@ -267,10 +268,30 @@ def execute_heb_full_purchase(
 
             try:
                 # 1) Home HEB
-                page.goto(base_url, wait_until="domcontentloaded")
+                page.goto(base_url, wait_until="domcontentloaded", timeout=timeout_ms_global or 60000)
+                page.wait_for_timeout(3000)
 
-                # 2) Iniciar sesión
-                page.get_by_role("link", name="Iniciar sesión").click()
+                # 2) Iniciar sesión (selectores robustos)
+                try:
+                    # Intentar como link de navegación
+                    login_link = page.get_by_role(
+                        "link",
+                        name=re.compile(r"Iniciar sesión|Inicia sesión", re.IGNORECASE),
+                    )
+                except PlaywrightError:
+                    try:
+                        # Intentar como botón
+                        login_link = page.get_by_role(
+                            "button",
+                            name=re.compile(r"Iniciar sesión|Inicia sesión", re.IGNORECASE),
+                        )
+                    except PlaywrightError:
+                        # Último recurso: por texto en la página
+                        login_link = page.get_by_text(
+                            re.compile(r"Iniciar sesión|Inicia sesión", re.IGNORECASE)
+                        ).first
+
+                login_link.click(timeout=timeout_ms_global or 90000)
 
                 # 3) Login – correo
                 page.get_by_placeholder("Correo electrónico").fill(email)
@@ -280,9 +301,9 @@ def execute_heb_full_purchase(
                 page.get_by_placeholder("Contraseña").fill(password)
                 # botón puede llamarse "Iniciar sesión" o "Continuar"
                 try:
-                    page.get_by_role("button", name="Iniciar sesión").click()
+                    page.get_by_role("button", name=re.compile(r"Iniciar sesión", re.IGNORECASE)).click()
                 except Exception:
-                    page.get_by_role("button", name="Continuar").click()
+                    page.get_by_role("button", name=re.compile(r"Continuar", re.IGNORECASE)).click()
 
                 page.wait_for_url(lambda url: "heb.com.mx" in url, timeout=20000)
                 page.wait_for_timeout(3000)  # que cargue header "Hola, ..."
@@ -447,7 +468,6 @@ def execute_heb_full_purchase(
             "viewport": {"width": vw, "height": vh},
         },
     }
-
 
 # ============================================================
 # Runner GENÉRICO POR STEPS (lo que ya tenías)
