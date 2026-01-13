@@ -262,47 +262,84 @@ def _should_introduce(history_msgs: List[Dict[str, Any]]) -> bool:
 def _detect_intent(prompt: str) -> str:
     """
     Decide el modo: execute | doc | chat (que luego mapeamos a advise).
-    Regla:
+
+    Reglas clave:
     - Web + verbo de acción => execute
+    - Frases de "flujo especial HEB" / "runner especial HEB" => execute
     - Palabras de artefacto / matriz / Gherkin => doc
-    - Sino, usamos el intent_router como apoyo, pero nunca forzamos doc/execute
-      si no hay señales claras.
+    - Sino, usamos el intent_router como apoyo.
     """
     p = (prompt or "").lower()
 
     if not p:
         return "chat"
 
-    # 1) EXECUTE forzado: URL + verbo de acción
-    has_url = ("http://" in p) or ("https://" in p) or ("www." in p)
-    has_web_verb = any(
-        kw in p
-        for kw in [
-            "ve a",
-            "vete a",
-            "abre ",
-            "abrir ",
-            "ejecuta",
-            "ejecutar",
-            "valida",
-            "validar",
-            "prueba ",
-            "probar ",
-            "haz click",
-            "haz clic",
-            "da click",
-            "da clic",
-            "click en",
-            "login",
-            "inicia sesión",
-            "iniciar sesion",
-        ]
-    )
+    # ------------------------------------------------------------
+    # 1) Verbos que indican intención de EJECUTAR algo
+    # ------------------------------------------------------------
+    web_verbs = [
+        "ve a",
+        "vete a",
+        "abre ",
+        "abrir ",
+        "ejecuta",
+        "ejecutar",
+        "valida",
+        "validar",
+        "prueba ",
+        "probar ",
+        "haz click",
+        "haz clic",
+        "da click",
+        "da clic",
+        "click en",
+        "login",
+        "inicia sesión",
+        "iniciar sesion",
+        "usa ",
+        "usar ",
+        "utiliza",
+        "utilizar",
+        "corre ",
+        "correr ",
+        "lanza ",
+        "lanzar ",
+    ]
 
+    has_web_verb = any(kw in p for kw in web_verbs)
+
+    has_url = ("http://" in p) or ("https://" in p) or ("www." in p)
+
+    # ------------------------------------------------------------
+    # 2) Heurística general: URL + verbo de acción => EXECUTE
+    # ------------------------------------------------------------
     if has_url and has_web_verb:
         return "execute"
 
-    # 2) DOC forzado: cuando claramente piden artefacto / matriz / casos
+    # ------------------------------------------------------------
+    # 3) ⚡ Regla especial HEB:
+    #    Frases como:
+    #    - "flujo especial HEB"
+    #    - "runner especial HEB"
+    #    - "usa el flujo especial de HEB"
+    #    deben forzar EXECUTE aunque NO haya URL.
+    # ------------------------------------------------------------
+    heb_keywords = [
+        "flujo especial heb",
+        "runner especial heb",
+        "flujo heb",
+        "flujo de heb",
+        "runner heb",
+        "heb ",
+        "heb.com.mx",
+    ]
+
+    if has_web_verb and any(kw in p for kw in heb_keywords):
+        return "execute"
+
+    # ------------------------------------------------------------
+    # 4) DOC forzado: cuando claramente piden artefacto / matriz / casos
+    # ------------------------------------------------------------
     doc_keywords = [
         "artefacto qa",
         "artefacto de qa",
@@ -325,22 +362,24 @@ def _detect_intent(prompt: str) -> str:
     if any(kw in p for kw in doc_keywords):
         return "doc"
 
-    # 3) Fallback: usamos el intent_router como sugerencia,
+    # ------------------------------------------------------------
+    # 5) Fallback: usamos el intent_router como sugerencia,
     #    pero SOLO confiamos en execute, y en doc solo si también hay keywords.
+    # ------------------------------------------------------------
     try:
         out = detect_intent_router(prompt)
         if isinstance(out, str):
             out_norm = out.strip().lower()
-            # El router puede forzar execute
             if out_norm == "execute":
                 return "execute"
-            # Para doc, exigimos doble condición: router + keywords
             if out_norm == "doc" and any(kw in p for kw in doc_keywords):
                 return "doc"
     except Exception:
         pass
 
-    # 4) Default: chat => lo mapeamos a ADVISE
+    # ------------------------------------------------------------
+    # 6) Default: chat => mapeamos a ADVISE
+    # ------------------------------------------------------------
     return "chat"
 
 
