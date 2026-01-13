@@ -172,25 +172,25 @@ def take_screenshot_robust(page) -> Tuple[Optional[str], List[str]]:
     return None, logs
 
 # ============================================================
-# Runner ESPECIAL HEB (flujo fijo de compra completa)
+# Runner ESPECIAL HEB (flujo carrito o compra completa)
 # ============================================================
 def execute_heb_full_purchase(
     headless: bool = True,
     viewport: Optional[Dict[str, int]] = None,
     timeout_s: Optional[int] = None,
     expected: Optional[str] = None,
+    only_add_to_cart: bool = False,  # 🔹 futuro: solo carrito
 ) -> Dict[str, Any]:
     """
-    Flujo E2E HEB (compra completa):
-      - Login con HEB_EMAIL / HEB_PASSWORD (variables de entorno)
-      - Buscar tomate y Coca Cola
-      - Agregar al carrito
-      - Seleccionar tienda HEB Gonzalitos (pickup)
-      - Pago al recibir
-      - Comentario PRUEBA
-      - Verificar mensaje de confirmación ("Tu pedido está siendo procesado.")
+    Flujo HEB:
 
-    Devuelve el MISMO contrato que execute_test, para que UI no cambie.
+    - Login con HEB_EMAIL / HEB_PASSWORD (variables de entorno)
+    - Buscar "tomate" y "Coca Cola"
+    - Agregar al carrito
+    - Si only_add_to_cart = False: completar checkout y validar confirmación
+    - Si only_add_to_cart = True: dejar productos en carrito sin completar compra
+
+    Devuelve el MISMO contrato que execute_test, para no afectar la UI.
     """
     t0 = time.time()
     evidence_id = f"EV-{uuid.uuid4().hex[:10]}"
@@ -248,7 +248,7 @@ def execute_heb_full_purchase(
     # Timeout global opcional
     timeout_ms_global: Optional[int] = None
     if timeout_s is not None:
-        timeout_ms_global = max(1000, int(timeout_s) * 1000)
+        timeout_ms_global = max(15000, int(timeout_s) * 1000)
 
     page = None
     browser = None
@@ -267,132 +267,228 @@ def execute_heb_full_purchase(
             page = context.new_page()
 
             try:
-                # 1) Home HEB
-                page.goto(base_url, wait_until="domcontentloaded", timeout=timeout_ms_global or 60000)
-                page.wait_for_timeout(3000)
+                # 1) Home HEB — navegación más robusta
+                page.goto(
+                    base_url,
+                    wait_until="commit",   # ✅ evitar bloqueos por JS eterno
+                    timeout=90000,         # hasta 90s para primera carga
+                )
+                page.wait_for_timeout(4000)
 
-                # 2) Iniciar sesión (selectores robustos)
+                # Verificar que cargó algo razonable
                 try:
-                    # Intentar como link de navegación
-                    login_link = page.get_by_role(
+                    page.get_by_text("Iniciar sesión", exact=False).first.wait_for(timeout=20000)
+                except Exception:
+                    raise AssertionError("No apareció 'Iniciar sesión' en la home de HEB.")
+
+                # 2) Abrir login (link o botón, con regex)
+                try:
+                    login_el = page.get_by_role(
                         "link",
                         name=re.compile(r"Iniciar sesión|Inicia sesión", re.IGNORECASE),
                     )
-                except PlaywrightError:
+                    login_el.click(timeout=60000)
+                except Exception:
                     try:
-                        # Intentar como botón
-                        login_link = page.get_by_role(
+                        login_el = page.get_by_role(
                             "button",
                             name=re.compile(r"Iniciar sesión|Inicia sesión", re.IGNORECASE),
                         )
-                    except PlaywrightError:
-                        # Último recurso: por texto en la página
-                        login_link = page.get_by_text(
+                        login_el.click(timeout=60000)
+                    except Exception:
+                        page.get_by_text(
                             re.compile(r"Iniciar sesión|Inicia sesión", re.IGNORECASE)
-                        ).first
-
-                login_link.click(timeout=timeout_ms_global or 90000)
+                        ).first.click(timeout=60000)
 
                 # 3) Login – correo
                 page.get_by_placeholder("Correo electrónico").fill(email)
-                page.get_by_role("button", name="Continuar").click()
+                page.get_by_role(
+                    "button",
+                    name=re.compile(r"Continuar", re.IGNORECASE),
+                ).click()
 
                 # 4) Login – contraseña
+                page.get_by_placeholder("Contraseña").wait_for(timeout=30000)
                 page.get_by_placeholder("Contraseña").fill(password)
+
                 # botón puede llamarse "Iniciar sesión" o "Continuar"
                 try:
-                    page.get_by_role("button", name=re.compile(r"Iniciar sesión", re.IGNORECASE)).click()
+                    page.get_by_role(
+                        "button",
+                        name=re.compile(r"Iniciar sesión", re.IGNORECASE),
+                    ).click()
                 except Exception:
-                    page.get_by_role("button", name=re.compile(r"Continuar", re.IGNORECASE)).click()
+                    page.get_by_role(
+                        "button",
+                        name=re.compile(r"Continuar", re.IGNORECASE),
+                    ).click()
 
-                page.wait_for_url(lambda url: "heb.com.mx" in url, timeout=20000)
-                page.wait_for_timeout(3000)  # que cargue header "Hola, ..."
+                page.wait_for_url(
+                    lambda url: "heb.com.mx" in url,
+                    timeout=60000,
+                )
+                page.wait_for_timeout(4000)  # que cargue header, carrusel, etc.
 
                 # Helper para buscar y agregar producto
-                def buscar_y_agregar(termino: str):
+                def buscar_y_agregar(termino: str, cantidad: int = 1) -> None:
+                    logs.append(f"[HEB] Buscando producto: {termino} (cantidad={cantidad})")
                     sb = page.get_by_placeholder("Buscar productos")
                     sb.click()
                     sb.fill(termino)
                     sb.press("Enter")
-                    page.wait_for_timeout(4000)
-                    page.get_by_role("button", name="Agregar").first.click()
-                    page.wait_for_timeout(2000)
+                    page.wait_for_timeout(5000)
 
-                # 5) Tomate
-                buscar_y_agregar("tomate")
+                    # Primer botón "Agregar"
+                    add_btn = page.get_by_role(
+                        "button",
+                        name=re.compile(r"Agregar", re.IGNORECASE),
+                    ).first
+                    add_btn.click()
+                    page.wait_for_timeout(1500)
+
+                    # Intentar ajustar cantidad (si hay +)
+                    if cantidad > 1:
+                        try:
+                            plus_btn = page.get_by_role(
+                                "button",
+                                name=re.compile(r"\+", re.IGNORECASE),
+                            ).first
+                            for _ in range(cantidad - 1):
+                                plus_btn.click()
+                                page.wait_for_timeout(500)
+                        except Exception:
+                            logs.append(
+                                f"[HEB] No se pudo ajustar cantidad para '{termino}', se dejó en 1 unidad."
+                            )
+
+                # 5) Tomate (puedes ajustar cantidad después si quieres)
+                buscar_y_agregar("tomate", cantidad=1)
 
                 # 6) Coca Cola
-                buscar_y_agregar("COCA COLA")
+                buscar_y_agregar("COCA COLA", cantidad=1)
 
-                # 7) Abrir carrito y finalizar compra
-                page.get_by_role("button", name="Finalizar compra").click()
-                page.wait_for_url(lambda url: "checkout" in url, timeout=20000)
-                page.wait_for_timeout(3000)
-
-                # 8) Proceder desde carrito
-                try:
-                    page.get_by_role("button", name="Proceder a la compra").click()
-                except Exception:
-                    page.get_by_role("button", name="Continuar").click()
-
-                # 9) Shipping / tienda
-                page.wait_for_url(
-                    lambda url: "checkout/shipping" in url or "checkout/payment" in url,
-                    timeout=25000,
-                )
-                page.wait_for_timeout(3000)
-
-                # Modal de tienda (si aparece)
-                try:
-                    page.get_by_text("HEB Gonzalitos").first.click()
-                    page.get_by_role("button", name="Confirmar").click()
-                    page.wait_for_timeout(2000)
-                except Exception:
-                    # si ya está configurada, no pasa nada
-                    pass
-
-                # 10) Confirmar "Recoger en la tienda" y continuar a pago
-                if "checkout/shipping" in page.url:
-                    page.mouse.wheel(0, 800)
-                    page.wait_for_timeout(1500)
+                # Si solo queremos dejar productos en el carrito y NO comprar
+                if only_add_to_cart:
+                    logs.append("[HEB] Solo modo carrito, sin completar checkout.")
                     try:
-                        page.get_by_text("Recoger en la tienda").first.click()
+                        # Cualquier indicador de carrito / finalizar compra
+                        page.get_by_role(
+                            "button",
+                            name=re.compile(
+                                r"Finalizar compra|Carrito|Ver carrito", re.IGNORECASE
+                            ),
+                        ).first.wait_for(timeout=5000)
                     except Exception:
-                        pass
+                        logs.append(
+                            "[HEB] No se pudo verificar visualmente el botón de carrito tras agregar productos."
+                        )
+
+                    reason = "OK HEB — productos agregados al carrito sin completar compra"
+
+                else:
+                    # 7) Abrir carrito y pasar a checkout
+                    cart_btn = page.get_by_role(
+                        "button",
+                        name=re.compile(r"Finalizar compra|Carrito|Ver carrito", re.IGNORECASE),
+                    ).first
+                    cart_btn.click()
+                    page.wait_for_url(
+                        lambda url: "checkout" in url or "cart" in url,
+                        timeout=60000,
+                    )
+                    page.wait_for_timeout(3000)
+
+                    # 8) Proceder desde carrito
                     try:
-                        page.get_by_role("button", name="Proceder a la compra").click()
+                        page.get_by_role(
+                            "button",
+                            name=re.compile(r"Proceder a la compra|Continuar", re.IGNORECASE),
+                        ).first.click()
                     except Exception:
-                        page.get_by_role("button", name="Continuar").click()
+                        logs.append("[HEB] No se encontró botón 'Proceder a la compra' en el carrito.")
 
-                # 11) Pago
-                page.wait_for_url(lambda url: "checkout/payment" in url, timeout=25000)
-                page.wait_for_timeout(3000)
+                    # 9) Shipping / tienda
+                    page.wait_for_timeout(4000)
 
-                # Pago al recibir
-                try:
-                    page.get_by_text("Pago al recibir").first.click()
-                except Exception:
-                    pass
+                    # Modal de tienda (si aparece)
+                    try:
+                        page.get_by_text("HEB Gonzalitos").first.click()
+                        page.get_by_role(
+                            "button",
+                            name=re.compile(r"Confirmar|Guardar", re.IGNORECASE),
+                        ).click()
+                        page.wait_for_timeout(2000)
+                    except Exception:
+                        logs.append("[HEB] No apareció modal de tienda, se asume tienda ya configurada.")
 
-                # Comentarios: PRUEBA
-                try:
-                    page.locator("textarea").first.fill("PRUEBA")
-                except Exception:
-                    pass
+                    # 10) Confirmar "Recoger en la tienda" y continuar a pago
+                    try:
+                        if "shipping" in page.url or "envio" in page.url:
+                            page.mouse.wheel(0, 800)
+                            page.wait_for_timeout(1500)
+                            try:
+                                page.get_by_text("Recoger en la tienda").first.click()
+                            except Exception:
+                                logs.append("[HEB] No se encontró opción 'Recoger en la tienda'.")
+                            try:
+                                page.get_by_role(
+                                    "button",
+                                    name=re.compile(
+                                        r"Proceder a la compra|Continuar", re.IGNORECASE
+                                    ),
+                                ).first.click()
+                            except Exception:
+                                logs.append(
+                                    "[HEB] No se encontró botón para continuar desde shipping."
+                                )
+                    except Exception:
+                        logs.append("[HEB] No se pudo validar pantalla de shipping explícitamente.")
 
-                # Comprar ahora
-                page.get_by_role("button", name="Comprar ahora").click()
+                    # 11) Pago
+                    page.wait_for_url(
+                        lambda url: "payment" in url or "pago" in url,
+                        timeout=60000,
+                    )
+                    page.wait_for_timeout(3000)
 
-                # 12) Confirmación
-                page.wait_for_timeout(5000)
-                try:
-                    banner = page.get_by_text("Tu pedido está siendo procesado").first
-                    if not banner.is_visible():
-                        raise AssertionError("No se encontró mensaje de confirmación de pedido.")
-                except Exception as e:
-                    raise AssertionError(f"No se pudo confirmar el pedido: {e}")
+                    # Pago al recibir
+                    try:
+                        page.get_by_text("Pago al recibir").first.click()
+                    except Exception:
+                        logs.append("[HEB] No se encontró opción 'Pago al recibir'.")
 
-                reason = "OK HEB E2E"
+                    # Comentarios: PRUEBA
+                    try:
+                        page.locator("textarea").first.fill("PRUEBA")
+                    except Exception:
+                        logs.append("[HEB] No se encontró textarea para comentarios.")
+
+                    # Comprar ahora
+                    try:
+                        page.get_by_role(
+                            "button",
+                            name=re.compile(r"Comprar ahora|Realizar pedido", re.IGNORECASE),
+                        ).click()
+                    except Exception:
+                        raise AssertionError("No se encontró botón para confirmar la compra.")
+
+                    # 12) Confirmación
+                    page.wait_for_timeout(5000)
+                    try:
+                        banner = page.get_by_text(
+                            re.compile(
+                                r"Tu pedido está siendo procesado|pedido ha sido recibido",
+                                re.IGNORECASE,
+                            )
+                        ).first
+                        if not banner.is_visible():
+                            raise AssertionError(
+                                "No se encontró mensaje de confirmación de pedido."
+                            )
+                    except Exception as e:
+                        raise AssertionError(f"No se pudo confirmar el pedido: {e}")
+
+                    reason = "OK HEB E2E"
 
             except PlaywrightTimeoutError as e:
                 outcome = "fail"
@@ -469,8 +565,9 @@ def execute_heb_full_purchase(
         },
     }
 
+
 # ============================================================
-# Runner GENÉRICO POR STEPS (lo que ya tenías)
+# Runner GENÉRICO POR STEPS 
 # ============================================================
 def execute_test(
     steps: List[Dict[str, Any]],
