@@ -254,8 +254,8 @@ def language_header(lang: str, introduce: bool) -> str:
     is_english = lang_norm.startswith("en")
 
     intro_line = ""
-    if introduce:
-        intro_line = '- Preséntate UNA SOLA VEZ: "Hola, soy Vanya, tu Agente de QA inteligente."\\n'
+    if introduce and m not in ["execute"]:
+        intro_line = '- Preséntate UNA SOLA VEZ: "Hola, soy Vanya, tu Agente de QA inteligente."\n'
 
     if is_spanish or not is_english:
         # Cualquier cosa que no sea claramente "en" la tratamos como español por defecto
