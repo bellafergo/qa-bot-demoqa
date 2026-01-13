@@ -160,6 +160,16 @@ If the user mentions login:
 4) click login button
 5) mandatory assertion (success or failure)
 
+CREDENTIALS FROM USER (CRITICAL)
+- If the user provides username and/or password explicitly in the message
+  (for example: "username: FERNANDA password: love"):
+  - You MUST use EXACTLY those values.
+  - You MUST generate TWO separate fill steps:
+    - One fill step for the username field.
+    - One fill step for the password field.
+- Never leave the username field empty if the user provided a value.
+- Do not invent or change the credentials.
+
 USERNAME HEURISTICS
 - #user-name
 - input#username
@@ -187,12 +197,18 @@ LOGIN BUTTON HEURISTICS
 - text="Login"
 - button:has-text("Login")
 
-ASSERTIONS
-- Success examples:
-  - assert_visible ".inventory_list"
-  - assert_url_contains "inventory"
-- Error examples:
-  - assert_visible "h3[data-test='error']"
+ASSERTIONS (RESULT)
+- If the user expects a SUCCESSFUL login (for example, "valida que mi usuario exista"):
+  - expected = "pass"
+  - After clicking the login button, add assertions like:
+    - assert_not_visible "h3[data-test='error']"
+    - AND/OR assert_url_contains "inventory"
+    - AND/OR assert_visible ".inventory_list"
+- If the user expects a FAILED login or error (for example, "valida que NO exista"):
+  - expected = "fail"
+  - After clicking the login button, add assertions like:
+    - assert_visible "h3[data-test='error']"
+  - Do NOT use assert_not_visible in this case.
 
 SAUCEDEMO RULE OVERRIDE
 When domain includes "saucedemo.com", ALWAYS prefer:
@@ -202,6 +218,7 @@ When domain includes "saucedemo.com", ALWAYS prefer:
 - h3[data-test='error']
 - .inventory_list
 """
+
 
 # ============================================================
 # CLARIFY
