@@ -19,6 +19,7 @@ from core.prompts import pick_system_prompt
 from core.qa_risk_engine import build_risk_brief, build_negative_and_edge_cases
 
 from services.execute_engine import handle_execute_mode  # nuevo engine
+from runner import execute_test, execute_heb_full_purchase
 
 logger = logging.getLogger("vanya.chat_service")
 

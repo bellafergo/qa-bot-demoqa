@@ -12,11 +12,16 @@ from __future__ import annotations
 import base64
 import time
 import uuid
+import os
 from typing import Any, Dict, List, Optional, Tuple
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
+from dotenv import load_dotenv
+
+# Carga variables de entorno (OPENAI, SUPABASE, HEB_EMAIL, HEB_PASSWORD, etc.)
+load_dotenv()
 
 
 # ============================================================
@@ -168,7 +173,284 @@ def take_screenshot_robust(page) -> Tuple[Optional[str], List[str]]:
 
 
 # ============================================================
-# Runner
+# Runner ESPECIAL HEB (flujo fijo de compra completa)
+# ============================================================
+def execute_heb_full_purchase(
+    headless: bool = True,
+    viewport: Optional[Dict[str, int]] = None,
+    timeout_s: Optional[int] = None,
+    expected: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Flujo E2E HEB (compra completa):
+      - Login con HEB_EMAIL / HEB_PASSWORD (variables de entorno)
+      - Buscar tomate y Coca Cola
+      - Agregar al carrito
+      - Seleccionar tienda HEB Gonzalitos (pickup)
+      - Pago al recibir
+      - Comentario PRUEBA
+      - Verificar mensaje de confirmación ("Tu pedido está siendo procesado.")
+
+    Devuelve el MISMO contrato que execute_test, para que UI no cambie.
+    """
+    t0 = time.time()
+    evidence_id = f"EV-{uuid.uuid4().hex[:10]}"
+    logs: List[str] = []
+    screenshot_b64: Optional[str] = None
+
+    expected_norm = _norm_expected(expected)
+    outcome = "pass"
+    had_error = False
+    reason: Optional[str] = None
+
+    base_url = "https://www.heb.com.mx"
+
+    # Credenciales desde .env
+    email = os.getenv("HEB_EMAIL")
+    password = os.getenv("HEB_PASSWORD")
+
+    if not email or not password:
+        reason = "Faltan variables de entorno HEB_EMAIL y/o HEB_PASSWORD"
+        logs.append(reason)
+        outcome = "fail"
+        had_error = True
+        duration_ms = int((time.time() - t0) * 1000)
+        status = _final_status(expected_norm, outcome, had_error)
+        ok = status == "passed"
+        if reason is None:
+            reason = "Error en configuración de credenciales HEB"
+
+        return {
+            "ok": ok,
+            "status": status,
+            "expected": expected_norm,
+            "outcome": outcome,
+            "reason": reason,
+            "evidence_id": evidence_id,
+            "steps": [],
+            "logs": logs,
+            "screenshot_b64": screenshot_b64,
+            "duration_ms": duration_ms,
+            "meta": {
+                "headless": headless,
+                "steps_count": 0,
+                "base_url": base_url,
+                "timeout_ms": None,
+                "viewport": viewport or {"width": 1366, "height": 768},
+            },
+        }
+
+    # Viewport defaults
+    if not isinstance(viewport, dict):
+        viewport = {"width": 1366, "height": 768}
+    vw = _as_int(viewport.get("width"), 1366)
+    vh = _as_int(viewport.get("height"), 768)
+
+    # Timeout global opcional
+    timeout_ms_global: Optional[int] = None
+    if timeout_s is not None:
+        timeout_ms_global = max(1000, int(timeout_s) * 1000)
+
+    page = None
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=headless)
+            context = browser.new_context(viewport={"width": vw, "height": vh})
+
+            if timeout_ms_global is not None:
+                context.set_default_timeout(timeout_ms_global)
+                context.set_default_navigation_timeout(timeout_ms_global)
+                logs.append(f"[HEB] Global timeout applied: {timeout_ms_global}ms")
+
+            page = context.new_page()
+
+            try:
+                # 1) Home HEB
+                page.goto(base_url, wait_until="domcontentloaded")
+
+                # 2) Iniciar sesión
+                page.get_by_role("link", name="Iniciar sesión").click()
+
+                # 3) Login – correo
+                page.get_by_placeholder("Correo electrónico").fill(email)
+                page.get_by_role("button", name="Continuar").click()
+
+                # 4) Login – contraseña
+                page.get_by_placeholder("Contraseña").fill(password)
+                # botón puede llamarse "Iniciar sesión" o "Continuar"
+                try:
+                    page.get_by_role("button", name="Iniciar sesión").click()
+                except Exception:
+                    page.get_by_role("button", name="Continuar").click()
+
+                page.wait_for_url(lambda url: "heb.com.mx" in url, timeout=20000)
+                page.wait_for_timeout(3000)  # que cargue header "Hola, ..."
+
+                # Helper para buscar y agregar producto
+                def buscar_y_agregar(termino: str):
+                    sb = page.get_by_placeholder("Buscar productos")
+                    sb.click()
+                    sb.fill(termino)
+                    sb.press("Enter")
+                    page.wait_for_timeout(4000)
+                    page.get_by_role("button", name="Agregar").first.click()
+                    page.wait_for_timeout(2000)
+
+                # 5) Tomate
+                buscar_y_agregar("tomate")
+
+                # 6) Coca Cola
+                buscar_y_agregar("COCA COLA")
+
+                # 7) Abrir carrito y finalizar compra
+                page.get_by_role("button", name="Finalizar compra").click()
+                page.wait_for_url(lambda url: "checkout" in url, timeout=20000)
+                page.wait_for_timeout(3000)
+
+                # 8) Proceder desde carrito
+                try:
+                    page.get_by_role("button", name="Proceder a la compra").click()
+                except Exception:
+                    page.get_by_role("button", name="Continuar").click()
+
+                # 9) Shipping / tienda
+                page.wait_for_url(
+                    lambda url: "checkout/shipping" in url or "checkout/payment" in url,
+                    timeout=25000,
+                )
+                page.wait_for_timeout(3000)
+
+                # Modal de tienda (si aparece)
+                try:
+                    page.get_by_text("HEB Gonzalitos").first.click()
+                    page.get_by_role("button", name="Confirmar").click()
+                    page.wait_for_timeout(2000)
+                except Exception:
+                    # si ya está configurada, no pasa nada
+                    pass
+
+                # 10) Confirmar "Recoger en la tienda" y continuar a pago
+                if "checkout/shipping" in page.url:
+                    page.mouse.wheel(0, 800)
+                    page.wait_for_timeout(1500)
+                    try:
+                        page.get_by_text("Recoger en la tienda").first.click()
+                    except Exception:
+                        pass
+                    try:
+                        page.get_by_role("button", name="Proceder a la compra").click()
+                    except Exception:
+                        page.get_by_role("button", name="Continuar").click()
+
+                # 11) Pago
+                page.wait_for_url(lambda url: "checkout/payment" in url, timeout=25000)
+                page.wait_for_timeout(3000)
+
+                # Pago al recibir
+                try:
+                    page.get_by_text("Pago al recibir").first.click()
+                except Exception:
+                    pass
+
+                # Comentarios: PRUEBA
+                try:
+                    page.locator("textarea").first.fill("PRUEBA")
+                except Exception:
+                    pass
+
+                # Comprar ahora
+                page.get_by_role("button", name="Comprar ahora").click()
+
+                # 12) Confirmación
+                page.wait_for_timeout(5000)
+                try:
+                    banner = page.get_by_text("Tu pedido está siendo procesado").first
+                    if not banner.is_visible():
+                        raise AssertionError("No se encontró mensaje de confirmación de pedido.")
+                except Exception as e:
+                    raise AssertionError(f"No se pudo confirmar el pedido: {e}")
+
+                reason = "OK HEB E2E"
+
+            except PlaywrightTimeoutError as e:
+                outcome = "fail"
+                reason = f"Timeout en flujo HEB: {type(e).__name__}: {e}"
+                logs.append(reason)
+
+            except (AssertionError, ValueError) as e:
+                outcome = "fail"
+                reason = f"Fallo de validación en HEB: {type(e).__name__}: {e}"
+                logs.append(reason)
+
+            except PlaywrightError as e:
+                outcome = "fail"
+                had_error = True
+                reason = f"Playwright error en HEB: {type(e).__name__}: {e}"
+                logs.append(reason)
+
+            except Exception as e:
+                outcome = "fail"
+                had_error = True
+                reason = f"Error inesperado en HEB: {type(e).__name__}: {e}"
+                logs.append(reason)
+
+            finally:
+                if page is not None and screenshot_b64 is None:
+                    try:
+                        shot, shot_logs = take_screenshot_robust(page)
+                        logs.extend(shot_logs)
+                        screenshot_b64 = shot
+                    except Exception as e:
+                        logs.append(f"Final screenshot HEB failed: {type(e).__name__}: {e}")
+
+                try:
+                    context.close()
+                except Exception:
+                    pass
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+
+    except Exception as e:
+        outcome = "fail"
+        had_error = True
+        if reason is None:
+            reason = f"Runner HEB crashed: {type(e).__name__}: {e}"
+        logs.append(reason)
+
+    duration_ms = int((time.time() - t0) * 1000)
+
+    status = _final_status(expected_norm, outcome, had_error)
+    if reason is None:
+        reason = "OK" if status == "passed" else "Fallo en flujo HEB"
+
+    ok = status == "passed"
+
+    return {
+        "ok": ok,
+        "status": status,
+        "expected": expected_norm,
+        "outcome": outcome,
+        "reason": reason,
+        "evidence_id": evidence_id,
+        "steps": [],  # este runner no expone steps detallados
+        "logs": logs,
+        "screenshot_b64": screenshot_b64,
+        "duration_ms": duration_ms,
+        "meta": {
+            "headless": headless,
+            "steps_count": 0,
+            "base_url": base_url,
+            "timeout_ms": timeout_ms_global,
+            "viewport": {"width": vw, "height": vh},
+        },
+    }
+
+
+# ============================================================
+# Runner GENÉRICO POR STEPS (lo que ya tenías)
 # ============================================================
 def execute_test(
     steps: List[Dict[str, Any]],

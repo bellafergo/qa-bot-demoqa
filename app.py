@@ -151,12 +151,12 @@ def on_startup():
     logger.info(f"CORS allow_origins = {cors_origins}")
 
 
-    @app.get("/runs/{evidence_id}")
-    def read_run(evidence_id: str):
-        r = get_run(evidence_id)
-        if not r:
-            raise HTTPException(status_code=404, detail="Run not found")
-        return {"ok": True, "run": r}
+@app.get("/runs/{evidence_id}")
+def read_run(evidence_id: str):
+    r = get_run(evidence_id)
+    if not r:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return {"ok": True, "run": r}
 
 
 # ============================================================
