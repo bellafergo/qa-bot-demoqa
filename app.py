@@ -88,13 +88,13 @@ def _apply_cors_headers_if_needed(request: Request, response: JSONResponse, allo
 # CORS
 # ============================================================
 DEFAULT_FRONTEND_ORIGINS = [
-    "https://valtre-vanya.vercel.app",
-    "http://localhost:5173",
-    "http://localhost:3000",
+    "https://valtre-vanya.vercel.app",  # Front en Vercel
+    "http://localhost:5173",            # Front local Vite
+    "http://localhost:3000",            # Otro front local
 ]
 
-cors_origins = _normalize_origins(getattr(settings, "CORS_ORIGINS", None) or [])
-cors_origins = _normalize_origins(cors_origins + DEFAULT_FRONTEND_ORIGINS)
+# 🔥 Por ahora ignoramos settings.CORS_ORIGINS para evitar errores de tipo/parsing
+cors_origins = _normalize_origins(DEFAULT_FRONTEND_ORIGINS)
 
 app.add_middleware(
     CORSMiddleware,
