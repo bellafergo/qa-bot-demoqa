@@ -510,6 +510,14 @@ def execute_heb_full_purchase(
                 logs.append("[HEB] Login completado y home post-login cargada.")
                 snap("home_logueado")
 
+                try:
+                    page.get_by_text("HEB Gonzalitos").first.click()
+                    page.get_by_role("button", name=re.compile(r"Confirmar|Guardar", re.IGNORECASE)).click()
+                    page.wait_for_timeout(1500)
+                    snap("tienda_confirmada_pre_busqueda")
+                except:
+                    logs.append("[HEB] Modal de tienda no apareció antes de la búsqueda.")
+
                 # 5) Tomate
                 buscar_y_agregar("tomate", cantidad=1, step_prefix="tomate")
 
