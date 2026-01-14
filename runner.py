@@ -20,13 +20,13 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 from dotenv import load_dotenv
 
-# Carga variables de entorno (OPENAI, SUPABASE, HEB_EMAIL, HEB_PASSWORD, etc.)
+# Load environment variables (OPENAI, SUPABASE, HEB_EMAIL, HEB_PASSWORD, etc.)
 load_dotenv()
-
 
 # ============================================================
 # Helpers
 # ============================================================
+
 def _b64_png(img_bytes: bytes) -> str:
     return base64.b64encode(img_bytes).decode("utf-8")
 
@@ -114,11 +114,13 @@ def _final_status(expected: str, outcome: str, had_error: bool) -> str:
 
 
 # ============================================================
-# Screenshot (NO depende de timeout global por decisión)
+# Screenshot helper (JPG, optimized for memory)
 # ============================================================
+
 def take_screenshot_robust(page) -> Tuple[Optional[str], List[str]]:
     """
-    Screenshot optimizado en JPG para ahorrar RAM.
+    Screenshot optimizado en JPG con timeouts/reintentos propios.
+    No depende del timeout global del contexto.
     """
     logs: List[str] = []
     b64: Optional[str] = None
@@ -127,13 +129,12 @@ def take_screenshot_robust(page) -> Tuple[Optional[str], List[str]]:
     SHOT_TIMEOUT_MS = 8000
     RETRIES = 2
 
-    # Estabilizar DOM
+    # Estabilizar un poco la página
     try:
         page.wait_for_timeout(NAV_STABILIZE_MS)
     except Exception:
         pass
 
-    # Intentar estado de carga
     try:
         page.wait_for_load_state("domcontentloaded", timeout=3000)
     except Exception:
@@ -142,31 +143,29 @@ def take_screenshot_robust(page) -> Tuple[Optional[str], List[str]]:
     last_err = None
     for attempt in range(RETRIES + 1):
         try:
-            # 🔥 Screenshot como JPG
             jpg = page.screenshot(
                 type="jpeg",
-                quality=60,         # 0–100 (60 recomendado)
-                full_page=False,    # menos consumo de RAM
-                timeout=SHOT_TIMEOUT_MS
+                quality=60,      # 0–100 (60 recomendado)
+                full_page=False, # menos RAM
+                timeout=SHOT_TIMEOUT_MS,
             )
-
             b64 = base64.b64encode(jpg).decode("utf-8")
-            logs.append(f"Screenshot JPG OK [attempt {attempt+1}]")
+            logs.append(f"Screenshot JPG OK [attempt {attempt + 1}]")
             return b64, logs
-
         except Exception as e:
             last_err = e
             logs.append(
-                f"Screenshot JPG failed [attempt {attempt+1}]: {type(e).__name__}: {e}"
+                f"Screenshot JPG failed [attempt {attempt + 1}]: {type(e).__name__}: {e}"
             )
             try:
                 page.wait_for_timeout(500)
-            except:
+            except Exception:
                 pass
 
     logs.append(
         f"Screenshot final failed: {type(last_err).__name__}: {last_err}"
-        if last_err else "Screenshot final failed"
+        if last_err
+        else "Screenshot final failed"
     )
     return None, logs
 
@@ -174,6 +173,7 @@ def take_screenshot_robust(page) -> Tuple[Optional[str], List[str]]:
 # ============================================================
 # Runner ESPECIAL HEB (flujo carrito o compra completa, con screenshots por paso)
 # ============================================================
+
 def execute_heb_full_purchase(
     headless: bool = True,
     viewport: Optional[Dict[str, int]] = None,
@@ -242,7 +242,7 @@ def execute_heb_full_purchase(
             },
         }
 
-    # Viewport defaults
+    # Viewport por default
     if not isinstance(viewport, dict):
         viewport = {"width": 1366, "height": 768}
     vw = _as_int(viewport.get("width"), 1366)
@@ -277,8 +277,8 @@ def execute_heb_full_purchase(
                 try:
                     shot, shot_logs = take_screenshot_robust(page)
                     logs.extend(shot_logs)
-                    screenshot_b64 = shot or screenshot_b64
                     if shot:
+                        screenshot_b64 = shot
                         steps.append(
                             {
                                 "name": step_name,
@@ -287,7 +287,9 @@ def execute_heb_full_purchase(
                         )
                         logs.append(f"[HEB] Screenshot capturado en paso: {step_name}")
                 except Exception as e:
-                    logs.append(f"[HEB] Screenshot failed at {step_name}: {type(e).__name__}: {e}")
+                    logs.append(
+                        f"[HEB] Screenshot failed at {step_name}: {type(e).__name__}: {e}"
+                    )
 
             def buscar_y_agregar(termino: str, cantidad: int = 1, step_prefix: str = "") -> None:
                 logs.append(f"[HEB] Buscando producto: {termino} (cantidad={cantidad})")
@@ -412,7 +414,6 @@ def execute_heb_full_purchase(
                 snap("login_form")
 
                 # 3) Paso de correo
-                email_input = None
                 try:
                     email_input = page.get_by_placeholder(
                         re.compile(r"Correo electrónico|Correo|Email", re.IGNORECASE)
@@ -422,25 +423,40 @@ def execute_heb_full_purchase(
                     email_input = page.get_by_role("textbox").first
 
                 email_input.fill(email)
+                page.wait_for_timeout(800)
 
-                # Botón para continuar después de correo
                 clicked_login_email = False
                 login_email_errors: List[str] = []
 
+                # 3.1 Preferido: botón "Continuar"
                 try:
-                    btn_email = page.get_by_role(
-                        "button",
-                        name=re.compile(
-                            r"Continuar|Siguiente|Continuar con tu correo|Ingresar",
-                            re.IGNORECASE,
-                        ),
-                    )
-                    btn_email.click(timeout=60000)
+                    btn_email = page.locator("button:has-text('Continuar')")
+                    btn_email.wait_for(timeout=15000)
+                    btn_email.click(timeout=15000)
                     clicked_login_email = True
-                    logs.append("[HEB] Paso de correo completado (botón).")
+                    logs.append("[HEB] Paso de correo completado (botón 'Continuar').")
                 except Exception as e:
-                    login_email_errors.append(f"Botón continuar tras correo falló: {e}")
+                    login_email_errors.append(f"Botón 'Continuar' tras correo falló: {e}")
 
+                # 3.2 Fallback: botón genérico
+                if not clicked_login_email:
+                    try:
+                        btn_email_generic = page.get_by_role(
+                            "button",
+                            name=re.compile(
+                                r"Continuar|Siguiente|Continuar con tu correo|Ingresar",
+                                re.IGNORECASE,
+                            ),
+                        )
+                        btn_email_generic.click(timeout=15000)
+                        clicked_login_email = True
+                        logs.append("[HEB] Paso de correo completado (botón genérico).")
+                    except Exception as e:
+                        login_email_errors.append(
+                            f"Botón genérico tras correo falló: {e}"
+                        )
+
+                # 3.3 Fallback: Enter
                 if not clicked_login_email:
                     try:
                         email_input.press("Enter")
@@ -456,7 +472,6 @@ def execute_heb_full_purchase(
                     )
 
                 # 4) Paso de contraseña
-                pwd_input = None
                 try:
                     pwd_input = page.get_by_placeholder(
                         re.compile(r"Contraseña|Password", re.IGNORECASE)
@@ -466,6 +481,7 @@ def execute_heb_full_purchase(
                     pwd_input = page.get_by_role("textbox").nth(1)
 
                 pwd_input.fill(password)
+                page.wait_for_timeout(800)
 
                 try:
                     btn_login = page.get_by_role(
@@ -658,7 +674,8 @@ def execute_heb_full_purchase(
                         shot, shot_logs = take_screenshot_robust(page)
                         logs.extend(shot_logs)
                         screenshot_b64 = shot
-                        steps.append({"name": "final", "screenshot_b64": shot})
+                        if shot:
+                            steps.append({"name": "final", "screenshot_b64": shot})
                     except Exception as e:
                         logs.append(f"Final screenshot HEB failed: {type(e).__name__}: {e}")
 
@@ -710,6 +727,7 @@ def execute_heb_full_purchase(
 # ============================================================
 # Runner GENÉRICO POR STEPS
 # ============================================================
+
 def execute_test(
     steps: List[Dict[str, Any]],
     base_url: Optional[str] = None,
@@ -751,7 +769,12 @@ def execute_test(
             "logs": ["Runner error: steps vacío o inválido"],
             "screenshot_b64": None,
             "duration_ms": int((time.time() - t0) * 1000),
-            "meta": {"headless": headless, "steps_count": 0, "base_url": base_url, "timeout_ms": None},
+            "meta": {
+                "headless": headless,
+                "steps_count": 0,
+                "base_url": base_url,
+                "timeout_ms": None,
+            },
         }
 
     default_step_timeout_ms = 15000
