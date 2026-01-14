@@ -744,18 +744,80 @@ def execute_heb_full_purchase(
                     reason = "OK HEB — productos agregados al carrito sin completar compra"
 
                 else:
-                    # 7) Abrir carrito y pasar a checkout (usa helper robusto)
-                    cart_btn = _find_cart_button()
-                    if not cart_btn:
+                    # 7) Abrir carrito y pasar a checkout (versión robusta)
+                    logs.append("[HEB] Intentando abrir carrito / checkout.")
+
+                    opened_cart = False
+                    errores_cart: List[str] = []
+
+                    # Asegurar que el header esté visible
+                    try:
+                        page.mouse.wheel(0, -800)
+                        page.wait_for_timeout(500)
+                    except Exception:
+                        pass
+
+                    cart_locators = [
+                        # Botones con textos típicos
+                        lambda: page.get_by_role(
+                            "button",
+                            name=re.compile(
+                                r"Finalizar compra|Carrito|Ver carrito|Ir al carrito",
+                                re.IGNORECASE,
+                            ),
+                        ),
+                        # Links con textos típicos
+                        lambda: page.get_by_role(
+                            "link",
+                            name=re.compile(
+                                r"Carrito|Ver carrito|Mi carrito",
+                                re.IGNORECASE,
+                            ),
+                        ),
+                        # Íconos con aria-label relacionado al carrito
+                        lambda: page.locator('[aria-label*="Carrito" i]'),
+                        # Cualquier enlace que huela a cart/checkout
+                        lambda: page.locator('a[href*="cart"], a[href*="checkout"]'),
+                    ]
+
+                    for idx, get_locator in enumerate(cart_locators, start=1):
+                        try:
+                            el = get_locator()
+                            el.first.wait_for(timeout=6000)
+                            el.first.click(timeout=6000)
+                            opened_cart = True
+                            logs.append(f"[HEB] Carrito abierto con estrategia #{idx}.")
+                            break
+                        except Exception as e:
+                            errores_cart.append(f"Estrategia #{idx} falló: {type(e).__name__}: {e}")
+                            continue
+
+                    # Último recurso: navegar directo a /cart
+                    if not opened_cart:
+                        try:
+                            cart_url = f"{base_url}/cart"
+                            page.goto(cart_url, wait_until="commit", timeout=60000)
+                            opened_cart = True
+                            logs.append(f"[HEB] Carrito abierto navegando directo a {cart_url}.")
+                        except Exception as e:
+                            errores_cart.append(f"goto /cart falló: {type(e).__name__}: {e}")
+
+                    if not opened_cart:
+                        logs.extend(errores_cart)
                         raise AssertionError(
                             "No se encontró ningún botón o enlace relacionado al carrito."
                         )
 
-                    cart_btn.click(timeout=30000)
-                    page.wait_for_url(
-                        lambda url: "checkout" in url or "cart" in url,
-                        timeout=60000,
-                    )
+                    # Esperar que realmente estemos en página de carrito / checkout
+                    try:
+                        page.wait_for_url(
+                            lambda url: "checkout" in url.lower() or "cart" in url.lower(),
+                            timeout=90000,
+                        )
+                    except Exception:
+                        # No rompemos aquí, solo lo registramos
+                        logs.append("[HEB] No se pudo confirmar URL de carrito/checkout explícitamente.")
+
                     page.wait_for_timeout(3000)
                     snap("carrito")
 
