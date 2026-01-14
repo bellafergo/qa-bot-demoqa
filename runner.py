@@ -270,7 +270,6 @@ def execute_heb_full_purchase(
             page = context.new_page()
 
             # ---------- helpers internos (usan steps + screenshot_b64) ----------
-             # ---------- helpers internos (usan steps + screenshot_b64) ----------
             def snap(step_name: str) -> None:
                 nonlocal screenshot_b64
                 if page is None:
@@ -290,71 +289,114 @@ def execute_heb_full_purchase(
                 except Exception as e:
                     logs.append(f"[HEB] Screenshot failed at {step_name}: {type(e).__name__}: {e}")
 
-            def _try_cerrar_modal_tienda() -> None:
+            def _try_cerrar_modal_tienda(max_tries: int = 3) -> None:
                 """
-                Cierra el modal de selección de tienda si está bloqueando clicks.
+                Intenta cerrar el modal de selección de tienda (base-modal)
+                hasta max_tries veces.
                 """
                 try:
                     modal = page.locator('[data-testid="base-modal"]')
-                    if not modal.is_visible():
-                        return
-
-                    logs.append("[HEB] Detectado modal de selección de tienda, intentando cerrarlo/confirmarlo.")
-                    snap("modal_tienda")
-
-                    # 1) Intentar seleccionar tienda Gonzalitos (o similar)
-                    try:
-                        page.get_by_text(
-                            re.compile(r"Gonzalitos|HEB Gonzalitos", re.IGNORECASE)
-                        ).first.click(timeout=5000)
-                    except Exception:
-                        pass
-
-                    # 2) Intentar botón de Confirmar / Guardar / Continuar / Aceptar
-                    try:
-                        page.get_by_role(
-                            "button",
-                            name=re.compile(
-                                r"Confirmar|Guardar|Continuar|Aceptar", re.IGNORECASE
-                            ),
-                        ).first.click(timeout=5000)
-                        logs.append("[HEB] Modal de tienda cerrado con botón de confirmación.")
-                        snap("modal_tienda_cerrado")
-                        return
-                    except Exception:
-                        pass
-
-                    # 3) Fallback: botón de cerrar (X, Cerrar)
-                    try:
-                        page.get_by_role(
-                            "button",
-                            name=re.compile(r"Cerrar|✕|X", re.IGNORECASE),
-                        ).first.click(timeout=5000)
-                        logs.append("[HEB] Modal de tienda cerrado con botón de cierre.")
-                        snap("modal_tienda_cerrado")
-                        return
-                    except Exception:
-                        pass
-
-                    logs.append("[HEB] No se pudo cerrar modal de tienda con las estrategias conocidas.")
                 except Exception as e:
-                    logs.append(f"[HEB] Error al manejar modal de tienda: {type(e).__name__}: {e}")
+                    logs.append(f"[HEB] No se pudo localizar base-modal: {type(e).__name__}: {e}")
+                    return
+
+                for attempt in range(max_tries):
+                    try:
+                        if not modal.is_visible():
+                            return
+
+                        logs.append(f"[HEB] Modal de tienda visible, intento {attempt+1}/{max_tries} para cerrarlo.")
+                        snap("modal_tienda")
+
+                        # 1) Intentar seleccionar la tienda (Gonzalitos / Mi tienda / etc.)
+                        try:
+                            page.get_by_text(
+                                re.compile(r"Gonzalitos|Mi tienda|Selecciona tu tienda", re.IGNORECASE)
+                            ).first.click(timeout=4000)
+                        except Exception:
+                            pass
+
+                        # 2) Intentar botón de confirmación
+                        for label in (
+                            "Confirmar",
+                            "Guardar",
+                            "Continuar",
+                            "Aceptar",
+                            "Ir a la tienda",
+                            "Entrar a la tienda",
+                        ):
+                            try:
+                                page.get_by_role(
+                                    "button",
+                                    name=re.compile(label, re.IGNORECASE),
+                                ).first.click(timeout=4000)
+                                page.wait_for_timeout(800)
+                                if not modal.is_visible():
+                                    logs.append(f"[HEB] Modal de tienda cerrado con botón '{label}'.")
+                                    snap("modal_tienda_cerrado")
+                                    return
+                            except Exception:
+                                continue
+
+                        # 3) Fallback: botón de cerrar (X / Cerrar)
+                        try:
+                            page.get_by_role(
+                                "button",
+                                name=re.compile(r"Cerrar|✕|X", re.IGNORECASE),
+                            ).first.click(timeout=4000)
+                            page.wait_for_timeout(800)
+                            if not modal.is_visible():
+                                logs.append("[HEB] Modal de tienda cerrado con botón de cierre.")
+                                snap("modal_tienda_cerrado")
+                                return
+                        except Exception:
+                            pass
+
+                        page.wait_for_timeout(800)
+                    except Exception as e:
+                        logs.append(f"[HEB] Error al manejar modal de tienda (intento {attempt+1}): {type(e).__name__}: {e}")
+                        try:
+                            page.wait_for_timeout(800)
+                        except Exception:
+                            pass
+
+                logs.append("[HEB] Modal de tienda sigue visible después de varios intentos.")
 
             def buscar_y_agregar(termino: str, cantidad: int = 1, step_prefix: str = "") -> None:
                 logs.append(f"[HEB] Buscando producto: {termino} (cantidad={cantidad})")
 
-                # Primero: si el modal de tienda está abierto, tratar de cerrarlo
+                # 1) Antes de usar el buscador, intentar cerrar el modal si está
                 _try_cerrar_modal_tienda()
 
                 sb = page.get_by_placeholder("Buscar productos")
 
-                # Intentar click + fill con manejo de modal bloqueando pointer events
-                try:
-                    sb.click()
-                except Exception as e:
-                    logs.append(f"[HEB] Primer click en buscador falló: {type(e).__name__}: {e}")
+                # Si el modal sigue visible, reintentar y, si no se puede, fallar pronto
+                modal = page.locator('[data-testid="base-modal"]')
+                if modal.is_visible():
+                    logs.append("[HEB] Modal de tienda visible antes de click en buscador, reintentando cierre.")
                     _try_cerrar_modal_tienda()
-                    sb.click()
+                    if modal.is_visible():
+                        raise AssertionError(
+                            "Modal de tienda está bloqueando el buscador y no se pudo cerrar automáticamente."
+                        )
+
+                # 2) Click al buscador con timeout corto y manejo específico del Timeout
+                try:
+                    sb.click(timeout=10000)
+                except PlaywrightTimeoutError as e:
+                    logs.append(f"[HEB] Timeout al intentar click en buscador: {type(e).__name__}: {e}")
+                    _try_cerrar_modal_tienda()
+                    modal = page.locator('[data-testid=\"base-modal\"]')
+                    if modal.is_visible():
+                        raise AssertionError(
+                            "Timeout en click del buscador y el modal de tienda sigue visible."
+                        )
+                    # Segundo intento con timeout más corto
+                    sb.click(timeout=5000)
+                except Exception as e:
+                    logs.append(f"[HEB] Error genérico al hacer click en buscador: {type(e).__name__}: {e}")
+                    _try_cerrar_modal_tienda()
+                    sb.click(timeout=5000)
 
                 sb.fill(termino)
                 sb.press("Enter")
@@ -383,6 +425,7 @@ def execute_heb_full_purchase(
                         logs.append(
                             f"[HEB] No se pudo ajustar cantidad para '{termino}', se dejó en 1 unidad."
                         )
+
 
             # ------------------- flujo principal -------------------
             try:
