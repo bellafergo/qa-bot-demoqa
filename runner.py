@@ -8,17 +8,18 @@
 # ============================================================
 
 from __future__ import annotations
-import re
+
 import base64
+import os
+import re
 import time
 import uuid
-import os
 from typing import Any, Dict, List, Optional, Tuple
 
+from dotenv import load_dotenv
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
-from dotenv import load_dotenv
 
 # Load environment variables (OPENAI, SUPABASE, HEB_EMAIL, HEB_PASSWORD, etc.)
 load_dotenv()
@@ -27,7 +28,9 @@ load_dotenv()
 # Helpers
 # ============================================================
 
+
 def _b64_png(img_bytes: bytes) -> str:
+    """Encode bytes to base64 string."""
     return base64.b64encode(img_bytes).decode("utf-8")
 
 
@@ -117,6 +120,7 @@ def _final_status(expected: str, outcome: str, had_error: bool) -> str:
 # Screenshot helper (JPG, optimized for memory)
 # ============================================================
 
+
 def take_screenshot_robust(page) -> Tuple[Optional[str], List[str]]:
     """
     Screenshot optimizado en JPG con timeouts/reintentos propios.
@@ -140,16 +144,16 @@ def take_screenshot_robust(page) -> Tuple[Optional[str], List[str]]:
     except Exception:
         pass
 
-    last_err = None
+    last_err: Optional[Exception] = None
     for attempt in range(RETRIES + 1):
         try:
             jpg = page.screenshot(
                 type="jpeg",
-                quality=60,      # 0–100 (60 recomendado)
-                full_page=False, # menos RAM
+                quality=60,  # 0–100 (60 recomendado)
+                full_page=False,  # menos RAM
                 timeout=SHOT_TIMEOUT_MS,
             )
-            b64 = base64.b64encode(jpg).decode("utf-8")
+            b64 = _b64_png(jpg)
             logs.append(f"Screenshot JPG OK [attempt {attempt + 1}]")
             return b64, logs
         except Exception as e:
@@ -173,6 +177,7 @@ def take_screenshot_robust(page) -> Tuple[Optional[str], List[str]]:
 # ============================================================
 # Runner ESPECIAL HEB (flujo carrito o compra completa, con screenshots por paso)
 # ============================================================
+
 
 def execute_heb_full_purchase(
     headless: bool = True,
@@ -287,7 +292,9 @@ def execute_heb_full_purchase(
                         )
                         logs.append(f"[HEB] Screenshot capturado en paso: {step_name}")
                 except Exception as e:
-                    logs.append(f"[HEB] Screenshot failed at {step_name}: {type(e).__name__}: {e}")
+                    logs.append(
+                        f"[HEB] Screenshot failed at {step_name}: {type(e).__name__}: {e}"
+                    )
 
             def _try_cerrar_modal_tienda(max_tries: int = 3) -> None:
                 """
@@ -297,7 +304,9 @@ def execute_heb_full_purchase(
                 try:
                     modal = page.locator('[data-testid="base-modal"]')
                 except Exception as e:
-                    logs.append(f"[HEB] No se pudo localizar base-modal: {type(e).__name__}: {e}")
+                    logs.append(
+                        f"[HEB] No se pudo localizar base-modal: {type(e).__name__}: {e}"
+                    )
                     return
 
                 for attempt in range(max_tries):
@@ -305,13 +314,19 @@ def execute_heb_full_purchase(
                         if not modal.is_visible():
                             return
 
-                        logs.append(f"[HEB] Modal de tienda visible, intento {attempt+1}/{max_tries} para cerrarlo.")
+                        logs.append(
+                            f"[HEB] Modal de tienda visible, intento "
+                            f"{attempt + 1}/{max_tries} para cerrarlo."
+                        )
                         snap("modal_tienda")
 
                         # 1) Intentar seleccionar la tienda (Gonzalitos / Mi tienda / etc.)
                         try:
                             page.get_by_text(
-                                re.compile(r"Gonzalitos|Mi tienda|Selecciona tu tienda", re.IGNORECASE)
+                                re.compile(
+                                    r"Gonzalitos|Mi tienda|Selecciona tu tienda",
+                                    re.IGNORECASE,
+                                )
                             ).first.click(timeout=4000)
                         except Exception:
                             pass
@@ -332,7 +347,9 @@ def execute_heb_full_purchase(
                                 ).first.click(timeout=4000)
                                 page.wait_for_timeout(800)
                                 if not modal.is_visible():
-                                    logs.append(f"[HEB] Modal de tienda cerrado con botón '{label}'.")
+                                    logs.append(
+                                        f"[HEB] Modal de tienda cerrado con botón '{label}'."
+                                    )
                                     snap("modal_tienda_cerrado")
                                     return
                             except Exception:
@@ -346,7 +363,9 @@ def execute_heb_full_purchase(
                             ).first.click(timeout=4000)
                             page.wait_for_timeout(800)
                             if not modal.is_visible():
-                                logs.append("[HEB] Modal de tienda cerrado con botón de cierre.")
+                                logs.append(
+                                    "[HEB] Modal de tienda cerrado con botón de cierre."
+                                )
                                 snap("modal_tienda_cerrado")
                                 return
                         except Exception:
@@ -354,13 +373,18 @@ def execute_heb_full_purchase(
 
                         page.wait_for_timeout(800)
                     except Exception as e:
-                        logs.append(f"[HEB] Error al manejar modal de tienda (intento {attempt+1}): {type(e).__name__}: {e}")
+                        logs.append(
+                            f"[HEB] Error al manejar modal de tienda "
+                            f"(intento {attempt + 1}): {type(e).__name__}: {e}"
+                        )
                         try:
                             page.wait_for_timeout(800)
                         except Exception:
                             pass
 
-                logs.append("[HEB] Modal de tienda sigue visible después de varios intentos.")
+                logs.append(
+                    "[HEB] Modal de tienda sigue visible después de varios intentos."
+                )
 
             def buscar_y_agregar(termino: str, cantidad: int = 1, step_prefix: str = "") -> None:
                 logs.append(f"[HEB] Buscando producto: {termino} (cantidad={cantidad})")
@@ -386,7 +410,7 @@ def execute_heb_full_purchase(
                 except PlaywrightTimeoutError as e:
                     logs.append(f"[HEB] Timeout al intentar click en buscador: {type(e).__name__}: {e}")
                     _try_cerrar_modal_tienda()
-                    modal = page.locator('[data-testid=\"base-modal\"]')
+                    modal = page.locator('[data-testid="base-modal"]')
                     if modal.is_visible():
                         raise AssertionError(
                             "Timeout en click del buscador y el modal de tienda sigue visible."
@@ -403,11 +427,62 @@ def execute_heb_full_purchase(
                 page.wait_for_timeout(5000)
                 snap(f"{step_prefix}_resultados")
 
-                add_btn = page.get_by_role(
+                # --- Nueva lógica robusta para el botón "Agregar" ---
+                add_loc = page.get_by_role(
                     "button",
                     name=re.compile(r"Agregar", re.IGNORECASE),
-                ).first
-                add_btn.click()
+                )
+
+                try:
+                    add_loc.first.wait_for(state="visible", timeout=15000)
+                except Exception as e:
+                    raise AssertionError(
+                        f"No se encontró ningún botón 'Agregar' en resultados de '{termino}': {e}"
+                    )
+
+                click_ok = False
+
+                # Hasta 3 intentos normales haciendo scroll si se intercepta el click
+                for attempt in range(3):
+                    try:
+                        logs.append(f"[HEB] Click en 'Agregar' para '{termino}' (intento {attempt+1}/3)")
+                        add_loc.first.click(timeout=5000)
+                        click_ok = True
+                        break
+                    except PlaywrightTimeoutError as e:
+                        logs.append(
+                            f"[HEB] Timeout al hacer click en 'Agregar' (intento {attempt+1}): "
+                            f"{type(e).__name__}: {e}"
+                        )
+                    except PlaywrightError as e:
+                        logs.append(
+                            f"[HEB] Playwright error al hacer click en 'Agregar' (intento {attempt+1}): "
+                            f"{type(e).__name__}: {e}"
+                        )
+                    except Exception as e:
+                        logs.append(
+                            f"[HEB] Error genérico al hacer click en 'Agregar' (intento {attempt+1}): "
+                            f"{type(e).__name__}: {e}"
+                        )
+
+                    # Intento de “despegar” el elemento: scroll un poco y reintentar
+                    try:
+                        page.mouse.wheel(0, 400)
+                        page.wait_for_timeout(500)
+                    except Exception:
+                        pass
+
+                # Último recurso: force=True
+                if not click_ok:
+                    try:
+                        logs.append("[HEB] Intento final con force=True en 'Agregar'")
+                        add_loc.first.click(timeout=5000, force=True)
+                        click_ok = True
+                    except Exception as e:
+                        raise AssertionError(
+                            f"No se pudo hacer click en 'Agregar' tras varios intentos: {type(e).__name__}: {e}"
+                        )
+
                 page.wait_for_timeout(1500)
                 snap(f"{step_prefix}_agregado")
 
@@ -441,7 +516,9 @@ def execute_heb_full_purchase(
                 # 1.1 Verificar que cargó algo razonable (header / login / cuenta)
                 try:
                     page.get_by_text(
-                        re.compile(r"Iniciar sesión|Mi cuenta|Identifícate", re.IGNORECASE)
+                        re.compile(
+                            r"Iniciar sesión|Mi cuenta|Identifícate", re.IGNORECASE
+                        )
                     ).first.wait_for(timeout=25000)
                 except Exception:
                     raise AssertionError(
@@ -453,7 +530,9 @@ def execute_heb_full_purchase(
                 try:
                     page.get_by_role(
                         "button",
-                        name=re.compile(r"Aceptar|Aceptar todo|Entendido|Ok", re.IGNORECASE),
+                        name=re.compile(
+                            r"Aceptar|Aceptar todo|Entendido|Ok", re.IGNORECASE
+                        ),
                     ).click(timeout=4000)
                     logs.append("[HEB] Cerrado banner de cookies.")
                     snap("cookies_cerradas")
@@ -509,7 +588,9 @@ def execute_heb_full_purchase(
 
                 if login_el is None:
                     raise AssertionError(
-                        "No se encontró ningún elemento de login (link/botón de 'Iniciar sesión' o 'Mi cuenta')."
+                        "No se encontró ningún elemento de login "
+                        "(link/botón de 'Iniciar sesión' o 'Mi cuenta'). "
+                        f"Último error: {last_error}"
                     )
 
                 login_el.click(timeout=60000)
@@ -520,7 +601,9 @@ def execute_heb_full_purchase(
                 # 3) Paso de correo
                 try:
                     email_input = page.get_by_placeholder(
-                        re.compile(r"Correo electrónico|Correo|Email", re.IGNORECASE)
+                        re.compile(
+                            r"Correo electrónico|Correo|Email", re.IGNORECASE
+                        )
                     )
                     email_input.wait_for(timeout=30000)
                 except Exception:
@@ -538,7 +621,9 @@ def execute_heb_full_purchase(
                     btn_email.wait_for(timeout=15000)
                     btn_email.click(timeout=15000)
                     clicked_login_email = True
-                    logs.append("[HEB] Paso de correo completado (botón 'Continuar').")
+                    logs.append(
+                        "[HEB] Paso de correo completado (botón 'Continuar')."
+                    )
                 except Exception as e:
                     login_email_errors.append(f"Botón 'Continuar' tras correo falló: {e}")
 
@@ -554,7 +639,9 @@ def execute_heb_full_purchase(
                         )
                         btn_email_generic.click(timeout=15000)
                         clicked_login_email = True
-                        logs.append("[HEB] Paso de correo completado (botón genérico).")
+                        logs.append(
+                            "[HEB] Paso de correo completado (botón genérico)."
+                        )
                     except Exception as e:
                         login_email_errors.append(
                             f"Botón genérico tras correo falló: {e}"
@@ -614,13 +701,8 @@ def execute_heb_full_purchase(
                 logs.append("[HEB] Login completado y home post-login cargada.")
                 snap("home_logueado")
 
-                try:
-                    page.get_by_text("HEB Gonzalitos").first.click()
-                    page.get_by_role("button", name=re.compile(r"Confirmar|Guardar", re.IGNORECASE)).click()
-                    page.wait_for_timeout(1500)
-                    snap("tienda_confirmada_pre_busqueda")
-                except:
-                    logs.append("[HEB] Modal de tienda no apareció antes de la búsqueda.")
+                # Después de login, por si reaparece el modal de tienda:
+                _try_cerrar_modal_tienda()
 
                 # 5) Tomate
                 buscar_y_agregar("tomate", cantidad=1, step_prefix="tomate")
@@ -630,27 +712,35 @@ def execute_heb_full_purchase(
 
                 # 7) Solo carrito
                 if only_add_to_cart:
-                    logs.append("[HEB] Solo modo carrito, sin completar checkout.")
+                    logs.append(
+                        "[HEB] Solo modo carrito, sin completar checkout."
+                    )
                     try:
                         page.get_by_role(
                             "button",
                             name=re.compile(
-                                r"Finalizar compra|Carrito|Ver carrito", re.IGNORECASE
+                                r"Finalizar compra|Carrito|Ver carrito",
+                                re.IGNORECASE,
                             ),
                         ).first.wait_for(timeout=5000)
                         snap("carrito_listo")
                     except Exception:
                         logs.append(
-                            "[HEB] No se pudo verificar visualmente el botón de carrito tras agregar productos."
+                            "[HEB] No se pudo verificar visualmente el botón de "
+                            "carrito tras agregar productos."
                         )
 
-                    reason = "OK HEB — productos agregados al carrito sin completar compra"
+                    reason = (
+                        "OK HEB — productos agregados al carrito sin completar compra"
+                    )
 
                 else:
                     # 7) Abrir carrito y pasar a checkout
                     cart_btn = page.get_by_role(
                         "button",
-                        name=re.compile(r"Finalizar compra|Carrito|Ver carrito", re.IGNORECASE),
+                        name=re.compile(
+                            r"Finalizar compra|Carrito|Ver carrito", re.IGNORECASE
+                        ),
                     ).first
                     cart_btn.click()
                     page.wait_for_url(
@@ -664,10 +754,15 @@ def execute_heb_full_purchase(
                     try:
                         page.get_by_role(
                             "button",
-                            name=re.compile(r"Proceder a la compra|Continuar", re.IGNORECASE),
+                            name=re.compile(
+                                r"Proceder a la compra|Continuar", re.IGNORECASE
+                            ),
                         ).first.click()
                     except Exception:
-                        logs.append("[HEB] No se encontró botón 'Proceder a la compra' en el carrito.")
+                        logs.append(
+                            "[HEB] No se encontró botón 'Proceder a la compra' "
+                            "en el carrito."
+                        )
 
                     # 9) Shipping / tienda
                     page.wait_for_timeout(4000)
@@ -677,12 +772,17 @@ def execute_heb_full_purchase(
                         page.get_by_text("HEB Gonzalitos").first.click()
                         page.get_by_role(
                             "button",
-                            name=re.compile(r"Confirmar|Guardar", re.IGNORECASE),
+                            name=re.compile(
+                                r"Confirmar|Guardar", re.IGNORECASE
+                            ),
                         ).click()
                         page.wait_for_timeout(2000)
                         snap("tienda_confirmada")
                     except Exception:
-                        logs.append("[HEB] No apareció modal de tienda, se asume tienda ya configurada.")
+                        logs.append(
+                            "[HEB] No apareció modal de tienda, se asume tienda "
+                            "ya configurada."
+                        )
 
                     # 10) Confirmar "Recoger en la tienda" y continuar a pago
                     try:
@@ -690,23 +790,33 @@ def execute_heb_full_purchase(
                             page.mouse.wheel(0, 800)
                             page.wait_for_timeout(1500)
                             try:
-                                page.get_by_text("Recoger en la tienda").first.click()
+                                page.get_by_text(
+                                    "Recoger en la tienda"
+                                ).first.click()
                             except Exception:
-                                logs.append("[HEB] No se encontró opción 'Recoger en la tienda'.")
+                                logs.append(
+                                    "[HEB] No se encontró opción "
+                                    "'Recoger en la tienda'."
+                                )
                             try:
                                 page.get_by_role(
                                     "button",
                                     name=re.compile(
-                                        r"Proceder a la compra|Continuar", re.IGNORECASE
+                                        r"Proceder a la compra|Continuar",
+                                        re.IGNORECASE,
                                     ),
                                 ).first.click()
                             except Exception:
                                 logs.append(
-                                    "[HEB] No se encontró botón para continuar desde shipping."
+                                    "[HEB] No se encontró botón para continuar "
+                                    "desde shipping."
                                 )
                             snap("shipping_continuado")
                     except Exception:
-                        logs.append("[HEB] No se pudo validar pantalla de shipping explícitamente.")
+                        logs.append(
+                            "[HEB] No se pudo validar pantalla de shipping "
+                            "explícitamente."
+                        )
 
                     # 11) Pago
                     page.wait_for_url(
@@ -720,21 +830,29 @@ def execute_heb_full_purchase(
                         page.get_by_text("Pago al recibir").first.click()
                         snap("payment_pago_al_recibir")
                     except Exception:
-                        logs.append("[HEB] No se encontró opción 'Pago al recibir'.")
+                        logs.append(
+                            "[HEB] No se encontró opción 'Pago al recibir'."
+                        )
 
                     try:
                         page.locator("textarea").first.fill("PRUEBA")
                         snap("payment_comentario")
                     except Exception:
-                        logs.append("[HEB] No se encontró textarea para comentarios.")
+                        logs.append(
+                            "[HEB] No se encontró textarea para comentarios."
+                        )
 
                     try:
                         page.get_by_role(
                             "button",
-                            name=re.compile(r"Comprar ahora|Realizar pedido", re.IGNORECASE),
+                            name=re.compile(
+                                r"Comprar ahora|Realizar pedido", re.IGNORECASE
+                            ),
                         ).click()
                     except Exception:
-                        raise AssertionError("No se encontró botón para confirmar la compra.")
+                        raise AssertionError(
+                            "No se encontró botón para confirmar la compra."
+                        )
 
                     page.wait_for_timeout(5000)
                     snap("post_click_comprar")
@@ -751,7 +869,9 @@ def execute_heb_full_purchase(
                             )
                         snap("confirmacion_pedido")
                     except Exception as e:
-                        raise AssertionError(f"No se pudo confirmar el pedido: {e}")
+                        raise AssertionError(
+                            f"No se pudo confirmar el pedido: {e}"
+                        )
 
                     reason = "OK HEB E2E"
 
@@ -787,9 +907,13 @@ def execute_heb_full_purchase(
                         logs.extend(shot_logs)
                         screenshot_b64 = shot
                         if shot:
-                            steps.append({"name": "final", "screenshot_b64": shot})
+                            steps.append(
+                                {"name": "final", "screenshot_b64": shot}
+                            )
                     except Exception as e:
-                        logs.append(f"Final screenshot HEB failed: {type(e).__name__}: {e}")
+                        logs.append(
+                            f"Final screenshot HEB failed: {type(e).__name__}: {e}"
+                        )
 
                 try:
                     context.close()
@@ -839,6 +963,7 @@ def execute_heb_full_purchase(
 # ============================================================
 # Runner GENÉRICO POR STEPS
 # ============================================================
+
 
 def execute_test(
     steps: List[Dict[str, Any]],
@@ -965,9 +1090,15 @@ def execute_test(
                         if not url:
                             raise ValueError("goto requiere url/base_url")
 
-                        page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+                        page.goto(
+                            url,
+                            wait_until="domcontentloaded",
+                            timeout=timeout_ms,
+                        )
                         try:
-                            page.wait_for_load_state("networkidle", timeout=min(6000, timeout_ms))
+                            page.wait_for_load_state(
+                                "networkidle", timeout=min(6000, timeout_ms)
+                            )
                         except Exception:
                             try:
                                 page.wait_for_timeout(350)
@@ -984,53 +1115,79 @@ def execute_test(
                         continue
 
                     sel = _selector_from_step(step)
-                    if not sel and action not in ("assert_text_contains", "assert_url_contains"):
+                    if not sel and action not in (
+                        "assert_text_contains",
+                        "assert_url_contains",
+                    ):
                         raise ValueError(f"{action} requiere selector")
 
                     if action == "fill":
                         val = _safe_str(step.get("value"))
-                        page.locator(sel).wait_for(state="visible", timeout=timeout_ms)
+                        page.locator(sel).wait_for(
+                            state="visible", timeout=timeout_ms
+                        )
                         page.fill(sel, val, timeout=timeout_ms)
                         _record_step(i, step, "passed")
                         continue
 
                     if action == "click":
-                        page.locator(sel).wait_for(state="visible", timeout=timeout_ms)
+                        page.locator(sel).wait_for(
+                            state="visible", timeout=timeout_ms
+                        )
                         page.click(sel, timeout=timeout_ms)
                         _record_step(i, step, "passed")
                         continue
 
                     if action == "press":
                         key = _safe_str(step.get("key") or "Enter")
-                        page.locator(sel).wait_for(state="visible", timeout=timeout_ms)
+                        page.locator(sel).wait_for(
+                            state="visible", timeout=timeout_ms
+                        )
                         page.press(sel, key, timeout=timeout_ms)
-                        _record_step(i, step, "passed", extra={"key": key})
+                        _record_step(
+                            i, step, "passed", extra={"key": key}
+                        )
                         continue
 
                     if action == "assert_visible":
-                        page.locator(sel).wait_for(state="visible", timeout=timeout_ms)
+                        page.locator(sel).wait_for(
+                            state="visible", timeout=timeout_ms
+                        )
                         _record_step(i, step, "passed")
                         continue
 
                     if action == "assert_not_visible":
                         loc = page.locator(sel)
                         if loc.is_visible():
-                            raise AssertionError(f"assert_not_visible falló: se mostró {sel}")
+                            raise AssertionError(
+                                f"assert_not_visible falló: se mostró {sel}"
+                            )
                         _record_step(i, step, "passed")
                         continue
 
                     if action == "assert_url_contains":
                         needle = _safe_str(
-                            step.get("value") or step.get("text") or step.get("contains") or ""
+                            step.get("value")
+                            or step.get("text")
+                            or step.get("contains")
+                            or ""
                         ).strip()
                         if not needle:
-                            raise ValueError("assert_url_contains requiere value")
+                            raise ValueError(
+                                "assert_url_contains requiere value"
+                            )
                         current = page.url or ""
                         if needle not in current:
                             raise AssertionError(
-                                f"assert_url_contains falló: '{needle}' no está en '{current}'"
+                                f"assert_url_contains falló: '{needle}' "
+                                f"no está en '{current}'"
                             )
-                        _record_step(i, step, "passed", extra={"current_url": current})
+                        _record_step(
+                            i,
+                            step,
+                            "passed",
+                            extra={"current_url": current},
+                        )
                         continue
 
                     if action == "assert_text_contains":
@@ -1038,23 +1195,38 @@ def execute_test(
                             step.get("expected") or step.get("text") or ""
                         ).strip()
                         if not expected_text:
-                            raise ValueError("assert_text_contains requiere expected/text")
+                            raise ValueError(
+                                "assert_text_contains requiere expected/text"
+                            )
                         target_sel = _selector_from_step(step) or "body"
                         loc = page.locator(target_sel)
-                        loc.wait_for(state="visible", timeout=timeout_ms)
-                        content = (loc.inner_text(timeout=timeout_ms) or "").strip()
+                        loc.wait_for(
+                            state="visible", timeout=timeout_ms
+                        )
+                        content = (
+                            loc.inner_text(timeout=timeout_ms) or ""
+                        ).strip()
                         if expected_text not in content:
                             raise AssertionError(
-                                f"Texto no encontrado. Expected contiene: '{expected_text}'"
+                                "Texto no encontrado. Expected contiene: "
+                                f"'{expected_text}'"
                             )
-                        _record_step(i, step, "passed", extra={"target": target_sel})
+                        _record_step(
+                            i,
+                            step,
+                            "passed",
+                            extra={"target": target_sel},
+                        )
                         continue
 
                     raise ValueError(f"Acción no soportada: {action}")
 
                 except PlaywrightTimeoutError as e:
                     outcome = "fail"
-                    reason = f"Timeout en step {i+1}: {action} — {type(e).__name__}: {e}"
+                    reason = (
+                        f"Timeout en step {i + 1}: {action} — "
+                        f"{type(e).__name__}: {e}"
+                    )
                     logs.append(reason)
                     _record_step(i, step, "failed", err=reason)
 
@@ -1065,7 +1237,10 @@ def execute_test(
 
                 except (AssertionError, ValueError) as e:
                     outcome = "fail"
-                    reason = f"Fallo en step {i+1}: {action} — {type(e).__name__}: {e}"
+                    reason = (
+                        f"Fallo en step {i + 1}: {action} — "
+                        f"{type(e).__name__}: {e}"
+                    )
                     logs.append(reason)
                     _record_step(i, step, "failed", err=reason)
 
@@ -1077,7 +1252,10 @@ def execute_test(
                 except PlaywrightError as e:
                     outcome = "fail"
                     had_error = True
-                    reason = f"Playwright error en step {i+1}: {action} — {type(e).__name__}: {e}"
+                    reason = (
+                        f"Playwright error en step {i + 1}: {action} — "
+                        f"{type(e).__name__}: {e}"
+                    )
                     logs.append(reason)
                     _record_step(i, step, "error", err=reason)
 
@@ -1089,7 +1267,10 @@ def execute_test(
                 except Exception as e:
                     outcome = "fail"
                     had_error = True
-                    reason = f"Error inesperado en step {i+1}: {action} — {type(e).__name__}: {e}"
+                    reason = (
+                        f"Error inesperado en step {i + 1}: {action} — "
+                        f"{type(e).__name__}: {e}"
+                    )
                     logs.append(reason)
                     _record_step(i, step, "error", err=reason)
 
@@ -1104,7 +1285,9 @@ def execute_test(
                     logs.extend(shot_logs)
                     screenshot_b64 = shot
                 except Exception as e:
-                    logs.append(f"Final screenshot failed: {type(e).__name__}: {e}")
+                    logs.append(
+                        f"Final screenshot failed: {type(e).__name__}: {e}"
+                    )
 
             try:
                 context.close()
