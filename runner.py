@@ -743,64 +743,99 @@ def execute_heb_full_purchase(
 
                     reason = "OK HEB — productos agregados al carrito sin completar compra"
 
-                else:
-                    # 7) Abrir carrito y pasar a checkout (versión robusta)
-                    logs.append("[HEB] Intentando abrir carrito / checkout.")
+                 else:
+                    # 7) Abrir carrito y pasar a checkout (versión ultra robusta)
+                    logs.append("[HEB] Intentando abrir carrito / checkout (v2).")
 
                     opened_cart = False
                     errores_cart: List[str] = []
 
-                    # Asegurar que el header esté visible
+                    def _try_click(desc: str, locator) -> None:
+                        nonlocal opened_cart
+                        try:
+                            locator.first.wait_for(timeout=7000)
+                            locator.first.click(timeout=7000)
+                            opened_cart = True
+                            logs.append(f"[HEB] Carrito/checkout abierto con {desc}.")
+                        except Exception as e:
+                            errores_cart.append(f"{desc} falló: {type(e).__name__}: {e}")
+
+                    # Subir al top por si estamos scrolleados hacia abajo
                     try:
-                        page.mouse.wheel(0, -800)
+                        page.mouse.wheel(0, -1200)
                         page.wait_for_timeout(500)
                     except Exception:
                         pass
 
-                    cart_locators = [
-                        # Botones con textos típicos
-                        lambda: page.get_by_role(
-                            "button",
-                            name=re.compile(
-                                r"Finalizar compra|Carrito|Ver carrito|Ir al carrito",
-                                re.IGNORECASE,
+                    # 7.1 Varios candidatos genéricos (botones / links / iconos)
+                    candidatos = [
+                        (
+                            "botón Finalizar compra/Carrito/Ver carrito",
+                            page.get_by_role(
+                                "button",
+                                name=re.compile(
+                                    r"Finalizar compra|Carrito|Ver carrito|Ir al carrito",
+                                    re.IGNORECASE,
+                                ),
                             ),
                         ),
-                        # Links con textos típicos
-                        lambda: page.get_by_role(
-                            "link",
-                            name=re.compile(
-                                r"Carrito|Ver carrito|Mi carrito",
-                                re.IGNORECASE,
+                        (
+                            "link Carrito/Ver carrito/Mi carrito",
+                            page.get_by_role(
+                                "link",
+                                name=re.compile(
+                                    r"Carrito|Ver carrito|Mi carrito",
+                                    re.IGNORECASE,
+                                ),
                             ),
                         ),
-                        # Íconos con aria-label relacionado al carrito
-                        lambda: page.locator('[aria-label*="Carrito" i]'),
-                        # Cualquier enlace que huela a cart/checkout
-                        lambda: page.locator('a[href*="cart"], a[href*="checkout"]'),
+                        (
+                            "icono con aria-label carrito",
+                            page.locator('[aria-label*="carrito" i]'),
+                        ),
+                        (
+                            "minicart por clase",
+                            page.locator('[class*="minicart" i]'),
+                        ),
                     ]
 
-                    for idx, get_locator in enumerate(cart_locators, start=1):
-                        try:
-                            el = get_locator()
-                            el.first.wait_for(timeout=6000)
-                            el.first.click(timeout=6000)
-                            opened_cart = True
-                            logs.append(f"[HEB] Carrito abierto con estrategia #{idx}.")
+                    for desc, loc in candidatos:
+                        if opened_cart:
                             break
-                        except Exception as e:
-                            errores_cart.append(f"Estrategia #{idx} falló: {type(e).__name__}: {e}")
-                            continue
+                        _try_click(desc, loc)
 
-                    # Último recurso: navegar directo a /cart
+                    # 7.2 Enlaces directos a checkout/cart en el header
                     if not opened_cart:
                         try:
-                            cart_url = f"{base_url}/cart"
-                            page.goto(cart_url, wait_until="commit", timeout=60000)
+                            direct = page.locator(
+                                'a[href*="checkout#/cart"], a[href*="checkout"], a[href*="/cart"]'
+                            )
+                            direct.first.wait_for(timeout=7000)
+                            direct.first.click(timeout=7000)
                             opened_cart = True
-                            logs.append(f"[HEB] Carrito abierto navegando directo a {cart_url}.")
+                            logs.append(
+                                "[HEB] Carrito/checkout abierto con enlace directo checkout/cart."
+                            )
                         except Exception as e:
-                            errores_cart.append(f"goto /cart falló: {type(e).__name__}: {e}")
+                            errores_cart.append(
+                                f"Enlace directo checkout/cart falló: {type(e).__name__}: {e}"
+                            )
+
+                    # 7.3 Último recurso: navegar directo por URL conocidas
+                    if not opened_cart:
+                        for cart_path in ("/checkout#/cart", "/checkout", "/cart"):
+                            try:
+                                cart_url = f"{base_url}{cart_path}"
+                                page.goto(cart_url, wait_until="commit", timeout=60000)
+                                opened_cart = True
+                                logs.append(
+                                    f"[HEB] Carrito/checkout abierto navegando directo a {cart_url}."
+                                )
+                                break
+                            except Exception as e:
+                                errores_cart.append(
+                                    f"goto {cart_path} falló: {type(e).__name__}: {e}"
+                                )
 
                     if not opened_cart:
                         logs.extend(errores_cart)
@@ -808,15 +843,16 @@ def execute_heb_full_purchase(
                             "No se encontró ningún botón o enlace relacionado al carrito."
                         )
 
-                    # Esperar que realmente estemos en página de carrito / checkout
+                    # Confirmar (en la medida de lo posible) que ya estamos en carrito/checkout
                     try:
                         page.wait_for_url(
                             lambda url: "checkout" in url.lower() or "cart" in url.lower(),
                             timeout=90000,
                         )
                     except Exception:
-                        # No rompemos aquí, solo lo registramos
-                        logs.append("[HEB] No se pudo confirmar URL de carrito/checkout explícitamente.")
+                        logs.append(
+                            "[HEB] No se pudo confirmar URL de carrito/checkout explícitamente."
+                        )
 
                     page.wait_for_timeout(3000)
                     snap("carrito")
