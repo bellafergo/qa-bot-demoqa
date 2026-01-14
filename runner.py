@@ -171,6 +171,7 @@ def take_screenshot_robust(page) -> Tuple[Optional[str], List[str]]:
     )
     return None, logs
 
+
 # ============================================================
 # Runner ESPECIAL HEB (flujo carrito o compra completa, con screenshots por paso)
 # ============================================================
@@ -198,7 +199,7 @@ def execute_heb_full_purchase(
     evidence_id = f"EV-{uuid.uuid4().hex[:10]}"
     logs: List[str] = []
     screenshot_b64: Optional[str] = None
-    steps: List[Dict[str, Any]] = []   # 🔹 screenshots por paso
+    steps: List[Dict[str, Any]] = []
 
     expected_norm = _norm_expected(expected)
     outcome = "pass"
@@ -269,7 +270,7 @@ def execute_heb_full_purchase(
 
             page = context.new_page()
 
-            # 🔹 helper interno para sacar screenshot por paso
+            # ---------- helpers internos (usan steps + screenshot_b64) ----------
             def snap(step_name: str) -> None:
                 nonlocal screenshot_b64
                 if page is None:
@@ -277,69 +278,123 @@ def execute_heb_full_purchase(
                 try:
                     shot, shot_logs = take_screenshot_robust(page)
                     logs.extend(shot_logs)
-                    screenshot_b64 = shot           # último screenshot (compatibilidad)
-                    steps.append({
-                        "name": step_name,
-                        "screenshot_b64": shot,
-                    })
-                    logs.append(f"[HEB] Screenshot capturado en paso: {step_name}")
+                    screenshot_b64 = shot or screenshot_b64
+                    if shot:
+                        steps.append(
+                            {
+                                "name": step_name,
+                                "screenshot_b64": shot,
+                            }
+                        )
+                        logs.append(f"[HEB] Screenshot capturado en paso: {step_name}")
                 except Exception as e:
                     logs.append(f"[HEB] Screenshot failed at {step_name}: {type(e).__name__}: {e}")
 
+            def buscar_y_agregar(termino: str, cantidad: int = 1, step_prefix: str = "") -> None:
+                logs.append(f"[HEB] Buscando producto: {termino} (cantidad={cantidad})")
+                sb = page.get_by_placeholder("Buscar productos")
+                sb.click()
+                sb.fill(termino)
+                sb.press("Enter")
+                page.wait_for_timeout(5000)
+                snap(f"{step_prefix}_resultados")
+
+                add_btn = page.get_by_role(
+                    "button",
+                    name=re.compile(r"Agregar", re.IGNORECASE),
+                ).first
+                add_btn.click()
+                page.wait_for_timeout(1500)
+                snap(f"{step_prefix}_agregado")
+
+                if cantidad > 1:
+                    try:
+                        plus_btn = page.get_by_role(
+                            "button",
+                            name=re.compile(r"\+", re.IGNORECASE),
+                        ).first
+                        for _ in range(cantidad - 1):
+                            plus_btn.click()
+                            page.wait_for_timeout(500)
+                        snap(f"{step_prefix}_cantidad_{cantidad}")
+                    except Exception:
+                        logs.append(
+                            f"[HEB] No se pudo ajustar cantidad para '{termino}', se dejó en 1 unidad."
+                        )
+
+            # ------------------- flujo principal -------------------
             try:
-                # 1) Home HEB — navegación más robusta
+                # 1) Home HEB — navegación robusta
                 page.goto(
                     base_url,
-                    wait_until="commit",   # evitar bloqueos por JS eterno
+                    wait_until="commit",  # evitamos quedarnos colgados por JS pesado
                     timeout=90000,
                 )
                 page.wait_for_timeout(4000)
-                snap("home")  # 🖼
+                snap("home")
 
-                # Verificar que cargó algo razonable
+                # 1.1 Verificar que cargó algo razonable (header / login / cuenta)
                 try:
-                    page.get_by_text("Iniciar sesión", exact=False).first.wait_for(timeout=20000)
+                    page.get_by_text(
+                        re.compile(r"Iniciar sesión|Mi cuenta|Identifícate", re.IGNORECASE)
+                    ).first.wait_for(timeout=25000)
                 except Exception:
-                    raise AssertionError("No apareció 'Iniciar sesión' en la home de HEB.")
-                snap("home_con_login_visible")  # 🖼
+                    raise AssertionError(
+                        "No apareció ningún texto de login/cuenta en la home de HEB."
+                    )
+                snap("home_con_login_visible")
 
-                # 2) Asegurar que la página está lista (cerrar popups, cookies, etc.)
-                page.wait_for_timeout(3000)
-
-                # Popups comunes
+                # 1.2 Cerrar popups comunes (cookies, promos, etc.)
                 try:
-                    # Banner de cookies
                     page.get_by_role(
                         "button",
-                        name=re.compile(r"Aceptar|Ok|Entendido", re.IGNORECASE),
-                    ).click(timeout=3000)
-                    snap("cookies_cerradas")  # 🖼
+                        name=re.compile(r"Aceptar|Aceptar todo|Entendido|Ok", re.IGNORECASE),
+                    ).click(timeout=4000)
+                    logs.append("[HEB] Cerrado banner de cookies.")
+                    snap("cookies_cerradas")
                 except Exception:
                     pass
 
                 try:
-                    # Banner de promociones
                     page.get_by_role(
                         "button",
-                        name=re.compile(r"Cerrar|X", re.IGNORECASE),
-                    ).first.click(timeout=3000)
-                    snap("promociones_cerradas")  # 🖼
+                        name=re.compile(r"Cerrar|✕|X", re.IGNORECASE),
+                    ).first.click(timeout=4000)
+                    logs.append("[HEB] Cerrado popup de promo.")
+                    snap("promociones_cerradas")
                 except Exception:
                     pass
 
-                # 2b) Intentar encontrar "Iniciar sesión" con múltiples estrategias
-                login_selectors = [
-                    lambda: page.get_by_role("link", name=re.compile(r"Iniciar sesión|Inicia sesión", re.IGNORECASE)),
-                    lambda: page.get_by_role("button", name=re.compile(r"Iniciar sesión|Inicia sesión", re.IGNORECASE)),
-                    lambda: page.get_by_text(re.compile(r"Iniciar sesión|Inicia sesión|Acceder|Mi cuenta", re.IGNORECASE)).first,
+                # 2) Localizar botón/enlace de login con múltiples estrategias
+                login_candidates = [
+                    lambda: page.get_by_role(
+                        "link",
+                        name=re.compile(
+                            r"Iniciar sesión|Inicia sesión|Identifícate|Mi cuenta",
+                            re.IGNORECASE,
+                        ),
+                    ),
+                    lambda: page.get_by_role(
+                        "button",
+                        name=re.compile(
+                            r"Iniciar sesión|Inicia sesión|Identifícate|Mi cuenta",
+                            re.IGNORECASE,
+                        ),
+                    ),
+                    lambda: page.get_by_text(
+                        re.compile(
+                            r"Iniciar sesión|Inicia sesión|Identifícate|Mi cuenta",
+                            re.IGNORECASE,
+                        )
+                    ).first,
                 ]
 
                 login_el = None
                 last_error = None
 
-                for attempt in login_selectors:
+                for getter in login_candidates:
                     try:
-                        el = attempt()
+                        el = getter()
                         el.wait_for(timeout=8000)
                         login_el = el
                         break
@@ -349,117 +404,96 @@ def execute_heb_full_purchase(
 
                 if login_el is None:
                     raise AssertionError(
-                        "No se encontró ningún elemento de login (posibles textos: 'Iniciar sesión', 'Mi cuenta', 'Acceder')."
+                        "No se encontró ningún elemento de login (link/botón de 'Iniciar sesión' o 'Mi cuenta')."
                     )
 
                 login_el.click(timeout=60000)
-                logs.append("[HEB] Login button localizado y clicado correctamente.")
+                logs.append("[HEB] Login abierto correctamente desde la home.")
                 page.wait_for_timeout(2000)
-                snap("login_form")  # 🖼
+                snap("login_form")
 
-                # 3) Login – correo
-                page.get_by_placeholder("Correo electrónico").fill(email)
-
-                clicked_login_email = False
-                login_email_errors = []
-
-                # 3a) botón "Continuar"
+                # 3) Paso de correo
+                email_input = None
                 try:
-                    page.get_by_role(
+                    email_input = page.get_by_placeholder(
+                        re.compile(r"Correo electrónico|Correo|Email", re.IGNORECASE)
+                    )
+                    email_input.wait_for(timeout=30000)
+                except Exception:
+                    email_input = page.get_by_role("textbox").first
+
+                email_input.fill(email)
+
+                # Botón para continuar después de correo
+                clicked_login_email = False
+                login_email_errors: List[str] = []
+
+                try:
+                    btn_email = page.get_by_role(
                         "button",
-                        name=re.compile(r"Continuar", re.IGNORECASE),
-                    ).click(timeout=15000)
+                        name=re.compile(
+                            r"Continuar|Siguiente|Continuar con tu correo|Ingresar",
+                            re.IGNORECASE,
+                        ),
+                    )
+                    btn_email.click(timeout=60000)
                     clicked_login_email = True
-                    logs.append("[HEB] Click en botón 'Continuar' después de correo.")
+                    logs.append("[HEB] Paso de correo completado (botón).")
                 except Exception as e:
-                    login_email_errors.append(f"[HEB] No se pudo hacer click en botón 'Continuar' tras correo: {e}")
+                    login_email_errors.append(f"Botón continuar tras correo falló: {e}")
 
-                # 3b) fallback: presionar Enter en el campo correo
                 if not clicked_login_email:
                     try:
-                        page.get_by_placeholder("Correo electrónico").press("Enter")
+                        email_input.press("Enter")
                         clicked_login_email = True
-                        logs.append("[HEB] Fallback: Enter en correo en lugar de botón 'Continuar'.")
+                        logs.append("[HEB] Paso de correo completado (Enter).")
                     except Exception as e:
-                        login_email_errors.append(f"[HEB] Fallback Enter en correo falló: {e}")
-
-                # 3c) si seguimos sin avanzar, último recurso: cualquier botón visible tipo "Siguiente" / "Acceder"
-                if not clicked_login_email:
-                    try:
-                        generic_btn = page.get_by_role(
-                            "button",
-                            name=re.compile(r"Continuar|Siguiente|Acceder|Ir a", re.IGNORECASE),
-                        ).first
-                        generic_btn.click(timeout=15000)
-                        clicked_login_email = True
-                        logs.append("[HEB] Fallback: click en botón genérico de avance tras correo.")
-                    except Exception as e:
-                        login_email_errors.append(f"[HEB] Fallback botón genérico tras correo falló: {e}")
+                        login_email_errors.append(f"Enter tras correo falló: {e}")
 
                 if not clicked_login_email:
-                    # Aquí forzamos un AssertionError con TODO el contexto, para ver bien en logs qué pasó
                     raise AssertionError(
                         "No se pudo avanzar después de capturar el correo en login HEB. "
                         + " | ".join(login_email_errors)
                     )
 
-                # 4) Login – contraseña
-                page.get_by_placeholder("Contraseña").wait_for(timeout=30000)
-                page.get_by_placeholder("Contraseña").fill(password)
-
-                # botón puede llamarse "Iniciar sesión" o "Continuar"
+                # 4) Paso de contraseña
+                pwd_input = None
                 try:
-                    page.get_by_role(
-                        "button",
-                        name=re.compile(r"Iniciar sesión", re.IGNORECASE),
-                    ).click()
+                    pwd_input = page.get_by_placeholder(
+                        re.compile(r"Contraseña|Password", re.IGNORECASE)
+                    )
+                    pwd_input.wait_for(timeout=30000)
                 except Exception:
-                    page.get_by_role(
+                    pwd_input = page.get_by_role("textbox").nth(1)
+
+                pwd_input.fill(password)
+
+                try:
+                    btn_login = page.get_by_role(
                         "button",
-                        name=re.compile(r"Continuar", re.IGNORECASE),
-                    ).click()
+                        name=re.compile(
+                            r"Iniciar sesión|Acceder|Entrar|Continuar|Siguiente",
+                            re.IGNORECASE,
+                        ),
+                    )
+                except Exception:
+                    btn_login = page.get_by_text(
+                        re.compile(
+                            r"Iniciar sesión|Acceder|Entrar|Continuar|Siguiente",
+                            re.IGNORECASE,
+                        )
+                    ).first
+
+                btn_login.click(timeout=60000)
+                logs.append("[HEB] Contraseña enviada, esperando post-login.")
 
                 page.wait_for_url(
-                    lambda url: "heb.com.mx" in url,
-                    timeout=60000,
+                    lambda url: "heb.com.mx" in url and "login" not in url.lower(),
+                    timeout=90000,
                 )
-                page.wait_for_timeout(4000)  # que cargue header, carrusel, etc.
-                snap("home_logueado")  # 🖼
-
-                # Helper para buscar y agregar producto
-                def buscar_y_agregar(termino: str, cantidad: int = 1, step_prefix: str = "") -> None:
-                    logs.append(f"[HEB] Buscando producto: {termino} (cantidad={cantidad})")
-                    sb = page.get_by_placeholder("Buscar productos")
-                    sb.click()
-                    sb.fill(termino)
-                    sb.press("Enter")
-                    page.wait_for_timeout(5000)
-                    snap(f"{step_prefix}_resultados")  # 🖼
-
-                    # Primer botón "Agregar"
-                    add_btn = page.get_by_role(
-                        "button",
-                        name=re.compile(r"Agregar", re.IGNORECASE),
-                    ).first
-                    add_btn.click()
-                    page.wait_for_timeout(1500)
-                    snap(f"{step_prefix}_agregado")  # 🖼
-
-                    # Intentar ajustar cantidad (si hay +)
-                    if cantidad > 1:
-                        try:
-                            plus_btn = page.get_by_role(
-                                "button",
-                                name=re.compile(r"\+", re.IGNORECASE),
-                            ).first
-                            for _ in range(cantidad - 1):
-                                plus_btn.click()
-                                page.wait_for_timeout(500)
-                            snap(f"{step_prefix}_cantidad_{cantidad}")  # 🖼
-                        except Exception:
-                            logs.append(
-                                f"[HEB] No se pudo ajustar cantidad para '{termino}', se dejó en 1 unidad."
-                            )
+                page.wait_for_timeout(4000)
+                logs.append("[HEB] Login completado y home post-login cargada.")
+                snap("home_logueado")
 
                 # 5) Tomate
                 buscar_y_agregar("tomate", cantidad=1, step_prefix="tomate")
@@ -467,7 +501,7 @@ def execute_heb_full_purchase(
                 # 6) Coca Cola
                 buscar_y_agregar("COCA COLA", cantidad=1, step_prefix="coca_cola")
 
-                # Si solo queremos dejar productos en el carrito y NO comprar
+                # 7) Solo carrito
                 if only_add_to_cart:
                     logs.append("[HEB] Solo modo carrito, sin completar checkout.")
                     try:
@@ -477,7 +511,7 @@ def execute_heb_full_purchase(
                                 r"Finalizar compra|Carrito|Ver carrito", re.IGNORECASE
                             ),
                         ).first.wait_for(timeout=5000)
-                        snap("carrito_listo")  # 🖼
+                        snap("carrito_listo")
                     except Exception:
                         logs.append(
                             "[HEB] No se pudo verificar visualmente el botón de carrito tras agregar productos."
@@ -497,7 +531,7 @@ def execute_heb_full_purchase(
                         timeout=60000,
                     )
                     page.wait_for_timeout(3000)
-                    snap("carrito")  # 🖼
+                    snap("carrito")
 
                     # 8) Proceder desde carrito
                     try:
@@ -510,9 +544,8 @@ def execute_heb_full_purchase(
 
                     # 9) Shipping / tienda
                     page.wait_for_timeout(4000)
-                    snap("shipping_inicio")  # 🖼
+                    snap("shipping_inicio")
 
-                    # Modal de tienda (si aparece)
                     try:
                         page.get_by_text("HEB Gonzalitos").first.click()
                         page.get_by_role(
@@ -520,7 +553,7 @@ def execute_heb_full_purchase(
                             name=re.compile(r"Confirmar|Guardar", re.IGNORECASE),
                         ).click()
                         page.wait_for_timeout(2000)
-                        snap("tienda_confirmada")  # 🖼
+                        snap("tienda_confirmada")
                     except Exception:
                         logs.append("[HEB] No apareció modal de tienda, se asume tienda ya configurada.")
 
@@ -544,7 +577,7 @@ def execute_heb_full_purchase(
                                 logs.append(
                                     "[HEB] No se encontró botón para continuar desde shipping."
                                 )
-                            snap("shipping_continuado")  # 🖼
+                            snap("shipping_continuado")
                     except Exception:
                         logs.append("[HEB] No se pudo validar pantalla de shipping explícitamente.")
 
@@ -554,23 +587,20 @@ def execute_heb_full_purchase(
                         timeout=60000,
                     )
                     page.wait_for_timeout(3000)
-                    snap("payment_inicio")  # 🖼
+                    snap("payment_inicio")
 
-                    # Pago al recibir
                     try:
                         page.get_by_text("Pago al recibir").first.click()
-                        snap("payment_pago_al_recibir")  # 🖼
+                        snap("payment_pago_al_recibir")
                     except Exception:
                         logs.append("[HEB] No se encontró opción 'Pago al recibir'.")
 
-                    # Comentarios: PRUEBA
                     try:
                         page.locator("textarea").first.fill("PRUEBA")
-                        snap("payment_comentario")  # 🖼
+                        snap("payment_comentario")
                     except Exception:
                         logs.append("[HEB] No se encontró textarea para comentarios.")
 
-                    # Comprar ahora
                     try:
                         page.get_by_role(
                             "button",
@@ -579,9 +609,8 @@ def execute_heb_full_purchase(
                     except Exception:
                         raise AssertionError("No se encontró botón para confirmar la compra.")
 
-                    # 12) Confirmación
                     page.wait_for_timeout(5000)
-                    snap("post_click_comprar")  # 🖼
+                    snap("post_click_comprar")
                     try:
                         banner = page.get_by_text(
                             re.compile(
@@ -593,7 +622,7 @@ def execute_heb_full_purchase(
                             raise AssertionError(
                                 "No se encontró mensaje de confirmación de pedido."
                             )
-                        snap("confirmacion_pedido")  # 🖼
+                        snap("confirmacion_pedido")
                     except Exception as e:
                         raise AssertionError(f"No se pudo confirmar el pedido: {e}")
 
@@ -622,7 +651,6 @@ def execute_heb_full_purchase(
                 logs.append(reason)
 
             finally:
-                # Si por algo no se tomó screenshot final, reutilizamos el último de steps
                 if screenshot_b64 is None and steps:
                     screenshot_b64 = steps[-1].get("screenshot_b64")
 
@@ -631,10 +659,7 @@ def execute_heb_full_purchase(
                         shot, shot_logs = take_screenshot_robust(page)
                         logs.extend(shot_logs)
                         screenshot_b64 = shot
-                        steps.append({
-                            "name": "final",
-                            "screenshot_b64": shot,
-                        })
+                        steps.append({"name": "final", "screenshot_b64": shot})
                     except Exception as e:
                         logs.append(f"Final screenshot HEB failed: {type(e).__name__}: {e}")
 
@@ -669,7 +694,7 @@ def execute_heb_full_purchase(
         "outcome": outcome,
         "reason": reason,
         "evidence_id": evidence_id,
-        "steps": steps,  # 🔹 ahora incluye screenshots por paso
+        "steps": steps,
         "logs": logs,
         "screenshot_b64": screenshot_b64,
         "duration_ms": duration_ms,
@@ -682,16 +707,17 @@ def execute_heb_full_purchase(
         },
     }
 
+
 # ============================================================
-# Runner GENÉRICO POR STEPS 
+# Runner GENÉRICO POR STEPS
 # ============================================================
 def execute_test(
     steps: List[Dict[str, Any]],
     base_url: Optional[str] = None,
     headless: bool = True,
     viewport: Optional[Dict[str, int]] = None,
-    timeout_s: Optional[int] = None,  # ✅ timeout global (NO afecta screenshot_robust)
-    expected: Optional[str] = None,   # ✅ "pass" | "fail" (si no viene, se infiere del payload/steps)
+    timeout_s: Optional[int] = None,  # timeout global
+    expected: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Ejecuta steps Playwright.
@@ -701,28 +727,11 @@ def execute_test(
       assert_visible, assert_text_contains,
       assert_not_visible, assert_url_contains,
       wait_ms
-    Compatibilidad:
-      wait_for, wait_for_selector -> assert_visible
 
     Semántica QA:
       - expected="pass": una falla => status "failed"
       - expected="fail": una falla => status "passed" (caso negativo exitoso)
       - expected="fail": si NO falla => status "failed" (debió fallar)
-
-    Retorna (nivel producto):
-      {
-        ok: bool,
-        status: "passed" | "failed" | "error",
-        expected: "pass" | "fail",
-        outcome: "pass" | "fail",
-        reason: str | None,
-        evidence_id: str,
-        steps: [...],
-        logs: [...],
-        screenshot_b64: str | None,
-        duration_ms: int,
-        meta: { headless, steps_count, base_url, timeout_ms, viewport }
-      }
     """
     t0 = time.time()
 
@@ -746,25 +755,25 @@ def execute_test(
             "meta": {"headless": headless, "steps_count": 0, "base_url": base_url, "timeout_ms": None},
         }
 
-    # Defaults
     default_step_timeout_ms = 15000
     timeout_ms_global: Optional[int] = None
     if timeout_s is not None:
         timeout_ms_global = max(1000, int(timeout_s) * 1000)
 
-    # Viewport defaults
     if not isinstance(viewport, dict):
         viewport = {"width": 1366, "height": 768}
     vw = _as_int(viewport.get("width"), 1366)
     vh = _as_int(viewport.get("height"), 768)
 
-    # ✅ Expected: primero parámetro, luego payload en steps[0], luego default pass
     inferred_expected = expected
     if inferred_expected is None:
-        inferred_expected = steps[0].get("expected") or steps[0].get("expect") or steps[0].get("expected_outcome")
+        inferred_expected = (
+            steps[0].get("expected")
+            or steps[0].get("expect")
+            or steps[0].get("expected_outcome")
+        )
     expected_norm = _norm_expected(inferred_expected)
 
-    # Outcome real del run (pass si termina sin falla; fail si ocurre una falla de assertions/timeout/value)
     outcome = "pass"
     had_error = False
     reason: Optional[str] = None
@@ -784,7 +793,7 @@ def execute_test(
             "url": step.get("url"),
             "value": step.get("value"),
             "text": step.get("text"),
-            "status": st,     # passed/failed/error por step
+            "status": st,
             "error": err,
             "ts_ms": _now_ms(),
         }
@@ -792,14 +801,11 @@ def execute_test(
             payload.update(extra)
         report_steps.append(payload)
 
-    # Execute in Playwright
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=headless)
             context = browser.new_context(viewport={"width": vw, "height": vh})
 
-            # ✅ Timeout global: aplica a toda interacción/espera,
-            #    pero NO tocamos screenshot_robust (por decisión).
             if timeout_ms_global is not None:
                 context.set_default_timeout(timeout_ms_global)
                 context.set_default_navigation_timeout(timeout_ms_global)
@@ -807,7 +813,6 @@ def execute_test(
 
             page = context.new_page()
 
-            # Base URL: si no viene, la intentamos inferir de un goto inicial
             inferred_base_url = base_url
             for st in steps:
                 if _normalize_action(st) == "goto":
@@ -816,7 +821,6 @@ def execute_test(
                         inferred_base_url = base_url or u
                     break
 
-            # Ejecutar steps
             for i, step in enumerate(steps):
                 action = _normalize_action(step)
                 timeout_ms = _pick_timeout_ms(step, default_step_timeout_ms)
@@ -828,8 +832,6 @@ def execute_test(
                             raise ValueError("goto requiere url/base_url")
 
                         page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
-
-                        # ✅ Estabilidad: intenta networkidle con fallback (sin colgarse)
                         try:
                             page.wait_for_load_state("networkidle", timeout=min(6000, timeout_ms))
                         except Exception:
@@ -847,7 +849,6 @@ def execute_test(
                         _record_step(i, step, "passed", extra={"ms": ms})
                         continue
 
-                    # Para acciones con selector
                     sel = _selector_from_step(step)
                     if not sel and action not in ("assert_text_contains", "assert_url_contains"):
                         raise ValueError(f"{action} requiere selector")
@@ -879,24 +880,29 @@ def execute_test(
 
                     if action == "assert_not_visible":
                         loc = page.locator(sel)
-                        # is_visible con timeout corto: si se llega a ver, falla
-                        if loc.is_visible(timeout=1500):
+                        if loc.is_visible():
                             raise AssertionError(f"assert_not_visible falló: se mostró {sel}")
                         _record_step(i, step, "passed")
                         continue
 
                     if action == "assert_url_contains":
-                        needle = _safe_str(step.get("value") or step.get("text") or step.get("contains") or "").strip()
+                        needle = _safe_str(
+                            step.get("value") or step.get("text") or step.get("contains") or ""
+                        ).strip()
                         if not needle:
                             raise ValueError("assert_url_contains requiere value")
                         current = page.url or ""
                         if needle not in current:
-                            raise AssertionError(f"assert_url_contains falló: '{needle}' no está en '{current}'")
+                            raise AssertionError(
+                                f"assert_url_contains falló: '{needle}' no está en '{current}'"
+                            )
                         _record_step(i, step, "passed", extra={"current_url": current})
                         continue
 
                     if action == "assert_text_contains":
-                        expected_text = _safe_str(step.get("expected") or step.get("text") or "").strip()
+                        expected_text = _safe_str(
+                            step.get("expected") or step.get("text") or ""
+                        ).strip()
                         if not expected_text:
                             raise ValueError("assert_text_contains requiere expected/text")
                         target_sel = _selector_from_step(step) or "body"
@@ -904,13 +910,15 @@ def execute_test(
                         loc.wait_for(state="visible", timeout=timeout_ms)
                         content = (loc.inner_text(timeout=timeout_ms) or "").strip()
                         if expected_text not in content:
-                            raise AssertionError(f"Texto no encontrado. Expected contiene: '{expected_text}'")
+                            raise AssertionError(
+                                f"Texto no encontrado. Expected contiene: '{expected_text}'"
+                            )
                         _record_step(i, step, "passed", extra={"target": target_sel})
                         continue
 
                     raise ValueError(f"Acción no soportada: {action}")
 
-                except (PlaywrightTimeoutError,) as e:
+                except PlaywrightTimeoutError as e:
                     outcome = "fail"
                     reason = f"Timeout en step {i+1}: {action} — {type(e).__name__}: {e}"
                     logs.append(reason)
@@ -956,7 +964,6 @@ def execute_test(
                     screenshot_b64 = shot
                     break
 
-            # Screenshot final (si aún no hay)
             if screenshot_b64 is None:
                 try:
                     shot, shot_logs = take_screenshot_robust(page)
@@ -982,23 +989,20 @@ def execute_test(
 
     duration_ms = int((time.time() - t0) * 1000)
 
-    # ✅ status final con semántica QA
     status = _final_status(expected_norm, outcome, had_error)
 
-    # ✅ reason producto: si fue negativo exitoso, no lo llames error
     if status == "passed" and expected_norm == "fail" and outcome == "fail":
         reason = "Falló como se esperaba (caso negativo)."
     elif reason is None:
-        # corrida limpia
         reason = "OK"
 
     ok = status == "passed"
 
     return {
         "ok": ok,
-        "status": status,            # "passed" | "failed" | "error"
-        "expected": expected_norm,   # "pass" | "fail"
-        "outcome": outcome,          # "pass" | "fail"
+        "status": status,
+        "expected": expected_norm,
+        "outcome": outcome,
         "reason": reason,
         "evidence_id": evidence_id,
         "steps": report_steps,
