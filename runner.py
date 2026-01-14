@@ -403,19 +403,62 @@ def execute_heb_full_purchase(
                     _try_cerrar_modal_tienda()
                     sb.click(timeout=5000)
 
+                # 3) Escribir término y esperar resultados
                 sb.fill(termino)
                 sb.press("Enter")
                 page.wait_for_timeout(5000)
                 snap(f"{step_prefix}_resultados")
 
+                # 4) Click en "Agregar" con estrategia normal + force=True si algo intercepta el click
                 add_btn = page.get_by_role(
                     "button",
                     name=re.compile(r"Agregar", re.IGNORECASE),
                 ).first
-                add_btn.click()
+
+                try:
+                    add_btn.click(timeout=8000)
+                    logs.append(f"[HEB] Click normal en 'Agregar' para '{termino}'.")
+                except PlaywrightTimeoutError as e:
+                    logs.append(
+                        f"[HEB] Timeout al hacer click en 'Agregar' para '{termino}': "
+                        f"{type(e).__name__}: {e} — reintentando con force=True."
+                    )
+                    add_btn.click(timeout=5000, force=True)
+                    logs.append(f"[HEB] Click forzado (force=True) en 'Agregar' para '{termino}'.")
+                except PlaywrightError as e:
+                    msg = str(e)
+                    if "intercepts pointer events" in msg or "not clickable" in msg.lower():
+                        logs.append(
+                            "[HEB] Intercepción de eventos al hacer click en 'Agregar' "
+                            f"para '{termino}', reintentando con force=True: {msg}"
+                        )
+                        add_btn.click(timeout=5000, force=True)
+                        logs.append(f"[HEB] Click forzado (force=True) en 'Agregar' para '{termino}'.")
+                    else:
+                        # otros errores de Playwright se propagan
+                        raise
+                except Exception as e:
+                    logs.append(
+                        f"[HEB] Error inesperado al hacer click en 'Agregar' para '{termino}': "
+                        f"{type(e).__name__}: {e}"
+                    )
+                    # último intento con force=True antes de rendirnos
+                    try:
+                        add_btn.click(timeout=5000, force=True)
+                        logs.append(
+                            f"[HEB] Click forzado final (force=True) en 'Agregar' para '{termino}' tras error genérico."
+                        )
+                    except Exception as e2:
+                        logs.append(
+                            f"[HEB] Incluso el click forzado en 'Agregar' falló para '{termino}': "
+                            f"{type(e2).__name__}: {e2}"
+                        )
+                        raise
+
                 page.wait_for_timeout(1500)
                 snap(f"{step_prefix}_agregado")
 
+                # 5) Ajustar cantidad (si aplica)
                 if cantidad > 1:
                     try:
                         plus_btn = page.get_by_role(
@@ -430,6 +473,7 @@ def execute_heb_full_purchase(
                         logs.append(
                             f"[HEB] No se pudo ajustar cantidad para '{termino}', se dejó en 1 unidad."
                         )
+
 
             # -------- helper NUEVO: localizar botón/enlace de carrito de forma robusta -----
             def _find_cart_button():
