@@ -743,14 +743,14 @@ def execute_heb_full_purchase(
 
                     reason = "OK HEB — productos agregados al carrito sin completar compra"
 
-                 else:
+                else:
                     # 7) Abrir carrito y pasar a checkout (versión ultra robusta)
                     logs.append("[HEB] Intentando abrir carrito / checkout (v2).")
 
                     opened_cart = False
                     errores_cart: List[str] = []
 
-                    def _try_click(desc: str, locator) -> None:
+                    def _try_click(desc: str, locator):
                         nonlocal opened_cart
                         try:
                             locator.first.wait_for(timeout=7000)
@@ -767,7 +767,7 @@ def execute_heb_full_purchase(
                     except Exception:
                         pass
 
-                    # 7.1 Varios candidatos genéricos (botones / links / iconos)
+                    # 7.1 Candidatos genéricos (botones / links / iconos)
                     candidatos = [
                         (
                             "botón Finalizar compra/Carrito/Ver carrito",
@@ -804,7 +804,7 @@ def execute_heb_full_purchase(
                             break
                         _try_click(desc, loc)
 
-                    # 7.2 Enlaces directos a checkout/cart en el header
+                    # 7.2 Enlaces directos a checkout/cart
                     if not opened_cart:
                         try:
                             direct = page.locator(
@@ -813,9 +813,7 @@ def execute_heb_full_purchase(
                             direct.first.wait_for(timeout=7000)
                             direct.first.click(timeout=7000)
                             opened_cart = True
-                            logs.append(
-                                "[HEB] Carrito/checkout abierto con enlace directo checkout/cart."
-                            )
+                            logs.append("[HEB] Carrito/checkout abierto con enlace directo checkout/cart.")
                         except Exception as e:
                             errores_cart.append(
                                 f"Enlace directo checkout/cart falló: {type(e).__name__}: {e}"
@@ -828,9 +826,7 @@ def execute_heb_full_purchase(
                                 cart_url = f"{base_url}{cart_path}"
                                 page.goto(cart_url, wait_until="commit", timeout=60000)
                                 opened_cart = True
-                                logs.append(
-                                    f"[HEB] Carrito/checkout abierto navegando directo a {cart_url}."
-                                )
+                                logs.append(f"[HEB] Carrito/checkout abierto navegando directo a {cart_url}.")
                                 break
                             except Exception as e:
                                 errores_cart.append(
@@ -843,19 +839,18 @@ def execute_heb_full_purchase(
                             "No se encontró ningún botón o enlace relacionado al carrito."
                         )
 
-                    # Confirmar (en la medida de lo posible) que ya estamos en carrito/checkout
+                    # Esperar que realmente estemos en página de carrito / checkout
                     try:
                         page.wait_for_url(
                             lambda url: "checkout" in url.lower() or "cart" in url.lower(),
                             timeout=90000,
                         )
                     except Exception:
-                        logs.append(
-                            "[HEB] No se pudo confirmar URL de carrito/checkout explícitamente."
-                        )
+                        logs.append("[HEB] No se pudo confirmar URL de carrito/checkout explícitamente.")
 
                     page.wait_for_timeout(3000)
                     snap("carrito")
+
 
                     # 8) Proceder desde carrito
                     try:
