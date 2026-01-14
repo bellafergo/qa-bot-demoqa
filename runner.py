@@ -118,56 +118,55 @@ def _final_status(expected: str, outcome: str, had_error: bool) -> str:
 # ============================================================
 def take_screenshot_robust(page) -> Tuple[Optional[str], List[str]]:
     """
-    Toma screenshot con reintentos y timeouts propios.
-    Importante: NO respeta timeout global (por diseño), para no perder evidencia.
+    Screenshot optimizado en JPG para ahorrar RAM.
     """
     logs: List[str] = []
     b64: Optional[str] = None
 
-    # Timeouts propios (ms)
-    NAV_STABILIZE_MS = 1200
-    SHOT_TIMEOUT_MS = 15000
+    NAV_STABILIZE_MS = 800
+    SHOT_TIMEOUT_MS = 8000
     RETRIES = 2
 
-    # intenta estabilizar un poco DOM antes de screenshot
+    # Estabilizar DOM
     try:
         page.wait_for_timeout(NAV_STABILIZE_MS)
     except Exception:
         pass
 
-    # intenta esperar estado de carga sin colgarse
+    # Intentar estado de carga
     try:
-        page.wait_for_load_state("domcontentloaded", timeout=5000)
+        page.wait_for_load_state("domcontentloaded", timeout=3000)
     except Exception:
         pass
 
     last_err = None
     for attempt in range(RETRIES + 1):
         try:
-            png = page.screenshot(full_page=True, timeout=SHOT_TIMEOUT_MS)
-            b64 = _b64_png(png)
-            logs.append(f"Screenshot: ok (full_page) [attempt {attempt+1}]")
+            # 🔥 Screenshot como JPG
+            jpg = page.screenshot(
+                type="jpeg",
+                quality=60,         # 0–100 (60 recomendado)
+                full_page=False,    # menos consumo de RAM
+                timeout=SHOT_TIMEOUT_MS
+            )
+
+            b64 = base64.b64encode(jpg).decode("utf-8")
+            logs.append(f"Screenshot JPG OK [attempt {attempt+1}]")
             return b64, logs
+
         except Exception as e:
             last_err = e
-            logs.append(f"Screenshot full_page failed [attempt {attempt+1}]: {type(e).__name__}: {e}")
-
-        try:
-            png = page.screenshot(full_page=False, timeout=SHOT_TIMEOUT_MS)
-            b64 = _b64_png(png)
-            logs.append(f"Screenshot: ok (viewport) [attempt {attempt+1}]")
-            return b64, logs
-        except Exception as e:
-            last_err = e
-            logs.append(f"Screenshot viewport failed [attempt {attempt+1}]: {type(e).__name__}: {e}")
-
-        try:
-            page.wait_for_timeout(800)
-        except Exception:
-            pass
+            logs.append(
+                f"Screenshot JPG failed [attempt {attempt+1}]: {type(e).__name__}: {e}"
+            )
+            try:
+                page.wait_for_timeout(500)
+            except:
+                pass
 
     logs.append(
-        f"Screenshot: failed окончательно: {type(last_err).__name__}: {last_err}" if last_err else "Screenshot: failed"
+        f"Screenshot final failed: {type(last_err).__name__}: {last_err}"
+        if last_err else "Screenshot final failed"
     )
     return None, logs
 
