@@ -900,12 +900,29 @@ def execute_heb_full_purchase(
                     except Exception:
                         logs.append("[HEB] No se pudo validar pantalla de shipping explícitamente.")
 
-                    # 11) Pago
-                    page.wait_for_url(
-                        lambda url: "payment" in url or "pago" in url,
-                        timeout=60000,
-                    )
-                    page.wait_for_timeout(3000)
+                    # 11) Pago (más tolerante a timeouts)
+                    try:
+                        page.wait_for_url(
+                            lambda url: "payment" in url.lower() or "pago" in url.lower(),
+                            timeout=60000,
+                        )
+                        logs.append("[HEB] URL de pago detectada correctamente (payment/pago).")
+                    except PlaywrightTimeoutError as e:
+                        logs.append(
+                            f"[HEB] No se alcanzó URL clara de pago (payment/pago) antes del timeout: "
+                            f"{type(e).__name__}: {e} — se continúa en modo best-effort."
+                        )
+                    except Exception as e:
+                        logs.append(
+                            f"[HEB] Error genérico esperando URL de pago: {type(e).__name__}: {e} — "
+                            "se continúa en modo best-effort."
+                        )
+
+                    # Demos un pequeño tiempo y tomemos screenshot aunque no estemos seguros de la URL
+                    try:
+                        page.wait_for_timeout(3000)
+                    except Exception:
+                        pass
                     snap("payment_inicio")
 
                     try:
@@ -924,12 +941,16 @@ def execute_heb_full_purchase(
                         page.get_by_role(
                             "button",
                             name=re.compile(r"Comprar ahora|Realizar pedido", re.IGNORECASE),
-                        ).click()
+                        ).click(no_wait_after=True)
                     except Exception:
                         raise AssertionError("No se encontró botón para confirmar la compra.")
 
-                    page.wait_for_timeout(5000)
+                    try:
+                        page.wait_for_timeout(5000)
+                    except Exception:
+                        pass
                     snap("post_click_comprar")
+
                     try:
                         banner = page.get_by_text(
                             re.compile(
@@ -946,6 +967,7 @@ def execute_heb_full_purchase(
                         raise AssertionError(f"No se pudo confirmar el pedido: {e}")
 
                     reason = "OK HEB E2E"
+
 
             except PlaywrightTimeoutError as e:
                 outcome = "fail"
