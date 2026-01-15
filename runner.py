@@ -937,13 +937,87 @@ def execute_heb_full_purchase(
                     except Exception:
                         logs.append("[HEB] No se encontró textarea para comentarios.")
 
-                    try:
-                        page.get_by_role(
-                            "button",
-                            name=re.compile(r"Comprar ahora|Realizar pedido", re.IGNORECASE),
-                        ).click(no_wait_after=True)
-                    except Exception:
+                    # --- helper interno: encontrar y clickear botón de confirmación de compra ---
+                    def _click_confirmar_compra():
+                        """
+                        Intenta encontrar el botón principal de confirmar compra usando:
+                        - Labels típicos (Comprar ahora, Realizar pedido, Finalizar compra, etc.)
+                        - Fallback genérico con :has-text() (Comprar, Pedido, Pagar)
+                        Incluye pequeños scrolls para evitar que quede fuera de viewport.
+                        """
+                        errores_locales: List[str] = []
+
+                        # Pequeño scroll por si el botón está abajo
+                        try:
+                            page.mouse.wheel(0, 1000)
+                            page.wait_for_timeout(800)
+                        except Exception:
+                            pass
+
+                        label_patterns = [
+                            r"Comprar ahora",
+                            r"Realizar pedido",
+                            r"Confirmar pedido",
+                            r"Finalizar compra",
+                            r"Confirmar compra",
+                            r"Completar pedido",
+                            r"Finalizar pedido",
+                        ]
+
+                        # 1) Intento por labels "bonitos" con get_by_role
+                        for pattern in label_patterns:
+                            try:
+                                btn = page.get_by_role(
+                                    "button",
+                                    name=re.compile(pattern, re.IGNORECASE),
+                                ).first
+                                # is_visible puede tirar error si no existe realmente
+                                if btn.is_visible():
+                                    logs.append(
+                                        f"[HEB] Botón de confirmación encontrado por label '{pattern}'."
+                                    )
+                                    btn.click(no_wait_after=True, timeout=15000)
+                                    return
+                            except Exception as e:
+                                errores_locales.append(
+                                    f"Label '{pattern}' falló: {type(e).__name__}: {e}"
+                                )
+
+                        # 2) Fallback genérico: cualquier botón que contenga texto relevante
+                        try:
+                            fallback = page.locator(
+                                'button:has-text("Comprar"), '
+                                'button:has-text("pedido"), '
+                                'button:has-text("Pagar"), '
+                                'button:has-text("Finalizar")'
+                            ).first
+                            if fallback.is_visible():
+                                logs.append(
+                                    "[HEB] Botón de confirmación encontrado por selector genérico (:has-text)."
+                                )
+                                fallback.click(no_wait_after=True, timeout=15000)
+                                return
+                        except Exception as e:
+                            errores_locales.append(
+                                f"Fallback genérico falló: {type(e).__name__}: {e}"
+                            )
+
+                        # 3) Si llegamos aquí, no encontramos nada razonable
+                        for msg in errores_locales:
+                            logs.append(f"[HEB] {msg}")
                         raise AssertionError("No se encontró botón para confirmar la compra.")
+
+                    # --- usar helper de confirmación de compra ---
+                    try:
+                        _click_confirmar_compra()
+                    except AssertionError:
+                        # Re-lanzamos tal cual para que quede claro en el reason
+                        raise
+                    except Exception as e:
+                        # Cualquier otro error lo convertimos en AssertionError legible
+                        raise AssertionError(
+                            f"Error inesperado al intentar confirmar la compra: {type(e).__name__}: {e}"
+                        )
 
                     try:
                         page.wait_for_timeout(5000)
