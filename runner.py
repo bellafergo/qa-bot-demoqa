@@ -173,6 +173,7 @@ def take_screenshot_robust(page) -> Tuple[Optional[str], List[str]]:
     )
     return None, logs
 
+
 # ============================================================
 # Runner ESPECIAL HEB (flujo carrito o compra completa, con screenshots por paso)
 # ============================================================
@@ -282,12 +283,7 @@ def execute_heb_full_purchase(
                     logs.extend(shot_logs)
                     screenshot_b64 = shot or screenshot_b64
                     if shot:
-                        steps.append(
-                            {
-                                "name": step_name,
-                                "screenshot_b64": shot,
-                            }
-                        )
+                        steps.append({"name": step_name, "screenshot_b64": shot})
                         logs.append(f"[HEB] Screenshot capturado en paso: {step_name}")
                 except Exception as e:
                     logs.append(
@@ -558,6 +554,7 @@ def execute_heb_full_purchase(
                             f"[HEB] No se pudo ajustar cantidad para '{termino}', se dejó en 1 unidad."
                         )
 
+            # -------- helper: localizar botón/enlace de carrito de forma robusta -----
             def _find_cart_button():
                 """
                 Intenta encontrar cualquier botón/enlace relacionado con el carrito o checkout,
@@ -793,7 +790,6 @@ def execute_heb_full_purchase(
                 # NO raise aquí, solo logs
                 return
 
-
             # ------------------- flujo principal -------------------
             try:
                 # 1) Home HEB — navegación robusta
@@ -956,7 +952,7 @@ def execute_heb_full_purchase(
 
                 # 4) Paso de contraseña (robusto)
                 pwd_input = _get_password_input()
-                pwd_input.fill(password, timeout=10000)
+                pwd_input.fill(password)
                 page.wait_for_timeout(800)
 
                 try:
@@ -1290,6 +1286,65 @@ def execute_heb_full_purchase(
 
                     reason = "OK HEB E2E (hasta pago, confirmación best-effort)"
 
+            except PlaywrightTimeoutError as e:
+                outcome = "fail"
+                reason = f"Timeout en flujo HEB: {type(e).__name__}: {e}"
+                logs.append(reason)
+
+            except (AssertionError, ValueError) as e:
+                outcome = "fail"
+                reason = f"Fallo de validación en HEB: {type(e).__name__}: {e}"
+                logs.append(reason)
+
+            except PlaywrightError as e:
+                outcome = "fail"
+                had_error = True
+                reason = f"Playwright error en HEB: {type(e).__name__}: {e}"
+                logs.append(reason)
+
+            except Exception as e:
+                outcome = "fail"
+                had_error = True
+                reason = f"Error inesperado en HEB: {type(e).__name__}: {e}"
+                logs.append(reason)
+
+            finally:
+                if screenshot_b64 is None and steps:
+                    screenshot_b64 = steps[-1].get("screenshot_b64")
+
+                if page is not None and screenshot_b64 is None:
+                    try:
+                        shot, shot_logs = take_screenshot_robust(page)
+                        logs.extend(shot_logs)
+                        screenshot_b64 = shot
+                        if shot:
+                            steps.append({"name": "final", "screenshot_b64": shot})
+                    except Exception as e:
+                        logs.append(
+                            f"Final screenshot HEB failed: {type(e).__name__}: {e}"
+                        )
+
+                try:
+                    context.close()
+                except Exception:
+                    pass
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+
+    except Exception as e:
+        outcome = "fail"
+        had_error = True
+        if reason is None:
+            reason = f"Runner HEB crashed: {type(e).__name__}: {e}"
+        logs.append(reason)
+
+    duration_ms = int((time.time() - t0) * 1000)
+
+    status = _final_status(expected_norm, outcome, had_error)
+    if reason is None:
+        reason = "OK" if status == "passed" else "Fallo en flujo HEB"
 
     ok = status == "passed"
 
@@ -1312,6 +1367,7 @@ def execute_heb_full_purchase(
             "viewport": {"width": vw, "height": vh},
         },
     }
+
 
 
 # ============================================================
