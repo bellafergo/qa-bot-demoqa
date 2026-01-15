@@ -376,7 +376,7 @@ def execute_heb_full_purchase(
             def buscar_y_agregar(termino: str, cantidad: int = 1, step_prefix: str = "") -> None:
                 logs.append(f"[HEB] Buscando producto: {termino} (cantidad={cantidad})")
 
-                # 1) Antes de usar el buscador, intentar cerrar el modal si está
+                # 1) Antes de usar el buscador, intentar cerrar el modal de tienda si está
                 _try_cerrar_modal_tienda()
 
                 sb = page.get_by_placeholder("Buscar productos")
@@ -393,7 +393,7 @@ def execute_heb_full_purchase(
                             "Modal de tienda está bloqueando el buscador y no se pudo cerrar automáticamente."
                         )
 
-                # 2) Click al buscador con timeout corto y manejo específico del Timeout
+                # 2) Click al buscador con timeout y manejo de timeout específico
                 try:
                     sb.click(timeout=10000)
                 except PlaywrightTimeoutError as e:
@@ -406,7 +406,6 @@ def execute_heb_full_purchase(
                         raise AssertionError(
                             "Timeout en click del buscador y el modal de tienda sigue visible."
                         )
-                    # Segundo intento con timeout más corto
                     sb.click(timeout=5000)
                 except Exception as e:
                     logs.append(
@@ -418,17 +417,73 @@ def execute_heb_full_purchase(
                 # 3) Escribir término y esperar resultados
                 sb.fill(termino)
                 sb.press("Enter")
-                page.wait_for_timeout(8000)  # <-- un poco más de espera para resultados
+                page.wait_for_timeout(8000)
                 snap(f"{step_prefix}_resultados")
 
-                # 4) Click en "Agregar" con estrategia normal + force=True si algo intercepta el click
-                add_btn = page.get_by_role(
-                    "button",
-                    name=re.compile(r"Agregar", re.IGNORECASE),
-                ).first
-
+                # 3.1 Scroll para asegurar que las tarjetas con 'Agregar' estén en viewport
                 try:
-                    add_btn.click(timeout=15000)  # <-- ampliamos el timeout
+                    page.mouse.wheel(0, 800)
+                    page.wait_for_timeout(1200)
+                except Exception:
+                    pass
+
+                # 4) Localizar botón 'Agregar' con dos estrategias
+                add_btn = None
+                last_error = None
+
+                # Estrategia 1: role=button, name=/Agregar/i (lo que ya tenías)
+                try:
+                    cand = page.get_by_role(
+                        "button",
+                        name=re.compile(r"Agregar", re.IGNORECASE),
+                    ).first
+                    # forzamos que exista/sea visible antes de click para evitar el timeout raro
+                    cand.wait_for(timeout=8000)
+                    add_btn = cand
+                    logs.append("[HEB] Botón 'Agregar' encontrado con get_by_role(button, name='Agregar').")
+                except Exception as e:
+                    last_error = e
+                    logs.append(
+                        f"[HEB] No se pudo localizar botón 'Agregar' con get_by_role, "
+                        f"probando fallback en zona de resultados: {type(e).__name__}: {e}"
+                    )
+
+                # Estrategia 2: dentro de la sección de resultados, button:has-text('Agregar')
+                if add_btn is None:
+                    try:
+                        # zona de resultados de VTEX (clase search-result)
+                        results = page.locator('[class*="search-result" i]')
+                        # si hay varias, tomamos la primera visible
+                        if results.count() > 0:
+                            visible_idx = 0
+                            for i in range(results.count()):
+                                if results.nth(i).is_visible():
+                                    visible_idx = i
+                                    break
+                            results = results.nth(visible_idx)
+
+                        cand2 = results.locator('button:has-text("Agregar")').first
+                        cand2.wait_for(timeout=8000)
+                        add_btn = cand2
+                        logs.append("[HEB] Botón 'Agregar' encontrado con selector button:has-text('Agregar') en resultados.")
+                    except Exception as e2:
+                        last_error = e2
+                        logs.append(
+                            f"[HEB] Fallback button:has-text('Agregar') también falló: "
+                            f"{type(e2).__name__}: {e2}"
+                        )
+
+                # Si de plano no encontramos botón, fallar con screenshot y mensaje claro
+                if add_btn is None:
+                    snap(f"{step_prefix}_sin_boton_agregar")
+                    raise AssertionError(
+                        f"No se encontró ningún botón 'Agregar' para '{termino}'. "
+                        f"Último error: {last_error}"
+                    )
+
+                # 5) Click en 'Agregar' con reintentos y force=True si algo intercepta el click
+                try:
+                    add_btn.click(timeout=15000)
                     logs.append(f"[HEB] Click normal en 'Agregar' para '{termino}'.")
                 except PlaywrightTimeoutError as e:
                     logs.append(
@@ -457,7 +512,6 @@ def execute_heb_full_purchase(
                         f"[HEB] Error inesperado al hacer click en 'Agregar' para '{termino}': "
                         f"{type(e).__name__}: {e}"
                     )
-                    # último intento con force=True antes de rendirnos
                     try:
                         add_btn.click(timeout=8000, force=True)
                         logs.append(
@@ -469,12 +523,13 @@ def execute_heb_full_purchase(
                             f"[HEB] Incluso el click forzado en 'Agregar' falló para '{termino}': "
                             f"{type(e2).__name__}: {e2}"
                         )
+                        snap(f"{step_prefix}_error_click_agregar")
                         raise
 
                 page.wait_for_timeout(1500)
                 snap(f"{step_prefix}_agregado")
 
-                # 5) Ajustar cantidad (si aplica)
+                # 6) Ajustar cantidad (si aplica)
                 if cantidad > 1:
                     try:
                         plus_btn = page.get_by_role(
@@ -1257,7 +1312,6 @@ def execute_heb_full_purchase(
             "viewport": {"width": vw, "height": vh},
         },
     }
-
 
 
 # ============================================================
