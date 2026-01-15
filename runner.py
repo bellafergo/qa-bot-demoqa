@@ -658,7 +658,7 @@ def execute_heb_full_purchase(
                     "No se encontró ningún campo de contraseña después del correo en login HEB."
                 )
 
-             def _click_confirmar_compra():
+            def _click_confirmar_compra():
                 """
                 Intenta encontrar el botón principal de confirmar compra usando:
                 - Labels típicos (Comprar ahora, Realizar pedido, Finalizar compra, etc.)
