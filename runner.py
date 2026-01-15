@@ -1059,125 +1059,86 @@ def execute_heb_full_purchase(
                         )
 
                     # --- helper interno: encontrar y clickear botón de confirmación de compra (v3) ---
-                    def _click_confirmar_compra():
-                        """
-                        Intenta encontrar el botón principal de confirmar compra usando:
-                        - Labels típicos (Comprar ahora, Realizar pedido, Finalizar compra, etc.)
-                        - Fallback genérico :has-text(...)
-                        - Fallback por atributos de VTEX (data-testid, clases de placeOrder)
-                        Hace scroll y deja screenshot si no logra encontrar nada.
-                        """
-                        errores_locales: List[str] = []
+                        def _click_confirmar_compra():
+                            """
+                            Localiza y clickea el botón REAL de HEB: 'Finalizar Compra'.
 
-                        # 0) Screenshot de contexto de pago (para debug)
-                        try:
-                            snap("payment_busqueda_boton_compra")
-                        except Exception:
-                            pass
+                            Usa:
+                            1) get_by_role("button", name="Finalizar Compra")
+                            2) Regex "Finalizar Compra"
+                            3) CSS button.vtex-button--see-cart:has-text(...)
+                            4) Fallback genérico button:has-text("Finalizar")
+                            
+                            Si NO lo encuentra → falla.
+                            """
 
-                        # 1) Scroll suave hacia abajo (por si el botón está fuera de viewport)
-                        try:
-                            page.mouse.wheel(0, 1200)
-                            page.wait_for_timeout(800)
-                        except Exception:
-                            pass
+                            errores_locales: List[str] = []
 
-                        label_patterns = [
-                            r"Comprar ahora",
-                            r"Realizar pedido",
-                            r"Confirmar pedido",
-                            r"Finalizar compra",
-                            r"Confirmar compra",
-                            r"Completar pedido",
-                            r"Finalizar pedido",
-                            r"Continuar y pagar",
-                            r"Pagar ahora",
-                            r"Confirmar y pagar",
-                        ]
+                            # Screenshot del contexto
+                            try:
+                                snap("payment_busqueda_boton_compra")
+                            except Exception:
+                                pass
 
-                        # 1) Intento por labels “bonitos” con get_by_role(button)
-                        for pattern in label_patterns:
+                            # Scroll por si el botón está fuera de vista
+                            try:
+                                page.mouse.wheel(0, 1000)
+                                page.wait_for_timeout(600)
+                            except:
+                                pass
+
+                            # --- 1) Selector exacto por rol y nombre ---
                             try:
                                 btn = page.get_by_role(
                                     "button",
-                                    name=re.compile(pattern, re.IGNORECASE),
+                                    name=re.compile(r"Finalizar\s+Compra", re.IGNORECASE),
                                 ).first
-                                if btn.is_visible():
-                                    logs.append(
-                                        "[HEB] Botón de confirmación encontrado por "
-                                        f"label (role=button) '{pattern}'."
-                                    )
-                                    btn.click(no_wait_after=True, timeout=20000)
-                                    return
+                                btn.wait_for(timeout=8000)
+                                btn.click(timeout=8000)
+                                logs.append("[HEB] Click en botón 'Finalizar Compra' con role=button.")
+                                return
                             except Exception as e:
-                                errores_locales.append(
-                                    f"Label role=button '{pattern}' falló: "
-                                    f"{type(e).__name__}: {e}"
-                                )
+                                errores_locales.append(f"role=button name='Finalizar Compra' falló: {e}")
 
-                        # 2) Fallback genérico :has-text(...) sobre buttons
-                        try:
-                            generic_btn = page.locator(
-                                'button:has-text("Comprar"), '
-                                'button:has-text("pedido"), '
-                                'button:has-text("Pagar"), '
-                                'button:has-text("Finalizar")'
-                            ).first
-                            if generic_btn.is_visible():
-                                logs.append(
-                                    "[HEB] Botón de confirmación encontrado por selector "
-                                    "genérico button:has-text(...)."
-                                )
-                                generic_btn.click(no_wait_after=True, timeout=20000)
+                            # --- 2) Fallback por CSS (vtex-button--see-cart) ---
+                            try:
+                                btn2 = page.locator(
+                                    'button.vtex-button--see-cart:has-text("Finalizar Compra")'
+                                ).first
+                                btn2.wait_for(timeout=8000)
+                                btn2.click(timeout=8000)
+                                logs.append("[HEB] Click en botón 'Finalizar Compra' con .vtex-button--see-cart.")
                                 return
-                        except Exception as e:
-                            errores_locales.append(
-                                "Fallback genérico en <button> falló: "
-                                f"{type(e).__name__}: {e}"
-                            )
+                            except Exception as e:
+                                errores_locales.append(f"CSS vtex-button--see-cart falló: {e}")
 
-                        # 3) Fallback por atributos típicos de VTEX (data-testid / class)
-                        try:
-                            vtex_place_order = page.locator(
-                                '[data-testid*="place-order" i], '
-                                '[class*="placeOrder" i], '
-                                '[class*="place-order" i]'
-                            ).first
-                            if vtex_place_order.is_visible():
-                                logs.append(
-                                    "[HEB] Botón de confirmación encontrado por "
-                                    "data-testid/class de place-order."
-                                )
-                                vtex_place_order.click(
-                                    no_wait_after=True, timeout=20000
-                                )
+                            # --- 3) Fallback genérico ---
+                            try:
+                                btn3 = page.locator('button:has-text("Finalizar Compra")').first
+                                btn3.wait_for(timeout=8000)
+                                btn3.click(timeout=8000)
+                                logs.append("[HEB] Click en botón 'Finalizar Compra' con fallback genérico button:has-text().")
                                 return
-                        except Exception as e:
-                            errores_locales.append(
-                                "Fallback VTEX place-order falló: "
-                                f"{type(e).__name__}: {e}"
-                            )
+                            except Exception as e:
+                                errores_locales.append(f"Fallback button:has-text('Finalizar Compra') falló: {e}")
 
-                        # 4) Fallback extremo: cualquier elemento clickeable con texto clave
-                        try:
-                            any_clickable = page.locator(
-                                'button:has-text("pedido"), '
-                                'a:has-text("pedido"), '
-                                'div:has-text("pedido"), '
-                                'span:has-text("pedido")'
-                            ).first
-                            if any_clickable.is_visible():
-                                logs.append(
-                                    "[HEB] Botón de confirmación encontrado por "
-                                    "fallback extremo (any clickable con 'pedido')."
-                                )
-                                any_clickable.click(no_wait_after=True, timeout=20000)
+                            # --- 4) Fallback final: texto parcial ---
+                            try:
+                                btn4 = page.locator('button:has-text("Finalizar")').first
+                                btn4.wait_for(timeout=8000)
+                                btn4.click(timeout=8000)
+                                logs.append("[HEB] Click en botón parcial 'Finalizar'.")
                                 return
-                        except Exception as e:
-                            errores_locales.append(
-                                "Fallback extremo (any clickable con 'pedido') falló: "
-                                f"{type(e).__name__}: {e}"
-                            )
+                            except Exception as e:
+                                errores_locales.append(f"Fallback parcial 'Finalizar' falló: {e}")
+
+                            # --- Si llega aquí: NO lo encontró ---
+                            snap("payment_sin_boton_finalizar_compra")
+                            for msg in errores_locales:
+                                logs.append(f"[HEB] {msg}")
+
+                            raise AssertionError("No se encontró el botón 'Finalizar Compra' en la página.")
+
 
                         # 5) Si llegamos aquí, no encontramos nada razonable
                         try:
