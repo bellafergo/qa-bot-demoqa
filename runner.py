@@ -295,21 +295,21 @@ def execute_heb_full_purchase(
                         f"[HEB] Screenshot failed at {step_name}: {type(e).__name__}: {e}"
                     )
 
-             def _try_cerrar_modal_tienda(max_tries: int = 4) -> None:
+            def _try_cerrar_modal_tienda(max_tries: int = 4) -> None:
                 """
                 Intenta cerrar el modal de selección de tienda (base-modal)
-                hasta max_tries veces, usando varias estrategias:
-                - Botones de Confirmar / Guardar / Continuar / Aceptar
-                - Botones de Cerrar / X
+                usando múltiples estrategias:
+                - Botones típicos (Confirmar / Guardar / Continuar / Aceptar)
+                - Botones de cierre (Cerrar / X / ✕)
+                - Seleccionar tienda sugerida (Gonzalitos, Mi tienda…)
                 - Click en overlay
                 - Tecla Escape
+                - Esperas cortas entre intentos
                 """
                 try:
                     modal = page.locator('[data-testid="base-modal"]')
                 except Exception as e:
-                    logs.append(
-                        f"[HEB] No se pudo localizar base-modal: {type(e).__name__}: {e}"
-                    )
+                    logs.append(f"[HEB] No se pudo localizar base-modal: {type(e).__name__}: {e}")
                     return
 
                 for attempt in range(max_tries):
@@ -317,291 +317,183 @@ def execute_heb_full_purchase(
                         if not modal.is_visible():
                             return
 
-                        logs.append(
-                            f"[HEB] Modal de tienda visible, intento {attempt+1}/{max_tries} para cerrarlo."
-                        )
+                        logs.append(f"[HEB] Modal visible (intento {attempt+1}/{max_tries}).")
                         snap("modal_tienda")
 
-                        # 0) Intentar ESC
+                        # 0) ESC
                         try:
                             page.keyboard.press("Escape")
                             page.wait_for_timeout(500)
                             if not modal.is_visible():
-                                logs.append("[HEB] Modal de tienda cerrado con tecla Escape.")
+                                logs.append("[HEB] Modal cerrado con tecla Escape.")
                                 snap("modal_tienda_cerrado")
                                 return
                         except Exception:
                             pass
 
-                        # 1) Intentar seleccionar la tienda (Gonzalitos / Mi tienda / etc.)
+                        # 1) Seleccionar tienda sugerida
                         try:
                             page.get_by_text(
-                                re.compile(
-                                    r"Gonzalitos|Mi tienda|Selecciona tu tienda",
-                                    re.IGNORECASE,
-                                )
-                            ).first.click(timeout=4000)
-                            page.wait_for_timeout(500)
+                                re.compile(r"Gonzalitos|Mi tienda|Selecciona tu tienda", re.IGNORECASE)
+                            ).first.click(timeout=3500)
+                            page.wait_for_timeout(600)
                         except Exception:
                             pass
 
-                        # 2) Intentar botón de confirmación
+                        # 2) Botones típicos del modal
                         for label in (
-                            "Confirmar",
-                            "Guardar",
-                            "Continuar",
-                            "Aceptar",
-                            "Ir a la tienda",
-                            "Entrar a la tienda",
-                            "Ir a recoger",
+                            "Confirmar", "Guardar", "Continuar", "Aceptar",
+                            "Ir a la tienda", "Entrar a la tienda", "Ir a recoger"
                         ):
                             try:
                                 page.get_by_role(
-                                    "button",
-                                    name=re.compile(label, re.IGNORECASE),
-                                ).first.click(timeout=4000)
-                                page.wait_for_timeout(800)
+                                    "button", name=re.compile(label, re.IGNORECASE)
+                                ).first.click(timeout=3500)
+                                page.wait_for_timeout(700)
                                 if not modal.is_visible():
-                                    logs.append(
-                                        f"[HEB] Modal de tienda cerrado con botón '{label}'."
-                                    )
+                                    logs.append(f"[HEB] Modal cerrado con botón '{label}'.")
                                     snap("modal_tienda_cerrado")
                                     return
                             except Exception:
                                 continue
 
-                        # 3) Botón de cerrar (X / Cerrar)
+                        # 3) Botón de cierre
                         try:
                             page.get_by_role(
-                                "button",
-                                name=re.compile(r"Cerrar|✕|X", re.IGNORECASE),
-                            ).first.click(timeout=4000)
-                            page.wait_for_timeout(800)
+                                "button", name=re.compile(r"Cerrar|✕|X", re.IGNORECASE)
+                            ).first.click(timeout=3500)
+                            page.wait_for_timeout(700)
                             if not modal.is_visible():
-                                logs.append(
-                                    "[HEB] Modal de tienda cerrado con botón de cierre."
-                                )
+                                logs.append("[HEB] Modal cerrado con botón de cierre.")
                                 snap("modal_tienda_cerrado")
                                 return
                         except Exception:
                             pass
 
-                        # 4) Click en overlay del modal
+                        # 4) Click en overlay
                         try:
-                            overlay = page.locator(
-                                '[data-testid="base-modal"] div,[class*="overlay" i]'
-                            ).first
-                            overlay.click(timeout=4000, force=True)
-                            page.wait_for_timeout(800)
+                            overlay = page.locator('[data-testid="base-modal"] div,[class*="overlay" i]').first
+                            overlay.click(timeout=3000, force=True)
+                            page.wait_for_timeout(700)
                             if not modal.is_visible():
-                                logs.append("[HEB] Modal de tienda cerrado clickeando overlay.")
+                                logs.append("[HEB] Modal cerrado clickeando overlay.")
                                 snap("modal_tienda_cerrado")
                                 return
                         except Exception:
                             pass
-
-                        page.wait_for_timeout(800)
 
                     except Exception as e:
-                        logs.append(
-                            f"[HEB] Error al manejar modal de tienda (intento {attempt+1}): "
-                            f"{type(e).__name__}: {e}"
-                        )
-                        try:
-                            page.wait_for_timeout(800)
-                        except Exception:
-                            pass
+                        logs.append(f"[HEB] Error manejando modal: {type(e).__name__}: {e}")
+                        try: page.wait_for_timeout(500)
+                        except Exception: pass
 
-                logs.append(
-                    "[HEB] Modal de tienda sigue visible después de varios intentos (se continuará en best-effort)."
-                )
+                logs.append("[HEB] Modal sigue visible después de varios intentos (best-effort).")
 
-            def buscar_y_agregar(
-                termino: str, cantidad: int = 1, step_prefix: str = ""
-            ) -> None:
-                logs.append(f"[HEB] Buscando producto: {termino} (cantidad={cantidad})")
 
-                # 1) Antes de usar el buscador, intentar cerrar el modal de tienda si está
+            def buscar_y_agregar(termino: str, cantidad: int = 1, step_prefix: str = "") -> None:
+                logs.append(f"[HEB] Buscando producto: {termino}")
+
+                # 1) Intentar cerrar el modal antes
                 _try_cerrar_modal_tienda()
 
                 sb = page.get_by_placeholder("Buscar productos")
 
-                # 1.1 Revisión del modal: si sigue visible NO tronamos, sólo lo registramos
+                # Si sigue visible, NO fallamos — solo avisamos
                 try:
                     modal = page.locator('[data-testid="base-modal"]')
                     if modal.is_visible():
-                        logs.append(
-                            "[HEB] Modal de tienda sigue visible antes de click en buscador; "
-                            "se continúa en modo best-effort (puede bloquear la búsqueda)."
-                        )
+                        logs.append("[HEB] Modal sigue visible; se continúa en best-effort (puede bloquear el buscador).")
                 except Exception:
                     modal = None
 
-                # 2) Click al buscador con timeout y manejo de timeout específico
+                # 2) Click en buscador
                 try:
-                    sb.click(timeout=10000)
-                except PlaywrightTimeoutError as e:
-                    logs.append(
-                        f"[HEB] Timeout al intentar click en buscador: {type(e).__name__}: {e}"
-                    )
-                    _try_cerrar_modal_tienda()
-                    try:
-                        sb.click(timeout=5000)
-                    except Exception as e2:
-                        logs.append(
-                            "[HEB] Segundo intento de click en buscador también falló: "
-                            f"{type(e2).__name__}: {e2}"
-                        )
+                    sb.click(timeout=8000)
                 except Exception as e:
-                    logs.append(
-                        f"[HEB] Error genérico al hacer click en buscador: {type(e).__name__}: {e}"
-                    )
+                    logs.append(f"[HEB] Click en buscador falló: {type(e).__name__}: {e}")
                     _try_cerrar_modal_tienda()
                     try:
                         sb.click(timeout=5000)
-                    except Exception as e2:
-                        logs.append(
-                            "[HEB] Reintento de click en buscador tras error genérico también falló: "
-                            f"{type(e2).__name__}: {e2}"
-                        )
-
-                # 3) Escribir término y esperar resultados
+                    except Exception:
+                        logs.append("[HEB] Segundo intento de click también falló.")
+                
+                # 3) Escribir el término y buscar
                 try:
                     sb.fill(termino)
                     sb.press("Enter")
                 except Exception as e:
-                    logs.append(
-                        f"[HEB] No se pudo escribir en el buscador para '{termino}': "
-                        f"{type(e).__name__}: {e}"
-                    )
-                page.wait_for_timeout(8000)
+                    logs.append(f"[HEB] No se pudo escribir término '{termino}': {e}")
+
+                page.wait_for_timeout(7000)
                 snap(f"{step_prefix}_resultados")
 
-                # 3.1 Scroll para asegurar que las tarjetas con 'Agregar' estén en viewport
+                # Scroll para que aparezcan "Agregar"
                 try:
-                    page.mouse.wheel(0, 800)
-                    page.wait_for_timeout(1200)
+                    page.mouse.wheel(0, 1000)
+                    page.wait_for_timeout(1000)
                 except Exception:
                     pass
 
-                # 4) Localizar botón 'Agregar' con dos estrategias
+                # 4) Buscar botón "Agregar"
                 add_btn = None
                 last_error = None
 
-                # Estrategia 1: role=button, name=/Agregar/i
+                # Estrategia 1
                 try:
-                    cand = page.get_by_role(
-                        "button",
-                        name=re.compile(r"Agregar", re.IGNORECASE),
-                    ).first
-                    cand.wait_for(timeout=8000)
-                    add_btn = cand
-                    logs.append(
-                        "[HEB] Botón 'Agregar' encontrado con get_by_role(button, name='Agregar')."
-                    )
+                    btn = page.get_by_role("button", name=re.compile(r"Agregar", re.IGNORECASE)).first
+                    btn.wait_for(timeout=7000)
+                    add_btn = btn
+                    logs.append("[HEB] Botón Agregar encontrado (role=button).")
                 except Exception as e:
                     last_error = e
-                    logs.append(
-                        f"[HEB] No se pudo localizar botón 'Agregar' con get_by_role, "
-                        f"probando fallback en zona de resultados: {type(e).__name__}: {e}"
-                    )
 
-                # Estrategia 2: dentro de la sección de resultados, button:has-text('Agregar')
+                # Estrategia 2 fallback
                 if add_btn is None:
                     try:
                         results = page.locator('[class*="search-result" i]')
                         if results.count() > 0:
-                            visible_idx = 0
                             for i in range(results.count()):
                                 if results.nth(i).is_visible():
-                                    visible_idx = i
+                                    results = results.nth(i)
                                     break
-                            results = results.nth(visible_idx)
-
-                        cand2 = results.locator('button:has-text("Agregar")').first
-                        cand2.wait_for(timeout=8000)
-                        add_btn = cand2
-                        logs.append(
-                            "[HEB] Botón 'Agregar' encontrado con selector button:has-text('Agregar') en resultados."
-                        )
+                        btn2 = results.locator('button:has-text("Agregar")').first
+                        btn2.wait_for(timeout=7000)
+                        add_btn = btn2
+                        logs.append("[HEB] Botón Agregar encontrado (fallback).")
                     except Exception as e2:
                         last_error = e2
-                        logs.append(
-                            f"[HEB] Fallback button:has-text('Agregar') también falló: "
-                            f"{type(e2).__name__}: {e2}"
-                        )
 
-                # Si de plano no encontramos botón, fallar con screenshot y mensaje claro
                 if add_btn is None:
                     snap(f"{step_prefix}_sin_boton_agregar")
                     raise AssertionError(
-                        f"No se encontró ningún botón 'Agregar' para '{termino}'. "
-                        f"Último error: {last_error}"
+                        f"No se encontró botón 'Agregar' para '{termino}'. Último error: {last_error}"
                     )
 
-                # 5) Click en 'Agregar' con reintentos y force=True si algo intercepta el click
+                # 5) Click en Agregar
                 try:
-                    add_btn.click(timeout=15000)
-                    logs.append(f"[HEB] Click normal en 'Agregar' para '{termino}'.")
-                except PlaywrightTimeoutError as e:
-                    logs.append(
-                        f"[HEB] Timeout al hacer click en 'Agregar' para '{termino}': "
-                        f"{type(e).__name__}: {e} — reintentando con force=True."
-                    )
-                    add_btn.click(timeout=8000, force=True)
-                    logs.append(
-                        f"[HEB] Click forzado (force=True) en 'Agregar' para '{termino}'."
-                    )
-                except PlaywrightError as e:
-                    msg = str(e)
-                    if "intercepts pointer events" in msg or "not clickable" in msg.lower():
-                        logs.append(
-                            "[HEB] Intercepción de eventos al hacer click en 'Agregar' "
-                            f"para '{termino}', reintentando con force=True: {msg}"
-                        )
-                        add_btn.click(timeout=8000, force=True)
-                        logs.append(
-                            f"[HEB] Click forzado (force=True) en 'Agregar' para '{termino}'."
-                        )
-                    else:
-                        raise
-                except Exception as e:
-                    logs.append(
-                        f"[HEB] Error inesperado al hacer click en 'Agregar' para '{termino}': "
-                        f"{type(e).__name__}: {e}"
-                    )
+                    add_btn.click(timeout=10000)
+                except Exception:
                     try:
-                        add_btn.click(timeout=8000, force=True)
-                        logs.append(
-                            f"[HEB] Click forzado final (force=True) en 'Agregar' para '{termino}' "
-                            "tras error genérico."
-                        )
-                    except Exception as e2:
-                        logs.append(
-                            f"[HEB] Incluso el click forzado en 'Agregar' falló para '{termino}': "
-                            f"{type(e2).__name__}: {e2}"
-                        )
+                        add_btn.click(timeout=6000, force=True)
+                        logs.append("[HEB] Click en Agregar forzado.")
+                    except Exception as e3:
+                        logs.append(f"[HEB] Error al hacer click en Agregar: {e3}")
                         snap(f"{step_prefix}_error_click_agregar")
                         raise
 
-                page.wait_for_timeout(1500)
                 snap(f"{step_prefix}_agregado")
+                page.wait_for_timeout(1200)
 
-                # 6) Ajustar cantidad (si aplica)
+                # 6) Ajustar cantidad
                 if cantidad > 1:
                     try:
-                        plus_btn = page.get_by_role(
-                            "button",
-                            name=re.compile(r"\+", re.IGNORECASE),
-                        ).first
+                        plus = page.get_by_role("button", name=re.compile(r"\+", re.IGNORECASE)).first
                         for _ in range(cantidad - 1):
-                            plus_btn.click()
-                            page.wait_for_timeout(500)
+                            plus.click()
+                            page.wait_for_timeout(300)
                         snap(f"{step_prefix}_cantidad_{cantidad}")
                     except Exception:
-                        logs.append(
-                            f"[HEB] No se pudo ajustar cantidad para '{termino}', se dejó en 1 unidad."
-                        )
+                        logs.append(f"[HEB] No se pudo ajustar cantidad para '{termino}'.")
 
             def _find_cart_button():
                 """
