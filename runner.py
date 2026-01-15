@@ -173,7 +173,6 @@ def take_screenshot_robust(page) -> Tuple[Optional[str], List[str]]:
     )
     return None, logs
 
-
 # ============================================================
 # Runner ESPECIAL HEB (flujo carrito o compra completa, con screenshots por paso)
 # ============================================================
@@ -419,7 +418,7 @@ def execute_heb_full_purchase(
                 # 3) Escribir término y esperar resultados
                 sb.fill(termino)
                 sb.press("Enter")
-                page.wait_for_timeout(5000)
+                page.wait_for_timeout(8000)  # <-- un poco más de espera para resultados
                 snap(f"{step_prefix}_resultados")
 
                 # 4) Click en "Agregar" con estrategia normal + force=True si algo intercepta el click
@@ -429,14 +428,14 @@ def execute_heb_full_purchase(
                 ).first
 
                 try:
-                    add_btn.click(timeout=8000)
+                    add_btn.click(timeout=15000)  # <-- ampliamos el timeout
                     logs.append(f"[HEB] Click normal en 'Agregar' para '{termino}'.")
                 except PlaywrightTimeoutError as e:
                     logs.append(
                         f"[HEB] Timeout al hacer click en 'Agregar' para '{termino}': "
                         f"{type(e).__name__}: {e} — reintentando con force=True."
                     )
-                    add_btn.click(timeout=5000, force=True)
+                    add_btn.click(timeout=8000, force=True)
                     logs.append(
                         f"[HEB] Click forzado (force=True) en 'Agregar' para '{termino}'."
                     )
@@ -447,7 +446,7 @@ def execute_heb_full_purchase(
                             "[HEB] Intercepción de eventos al hacer click en 'Agregar' "
                             f"para '{termino}', reintentando con force=True: {msg}"
                         )
-                        add_btn.click(timeout=5000, force=True)
+                        add_btn.click(timeout=8000, force=True)
                         logs.append(
                             f"[HEB] Click forzado (force=True) en 'Agregar' para '{termino}'."
                         )
@@ -460,7 +459,7 @@ def execute_heb_full_purchase(
                     )
                     # último intento con force=True antes de rendirnos
                     try:
-                        add_btn.click(timeout=5000, force=True)
+                        add_btn.click(timeout=8000, force=True)
                         logs.append(
                             f"[HEB] Click forzado final (force=True) en 'Agregar' para '{termino}' "
                             "tras error genérico."
@@ -1258,6 +1257,7 @@ def execute_heb_full_purchase(
             "viewport": {"width": vw, "height": vh},
         },
     }
+
 
 
 # ============================================================
