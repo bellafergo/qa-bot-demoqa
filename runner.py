@@ -295,10 +295,14 @@ def execute_heb_full_purchase(
                         f"[HEB] Screenshot failed at {step_name}: {type(e).__name__}: {e}"
                     )
 
-            def _try_cerrar_modal_tienda(max_tries: int = 3) -> None:
+             def _try_cerrar_modal_tienda(max_tries: int = 4) -> None:
                 """
                 Intenta cerrar el modal de selección de tienda (base-modal)
-                hasta max_tries veces.
+                hasta max_tries veces, usando varias estrategias:
+                - Botones de Confirmar / Guardar / Continuar / Aceptar
+                - Botones de Cerrar / X
+                - Click en overlay
+                - Tecla Escape
                 """
                 try:
                     modal = page.locator('[data-testid="base-modal"]')
@@ -318,6 +322,17 @@ def execute_heb_full_purchase(
                         )
                         snap("modal_tienda")
 
+                        # 0) Intentar ESC
+                        try:
+                            page.keyboard.press("Escape")
+                            page.wait_for_timeout(500)
+                            if not modal.is_visible():
+                                logs.append("[HEB] Modal de tienda cerrado con tecla Escape.")
+                                snap("modal_tienda_cerrado")
+                                return
+                        except Exception:
+                            pass
+
                         # 1) Intentar seleccionar la tienda (Gonzalitos / Mi tienda / etc.)
                         try:
                             page.get_by_text(
@@ -326,6 +341,7 @@ def execute_heb_full_purchase(
                                     re.IGNORECASE,
                                 )
                             ).first.click(timeout=4000)
+                            page.wait_for_timeout(500)
                         except Exception:
                             pass
 
@@ -337,6 +353,7 @@ def execute_heb_full_purchase(
                             "Aceptar",
                             "Ir a la tienda",
                             "Entrar a la tienda",
+                            "Ir a recoger",
                         ):
                             try:
                                 page.get_by_role(
@@ -353,7 +370,7 @@ def execute_heb_full_purchase(
                             except Exception:
                                 continue
 
-                        # 3) Fallback: botón de cerrar (X / Cerrar)
+                        # 3) Botón de cerrar (X / Cerrar)
                         try:
                             page.get_by_role(
                                 "button",
@@ -369,7 +386,22 @@ def execute_heb_full_purchase(
                         except Exception:
                             pass
 
+                        # 4) Click en overlay del modal
+                        try:
+                            overlay = page.locator(
+                                '[data-testid="base-modal"] div,[class*="overlay" i]'
+                            ).first
+                            overlay.click(timeout=4000, force=True)
+                            page.wait_for_timeout(800)
+                            if not modal.is_visible():
+                                logs.append("[HEB] Modal de tienda cerrado clickeando overlay.")
+                                snap("modal_tienda_cerrado")
+                                return
+                        except Exception:
+                            pass
+
                         page.wait_for_timeout(800)
+
                     except Exception as e:
                         logs.append(
                             f"[HEB] Error al manejar modal de tienda (intento {attempt+1}): "
@@ -381,7 +413,7 @@ def execute_heb_full_purchase(
                             pass
 
                 logs.append(
-                    "[HEB] Modal de tienda sigue visible después de varios intentos."
+                    "[HEB] Modal de tienda sigue visible después de varios intentos (se continuará en best-effort)."
                 )
 
             def buscar_y_agregar(
@@ -394,17 +426,16 @@ def execute_heb_full_purchase(
 
                 sb = page.get_by_placeholder("Buscar productos")
 
-                # Si el modal sigue visible, reintentar y, si no se puede, fallar pronto
-                modal = page.locator('[data-testid="base-modal"]')
-                if modal.is_visible():
-                    logs.append(
-                        "[HEB] Modal de tienda visible antes de click en buscador, reintentando cierre."
-                    )
-                    _try_cerrar_modal_tienda()
+                # 1.1 Revisión del modal: si sigue visible NO tronamos, sólo lo registramos
+                try:
+                    modal = page.locator('[data-testid="base-modal"]')
                     if modal.is_visible():
-                        raise AssertionError(
-                            "Modal de tienda está bloqueando el buscador y no se pudo cerrar automáticamente."
+                        logs.append(
+                            "[HEB] Modal de tienda sigue visible antes de click en buscador; "
+                            "se continúa en modo best-effort (puede bloquear la búsqueda)."
                         )
+                except Exception:
+                    modal = None
 
                 # 2) Click al buscador con timeout y manejo de timeout específico
                 try:
@@ -414,22 +445,35 @@ def execute_heb_full_purchase(
                         f"[HEB] Timeout al intentar click en buscador: {type(e).__name__}: {e}"
                     )
                     _try_cerrar_modal_tienda()
-                    modal = page.locator('[data-testid="base-modal"]')
-                    if modal.is_visible():
-                        raise AssertionError(
-                            "Timeout en click del buscador y el modal de tienda sigue visible."
+                    try:
+                        sb.click(timeout=5000)
+                    except Exception as e2:
+                        logs.append(
+                            "[HEB] Segundo intento de click en buscador también falló: "
+                            f"{type(e2).__name__}: {e2}"
                         )
-                    sb.click(timeout=5000)
                 except Exception as e:
                     logs.append(
                         f"[HEB] Error genérico al hacer click en buscador: {type(e).__name__}: {e}"
                     )
                     _try_cerrar_modal_tienda()
-                    sb.click(timeout=5000)
+                    try:
+                        sb.click(timeout=5000)
+                    except Exception as e2:
+                        logs.append(
+                            "[HEB] Reintento de click en buscador tras error genérico también falló: "
+                            f"{type(e2).__name__}: {e2}"
+                        )
 
                 # 3) Escribir término y esperar resultados
-                sb.fill(termino)
-                sb.press("Enter")
+                try:
+                    sb.fill(termino)
+                    sb.press("Enter")
+                except Exception as e:
+                    logs.append(
+                        f"[HEB] No se pudo escribir en el buscador para '{termino}': "
+                        f"{type(e).__name__}: {e}"
+                    )
                 page.wait_for_timeout(8000)
                 snap(f"{step_prefix}_resultados")
 
