@@ -1126,167 +1126,200 @@ def execute_heb_full_purchase(
                             "[HEB] No se encontró botón 'Proceder a la compra' en el carrito."
                         )
 
-                    # 9) Shipping / tienda
-                    page.wait_for_timeout(4000)
-                    snap("shipping_inicio")
+                # 9) Shipping / tienda
+                page.wait_for_timeout(4000)
+                snap("shipping_inicio")
 
-                    try:
-                        page.get_by_text("HEB Gonzalitos").first.click()
-                        page.get_by_role(
-                            "button",
-                            name=re.compile(r"Confirmar|Guardar", re.IGNORECASE),
-                        ).click()
-                        page.wait_for_timeout(2000)
-                        snap("tienda_confirmada")
-                    except Exception:
-                        logs.append(
-                            "[HEB] No apareció modal de tienda, se asume tienda ya configurada."
-                        )
+                try:
+                    page.get_by_text("HEB Gonzalitos").first.click()
+                    page.get_by_role(
+                        "button",
+                        name=re.compile(r"Confirmar|Guardar", re.IGNORECASE),
+                    ).click()
+                    page.wait_for_timeout(2000)
+                    snap("tienda_confirmada")
+                except Exception:
+                    logs.append(
+                        "[HEB] No apareció modal de tienda, se asume tienda ya configurada."
+                    )
 
-                    # 10) Confirmar "Recoger en la tienda" (si aplica)
-                    try:
-                        if "shipping" in page.url or "envio" in page.url:
-                            page.mouse.wheel(0, 800)
-                            page.wait_for_timeout(1500)
-                            try:
-                                page.get_by_text("Recoger en la tienda").first.click()
-                            except Exception:
-                                logs.append(
-                                    "[HEB] No se encontró opción 'Recoger en la tienda'."
-                                )
-                            snap("shipping_recoger_tienda")
-                    except Exception:
-                        logs.append(
-                            "[HEB] No se pudo validar pantalla de shipping explícitamente."
-                        )
-
-                    # 10.1 Responsable de recoger
-                    try:
-                        receiver_input = page.get_by_label(
-                            re.compile(r"Responsable de recoger", re.IGNORECASE)
-                        )
-                        receiver_input.fill("BELLA GONZALEZ")
-                        try:
-                            receiver_input.press("Tab")
-                        except Exception:
-                            pass
-                        snap("shipping_responsable_recoger")
-                    except Exception as e:
-                        logs.append(
-                            f"[HEB] No se pudo llenar 'Responsable de recoger': {type(e).__name__}: {e}"
-                        )
-
-                    # 10.2 Comentarios = PRUEBA
-                    try:
-                        try:
-                            comments_input = page.get_by_label(
-                                re.compile(r"Comentarios", re.IGNORECASE)
-                            )
-                        except Exception:
-                            comments_input = page.locator("textarea").first
-                        comments_input.fill("PRUEBA")
-                        snap("shipping_comentarios_prueba")
-                    except Exception as e:
-                        logs.append(
-                            f"[HEB] No se pudieron llenar comentarios: {type(e).__name__}: {e}"
-                        )
-
-                    # 10.3 Continuar a método de pago
-                    try:
-                        page.get_by_role(
-                            "button",
-                            name=re.compile(
-                                r"Continuar a método de pago|Continuar",
-                                re.IGNORECASE,
-                            ),
-                        ).first.click(timeout=60000)
-                        page.wait_for_timeout(3000)
-                        snap("shipping_continuar_metodo_pago")
-                    except Exception as e:
-                        logs.append(
-                            f"[HEB] No se pudo hacer click en 'Continuar a método de pago': {type(e).__name__}: {e}"
-                        )
-
-                    # 11) Pago
-                    try:
-                        page.wait_for_url(
-                            lambda url: "payment" in url.lower()
-                            or "pago" in url.lower(),
-                            timeout=60000,
-                        )
-                        logs.append(
-                            "[HEB] URL de pago detectada correctamente (payment/pago)."
-                        )
-                    except PlaywrightTimeoutError as e:
-                        logs.append(
-                            "[HEB] No se alcanzó URL clara de pago (payment/pago) antes del timeout: "
-                            f"{type(e).__name__}: {e}"
-                        )
-                    except Exception as e:
-                        logs.append(
-                            "[HEB] Error genérico esperando URL de pago: "
-                            f"{type(e).__name__}: {e}"
-                        )
-
-                    try:
-                        page.wait_for_timeout(3000)
-                    except Exception:
-                        pass
-                    snap("payment_inicio")
-
-                    # 11.1 Seleccionar "Pago al recibir"
+                # 10) Configurar envío PICK & GO + fecha + responsable + comentarios
+                try:
+                    # Seleccionar opción "Pick and Go" si está disponible
                     try:
                         page.get_by_text(
-                            re.compile(r"Pago al recibir", re.IGNORECASE)
+                            re.compile(r"Pick and Go", re.IGNORECASE)
                         ).first.click()
-                        snap("payment_pago_al_recibir")
+                        page.wait_for_timeout(1500)
+                        snap("shipping_pick_and_go")
+                    except Exception:
+                        logs.append("[HEB] No se encontró opción 'Pick and Go', se usa configuración por defecto.")
+
+                    # Elegir fecha de entrega (primer botón "Elige una fecha de entrega")
+                    try:
+                        btn_fecha = page.get_by_role(
+                            "button",
+                            name=re.compile(
+                                r"Elige una fecha de entrega", re.IGNORECASE
+                            ),
+                        ).first
+                        btn_fecha.click(timeout=20000)
+                        page.wait_for_timeout(1500)
+                        snap("shipping_calendar_abierto")
+
+                        # Seleccionar primer día disponible (no disabled) del calendario
+                        try:
+                            day_btn = page.locator(
+                                "button:not([disabled])[class*='DayPicker-Day' i]"
+                            ).first
+                            day_btn.click(timeout=20000)
+                            page.wait_for_timeout(1000)
+                            snap("shipping_fecha_seleccionada")
+                        except Exception as e:
+                            logs.append(
+                                "[HEB] No se pudo seleccionar un día en el calendario: "
+                                f"{type(e).__name__}: {e}"
+                            )
+
                     except Exception as e:
                         logs.append(
-                            f"[HEB] No se pudo seleccionar 'Pago al recibir': {type(e).__name__}: {e}"
+                            "[HEB] No se pudo abrir selector de fecha de entrega: "
+                            f"{type(e).__name__}: {e}"
                         )
 
-                    # 11.2 Comentarios en pago (si hay textarea extra)
+                    # Campo "Responsable de recoger"
                     try:
-                        textarea = page.locator("textarea").first
-                        if textarea.is_visible():
-                            textarea.fill("PRUEBA")
-                            snap("payment_comentario")
-                    except Exception:
-                        # no pasa nada si no hay textarea en pago
-                        pass
-
-                    # 12) Confirmar compra (COMPRA REAL)
-                    _click_confirmar_compra()
-
-                    try:
-                        page.wait_for_timeout(5000)
-                    except Exception:
-                        pass
-                    snap("post_click_comprar")
-
-                    # 13) Validar mensaje de confirmación (banner verde)
-                    try:
-                        banner = page.get_by_text(
+                        receiver_input = page.get_by_label(
                             re.compile(
-                                r"Tu pedido está siendo procesado|Muchas gracias",
-                                re.IGNORECASE,
+                                r"Responsable de recoger", re.IGNORECASE
                             )
                         ).first
-                        banner.wait_for(timeout=30000)
-                        if not banner.is_visible():
-                            raise AssertionError(
-                                "No se encontró mensaje de confirmación de pedido."
-                            )
-                        snap("confirmacion_pedido")
-                        logs.append(
-                            "[HEB] Mensaje de confirmación de pedido detectado."
-                        )
+                        receiver_input.fill("BELLA GONZALEZ")
+                        # TAB para disparar validaciones de React
+                        receiver_input.press("Tab")
+                        page.wait_for_timeout(800)
+                        snap("shipping_responsable_rellenado")
                     except Exception as e:
-                        raise AssertionError(
-                            f"No se pudo confirmar el pedido después de comprar: {e}"
+                        logs.append(
+                            "[HEB] No se pudo rellenar campo 'Responsable de recoger': "
+                            f"{type(e).__name__}: {e}"
                         )
 
-                    reason = "OK HEB E2E (compra completa con Pago al recibir)"
+                    # Comentarios = "PRUEBA"
+                    try:
+                        comentarios = page.get_by_label(
+                            re.compile(r"Comentarios", re.IGNORECASE)
+                        ).first
+                        comentarios.fill("PRUEBA")
+                        page.wait_for_timeout(800)
+                        snap("shipping_comentarios_rellenados")
+                    except Exception as e:
+                        logs.append(
+                            "[HEB] No se pudo rellenar campo 'Comentarios': "
+                            f"{type(e).__name__}: {e}"
+                        )
+
+                except Exception as e:
+                    logs.append(
+                        "[HEB] Error genérico configurando envío (Pick & Go / fecha / responsable / comentarios): "
+                        f"{type(e).__name__}: {e}"
+                    )
+
+                # Botón "Continuar a método de pago"
+                try:
+                    btn_continuar_pago = page.get_by_role(
+                        "button",
+                        name=re.compile(
+                            r"Continuar a método de pago", re.IGNORECASE
+                        ),
+                    ).first
+                    btn_continuar_pago.click(timeout=30000)
+                    logs.append("[HEB] Click en 'Continuar a método de pago'.")
+                    snap("shipping_continuar_a_pago")
+                except Exception as e:
+                    logs.append(
+                        "[HEB] No se pudo hacer click en 'Continuar a método de pago': "
+                        f"{type(e).__name__}: {e}"
+                    )
+
+                # 11) Pago
+                try:
+                    page.wait_for_url(
+                        lambda url: "payment" in url.lower()
+                        or "pago" in url.lower(),
+                        timeout=60000,
+                    )
+                    logs.append(
+                        "[HEB] URL de pago detectada correctamente (payment/pago)."
+                    )
+                except PlaywrightTimeoutError as e:
+                    logs.append(
+                        "[HEB] No se alcanzó URL clara de pago (payment/pago) antes del timeout: "
+                        f"{type(e).__name__}: {e}"
+                    )
+                except Exception as e:
+                    logs.append(
+                        "[HEB] Error genérico esperando URL de pago: "
+                        f"{type(e).__name__}: {e}"
+                    )
+
+                try:
+                    page.wait_for_timeout(3000)
+                except Exception:
+                    pass
+                snap("payment_inicio")
+
+                # Seleccionar "Pago al recibir"
+                try:
+                    page.get_by_text(
+                        re.compile(r"Pago al recibir", re.IGNORECASE)
+                    ).first.click()
+                    page.wait_for_timeout(1500)
+                    snap("payment_pago_al_recibir")
+                    logs.append("[HEB] Opción 'Pago al recibir' seleccionada.")
+                except Exception as e:
+                    logs.append(
+                        "[HEB] No se pudo seleccionar 'Pago al recibir': "
+                        f"{type(e).__name__}: {e}"
+                    )
+
+                # Botón final "Comprar ahora"
+                try:
+                    comprar_btn = page.get_by_role(
+                        "button",
+                        name=re.compile(r"Comprar ahora", re.IGNORECASE),
+                    ).first
+                    comprar_btn.click(timeout=30000)
+                    logs.append("[HEB] Click en botón 'Comprar ahora'.")
+                    snap("payment_click_comprar_ahora")
+                except Exception as e:
+                    raise AssertionError(
+                        "[HEB] No se pudo hacer click en 'Comprar ahora': "
+                        f"{type(e).__name__}: {e}"
+                    )
+
+                # Confirmación: banner verde "¡Muchas gracias! Tu pedido está siendo procesado."
+                try:
+                    banner = page.get_by_text(
+                        re.compile(
+                            r"Tu pedido está siendo procesado|Muchas gracias",
+                            re.IGNORECASE,
+                        )
+                    ).first
+                    banner.wait_for(timeout=30000)
+                    if not banner.is_visible():
+                        raise AssertionError(
+                            "El banner de confirmación de pedido no es visible."
+                        )
+                    snap("payment_confirmacion_pedido")
+                    logs.append(
+                        "[HEB] Mensaje de confirmación de pedido detectado correctamente."
+                    )
+                    reason = "OK HEB E2E — pedido confirmado con 'Comprar ahora' y banner de éxito."
+                except Exception as e:
+                    raise AssertionError(
+                        f"No se pudo confirmar el pedido en pantalla de pago: {type(e).__name__}: {e}"
+                    )
 
             except PlaywrightTimeoutError as e:
                 outcome = "fail"
