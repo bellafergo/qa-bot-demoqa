@@ -310,7 +310,9 @@ def execute_heb_full_purchase(
                         if not modal.is_visible():
                             return
 
-                        logs.append(f"[HEB] Modal de tienda visible, intento {attempt+1}/{max_tries} para cerrarlo.")
+                        logs.append(
+                            f"[HEB] Modal de tienda visible, intento {attempt+1}/{max_tries} para cerrarlo."
+                        )
                         snap("modal_tienda")
 
                         # 1) Intentar seleccionar la tienda (Gonzalitos / Mi tienda / etc.)
@@ -337,7 +339,9 @@ def execute_heb_full_purchase(
                                 ).first.click(timeout=4000)
                                 page.wait_for_timeout(800)
                                 if not modal.is_visible():
-                                    logs.append(f"[HEB] Modal de tienda cerrado con botón '{label}'.")
+                                    logs.append(
+                                        f"[HEB] Modal de tienda cerrado con botón '{label}'."
+                                    )
                                     snap("modal_tienda_cerrado")
                                     return
                             except Exception:
@@ -359,7 +363,10 @@ def execute_heb_full_purchase(
 
                         page.wait_for_timeout(800)
                     except Exception as e:
-                        logs.append(f"[HEB] Error al manejar modal de tienda (intento {attempt+1}): {type(e).__name__}: {e}")
+                        logs.append(
+                            f"[HEB] Error al manejar modal de tienda (intento {attempt+1}): "
+                            f"{type(e).__name__}: {e}"
+                        )
                         try:
                             page.wait_for_timeout(800)
                         except Exception:
@@ -378,7 +385,9 @@ def execute_heb_full_purchase(
                 # Si el modal sigue visible, reintentar y, si no se puede, fallar pronto
                 modal = page.locator('[data-testid="base-modal"]')
                 if modal.is_visible():
-                    logs.append("[HEB] Modal de tienda visible antes de click en buscador, reintentando cierre.")
+                    logs.append(
+                        "[HEB] Modal de tienda visible antes de click en buscador, reintentando cierre."
+                    )
                     _try_cerrar_modal_tienda()
                     if modal.is_visible():
                         raise AssertionError(
@@ -389,7 +398,9 @@ def execute_heb_full_purchase(
                 try:
                     sb.click(timeout=10000)
                 except PlaywrightTimeoutError as e:
-                    logs.append(f"[HEB] Timeout al intentar click en buscador: {type(e).__name__}: {e}")
+                    logs.append(
+                        f"[HEB] Timeout al intentar click en buscador: {type(e).__name__}: {e}"
+                    )
                     _try_cerrar_modal_tienda()
                     modal = page.locator('[data-testid="base-modal"]')
                     if modal.is_visible():
@@ -399,7 +410,9 @@ def execute_heb_full_purchase(
                     # Segundo intento con timeout más corto
                     sb.click(timeout=5000)
                 except Exception as e:
-                    logs.append(f"[HEB] Error genérico al hacer click en buscador: {type(e).__name__}: {e}")
+                    logs.append(
+                        f"[HEB] Error genérico al hacer click en buscador: {type(e).__name__}: {e}"
+                    )
                     _try_cerrar_modal_tienda()
                     sb.click(timeout=5000)
 
@@ -424,7 +437,9 @@ def execute_heb_full_purchase(
                         f"{type(e).__name__}: {e} — reintentando con force=True."
                     )
                     add_btn.click(timeout=5000, force=True)
-                    logs.append(f"[HEB] Click forzado (force=True) en 'Agregar' para '{termino}'.")
+                    logs.append(
+                        f"[HEB] Click forzado (force=True) en 'Agregar' para '{termino}'."
+                    )
                 except PlaywrightError as e:
                     msg = str(e)
                     if "intercepts pointer events" in msg or "not clickable" in msg.lower():
@@ -433,9 +448,10 @@ def execute_heb_full_purchase(
                             f"para '{termino}', reintentando con force=True: {msg}"
                         )
                         add_btn.click(timeout=5000, force=True)
-                        logs.append(f"[HEB] Click forzado (force=True) en 'Agregar' para '{termino}'.")
+                        logs.append(
+                            f"[HEB] Click forzado (force=True) en 'Agregar' para '{termino}'."
+                        )
                     else:
-                        # otros errores de Playwright se propagan
                         raise
                 except Exception as e:
                     logs.append(
@@ -446,7 +462,8 @@ def execute_heb_full_purchase(
                     try:
                         add_btn.click(timeout=5000, force=True)
                         logs.append(
-                            f"[HEB] Click forzado final (force=True) en 'Agregar' para '{termino}' tras error genérico."
+                            f"[HEB] Click forzado final (force=True) en 'Agregar' para '{termino}' "
+                            "tras error genérico."
                         )
                     except Exception as e2:
                         logs.append(
@@ -474,8 +491,7 @@ def execute_heb_full_purchase(
                             f"[HEB] No se pudo ajustar cantidad para '{termino}', se dejó en 1 unidad."
                         )
 
-
-            # -------- helper NUEVO: localizar botón/enlace de carrito de forma robusta -----
+            # -------- helper: localizar botón/enlace de carrito de forma robusta -----
             def _find_cart_button():
                 """
                 Intenta encontrar cualquier botón/enlace relacionado con el carrito o checkout,
@@ -496,7 +512,9 @@ def execute_heb_full_purchase(
                             name=re.compile(pattern, re.IGNORECASE),
                         ).first
                         if el.is_visible():
-                            logs.append(f"[HEB] Botón de carrito encontrado por label '{pattern}'.")
+                            logs.append(
+                                f"[HEB] Botón de carrito encontrado por label '{pattern}'."
+                            )
                             return el
                     except Exception:
                         continue
@@ -505,7 +523,9 @@ def execute_heb_full_purchase(
                 try:
                     el = page.locator('button[aria-label*="carrito" i]').first
                     if el.is_visible():
-                        logs.append("[HEB] Botón de carrito encontrado por aria-label*='carrito'.")
+                        logs.append(
+                            "[HEB] Botón de carrito encontrado por aria-label*='carrito'."
+                        )
                         return el
                 except Exception:
                     pass
@@ -514,7 +534,9 @@ def execute_heb_full_purchase(
                 try:
                     el = page.locator('a[href*="cart" i], a[href*="checkout" i]').first
                     if el.is_visible():
-                        logs.append("[HEB] Enlace de carrito encontrado por href a cart/checkout.")
+                        logs.append(
+                            "[HEB] Enlace de carrito encontrado por href a cart/checkout."
+                        )
                         return el
                 except Exception:
                     pass
@@ -711,11 +733,15 @@ def execute_heb_full_purchase(
 
                 try:
                     page.get_by_text("HEB Gonzalitos").first.click()
-                    page.get_by_role("button", name=re.compile(r"Confirmar|Guardar", re.IGNORECASE)).click()
+                    page.get_by_role(
+                        "button", name=re.compile(r"Confirmar|Guardar", re.IGNORECASE)
+                    ).click()
                     page.wait_for_timeout(1500)
                     snap("tienda_confirmada_pre_busqueda")
                 except Exception:
-                    logs.append("[HEB] Modal de tienda no apareció antes de la búsqueda.")
+                    logs.append(
+                        "[HEB] Modal de tienda no apareció antes de la búsqueda."
+                    )
 
                 # 5) Tomate
                 buscar_y_agregar("tomate", cantidad=1, step_prefix="tomate")
@@ -725,20 +751,23 @@ def execute_heb_full_purchase(
 
                 # 7) Solo carrito (VALIDACIÓN VISUAL, sin checkout)
                 if only_add_to_cart:
-                    logs.append("[HEB] Solo modo carrito, sin completar checkout.")
+                    logs.append(
+                        "[HEB] Solo modo carrito, sin completar checkout."
+                    )
                     try:
                         cart_btn = _find_cart_button()
                         if cart_btn:
-                            # no es necesario hacer click, solo asegurarnos que existe
                             cart_btn.wait_for(timeout=5000)
                             snap("carrito_listo")
                         else:
                             logs.append(
-                                "[HEB] No se pudo localizar un botón/enlace de carrito para validación visual."
+                                "[HEB] No se pudo localizar un botón/enlace de carrito "
+                                "para validación visual."
                             )
                     except Exception as e:
                         logs.append(
-                            f"[HEB] Error al validar presencia de botón de carrito: {type(e).__name__}: {e}"
+                            f"[HEB] Error al validar presencia de botón de carrito: "
+                            f"{type(e).__name__}: {e}"
                         )
 
                     reason = "OK HEB — productos agregados al carrito sin completar compra"
@@ -756,9 +785,13 @@ def execute_heb_full_purchase(
                             locator.first.wait_for(timeout=7000)
                             locator.first.click(timeout=7000)
                             opened_cart = True
-                            logs.append(f"[HEB] Carrito/checkout abierto con {desc}.")
+                            logs.append(
+                                f"[HEB] Carrito/checkout abierto con {desc}."
+                            )
                         except Exception as e:
-                            errores_cart.append(f"{desc} falló: {type(e).__name__}: {e}")
+                            errores_cart.append(
+                                f"{desc} falló: {type(e).__name__}: {e}"
+                            )
 
                     # Subir al top por si estamos scrolleados hacia abajo
                     try:
@@ -808,15 +841,21 @@ def execute_heb_full_purchase(
                     if not opened_cart:
                         try:
                             direct = page.locator(
-                                'a[href*="checkout#/cart"], a[href*="checkout"], a[href*="/cart"]'
+                                'a[href*="checkout#/cart"], '
+                                'a[href*="checkout"], '
+                                'a[href*="/cart"]'
                             )
                             direct.first.wait_for(timeout=7000)
                             direct.first.click(timeout=7000)
                             opened_cart = True
-                            logs.append("[HEB] Carrito/checkout abierto con enlace directo checkout/cart.")
+                            logs.append(
+                                "[HEB] Carrito/checkout abierto con enlace directo "
+                                "checkout/cart."
+                            )
                         except Exception as e:
                             errores_cart.append(
-                                f"Enlace directo checkout/cart falló: {type(e).__name__}: {e}"
+                                f"Enlace directo checkout/cart falló: "
+                                f"{type(e).__name__}: {e}"
                             )
 
                     # 7.3 Último recurso: navegar directo por URL conocidas
@@ -824,9 +863,14 @@ def execute_heb_full_purchase(
                         for cart_path in ("/checkout#/cart", "/checkout", "/cart"):
                             try:
                                 cart_url = f"{base_url}{cart_path}"
-                                page.goto(cart_url, wait_until="commit", timeout=60000)
+                                page.goto(
+                                    cart_url, wait_until="commit", timeout=60000
+                                )
                                 opened_cart = True
-                                logs.append(f"[HEB] Carrito/checkout abierto navegando directo a {cart_url}.")
+                                logs.append(
+                                    "[HEB] Carrito/checkout abierto navegando directo a "
+                                    f"{cart_url}."
+                                )
                                 break
                             except Exception as e:
                                 errores_cart.append(
@@ -842,24 +886,32 @@ def execute_heb_full_purchase(
                     # Esperar que realmente estemos en página de carrito / checkout
                     try:
                         page.wait_for_url(
-                            lambda url: "checkout" in url.lower() or "cart" in url.lower(),
+                            lambda url: "checkout" in url.lower()
+                            or "cart" in url.lower(),
                             timeout=90000,
                         )
                     except Exception:
-                        logs.append("[HEB] No se pudo confirmar URL de carrito/checkout explícitamente.")
+                        logs.append(
+                            "[HEB] No se pudo confirmar URL de carrito/checkout "
+                            "explícitamente."
+                        )
 
                     page.wait_for_timeout(3000)
                     snap("carrito")
-
 
                     # 8) Proceder desde carrito
                     try:
                         page.get_by_role(
                             "button",
-                            name=re.compile(r"Proceder a la compra|Continuar", re.IGNORECASE),
+                            name=re.compile(
+                                r"Proceder a la compra|Continuar", re.IGNORECASE
+                            ),
                         ).first.click()
                     except Exception:
-                        logs.append("[HEB] No se encontró botón 'Proceder a la compra' en el carrito.")
+                        logs.append(
+                            "[HEB] No se encontró botón 'Proceder a la compra' en el "
+                            "carrito."
+                        )
 
                     # 9) Shipping / tienda
                     page.wait_for_timeout(4000)
@@ -874,7 +926,10 @@ def execute_heb_full_purchase(
                         page.wait_for_timeout(2000)
                         snap("tienda_confirmada")
                     except Exception:
-                        logs.append("[HEB] No apareció modal de tienda, se asume tienda ya configurada.")
+                        logs.append(
+                            "[HEB] No apareció modal de tienda, se asume tienda ya "
+                            "configurada."
+                        )
 
                     # 10) Confirmar "Recoger en la tienda" y continuar a pago
                     try:
@@ -884,41 +939,51 @@ def execute_heb_full_purchase(
                             try:
                                 page.get_by_text("Recoger en la tienda").first.click()
                             except Exception:
-                                logs.append("[HEB] No se encontró opción 'Recoger en la tienda'.")
+                                logs.append(
+                                    "[HEB] No se encontró opción 'Recoger en la tienda'."
+                                )
                             try:
                                 page.get_by_role(
                                     "button",
                                     name=re.compile(
-                                        r"Proceder a la compra|Continuar", re.IGNORECASE
+                                        r"Proceder a la compra|Continuar",
+                                        re.IGNORECASE,
                                     ),
                                 ).first.click()
                             except Exception:
                                 logs.append(
-                                    "[HEB] No se encontró botón para continuar desde shipping."
+                                    "[HEB] No se encontró botón para continuar desde "
+                                    "shipping."
                                 )
                             snap("shipping_continuado")
                     except Exception:
-                        logs.append("[HEB] No se pudo validar pantalla de shipping explícitamente.")
+                        logs.append(
+                            "[HEB] No se pudo validar pantalla de shipping "
+                            "explícitamente."
+                        )
 
-                    # 11) Pago (más tolerante a timeouts)
+                    # 11) Pago (tolerante a timeouts + buscador robusto de botón de compra)
                     try:
                         page.wait_for_url(
-                            lambda url: "payment" in url.lower() or "pago" in url.lower(),
+                            lambda url: "payment" in url.lower()
+                            or "pago" in url.lower(),
                             timeout=60000,
                         )
-                        logs.append("[HEB] URL de pago detectada correctamente (payment/pago).")
+                        logs.append(
+                            "[HEB] URL de pago detectada correctamente (payment/pago)."
+                        )
                     except PlaywrightTimeoutError as e:
                         logs.append(
-                            f"[HEB] No se alcanzó URL clara de pago (payment/pago) antes del timeout: "
-                            f"{type(e).__name__}: {e} — se continúa en modo best-effort."
+                            "[HEB] No se alcanzó URL clara de pago (payment/pago) "
+                            f"antes del timeout: {type(e).__name__}: {e} — se continúa "
+                            "en modo best-effort."
                         )
                     except Exception as e:
                         logs.append(
-                            f"[HEB] Error genérico esperando URL de pago: {type(e).__name__}: {e} — "
-                            "se continúa en modo best-effort."
+                            "[HEB] Error genérico esperando URL de pago: "
+                            f"{type(e).__name__}: {e} — se continúa en modo best-effort."
                         )
 
-                    # Demos un pequeño tiempo y tomemos screenshot aunque no estemos seguros de la URL
                     try:
                         page.wait_for_timeout(3000)
                     except Exception:
@@ -935,21 +1000,30 @@ def execute_heb_full_purchase(
                         page.locator("textarea").first.fill("PRUEBA")
                         snap("payment_comentario")
                     except Exception:
-                        logs.append("[HEB] No se encontró textarea para comentarios.")
+                        logs.append(
+                            "[HEB] No se encontró textarea para comentarios."
+                        )
 
-                    # --- helper interno: encontrar y clickear botón de confirmación de compra ---
+                    # --- helper interno: encontrar y clickear botón de confirmación de compra (v3) ---
                     def _click_confirmar_compra():
                         """
                         Intenta encontrar el botón principal de confirmar compra usando:
                         - Labels típicos (Comprar ahora, Realizar pedido, Finalizar compra, etc.)
-                        - Fallback genérico con :has-text() (Comprar, Pedido, Pagar)
-                        Incluye pequeños scrolls para evitar que quede fuera de viewport.
+                        - Fallback genérico :has-text(...)
+                        - Fallback por atributos de VTEX (data-testid, clases de placeOrder)
+                        Hace scroll y deja screenshot si no logra encontrar nada.
                         """
                         errores_locales: List[str] = []
 
-                        # Pequeño scroll por si el botón está abajo
+                        # 0) Screenshot de contexto de pago (para debug)
                         try:
-                            page.mouse.wheel(0, 1000)
+                            snap("payment_busqueda_boton_compra")
+                        except Exception:
+                            pass
+
+                        # 1) Scroll suave hacia abajo (por si el botón está fuera de viewport)
+                        try:
+                            page.mouse.wheel(0, 1200)
                             page.wait_for_timeout(800)
                         except Exception:
                             pass
@@ -962,61 +1036,120 @@ def execute_heb_full_purchase(
                             r"Confirmar compra",
                             r"Completar pedido",
                             r"Finalizar pedido",
+                            r"Continuar y pagar",
+                            r"Pagar ahora",
+                            r"Confirmar y pagar",
                         ]
 
-                        # 1) Intento por labels "bonitos" con get_by_role
+                        # 1) Intento por labels “bonitos” con get_by_role(button)
                         for pattern in label_patterns:
                             try:
                                 btn = page.get_by_role(
                                     "button",
                                     name=re.compile(pattern, re.IGNORECASE),
                                 ).first
-                                # is_visible puede tirar error si no existe realmente
                                 if btn.is_visible():
                                     logs.append(
-                                        f"[HEB] Botón de confirmación encontrado por label '{pattern}'."
+                                        "[HEB] Botón de confirmación encontrado por "
+                                        f"label (role=button) '{pattern}'."
                                     )
-                                    btn.click(no_wait_after=True, timeout=15000)
+                                    btn.click(no_wait_after=True, timeout=20000)
                                     return
                             except Exception as e:
                                 errores_locales.append(
-                                    f"Label '{pattern}' falló: {type(e).__name__}: {e}"
+                                    f"Label role=button '{pattern}' falló: "
+                                    f"{type(e).__name__}: {e}"
                                 )
 
-                        # 2) Fallback genérico: cualquier botón que contenga texto relevante
+                        # 2) Fallback genérico :has-text(...) sobre buttons
                         try:
-                            fallback = page.locator(
+                            generic_btn = page.locator(
                                 'button:has-text("Comprar"), '
                                 'button:has-text("pedido"), '
                                 'button:has-text("Pagar"), '
                                 'button:has-text("Finalizar")'
                             ).first
-                            if fallback.is_visible():
+                            if generic_btn.is_visible():
                                 logs.append(
-                                    "[HEB] Botón de confirmación encontrado por selector genérico (:has-text)."
+                                    "[HEB] Botón de confirmación encontrado por selector "
+                                    "genérico button:has-text(...)."
                                 )
-                                fallback.click(no_wait_after=True, timeout=15000)
+                                generic_btn.click(no_wait_after=True, timeout=20000)
                                 return
                         except Exception as e:
                             errores_locales.append(
-                                f"Fallback genérico falló: {type(e).__name__}: {e}"
+                                "Fallback genérico en <button> falló: "
+                                f"{type(e).__name__}: {e}"
                             )
 
-                        # 3) Si llegamos aquí, no encontramos nada razonable
+                        # 3) Fallback por atributos típicos de VTEX (data-testid / class)
+                        try:
+                            vtex_place_order = page.locator(
+                                '[data-testid*="place-order" i], '
+                                '[class*="placeOrder" i], '
+                                '[class*="place-order" i]'
+                            ).first
+                            if vtex_place_order.is_visible():
+                                logs.append(
+                                    "[HEB] Botón de confirmación encontrado por "
+                                    "data-testid/class de place-order."
+                                )
+                                vtex_place_order.click(
+                                    no_wait_after=True, timeout=20000
+                                )
+                                return
+                        except Exception as e:
+                            errores_locales.append(
+                                "Fallback VTEX place-order falló: "
+                                f"{type(e).__name__}: {e}"
+                            )
+
+                        # 4) Fallback extremo: cualquier elemento clickeable con texto clave
+                        try:
+                            any_clickable = page.locator(
+                                'button:has-text("pedido"), '
+                                'a:has-text("pedido"), '
+                                'div:has-text("pedido"), '
+                                'span:has-text("pedido")'
+                            ).first
+                            if any_clickable.is_visible():
+                                logs.append(
+                                    "[HEB] Botón de confirmación encontrado por "
+                                    "fallback extremo (any clickable con 'pedido')."
+                                )
+                                any_clickable.click(no_wait_after=True, timeout=20000)
+                                return
+                        except Exception as e:
+                            errores_locales.append(
+                                "Fallback extremo (any clickable con 'pedido') falló: "
+                                f"{type(e).__name__}: {e}"
+                            )
+
+                        # 5) Si llegamos aquí, no encontramos nada razonable
+                        try:
+                            snap("payment_sin_boton_compra")
+                        except Exception:
+                            pass
+
+                        logs.append(
+                            f"[HEB] URL actual en pago sin botón detectado: {page.url}"
+                        )
                         for msg in errores_locales:
                             logs.append(f"[HEB] {msg}")
-                        raise AssertionError("No se encontró botón para confirmar la compra.")
+
+                        raise AssertionError(
+                            "No se encontró botón para confirmar la compra."
+                        )
 
                     # --- usar helper de confirmación de compra ---
                     try:
                         _click_confirmar_compra()
                     except AssertionError:
-                        # Re-lanzamos tal cual para que quede claro en el reason
                         raise
                     except Exception as e:
-                        # Cualquier otro error lo convertimos en AssertionError legible
                         raise AssertionError(
-                            f"Error inesperado al intentar confirmar la compra: {type(e).__name__}: {e}"
+                            "Error inesperado al intentar confirmar la compra: "
+                            f"{type(e).__name__}: {e}"
                         )
 
                     try:
@@ -1038,10 +1171,11 @@ def execute_heb_full_purchase(
                             )
                         snap("confirmacion_pedido")
                     except Exception as e:
-                        raise AssertionError(f"No se pudo confirmar el pedido: {e}")
+                        raise AssertionError(
+                            f"No se pudo confirmar el pedido: {e}"
+                        )
 
                     reason = "OK HEB E2E"
-
 
             except PlaywrightTimeoutError as e:
                 outcome = "fail"
@@ -1077,7 +1211,9 @@ def execute_heb_full_purchase(
                         if shot:
                             steps.append({"name": "final", "screenshot_b64": shot})
                     except Exception as e:
-                        logs.append(f"Final screenshot HEB failed: {type(e).__name__}: {e}")
+                        logs.append(
+                            f"Final screenshot HEB failed: {type(e).__name__}: {e}"
+                        )
 
                 try:
                     context.close()
@@ -1122,6 +1258,7 @@ def execute_heb_full_purchase(
             "viewport": {"width": vw, "height": vh},
         },
     }
+
 
 # ============================================================
 # Runner GENÉRICO POR STEPS
