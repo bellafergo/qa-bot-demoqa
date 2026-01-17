@@ -1227,70 +1227,65 @@ def execute_heb_full_purchase(
                     pass
                 snap("payment_inicio")
 
-                                    # 11.1 Nombre de quien recoge (campo obligatorio en HEB)
-                    try:
-                        logs.append("[HEB] Buscando campo 'Nombre de quien recoge'.")
-                        receiver_input = None
-                        errores_receiver: List[str] = []
+                # 11.1 Nombre de quien recoge (campo obligatorio en HEB)
+                try:
+                    logs.append("[HEB] Buscando campo 'Nombre de quien recoge'.")
+                    receiver_input = None
+                    errores_receiver: List[str] = []
 
-                        candidatos = [
-                            # Placeholder típico
-                            lambda: page.get_by_placeholder(
-                                re.compile(r"Nombre.*(recoge|recoger[aá]|recib)", re.IGNORECASE)
-                            ).first,
-                            # Label típico
-                            lambda: page.get_by_label(
-                                re.compile(r"Nombre.*(recoge|recoger[aá]|recib)", re.IGNORECASE)
-                            ).first,
-                            # name relacionados a pickup / receiver
-                            lambda: page.locator('input[name*="pickup" i]').first,
-                            lambda: page.locator('input[name*="receiver" i]').first,
-                        ]
+                    candidatos = [
+                        lambda: page.get_by_placeholder(
+                            re.compile(r"Nombre.*(recoge|recoger[aá]|recib)", re.IGNORECASE)
+                        ).first,
+                        lambda: page.get_by_label(
+                            re.compile(r"Nombre.*(recoge|recoger[aá]|recib)", re.IGNORECASE)
+                        ).first,
+                        lambda: page.locator('input[name*="pickup" i]').first,
+                        lambda: page.locator('input[name*="receiver" i]').first,
+                    ]
 
-                        for get in candidatos:
-                            try:
-                                el = get()
-                                el.wait_for(timeout=8000)
-                                if el.is_visible():
-                                    receiver_input = el
-                                    break
-                            except Exception as e:
-                                errores_receiver.append(
-                                    f"Candidato receiver falló: {type(e).__name__}: {e}"
-                                )
-                                continue
-
-                        if receiver_input:
-                            # Hacemos un pequeño scroll por si está abajo
-                            try:
-                                page.mouse.wheel(0, 600)
-                                page.wait_for_timeout(400)
-                            except Exception:
-                                pass
-
-                            receiver_input.click(timeout=5000)
-                            receiver_input.fill("VANYA QA")
-                            # TAB es importante para que React valide el campo
-                            try:
-                                receiver_input.press("Tab")
-                            except Exception:
-                                pass
-
-                            snap("payment_nombre_receptor")
-                            logs.append("[HEB] Campo 'Nombre de quien recoge' llenado correctamente.")
-                        else:
-                            snap("payment_sin_campo_nombre_receptor")
-                            logs.append(
-                                "[HEB] No se encontró campo para 'Nombre de quien recoge'; "
-                                "se continúa en best-effort (el botón podría quedar deshabilitado)."
+                    for get in candidatos:
+                        try:
+                            el = get()
+                            el.wait_for(timeout=8000)
+                            if el.is_visible():
+                                receiver_input = el
+                                break
+                        except Exception as e:
+                            errores_receiver.append(
+                                f"Candidato receiver falló: {type(e).__name__}: {e}"
                             )
-                            for msg in errores_receiver:
-                                logs.append(f"[HEB] {msg}")
 
-                    except Exception as e:
+                    if receiver_input:
+                        try:
+                            page.mouse.wheel(0, 600)
+                            page.wait_for_timeout(400)
+                        except Exception:
+                            pass
+
+                        receiver_input.click(timeout=5000)
+                        receiver_input.fill("VANYA QA")
+                        try:
+                            receiver_input.press("Tab")  # clave para validar
+                        except Exception:
+                            pass
+
+                        snap("payment_nombre_receptor")
+                        logs.append("[HEB] Campo 'Nombre de quien recoge' llenado correctamente.")
+                    else:
+                        snap("payment_sin_campo_nombre_receptor")
                         logs.append(
-                            f"[HEB] Error llenando nombre de quien recoge: {type(e).__name__}: {e}"
+                            "[HEB] No se encontró campo para 'Nombre de quien recoge'; "
+                            "puede quedar deshabilitado el botón 'Comprar ahora'."
                         )
+                        for msg in errores_receiver:
+                            logs.append(f"[HEB] {msg}")
+
+                except Exception as e:
+                    logs.append(
+                        f"[HEB] Error llenando nombre de quien recoge: {type(e).__name__}: {e}"
+                    )
+
 
 
                 # Seleccionar "Pago al recibir"
