@@ -597,101 +597,123 @@ def execute_heb_full_purchase(
 
             def _click_confirmar_compra():
                 """
-                Localiza y clickea el botón REAL de confirmación de compra.
+                Intenta encontrar y hacer click en el botón REAL de confirmación de pedido en HEB:
+                - Texto principal: "Comprar ahora"
+                - Fallbacks: button:has-text("Comprar ahora"), type=submit, etc.
 
-                Busca principalmente 'Comprar ahora', con algunos labels de fallback.
-                Si NO lo encuentra → AssertionError (para no marcar PASSED sin compra).
+                Si no puede hacer click, lanza AssertionError (para que sepamos que NO se completó).
                 """
+
                 errores_locales: List[str] = []
 
-                # Screenshot del contexto
+                # Screenshot de contexto
                 try:
                     snap("payment_busqueda_boton_compra")
                 except Exception:
                     pass
 
-                # Scroll por si el botón está fuera de vista
+                # Scroll suave hacia abajo
                 try:
                     page.mouse.wheel(0, 1000)
-                    page.wait_for_timeout(800)
+                    page.wait_for_timeout(600)
                 except Exception:
                     pass
 
-                label_patterns = [
-                    r"Comprar ahora",
-                    r"Realizar pedido",
-                    r"Confirmar pedido",
-                    r"Finalizar compra",
-                    r"Confirmar compra",
-                ]
+                btn = None
 
-                # 1) Por role=button y label
-                for pattern in label_patterns:
+                # 1) Por rol y nombre exacto "Comprar ahora"
+                try:
+                    cand = page.get_by_role(
+                        "button",
+                        name=re.compile(r"Comprar ahora", re.IGNORECASE),
+                    ).first
+                    cand.wait_for(timeout=15000)
+                    if cand.is_visible():
+                        btn = cand
+                        logs.append("[HEB] Botón 'Comprar ahora' encontrado (role=button).")
+                except Exception as e:
+                    errores_locales.append(
+                        f"role=button name='Comprar ahora' falló: {type(e).__name__}: {e}"
+                    )
+
+                # 2) Fallback: button:has-text("Comprar ahora")
+                if btn is None:
                     try:
-                        btn = page.get_by_role(
-                            "button",
-                            name=re.compile(pattern, re.IGNORECASE),
-                        ).first
-                        btn.wait_for(timeout=15000)
-                        if btn.is_visible():
-                            btn.click(timeout=15000)
+                        cand2 = page.locator('button:has-text("Comprar ahora")').first
+                        cand2.wait_for(timeout=15000)
+                        if cand2.is_visible():
+                            btn = cand2
                             logs.append(
-                                f"[HEB] Botón de compra final clickeado por label '{pattern}'."
+                                "[HEB] Botón 'Comprar ahora' encontrado con selector button:has-text()."
                             )
-                            return
                     except Exception as e:
                         errores_locales.append(
-                            f"role=button '{pattern}' falló: {type(e).__name__}: {e}"
+                            f"button:has-text('Comprar ahora') falló: {type(e).__name__}: {e}"
                         )
 
-                # 2) Fallback por CSS genérico con 'Comprar ahora'
-                try:
-                    btn2 = page.locator('button:has-text("Comprar ahora")').first
-                    btn2.wait_for(timeout=15000)
-                    if btn2.is_visible():
-                        btn2.click(timeout=15000)
-                        logs.append(
-                            "[HEB] Botón de compra final clickeado por button:has-text('Comprar ahora')."
+                # 3) Fallback: cualquier botón submit con texto tipo 'Comprar' o 'Finalizar'
+                if btn is None:
+                    try:
+                        cand3 = page.locator(
+                            'button[type="submit"]:has-text("Comprar"), '
+                            'button[type="submit"]:has-text("Finalizar")'
+                        ).first
+                        cand3.wait_for(timeout=15000)
+                        if cand3.is_visible():
+                            btn = cand3
+                            logs.append(
+                                "[HEB] Botón de confirmación encontrado por type=submit y texto genérico."
+                            )
+                    except Exception as e:
+                        errores_locales.append(
+                            f"button[type=submit] genérico falló: {type(e).__name__}: {e}"
                         )
-                        return
+
+                if btn is None:
+                    snap("payment_sin_boton_comprar_ahora")
+                    for msg in errores_locales:
+                        logs.append(f"[HEB] {msg}")
+                    raise AssertionError(
+                        "No se encontró el botón 'Comprar ahora' en la página de pago."
+                    )
+
+                # 4) Intentar click normal y luego forzado si se requiere
+                try:
+                    btn.click(timeout=15000)
+                    logs.append("[HEB] Click normal en 'Comprar ahora'.")
+                except PlaywrightTimeoutError as e:
+                    errores_locales.append(
+                        f"Click normal en 'Comprar ahora' timeout: {type(e).__name__}: {e}"
+                    )
+                    logs.append(
+                        "[HEB] Reintentando click en 'Comprar ahora' con force=True / no_wait_after."
+                    )
+                    try:
+                        btn.click(timeout=8000, force=True, no_wait_after=True)
+                        logs.append("[HEB] Click forzado en 'Comprar ahora' ejecutado.")
+                    except Exception as e2:
+                        errores_locales.append(
+                            f"Click forzado en 'Comprar ahora' falló: {type(e2).__name__}: {e2}"
+                        )
+                        snap("payment_error_click_comprar_ahora")
+                        for msg in errores_locales:
+                            logs.append(f"[HEB] {msg}")
+                        raise AssertionError(
+                            "[HEB] No se pudo hacer click en 'Comprar ahora': "
+                            f"{type(e2).__name__}: {e2}"
+                        )
                 except Exception as e:
                     errores_locales.append(
-                        "button:has-text('Comprar ahora') falló: "
+                        f"Error genérico al hacer click en 'Comprar ahora': {type(e).__name__}: {e}"
+                    )
+                    snap("payment_error_click_comprar_ahora")
+                    for msg in errores_locales:
+                        logs.append(f"[HEB] {msg}")
+                    raise AssertionError(
+                        "[HEB] No se pudo hacer click en 'Comprar ahora': "
                         f"{type(e).__name__}: {e}"
                     )
 
-                # 3) Fallback extremo: cualquier elemento clickeable con 'Comprar ahora'
-                try:
-                    any_clickable = page.locator(
-                        'button:has-text("Comprar ahora"), '
-                        'a:has-text("Comprar ahora"), '
-                        'div:has-text("Comprar ahora")'
-                    ).first
-                    any_clickable.wait_for(timeout=15000)
-                    if any_clickable.is_visible():
-                        any_clickable.click(timeout=15000)
-                        logs.append(
-                            "[HEB] Botón de compra final clickeado por fallback extremo 'Comprar ahora'."
-                        )
-                        return
-                except Exception as e:
-                    errores_locales.append(
-                        "Fallback extremo 'Comprar ahora' falló: "
-                        f"{type(e).__name__}: {e}"
-                    )
-
-                # Si llega aquí: NO se encontró el botón
-                try:
-                    snap("payment_sin_boton_compra")
-                except Exception:
-                    pass
-
-                for msg in errores_locales:
-                    logs.append(f"[HEB] {msg}")
-
-                raise AssertionError(
-                    "No se encontró el botón de compra final ('Comprar ahora')."
-                )
 
             # ------------------- flujo principal -------------------
             try:
@@ -1204,6 +1226,72 @@ def execute_heb_full_purchase(
                 except Exception:
                     pass
                 snap("payment_inicio")
+
+                                    # 11.1 Nombre de quien recoge (campo obligatorio en HEB)
+                    try:
+                        logs.append("[HEB] Buscando campo 'Nombre de quien recoge'.")
+                        receiver_input = None
+                        errores_receiver: List[str] = []
+
+                        candidatos = [
+                            # Placeholder típico
+                            lambda: page.get_by_placeholder(
+                                re.compile(r"Nombre.*(recoge|recoger[aá]|recib)", re.IGNORECASE)
+                            ).first,
+                            # Label típico
+                            lambda: page.get_by_label(
+                                re.compile(r"Nombre.*(recoge|recoger[aá]|recib)", re.IGNORECASE)
+                            ).first,
+                            # name relacionados a pickup / receiver
+                            lambda: page.locator('input[name*="pickup" i]').first,
+                            lambda: page.locator('input[name*="receiver" i]').first,
+                        ]
+
+                        for get in candidatos:
+                            try:
+                                el = get()
+                                el.wait_for(timeout=8000)
+                                if el.is_visible():
+                                    receiver_input = el
+                                    break
+                            except Exception as e:
+                                errores_receiver.append(
+                                    f"Candidato receiver falló: {type(e).__name__}: {e}"
+                                )
+                                continue
+
+                        if receiver_input:
+                            # Hacemos un pequeño scroll por si está abajo
+                            try:
+                                page.mouse.wheel(0, 600)
+                                page.wait_for_timeout(400)
+                            except Exception:
+                                pass
+
+                            receiver_input.click(timeout=5000)
+                            receiver_input.fill("VANYA QA")
+                            # TAB es importante para que React valide el campo
+                            try:
+                                receiver_input.press("Tab")
+                            except Exception:
+                                pass
+
+                            snap("payment_nombre_receptor")
+                            logs.append("[HEB] Campo 'Nombre de quien recoge' llenado correctamente.")
+                        else:
+                            snap("payment_sin_campo_nombre_receptor")
+                            logs.append(
+                                "[HEB] No se encontró campo para 'Nombre de quien recoge'; "
+                                "se continúa en best-effort (el botón podría quedar deshabilitado)."
+                            )
+                            for msg in errores_receiver:
+                                logs.append(f"[HEB] {msg}")
+
+                    except Exception as e:
+                        logs.append(
+                            f"[HEB] Error llenando nombre de quien recoge: {type(e).__name__}: {e}"
+                        )
+
 
                 # Seleccionar "Pago al recibir"
                 try:
