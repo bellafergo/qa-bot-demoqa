@@ -1,74 +1,34 @@
 # app.py
+from __future__ import annotations
+
 import logging
 import os
 from pathlib import Path
 from typing import List, Optional
-import hmac
-import hashlib
 
-from fastapi import FastAPI, Request, Header, HTTPException
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi import HTTPException
-
-from services.run_store import get_run
 
 from core.settings import settings
+from services.run_store import get_run
+from db import init_db
 
 from api.routes.health import router as health_router
 from api.routes.meta import router as meta_router
 from api.routes.threads import router as threads_router
 from api.routes.chat import router as chat_router
-
 from api.routes.webhooks import router as webhooks_router
-app.include_router(webhooks_router)
-
-from db import init_db
 
 logger = logging.getLogger("vanya")
 
+
+# ============================================================
+# APP
+# ============================================================
 app = FastAPI(title="Vanya QA Bot", version="1.0.0")
 
-
-GITHUB_WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
-
-
-@app.post("/webhooks/github")
-async def github_webhook(
-    request: Request,
-    x_github_event: str = Header(None),
-    x_hub_signature_256: str = Header(None),
-):
-    payload = await request.body()
-
-    # --- Validar firma ---
-    if GITHUB_WEBHOOK_SECRET:
-        expected = (
-            "sha256="
-            + hmac.new(
-                GITHUB_WEBHOOK_SECRET.encode(),
-                payload,
-                hashlib.sha256,
-            ).hexdigest()
-        )
-        if not hmac.compare_digest(expected, x_hub_signature_256 or ""):
-            raise HTTPException(status_code=401, detail="Invalid signature")
-
-    # --- Ping event ---
-    if x_github_event == "ping":
-        return {"ok": True, "event": "ping"}
-
-    # --- Pull Request ---
-    if x_github_event == "pull_request":
-        data = await request.json()
-
-        # Aquí después llamaremos a pr_agent
-        print("📦 PR event received:", data.get("action"))
-
-        return {"ok": True, "event": "pull_request"}
-
-    return {"ok": True, "event": x_github_event}
 
 # ============================================================
 # HELPERS
@@ -99,11 +59,11 @@ def _safe_mount_static(url_path: str, directory: str, name: str) -> None:
         p = Path(directory)
         if p.exists() and p.is_dir():
             app.mount(url_path, StaticFiles(directory=str(p)), name=name)
-            logger.info(f"Static mounted: {url_path} -> {p}")
+            logger.info("Static mounted: %s -> %s", url_path, p)
         else:
-            logger.warning(f"Static NOT mounted (missing dir): {url_path} -> {p}")
+            logger.warning("Static NOT mounted (missing dir): %s -> %s", url_path, p)
     except Exception:
-        logger.exception(f"Static mount failed: {url_path} -> {directory}")
+        logger.exception("Static mount failed: %s -> %s", url_path, directory)
 
 
 def _is_prod() -> bool:
@@ -137,7 +97,6 @@ DEFAULT_FRONTEND_ORIGINS = [
     "http://localhost:3000",            # Otro front local
 ]
 
-# 🔥 Por ahora ignoramos settings.CORS_ORIGINS para evitar errores de tipo/parsing
 cors_origins = _normalize_origins(DEFAULT_FRONTEND_ORIGINS)
 
 app.add_middleware(
@@ -147,6 +106,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 # ============================================================
 # STATIC (Evidence/Reports)
@@ -160,6 +120,7 @@ except Exception:
 
 _safe_mount_static("/evidence", str(settings.EVIDENCE_DIR), "evidence")
 _safe_mount_static("/reports", "evidence/reports", "reports")
+
 
 # ============================================================
 # ERROR HANDLER
@@ -192,9 +153,12 @@ def on_startup():
     else:
         logger.info("DB disabled: DATABASE_URL not set")
 
-    logger.info(f"CORS allow_origins = {cors_origins}")
+    logger.info("CORS allow_origins = %s", cors_origins)
 
 
+# ============================================================
+# RUNS API
+# ============================================================
 @app.get("/runs/{evidence_id}")
 def read_run(evidence_id: str):
     r = get_run(evidence_id)
@@ -210,3 +174,4 @@ app.include_router(health_router, tags=["health"])
 app.include_router(meta_router, tags=["meta"])
 app.include_router(threads_router, tags=["threads"])
 app.include_router(chat_router, tags=["chat"])
+app.include_router(webhooks_router)  # ya trae prefix="/webhooks"
