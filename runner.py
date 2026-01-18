@@ -1178,6 +1178,12 @@ def execute_heb_full_purchase(
         },
     }
 
+
+
+# ============================================================
+# Runner GENÉRICO POR STEPS
+# ============================================================
+
 def execute_test(
     steps: List[Dict[str, Any]],
     base_url: Optional[str] = None,
@@ -1335,20 +1341,32 @@ def execute_test(
         target = _build_target(step, selector)
         intent = _safe_str(target.get("intent") or "unknown") or "unknown"
 
-        locator, used = resolve_locator(page, target)
+        # ✅ una sola llamada
+        locator, used, resolved_selector = resolve_locator(
+            page,
+            target,
+            domain=domain,
+            timeout_ms=target.get("timeout_ms"),
+        )
 
+        # ✅ guardar solo si NO fue primary
         if used != "primary":
-            # Guardar memoria best-effort
             try:
-                # Ideal: que resolve_locator te dé el selector healed; si no, guardamos fallback selector.
-                healed_value = None
-                try:
-                    healed_value = getattr(locator, "selector", None)
-                except Exception:
-                    healed_value = None
+                # 👇 merge para no borrar los healed_selectors previos
+                current = load_memory(domain) if "load_memory" in globals() else {}
+                if not isinstance(current, dict):
+                    current = {}
 
-                save_memory(domain, {"healed_selectors": {intent: healed_value or selector}})
-                logs.append(f"[HEAL] selector healed intent='{intent}' used='{used}' domain='{domain}'")
+                healed = current.get("healed_selectors") or {}
+                if not isinstance(healed, dict):
+                    healed = {}
+
+                healed[intent] = resolved_selector
+                save_memory(domain, {"healed_selectors": healed})
+
+                logs.append(
+                    f"[HEAL] saved intent='{intent}' used='{used}' domain='{domain}' selector='{resolved_selector}'"
+                )
             except Exception as e:
                 logs.append(f"[HEAL] save_memory failed (best-effort): {type(e).__name__}: {e}")
 

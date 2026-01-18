@@ -1,4 +1,5 @@
 # core/prompts.py
+from __future__ import annotations
 
 # ============================================================
 # ADVISE (default mode)
@@ -48,6 +49,7 @@ STYLE
 - Always prefer answering in SPANISH unless the user explicitly asks for English.
 """
 
+
 # ============================================================
 # DOC (QA artifacts en JSON)
 # ============================================================
@@ -94,28 +96,19 @@ SCHEMA (MANDATORY KEYS)
 }
 
 CONTENT RULES
-
-- All descriptive text (objective, risks, scenarios, content) MUST be in SPANISH.
+- All descriptive text MUST be in SPANISH.
 - Keep the JSON keys EXACTLY as defined above (do NOT translate keys).
-- executive_view:
-  - "title": corto y claro (por ejemplo: "Login con email y password").
-  - "objective": 1–3 líneas máximo, enfoque negocio.
-  - "top_risks": 3–7 riesgos que conecten con conversión, ingresos o experiencia.
-  - "matrix_summary": 5–20 escenarios clave (positivos, negativos y edge cases).
-- qa_view.sections:
-  - Incluye al menos estas secciones (titles sugeridos):
-    - "Casos de prueba P0 y P1"
-    - "Casos negativos y edge"
-    - "Supuestos"
-    - "Preguntas para aclarar"
-  - "content" puede ser markdown con viñetas (bullet list).
+- executive_view: title corto, objective 1–3 líneas, 3–7 top_risks, 5–20 matrix_summary.
+- qa_view.sections: incluir al menos:
+  - "Casos de prueba P0 y P1"
+  - "Casos negativos y edge"
+  - "Supuestos"
+  - "Preguntas para aclarar"
 
 IF INFORMATION IS MISSING
-
 - STILL return a valid JSON object with the schema above.
-- Usa la sección "Supuestos" para listar supuestos.
-- Usa la sección "Preguntas para aclarar" para las dudas abiertas.
-- Nunca devuelvas texto suelto fuera del JSON, aunque la historia esté incompleta.
+- Usa "Supuestos" y "Preguntas para aclarar".
+- Nunca devuelvas texto suelto fuera del JSON.
 """
 
 
@@ -145,78 +138,70 @@ ALLOWED ACTIONS
 - assert_url_contains
 - assert_not_visible
 
+IMPORTANT: TARGET FORMAT (PRODUCT RULE)
+- For ANY step that uses an element (fill/click/press/assert_visible/assert_not_visible/assert_text_contains):
+  You MUST provide a "target" object, not a raw selector string.
+
+TARGET schema:
+{
+  "primary": "string (css selector OR playwright-ish selector you can map)",
+  "fallbacks": [
+    { "type": "css", "value": "..." },
+    { "type": "role", "value": { "role": "button", "name": "Continuar", "exact": false } },
+    { "type": "text", "value": "Continuar", "exact": false },
+    { "type": "label", "value": "Correo electrónico", "exact": false },
+    { "type": "placeholder", "value": "Buscar productos", "exact": false },
+    { "type": "testid", "value": "buy-now" }
+  ],
+  "timeout_ms": 3000,
+  "state": "visible"
+}
+
+- "primary" should be the MOST stable available (prefer testid/data-testid/id).
+- Provide at least 2 fallbacks when the UI is not guaranteed stable.
+- Do NOT include fragile selectors like random classes or deep CSS unless no alternative exists.
+
 SELECTOR SAFETY RULES (CRITICAL)
 - NEVER use fragments of URLs or domains as selectors (e.g., ".com", ".mx", ".org").
 - NEVER invent selectors from the domain name.
-- Use EXACT selectors provided by the user when present.
-- Otherwise use heuristics:
-  Priority: #id → [data-test] → [name] → text="..."
+- NEVER use overly generic selectors like "div" or "button" alone.
+- Prefer stable attributes:
+  Priority: data-testid/data-test -> #id -> [name] -> role+name -> label/placeholder -> text -> css fallback.
 
 LOGIN RULES (P0)
 If the user mentions login:
 1) goto(URL)
-2) fill username
-3) fill password
-4) click login button
-5) mandatory assertion (success or failure)
+2) fill username (target object)
+3) fill password (target object)
+4) click login (target object)
+5) mandatory assertion success/failure
 
 CREDENTIALS FROM USER (CRITICAL)
-- If the user provides username and/or password explicitly in the message
-  (for example: "username: FERNANDA password: love"):
-  - You MUST use EXACTLY those values.
-  - You MUST generate TWO separate fill steps:
-    - One fill step for the username field.
-    - One fill step for the password field.
-- Never leave the username field empty if the user provided a value.
-- Do not invent or change the credentials.
-
-USERNAME HEURISTICS
-- #user-name
-- input#username
-- input[name="username"]
-- input[id*="user" i]
-- input[name*="user" i]
-- input[data-test*="user" i]
-- input[placeholder*="user" i]
-- input[type="text"]
-
-PASSWORD HEURISTICS
-- #password
-- input#password
-- input[name="password"]
-- input[id*="pass" i]
-- input[name*="pass" i]
-- input[data-test*="pass" i]
-- input[placeholder*="pass" i]
-- input[type="password"]
-
-LOGIN BUTTON HEURISTICS
-- #login-button
-- button[type="submit"]
-- input[type="submit"]
-- text="Login"
-- button:has-text("Login")
+- If user provides username/password explicitly, you MUST use EXACT values.
+- Always generate TWO separate fill steps (username + password).
+- Do NOT invent or change credentials.
 
 ASSERTIONS (RESULT)
-- If the user expects a SUCCESSFUL login (for example, "valida que mi usuario exista"):
-  - expected = "pass"
-  - After clicking the login button, add assertions like:
-    - assert_not_visible "h3[data-test='error']"
-    - AND/OR assert_url_contains "inventory"
-    - AND/OR assert_visible ".inventory_list"
-- If the user expects a FAILED login or error (for example, "valida que NO exista"):
-  - expected = "fail"
-  - After clicking the login button, add assertions like:
-    - assert_visible "h3[data-test='error']"
-  - Do NOT use assert_not_visible in this case.
+- For SUCCESS login: expected="pass" and assert success condition.
+- For FAILED login/negative: expected="fail" and assert the error is visible.
 
 SAUCEDEMO RULE OVERRIDE
 When domain includes "saucedemo.com", ALWAYS prefer:
-- #user-name
-- #password
-- #login-button
-- h3[data-test='error']
-- .inventory_list
+- username: #user-name
+- password: #password
+- login: #login-button
+- error: h3[data-test='error']
+- success: .inventory_list
+
+OUTPUT FORMAT (TOOL-CALL)
+- Return a single tool-call run_qa_test with:
+  {
+    "steps": [...],
+    "base_url": "optional",
+    "headless": true,
+    "timeout_s": 90,
+    "expected": "pass|fail"
+  }
 """
 
 
@@ -242,72 +227,21 @@ NO long text.
 # ============================================================
 # LANGUAGE STYLE
 # ============================================================
-def language_header(lang: str, introduce: bool) -> str:
-    """
-    Header usado por pick_system_prompt.
-    Corregido para tratar cualquier variante de español (es, es-MX, es-419, etc.)
-    como español y evitar respuestas inesperadas en inglés.
-    """
-    lang_norm = (lang or "es").lower().strip()
-
-    is_spanish = lang_norm.startswith("es")
-    is_english = lang_norm.startswith("en")
-
-    intro_line = ""
-    if introduce and m not in ["execute"]:
-        intro_line = '- Preséntate UNA SOLA VEZ: "Hola, soy Vanya, tu Agente de QA inteligente."\n'
-
-    if is_spanish or not is_english:
-        # Cualquier cosa que no sea claramente "en" la tratamos como español por defecto
-        return (
-            "STYLE:\\n"
-            f"{intro_line}"
-            "- Responde SIEMPRE en español.\\n"
-            "- Si el usuario te pide explícitamente respuesta en inglés, puedes responder en inglés, pero por defecto usa español.\\n"
-            "- Sé clara, directa y orientada a negocio.\\n"
-            "- No repitas tu presentación después.\\n"
-        )
-
-    # Solo si detectamos inglés de forma clara dejamos el modo híbrido
-    return (
-        "STYLE:\\n"
-        f"{intro_line}"
-        "- El saludo inicial SIEMPRE es en español.\\n"
-        "- Después responde en INGLÉS, solo si el usuario está hablando en inglés.\\n"
-        "- Sé clara y orientada a negocio.\\n"
-    )
-
-
-def pick_system_prompt(mode: str, lang: str = "es", introduce: bool = False) -> str:
-    m = (mode or "").lower().strip()
-
-    # EXECUTE nunca lleva header para no contaminar el tool-call
-    if m == "execute":
-        return SYSTEM_PROMPT_EXECUTE
-
-    base = SYSTEM_PROMPT_ADVISE
-    if m == "doc":
-        base = SYSTEM_PROMPT_DOC
-    elif m == "clarify":
-        base = SYSTEM_PROMPT_CLARIFY
-
-    return language_header(lang, introduce) + "\n\n" + base
-
-
-# ============================================================
-# LANGUAGE NORMALIZATION (para otros usos internos)
-# ============================================================
 def _norm_lang(lang: str) -> str:
     l = (lang or "").lower().strip()
-    # Casi todo lo tratamos como español salvo que sea claramente "en"
     return "en" if l.startswith("en") else "es"
 
 
-def language_style_header(lang: str, *, introduced: bool = False) -> str:
+def language_style_header(lang: str, *, introduced: bool = False, mode: str = "advise") -> str:
     """
-    Versión reutilizable del header de estilo. Mantiene la misma lógica
-    que language_header para que el comportamiento sea consistente.
+    Header reusable de estilo.
+    - Solo introduce 1 vez por chat (introduced=False).
+    - Nunca mete header en EXECUTE (para no contaminar tool-calls).
     """
+    m = (mode or "").lower().strip()
+    if m == "execute":
+        return ""
+
     l = _norm_lang(lang)
 
     intro = ""
@@ -321,12 +255,30 @@ def language_style_header(lang: str, *, introduced: bool = False) -> str:
             "- Saludo SIEMPRE en español.\\n"
             "- Luego responde en INGLÉS solo si el usuario está interactuando en inglés.\\n"
             "- Clara, directa, orientada a negocio.\\n"
+            "- No repitas tu presentación después.\\n"
         )
 
-    # Default: español
     return (
         "STYLE:\\n"
         f"{intro}"
         "- Responde SIEMPRE en español.\\n"
         "- Clara, directa, orientada a negocio.\\n"
+        "- No repitas tu presentación después.\\n"
     )
+
+
+def pick_system_prompt(mode: str, lang: str = "es", introduce: bool = False) -> str:
+    m = (mode or "").lower().strip()
+
+    # EXECUTE nunca lleva header
+    if m == "execute":
+        return SYSTEM_PROMPT_EXECUTE
+
+    base = SYSTEM_PROMPT_ADVISE
+    if m == "doc":
+        base = SYSTEM_PROMPT_DOC
+    elif m == "clarify":
+        base = SYSTEM_PROMPT_CLARIFY
+
+    header = language_style_header(lang, introduced=not introduce, mode=m)
+    return header + "\\n\\n" + base
