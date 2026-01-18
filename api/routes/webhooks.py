@@ -25,28 +25,26 @@ async def github_webhook(
 ):
     raw = await request.body()
 
-    # 1) Verificación de firma
+    # 1) Verify signature (unless ALLOW_UNSIGNED_WEBHOOKS=1)
     if not verify_github_signature(raw, x_hub_signature_256):
         raise HTTPException(status_code=401, detail="Invalid signature")
 
-    # 2) Ping / otros eventos (no PR)
-    # Nota: tu webhook hoy manda "push" también; aquí lo ignoramos con 200 para que GitHub lo marque OK.
+    # 2) Keep GitHub happy
     if x_github_event != "pull_request":
         return {"ok": True, "ignored": True, "event": x_github_event}
 
-    # 3) JSON payload
+    # 3) Parse payload
     try:
         payload: Dict[str, Any] = json.loads(raw.decode("utf-8"))
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON")
 
-    # 4) Delegar al PR agent (selección + comment)
+    # 4) Run PR Agent (comment + run + update comment)
     try:
-        result = handle_pull_request_event(payload)
-        return result
+        return handle_pull_request_event(payload)
     except HTTPException:
         raise
     except Exception as e:
         logger.exception("PR agent failed")
-        # devolvemos 200 para no hacer reintentos infinitos de GitHub, pero marcamos error
+        # 200 to avoid infinite GitHub retries, but return error
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
