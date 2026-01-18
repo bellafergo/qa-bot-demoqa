@@ -6,23 +6,22 @@ import os
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from core.settings import settings
-from services.run_store import get_run
 from db import init_db
+from services.run_store import get_run
 
 from api.routes.health import router as health_router
 from api.routes.meta import router as meta_router
 from api.routes.threads import router as threads_router
 from api.routes.chat import router as chat_router
-from api.routes.webhooks import router as webhooks_router
+from api.routes.webhooks import router as webhooks_router  # /webhooks/github vive aquí
 
 logger = logging.getLogger("vanya")
-
 
 # ============================================================
 # APP
@@ -54,11 +53,11 @@ def _normalize_origins(origins: Optional[List[str]]) -> List[str]:
     return uniq
 
 
-def _safe_mount_static(url_path: str, directory: str, name: str) -> None:
+def _safe_mount_static(app_: FastAPI, url_path: str, directory: str, name: str) -> None:
     try:
         p = Path(directory)
         if p.exists() and p.is_dir():
-            app.mount(url_path, StaticFiles(directory=str(p)), name=name)
+            app_.mount(url_path, StaticFiles(directory=str(p)), name=name)
             logger.info("Static mounted: %s -> %s", url_path, p)
         else:
             logger.warning("Static NOT mounted (missing dir): %s -> %s", url_path, p)
@@ -92,9 +91,9 @@ def _apply_cors_headers_if_needed(request: Request, response: JSONResponse, allo
 # CORS
 # ============================================================
 DEFAULT_FRONTEND_ORIGINS = [
-    "https://valtre-vanya.vercel.app",  # Front en Vercel
-    "http://localhost:5173",            # Front local Vite
-    "http://localhost:3000",            # Otro front local
+    "https://valtre-vanya.vercel.app",
+    "http://localhost:5173",
+    "http://localhost:3000",
 ]
 
 cors_origins = _normalize_origins(DEFAULT_FRONTEND_ORIGINS)
@@ -118,8 +117,8 @@ try:
 except Exception:
     logger.exception("Failed to create runtime evidence directories")
 
-_safe_mount_static("/evidence", str(settings.EVIDENCE_DIR), "evidence")
-_safe_mount_static("/reports", "evidence/reports", "reports")
+_safe_mount_static(app, "/evidence", str(settings.EVIDENCE_DIR), "evidence")
+_safe_mount_static(app, "/reports", "evidence/reports", "reports")
 
 
 # ============================================================
@@ -157,7 +156,7 @@ def on_startup():
 
 
 # ============================================================
-# RUNS API
+# ENDPOINTS
 # ============================================================
 @app.get("/runs/{evidence_id}")
 def read_run(evidence_id: str):
@@ -174,4 +173,4 @@ app.include_router(health_router, tags=["health"])
 app.include_router(meta_router, tags=["meta"])
 app.include_router(threads_router, tags=["threads"])
 app.include_router(chat_router, tags=["chat"])
-app.include_router(webhooks_router)  # ya trae prefix="/webhooks"
+app.include_router(webhooks_router, tags=["webhooks"])  # /webhooks/github
