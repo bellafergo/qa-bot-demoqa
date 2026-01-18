@@ -3,8 +3,10 @@ import logging
 import os
 from pathlib import Path
 from typing import List, Optional
+import hmac
+import hashlib
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -19,12 +21,54 @@ from api.routes.meta import router as meta_router
 from api.routes.threads import router as threads_router
 from api.routes.chat import router as chat_router
 
+from api.routes.webhooks import router as webhooks_router
+app.include_router(webhooks_router)
+
 from db import init_db
 
 logger = logging.getLogger("vanya")
 
 app = FastAPI(title="Vanya QA Bot", version="1.0.0")
 
+
+GITHUB_WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
+
+
+@app.post("/webhooks/github")
+async def github_webhook(
+    request: Request,
+    x_github_event: str = Header(None),
+    x_hub_signature_256: str = Header(None),
+):
+    payload = await request.body()
+
+    # --- Validar firma ---
+    if GITHUB_WEBHOOK_SECRET:
+        expected = (
+            "sha256="
+            + hmac.new(
+                GITHUB_WEBHOOK_SECRET.encode(),
+                payload,
+                hashlib.sha256,
+            ).hexdigest()
+        )
+        if not hmac.compare_digest(expected, x_hub_signature_256 or ""):
+            raise HTTPException(status_code=401, detail="Invalid signature")
+
+    # --- Ping event ---
+    if x_github_event == "ping":
+        return {"ok": True, "event": "ping"}
+
+    # --- Pull Request ---
+    if x_github_event == "pull_request":
+        data = await request.json()
+
+        # Aquí después llamaremos a pr_agent
+        print("📦 PR event received:", data.get("action"))
+
+        return {"ok": True, "event": "pull_request"}
+
+    return {"ok": True, "event": x_github_event}
 
 # ============================================================
 # HELPERS
