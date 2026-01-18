@@ -5,6 +5,7 @@
 # - Devuelve screenshot_b64 para UI
 # - Soporta timeout global (timeout_s) SIN afectar screenshot robust
 # - ✅ Semántica QA: expected(pass/fail) + outcome(pass/fail) => status final passed/failed
+# - ✅ Selector Healing + Memoria + Failure Classification (GENERIC runner)
 # ============================================================
 
 from __future__ import annotations
@@ -15,11 +16,16 @@ import re
 import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
+
+from services.selector_healer import resolve_locator
+from services.failure_classifier import classify_failure
+from services.memory_store import save_memory
 
 # Load environment variables (OPENAI, SUPABASE, HEB_EMAIL, HEB_PASSWORD, etc.)
 load_dotenv()
@@ -65,6 +71,7 @@ def _pick_timeout_ms(step: Dict[str, Any], default_ms: int) -> int:
 
 
 def _selector_from_step(step: Dict[str, Any]) -> str:
+    # IMPORTANTE: en tu runner ya permites que selector venga en selector/target/loc
     sel = step.get("selector") or step.get("target") or step.get("loc") or ""
     return _safe_str(sel).strip()
 
@@ -114,6 +121,13 @@ def _final_status(expected: str, outcome: str, had_error: bool) -> str:
     if had_error:
         return "error"
     return "passed" if expected == outcome else "failed"
+
+
+def _domain_from_url(u: str) -> str:
+    try:
+        return urlparse(u).netloc or "unknown"
+    except Exception:
+        return "unknown"
 
 
 # ============================================================
@@ -1164,13 +1178,6 @@ def execute_heb_full_purchase(
         },
     }
 
-
-
-# ============================================================
-# Runner GENÉRICO POR STEPS
-# ============================================================
-
-
 def execute_test(
     steps: List[Dict[str, Any]],
     base_url: Optional[str] = None,
@@ -1192,6 +1199,12 @@ def execute_test(
       - expected="pass": una falla => status "failed"
       - expected="fail": una falla => status "passed" (caso negativo exitoso)
       - expected="fail": si NO falla => status "failed" (debió fallar)
+
+    Selector Healing:
+      - Si step trae target como dict, se usa tal cual.
+      - Si step NO trae target dict, se construye target mínimo con:
+        {"intent": "...", "primary": "<selector>"}
+      - Si el healer usa fallback != primary, se guarda en memoria.
     """
     t0 = time.time()
 
@@ -1255,6 +1268,7 @@ def execute_test(
             "action": _normalize_action(step),
             "raw_action": step.get("action"),
             "selector": step.get("selector"),
+            "target": step.get("target"),
             "url": step.get("url"),
             "value": step.get("value"),
             "text": step.get("text"),
@@ -1265,6 +1279,96 @@ def execute_test(
         if extra:
             payload.update(extra)
         report_steps.append(payload)
+
+    def _intent_from_step(step: Dict[str, Any], fallback: str) -> str:
+        t = step.get("target")
+        if isinstance(t, dict):
+            return _safe_str(t.get("intent") or fallback) or fallback
+        return fallback
+
+    def _domain_from_page(page, inferred_base_url: Optional[str]) -> str:
+        try:
+            if page.url:
+                return _domain_from_url(page.url)
+        except Exception:
+            pass
+        if inferred_base_url:
+            return _domain_from_url(inferred_base_url)
+        if base_url:
+            return _domain_from_url(base_url)
+        return "unknown"
+
+    def _build_target(step: Dict[str, Any], selector: str) -> Dict[str, Any]:
+        """
+        Normaliza target al formato que espera resolve_locator:
+        - Si step["target"] ya es dict: se respeta
+        - Si es string o None: lo convertimos a {"intent": ..., "primary": ...}
+        """
+        action = _normalize_action(step)
+        fallback_intent = f"{action}:{selector}" if selector else action
+        intent = _intent_from_step(step, fallback=fallback_intent)
+
+        raw_target = step.get("target")
+        if isinstance(raw_target, dict):
+            # Si no trae intent, se lo ponemos
+            if not raw_target.get("intent"):
+                raw_target["intent"] = intent
+            # Si no trae primary pero sí selector, lo agregamos
+            if not raw_target.get("primary") and selector:
+                raw_target["primary"] = selector
+            return raw_target
+
+        # si viene como string, lo tratamos como primary
+        if isinstance(raw_target, str) and raw_target.strip():
+            primary = raw_target.strip()
+        else:
+            primary = selector
+
+        return {"intent": intent, "primary": primary}
+
+    def _resolve(step: Dict[str, Any], page, selector: str, inferred_base_url: Optional[str]):
+        """
+        Resuelve locator con healing.
+        Retorna: (locator, used, domain, intent)
+        """
+        domain = _domain_from_page(page, inferred_base_url)
+        target = _build_target(step, selector)
+        intent = _safe_str(target.get("intent") or "unknown") or "unknown"
+
+        locator, used = resolve_locator(page, target)
+
+        if used != "primary":
+            # Guardar memoria best-effort
+            try:
+                # Ideal: que resolve_locator te dé el selector healed; si no, guardamos fallback selector.
+                healed_value = None
+                try:
+                    healed_value = getattr(locator, "selector", None)
+                except Exception:
+                    healed_value = None
+
+                save_memory(domain, {"healed_selectors": {intent: healed_value or selector}})
+                logs.append(f"[HEAL] selector healed intent='{intent}' used='{used}' domain='{domain}'")
+            except Exception as e:
+                logs.append(f"[HEAL] save_memory failed (best-effort): {type(e).__name__}: {e}")
+
+        return locator, used, domain, intent
+
+    def _raise_classified(e: Exception, page, inferred_base_url: Optional[str], action: str, selector: str, step: Dict[str, Any]):
+        domain = _domain_from_page(page, inferred_base_url)
+        signals = {
+            "action": action,
+            "selector": selector,
+            "domain": domain,
+            "step": {
+                "action": step.get("action"),
+                "type": step.get("type"),
+                "target": step.get("target"),
+                "selector": step.get("selector"),
+            },
+        }
+        classification = classify_failure(e, signals=signals)
+        raise Exception({"error": str(e), "classification": classification})
 
     try:
         with sync_playwright() as p:
@@ -1296,22 +1400,16 @@ def execute_test(
                         if not url:
                             raise ValueError("goto requiere url/base_url")
 
-                        page.goto(
-                            url,
-                            wait_until="domcontentloaded",
-                            timeout=timeout_ms,
-                        )
+                        page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
                         try:
-                            page.wait_for_load_state(
-                                "networkidle", timeout=min(6000, timeout_ms)
-                            )
+                            page.wait_for_load_state("networkidle", timeout=min(6000, timeout_ms))
                         except Exception:
                             try:
                                 page.wait_for_timeout(350)
                             except Exception:
                                 pass
 
-                        _record_step(i, step, "passed", extra={"resolved_url": url})
+                        _record_step(i, step, "passed", extra={"resolved_url": url, "domain": _domain_from_url(url)})
                         continue
 
                     if action == "wait_ms":
@@ -1321,118 +1419,98 @@ def execute_test(
                         continue
 
                     sel = _selector_from_step(step)
-                    if not sel and action not in (
-                        "assert_text_contains",
-                        "assert_url_contains",
-                    ):
-                        raise ValueError(f"{action} requiere selector")
+
+                    if not sel and action not in ("assert_text_contains", "assert_url_contains"):
+                        raise ValueError(f"{action} requiere selector/target/loc")
+
+                    # ======= ACTIONS con healing =======
 
                     if action == "fill":
                         val = _safe_str(step.get("value"))
-                        page.locator(sel).wait_for(
-                            state="visible", timeout=timeout_ms
-                        )
-                        page.fill(sel, val, timeout=timeout_ms)
-                        _record_step(i, step, "passed")
-                        continue
+                        try:
+                            locator, used, domain, intent = _resolve(step, page, sel, inferred_base_url)
+                            locator.wait_for(state="visible", timeout=timeout_ms)
+                            locator.fill(val, timeout=timeout_ms)
+                            _record_step(i, step, "passed", extra={"locator_used": used, "intent": intent, "domain": domain})
+                            continue
+                        except Exception as e:
+                            _raise_classified(e, page, inferred_base_url, action, sel, step)
 
                     if action == "click":
-                        page.locator(sel).wait_for(
-                            state="visible", timeout=timeout_ms
-                        )
-                        page.click(sel, timeout=timeout_ms)
-                        _record_step(i, step, "passed")
-                        continue
+                        try:
+                            locator, used, domain, intent = _resolve(step, page, sel, inferred_base_url)
+                            locator.wait_for(state="visible", timeout=timeout_ms)
+                            locator.click(timeout=timeout_ms)
+                            _record_step(i, step, "passed", extra={"locator_used": used, "intent": intent, "domain": domain})
+                            continue
+                        except Exception as e:
+                            _raise_classified(e, page, inferred_base_url, action, sel, step)
 
                     if action == "press":
                         key = _safe_str(step.get("key") or "Enter")
-                        page.locator(sel).wait_for(
-                            state="visible", timeout=timeout_ms
-                        )
-                        page.press(sel, key, timeout=timeout_ms)
-                        _record_step(
-                            i, step, "passed", extra={"key": key}
-                        )
-                        continue
+                        try:
+                            locator, used, domain, intent = _resolve(step, page, sel, inferred_base_url)
+                            locator.wait_for(state="visible", timeout=timeout_ms)
+                            locator.press(key, timeout=timeout_ms)
+                            _record_step(i, step, "passed", extra={"key": key, "locator_used": used, "intent": intent, "domain": domain})
+                            continue
+                        except Exception as e:
+                            _raise_classified(e, page, inferred_base_url, action, sel, step)
 
                     if action == "assert_visible":
-                        page.locator(sel).wait_for(
-                            state="visible", timeout=timeout_ms
-                        )
-                        _record_step(i, step, "passed")
-                        continue
+                        try:
+                            locator, used, domain, intent = _resolve(step, page, sel, inferred_base_url)
+                            locator.wait_for(state="visible", timeout=timeout_ms)
+                            _record_step(i, step, "passed", extra={"locator_used": used, "intent": intent, "domain": domain})
+                            continue
+                        except Exception as e:
+                            _raise_classified(e, page, inferred_base_url, action, sel, step)
+
+                    # ======= ACTIONS sin healing (pero seguras) =======
 
                     if action == "assert_not_visible":
                         loc = page.locator(sel)
                         if loc.is_visible():
-                            raise AssertionError(
-                                f"assert_not_visible falló: se mostró {sel}"
-                            )
+                            raise AssertionError(f"assert_not_visible falló: se mostró {sel}")
                         _record_step(i, step, "passed")
                         continue
 
                     if action == "assert_url_contains":
                         needle = _safe_str(
-                            step.get("value")
-                            or step.get("text")
-                            or step.get("contains")
-                            or ""
+                            step.get("value") or step.get("text") or step.get("contains") or ""
                         ).strip()
                         if not needle:
-                            raise ValueError(
-                                "assert_url_contains requiere value"
-                            )
+                            raise ValueError("assert_url_contains requiere value/text/contains")
                         current = page.url or ""
                         if needle not in current:
                             raise AssertionError(
-                                f"assert_url_contains falló: '{needle}' "
-                                f"no está en '{current}'"
+                                f"assert_url_contains falló: '{needle}' no está en '{current}'"
                             )
-                        _record_step(
-                            i,
-                            step,
-                            "passed",
-                            extra={"current_url": current},
-                        )
+                        _record_step(i, step, "passed", extra={"current_url": current})
                         continue
 
                     if action == "assert_text_contains":
-                        expected_text = _safe_str(
-                            step.get("expected") or step.get("text") or ""
-                        ).strip()
+                        expected_text = _safe_str(step.get("expected") or step.get("text") or "").strip()
                         if not expected_text:
-                            raise ValueError(
-                                "assert_text_contains requiere expected/text"
-                            )
+                            raise ValueError("assert_text_contains requiere expected/text")
+
                         target_sel = _selector_from_step(step) or "body"
                         loc = page.locator(target_sel)
-                        loc.wait_for(
-                            state="visible", timeout=timeout_ms
-                        )
-                        content = (
-                            loc.inner_text(timeout=timeout_ms) or ""
-                        ).strip()
+                        loc.wait_for(state="visible", timeout=timeout_ms)
+                        content = (loc.inner_text(timeout=timeout_ms) or "").strip()
                         if expected_text not in content:
                             raise AssertionError(
-                                "Texto no encontrado. Expected contiene: "
-                                f"'{expected_text}'"
+                                f"Texto no encontrado. Expected contiene: '{expected_text}'"
                             )
-                        _record_step(
-                            i,
-                            step,
-                            "passed",
-                            extra={"target": target_sel},
-                        )
+
+                        _record_step(i, step, "passed", extra={"target": target_sel})
                         continue
 
                     raise ValueError(f"Acción no soportada: {action}")
 
                 except PlaywrightTimeoutError as e:
                     outcome = "fail"
-                    reason = (
-                        f"Timeout en step {i + 1}: {action} — "
-                        f"{type(e).__name__}: {e}"
-                    )
+                    reason = f"Timeout en step {i + 1}: {action} — {type(e).__name__}: {e}"
                     logs.append(reason)
                     _record_step(i, step, "failed", err=reason)
 
@@ -1443,10 +1521,7 @@ def execute_test(
 
                 except (AssertionError, ValueError) as e:
                     outcome = "fail"
-                    reason = (
-                        f"Fallo en step {i + 1}: {action} — "
-                        f"{type(e).__name__}: {e}"
-                    )
+                    reason = f"Fallo en step {i + 1}: {action} — {type(e).__name__}: {e}"
                     logs.append(reason)
                     _record_step(i, step, "failed", err=reason)
 
@@ -1458,10 +1533,7 @@ def execute_test(
                 except PlaywrightError as e:
                     outcome = "fail"
                     had_error = True
-                    reason = (
-                        f"Playwright error en step {i + 1}: {action} — "
-                        f"{type(e).__name__}: {e}"
-                    )
+                    reason = f"Playwright error en step {i + 1}: {action} — {type(e).__name__}: {e}"
                     logs.append(reason)
                     _record_step(i, step, "error", err=reason)
 
@@ -1473,10 +1545,17 @@ def execute_test(
                 except Exception as e:
                     outcome = "fail"
                     had_error = True
-                    reason = (
-                        f"Error inesperado en step {i + 1}: {action} — "
-                        f"{type(e).__name__}: {e}"
-                    )
+
+                    # Si viene nuestro dict {error, classification}
+                    if e.args and isinstance(e.args[0], dict):
+                        payload = e.args[0]
+                        reason = (
+                            f"Error en step {i + 1}: {action} — {payload.get('error')} "
+                            f"(classification={payload.get('classification')})"
+                        )
+                    else:
+                        reason = f"Error inesperado en step {i + 1}: {action} — {type(e).__name__}: {e}"
+
                     logs.append(reason)
                     _record_step(i, step, "error", err=reason)
 
@@ -1491,9 +1570,7 @@ def execute_test(
                     logs.extend(shot_logs)
                     screenshot_b64 = shot
                 except Exception as e:
-                    logs.append(
-                        f"Final screenshot failed: {type(e).__name__}: {e}"
-                    )
+                    logs.append(f"Final screenshot failed: {type(e).__name__}: {e}")
 
             try:
                 context.close()
