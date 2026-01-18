@@ -1,3 +1,5 @@
+from typing import Dict, Any
+
 def classify_failure(error: Exception, signals: Dict[str, Any]) -> Dict[str, Any]:
     msg = str(error)
 

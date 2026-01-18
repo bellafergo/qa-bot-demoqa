@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Tuple, Optional
 from playwright.sync_api import Page, TimeoutError as PwTimeout
 
 def resolve_locator(page: Page, target: Dict[str, Any]):
