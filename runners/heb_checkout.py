@@ -385,57 +385,99 @@ def execute_heb_full_purchase(
                     logs.append(f"[HEB] {msg}")
                 raise AssertionError("No se encontró ningún campo de contraseña después del correo en login HEB.")
 
+
             # ============================================================
             # ✅ FIX PRINCIPAL: CTA FINAL ROBUSTO (no hardcode "Comprar ahora")
+            # - scroll bottom
+            # - diagnóstico de botones visibles
+            # - múltiples CTAs (ES/EN)
+            # - enabled/disabled fast-fail con evidencia
+            # - click normal -> force -> JS
             # ============================================================
+
+            def _log_visible_buttons(prefix: str = "[HEB][DIAG]") -> None:
+                """Loggea textos de botones visibles (útil para descubrir el CTA real)."""
+                try:
+                    btns = page.locator("button:visible")
+                    n = btns.count()
+                    texts: List[str] = []
+                    for i in range(min(n, 60)):
+                        try:
+                            t = (btns.nth(i).inner_text(timeout=1500) or "").strip()
+                            if t:
+                                texts.append(re.sub(r"\s+", " ", t))
+                        except Exception:
+                            continue
+                    if texts:
+                        logs.append(prefix + " visible_buttons=" + " | ".join(texts))
+                    else:
+                        logs.append(prefix + " visible_buttons=(none)")
+                except Exception as e:
+                    logs.append(f"{prefix} list visible buttons failed: {type(e).__name__}: {e}")
+
+            def _scroll_to_bottom_for_cta() -> None:
+                """Asegura que el CTA final sea visible (muchas veces está abajo)."""
+                try:
+                    page.keyboard.press("End")
+                    page.wait_for_timeout(700)
+                except Exception:
+                    pass
+                try:
+                    page.mouse.wheel(0, 2600)
+                    page.wait_for_timeout(700)
+                except Exception:
+                    pass
 
             def _locate_place_order_button():
                 """
                 El CTA final en HEB cambia de texto según flujo/pago/recogida.
-                Buscamos múltiples variantes.
+                Buscamos múltiples variantes (ES/EN).
                 """
                 patterns = [
+                    # Español
                     r"Comprar ahora",
-                    r"Realizar pedido",
                     r"Confirmar pedido",
+                    r"Realizar pedido",
                     r"Finalizar compra",
                     r"Hacer pedido",
-                    r"Finalizar pedido",
                     r"Confirmar compra",
+                    r"Completar pedido",
+                    r"Pedir ahora",
+                    r"Finalizar pedido",
+                    # Inglés (por si UI cambia)
                     r"Place order",
                     r"Confirm order",
+                    r"Complete order",
+                    r"Confirm",
                 ]
 
-                candidates = []
-                for pat in patterns:
-                    candidates.append(lambda pat=pat: page.get_by_role("button", name=re.compile(pat, re.IGNORECASE)).first)
-
-                # fallbacks por texto (cuando role/name no matchea bien)
-                for pat in patterns:
-                    token = pat.replace(r"\b", "").split()[0] if pat else "pedido"
-                    candidates.append(lambda token=token: page.locator(f'button:has-text("{token}")').first)
-
                 last_err = None
-                for get in candidates:
+
+                # 1) Preferido: role=button con name regex
+                for pat in patterns:
                     try:
-                        el = get()
-                        el.wait_for(timeout=12000)
+                        el = page.get_by_role("button", name=re.compile(pat, re.IGNORECASE)).first
+                        el.wait_for(timeout=6000)
                         if el.is_visible():
-                            return el, None
+                            return el, None, f"role_regex:{pat}"
                     except Exception as e:
                         last_err = e
 
-                return None, last_err
+                # 2) Fallback: button:has-text(token)
+                for pat in patterns:
+                    token_parts = re.sub(r"[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+", " ", pat).strip().split()
+                    token = " ".join(token_parts[:2]).strip() if token_parts else ""
+                    if not token:
+                        continue
+                    try:
+                        el = page.locator(f'button:visible:has-text("{token}")').first
+                        el.wait_for(timeout=6000)
+                        if el.is_visible():
+                            return el, None, f"has_text:{token}"
+                    except Exception as e:
+                        last_err = e
 
-            def _diag_buttons_on_page():
-                """Diagnóstico para saber cómo se llama el CTA real."""
-                try:
-                    texts = page.locator("button").all_inner_texts()
-                    texts = [t.strip() for t in texts if t and t.strip()]
-                    if texts:
-                        logs.append("[HEB][DIAG] buttons_on_page=" + " | ".join(texts[:45]))
-                except Exception as e:
-                    logs.append(f"[HEB][DIAG] list buttons failed: {type(e).__name__}: {e}")
+                return None, last_err, "not_found"
 
             def _click_place_order(timeout_ms: int = 30000) -> None:
                 """
@@ -450,36 +492,34 @@ def execute_heb_full_purchase(
                 snap("payment_pre_click_place_order")
                 _dismiss_overlays_quick()
 
-                # bajar al final para que el CTA aparezca
-                try:
-                    page.keyboard.press("End")
-                    page.wait_for_timeout(800)
-                except Exception:
-                    pass
-
+                _scroll_to_bottom_for_cta()
                 snap("payment_scrolled_bottom")
-                _diag_buttons_on_page()
 
-                btn, last_err = _locate_place_order_button()
+                _log_visible_buttons()
+
+                btn, last_err, how = _locate_place_order_button()
                 if btn is None:
-                    snap("payment_sin_boton_place_order")
-                    raise AssertionError(f"[HEB] No se encontró botón final de pedido/compra. Último error: {last_err}")
+                    snap("payment_no_place_order_button")
+                    raise AssertionError(
+                        f"[HEB] No se encontró botón final de pedido/compra. how={how}. Último error: {last_err}"
+                    )
 
+                logs.append(f"[HEB] CTA final encontrado via {how}")
+
+                # scroll a vista
                 try:
                     btn.scroll_into_view_if_needed(timeout=8000)
+                    page.wait_for_timeout(400)
                 except Exception:
-                    try:
-                        page.mouse.wheel(0, 1500)
-                        page.wait_for_timeout(400)
-                    except Exception:
-                        pass
+                    _scroll_to_bottom_for_cta()
 
-                # Diagnóstico: enabled/disabled
+                # enabled / disabled
                 try:
                     enabled = btn.is_enabled()
                     logs.append(f"[HEB] CTA final is_enabled={enabled}")
                     if not enabled:
                         snap("payment_place_order_disabled")
+                        _log_visible_buttons(prefix="[HEB][DIAG][DISABLED]")
                         raise AssertionError(
                             "[HEB] El CTA final está DESHABILITADO. "
                             "Normalmente falta un campo obligatorio (nombre/horario/términos) "
@@ -494,7 +534,7 @@ def execute_heb_full_purchase(
                 try:
                     btn.click(timeout=timeout_ms)
                     logs.append("[HEB] Click normal en CTA final.")
-                    page.wait_for_timeout(900)
+                    page.wait_for_timeout(1200)
                     snap("payment_click_place_order_ok")
                     return
                 except PlaywrightTimeoutError as e:
@@ -506,9 +546,9 @@ def execute_heb_full_purchase(
 
                 # Intento 2: force
                 try:
-                    btn.click(timeout=8000, force=True, no_wait_after=True)
+                    btn.click(timeout=9000, force=True, no_wait_after=True)
                     logs.append("[HEB] Click FORCE en CTA final.")
-                    page.wait_for_timeout(1200)
+                    page.wait_for_timeout(1500)
                     snap("payment_click_place_order_force")
                     return
                 except Exception as e2:
@@ -518,7 +558,7 @@ def execute_heb_full_purchase(
                 try:
                     page.evaluate("(el) => el.click()", btn)
                     logs.append("[HEB] Click JS en CTA final.")
-                    page.wait_for_timeout(1200)
+                    page.wait_for_timeout(1500)
                     snap("payment_click_place_order_js")
                     return
                 except Exception as e3:
@@ -526,6 +566,7 @@ def execute_heb_full_purchase(
                     raise AssertionError(
                         f"[HEB] No se pudo hacer click en CTA final incluso con JS: {type(e3).__name__}: {e3}"
                     )
+
 
             # ------------------- flujo principal -------------------
             try:
