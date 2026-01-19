@@ -28,6 +28,10 @@ class ExecuteHebRequest(BaseModel):
     timeout_s: Optional[int] = None
     expected: Optional[str] = None
     only_add_to_cart: bool = True
+
+    # ✅ NUEVO: productos (si no mandan nada, usamos los default)
+    products: Optional[List[str]] = None
+
     meta: Optional[Dict[str, Any]] = None
 
 
@@ -39,7 +43,6 @@ def _wrap_and_store(run: Dict[str, Any], meta: Optional[Dict[str, Any]] = None) 
         run = {"ok": False, "status": "error", "reason": "Runner returned non-dict"}
 
     if meta and isinstance(meta, dict):
-        # merge meta sin pisar lo que ya trae el runner
         run_meta = run.get("meta")
         if not isinstance(run_meta, dict):
             run_meta = {}
@@ -47,13 +50,11 @@ def _wrap_and_store(run: Dict[str, Any], meta: Optional[Dict[str, Any]] = None) 
         merged.update(meta)
         run["meta"] = merged
 
-    # Guardar para /runs/{evidence_id}
     try:
         save_run(run)
     except Exception as e:
         logger.warning("save_run failed (best-effort): %s: %s", type(e).__name__, e)
 
-    # Respuesta consistente
     return {"ok": True, "run": run, "evidence_id": run.get("evidence_id")}
 
 
@@ -72,11 +73,17 @@ def execute_steps(req: ExecuteStepsRequest) -> Dict[str, Any]:
 
 @router.post("/execute_heb")
 def execute_heb(req: ExecuteHebRequest) -> Dict[str, Any]:
+    # ✅ default seguro si no mandan products
+    products = req.products or ["tomate", "coca cola"]
+
     run = execute_heb_full_purchase(
         headless=req.headless,
         viewport=req.viewport,
         timeout_s=req.timeout_s,
         expected=req.expected,
         only_add_to_cart=req.only_add_to_cart,
+
+        # ✅ IMPORTANTE: tu runner HEB debe aceptar products=
+        products=products,
     )
     return _wrap_and_store(run, meta=req.meta)
