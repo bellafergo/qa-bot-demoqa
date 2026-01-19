@@ -1,16 +1,20 @@
 # services/pr_agent.py
 from __future__ import annotations
 
-import os
-import hmac
 import hashlib
+import hmac
 import logging
+import os
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import requests
 
 logger = logging.getLogger("vanya.pr_agent")
+
+# ============================================================
+# ENV
+# ============================================================
 
 GITHUB_TOKEN = (os.getenv("GITHUB_TOKEN") or "").strip()
 GITHUB_WEBHOOK_SECRET = (os.getenv("GITHUB_WEBHOOK_SECRET") or "").strip()
@@ -20,6 +24,12 @@ DEFAULT_TIMEOUT_S = int((os.getenv("GITHUB_HTTP_TIMEOUT_S") or "30").strip() or 
 
 # Si quieres “solo comentar” sin ejecutar runs:
 PR_AGENT_EXECUTE_RUNS = (os.getenv("PR_AGENT_EXECUTE_RUNS") or "true").strip().lower() in ("1", "true", "yes", "y")
+
+# Evitar spam: solo reaccionar a estos actions
+ALLOWED_PR_ACTIONS = {"opened", "synchronize", "reopened", "ready_for_review"}
+
+# Marker que pr_runs usará para inyectar el bloque live
+RUNS_MARKER = "<!-- VANYA_RUNS -->"
 
 
 # ============================================================
@@ -120,11 +130,33 @@ def _gh_headers() -> Dict[str, str]:
     }
 
 
-def _request(method: str, url: str, *, headers: Optional[Dict[str, str]] = None, json: Any = None) -> requests.Response:
+def _safe_body(r: requests.Response) -> str:
+    try:
+        return (r.text or "")[:600]
+    except Exception:
+        return "<unreadable>"
+
+
+def _request(
+    method: str,
+    url: str,
+    *,
+    headers: Optional[Dict[str, str]] = None,
+    json: Any = None,
+) -> requests.Response:
+    """
+    Wrapper con logging útil (auth / rate limit).
+    """
     try:
         r = requests.request(method, url, headers=headers, json=json, timeout=DEFAULT_TIMEOUT_S)
         if r.status_code in (401, 403):
-            logger.warning("GitHub API %s %s -> %s body=%s", method, url, r.status_code, _safe_body(r))
+            logger.warning(
+                "GitHub API %s %s -> %s (check token perms / rate limit). body=%s",
+                method,
+                url,
+                r.status_code,
+                _safe_body(r),
+            )
         r.raise_for_status()
         return r
     except requests.HTTPError:
@@ -135,14 +167,10 @@ def _request(method: str, url: str, *, headers: Optional[Dict[str, str]] = None,
         raise
 
 
-def _safe_body(r: requests.Response) -> str:
-    try:
-        return (r.text or "")[:600]
-    except Exception:
-        return "<unreadable>"
-
-
 def _parse_next_link(link_header: str) -> Optional[str]:
+    """
+    Very small parser for: <url>; rel="next"
+    """
     if not link_header:
         return None
     parts = [p.strip() for p in link_header.split(",")]
@@ -156,8 +184,13 @@ def _parse_next_link(link_header: str) -> Optional[str]:
 
 
 def list_changed_files(ctx: PRContext, *, max_pages: int = 3) -> List[Dict[str, Any]]:
+    """
+    Returns GitHub PR files list entries (filename, status, patch, etc.)
+    Requires token.
+    """
     out: List[Dict[str, Any]] = []
     url = f"{GITHUB_API_BASE}/repos/{ctx.owner}/{ctx.repo}/pulls/{ctx.pr_number}/files?per_page=100"
+
     for _ in range(max_pages):
         r = _request("GET", url, headers=_gh_headers())
         items = r.json() or []
@@ -169,6 +202,7 @@ def list_changed_files(ctx: PRContext, *, max_pages: int = 3) -> List[Dict[str, 
         if not next_url:
             break
         url = next_url
+
     return out
 
 
@@ -209,19 +243,24 @@ def select_suites(changed_files: List[Dict[str, Any]]) -> SuiteSelection:
         if why not in reasons:
             reasons.append(why)
 
+    # UI / Frontend
     if any(x in files_l for x in ["frontend", "src/", "pages/", "components/", ".tsx", ".jsx", ".css", ".scss"]):
         add("ui_smoke", "Cambios en frontend/UI")
         add("visual_regression", "Cambios en UI pueden afectar layout")
 
+    # Auth / login
     if any(x in files_l for x in ["auth", "login", "session", "oauth", "token"]):
         add("login", "Cambios relacionados a autenticación")
 
+    # Checkout / payments
     if any(x in files_l for x in ["checkout", "cart", "payment", "payments", "order", "orders", "promo", "coupon"]):
         add("checkout", "Cambios en flujo de compra/pago/promos")
 
+    # API changes
     if any(x in files_l for x in ["api/", "routes/", "controllers", "graphql", "openapi", "swagger"]):
         add("api_smoke", "Cambios en API/rutas")
 
+    # Default minimum
     if not tags:
         tags = ["smoke"]
         reasons = ["No se detectó área específica; correr smoke mínimo"]
@@ -241,7 +280,7 @@ def format_comment_live(
 ) -> str:
     """
     Comentario base. El bloque de ejecuciones “live” lo inserta/actualiza pr_runs
-    usando el marcador <!-- VANYA_RUNS -->.
+    usando el marcador RUNS_MARKER.
     """
     draft_txt = " (DRAFT)" if ctx.is_draft else ""
     tags_txt = ", ".join(suites.tags) if suites.tags else "smoke"
@@ -256,7 +295,7 @@ def format_comment_live(
         f"- **Razón:** {suites.reason}\n\n"
         f"### Estado\n"
         f"{state_line}\n\n"
-        f"<!-- VANYA_RUNS -->\n"
+        f"{RUNS_MARKER}\n"
     )
 
 
@@ -267,7 +306,8 @@ def format_comment_live(
 def handle_pull_request_event(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     - Parse ctx
-    - Si draft: ignora
+    - Ignora drafts
+    - Filtra actions para no spamear
     - Baja changed files, selecciona suites
     - Comenta PR (comment_id)
     - (Opcional) dispara runs en background y hace updates live
@@ -276,29 +316,31 @@ def handle_pull_request_event(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not ctx:
         return {"ok": False, "error": "unsupported_payload"}
 
-    # No spam en drafts
+    # Evita drafts
     if ctx.is_draft:
         return {"ok": True, "ignored": True, "reason": "draft_pr", "pr": ctx.html_url}
 
     action = (payload.get("action") or "").strip().lower()
-    if action and action not in {"opened", "synchronize", "reopened", "ready_for_review"}:
+    if action and action not in ALLOWED_PR_ACTIONS:
         return {"ok": True, "ignored": True, "action": action}
 
     if not _has_token():
         return {"ok": True, "commented": False, "reason": "missing_token", "pr": ctx.html_url}
 
+    # 1) Analiza files y sugiere suites
     files = list_changed_files(ctx)
     suites = select_suites(files)
 
-    # 1) Comentario inicial (incluye marker para live runs)
-    initial_body = format_comment_live(
-        ctx,
-        suites,
-        state_line=("⏳ Ejecutando suites detectadas…" if (PR_AGENT_EXECUTE_RUNS and suites.tags) else "📝 Recomendación generada (runs desactivados)."),
+    # 2) Comentario inicial (marker para live runs)
+    state = (
+        "⏳ Ejecutando suites detectadas…"
+        if (PR_AGENT_EXECUTE_RUNS and suites.tags)
+        else "📝 Recomendación generada (runs desactivados)."
     )
+    initial_body = format_comment_live(ctx, suites, state_line=state)
     comment_id = post_pr_comment(ctx, initial_body)
 
-    # 2) Disparar runs en background (si aplica)
+    # 3) Disparar runs en background (si aplica)
     run_ids: List[str] = []
     if PR_AGENT_EXECUTE_RUNS and suites.tags:
         try:
@@ -313,7 +355,11 @@ def handle_pull_request_event(payload: Dict[str, Any]) -> Dict[str, Any]:
             logger.exception("Failed to trigger runs")
             # Aviso en comentario
             try:
-                fail_body = format_comment_live(ctx, suites, state_line="⚠️ No se pudieron disparar runs (revisar logs/runner).")
+                fail_body = format_comment_live(
+                    ctx,
+                    suites,
+                    state_line="⚠️ No se pudieron disparar runs (revisar logs/runner).",
+                )
                 update_pr_comment(ctx, comment_id, fail_body)
             except Exception:
                 pass
