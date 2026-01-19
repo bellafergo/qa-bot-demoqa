@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+import uuid
+import os
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import HTTPException
@@ -12,6 +14,7 @@ from openai import OpenAI
 from core.settings import settings
 from core import chat_helpers as H
 from services import store
+from services import run_store
 
 from core.intent_router import detect_intent as detect_intent_router
 
@@ -68,7 +71,7 @@ def _client() -> OpenAI:
 def _confidence(mode: str, prompt: str, base_url: Optional[str]) -> Dict[str, Any]:
     score = 0.55
     if mode == "execute":
-        score = 0.65 + (0.15 if base_url else -0.15)
+        score = 0.65 + (0.15 if base_url else -0.30)
     elif mode == "doc":
         score = 0.60
 
@@ -347,6 +350,11 @@ def _detect_intent(prompt: str) -> str:
     if has_web_verb and is_heb:
         return "execute"
 
+    # ✅ NUEVO: si piden ejecutar pero no dan URL (ej: "Ejecuta login"),
+    # igual vamos a EXECUTE para que el engine pida la URL/target (o use "same")
+    if has_web_verb and (not has_url) and (not has_same):
+        return "execute"
+
     # fallback intent_router
     try:
         out = detect_intent_router(prompt)
@@ -544,6 +552,7 @@ def _heb_mode_from_prompt(prompt: str) -> Tuple[str, List[str]]:
 # ============================================================
 # HEB EXECUTE HELPER (seguro, demo-ready)
 # ============================================================
+
 def _handle_heb_execute(
     req: Any,
     session: Dict[str, Any],
@@ -553,9 +562,11 @@ def _handle_heb_execute(
 ) -> Dict[str, Any]:
     base_url = "https://www.heb.com.mx"
 
-    products = None
+    # ---------------------------------------------------------
+    # 1) Products: UI payload first, else parse from prompt
+    # ---------------------------------------------------------
+    products: Optional[List[str]] = None
     try:
-        # prioridad: payload req.products si existe (tu UI puede mandar esto)
         req_products = getattr(req, "products", None)
         if isinstance(req_products, list) and req_products:
             products = [str(x).strip() for x in req_products if str(x).strip()]
@@ -564,9 +575,30 @@ def _handle_heb_execute(
     except Exception:
         products = _parse_products_from_prompt(prompt)
 
+    # ---------------------------------------------------------
+    # 2) Mode + safety notices
+    # ---------------------------------------------------------
     mode, notices = _heb_mode_from_prompt(prompt)
 
-    # Si products=None o [] => runner usa carrito existente (como definiste)
+    # Helper: build evidence URL (/runs/{evidence_id})
+    def _build_evidence_url(evidence_id: Optional[str]) -> Optional[str]:
+        if not evidence_id:
+            return None
+        public_base = (os.getenv("PUBLIC_BASE_URL") or "").strip().rstrip("/")
+        return f"{public_base}/runs/{evidence_id}" if public_base else f"/runs/{evidence_id}"
+
+    # Helper: persist run best-effort (in-memory + supabase inside run_store)
+    def _save_run_best_effort(payload: Dict[str, Any]) -> None:
+        try:
+            # import local to avoid cycles in some deployments
+            from services import run_store
+            run_store.save_run(payload)
+        except Exception:
+            logger.warning("Failed to save run in run_store (continuing)", exc_info=True)
+
+    # ---------------------------------------------------------
+    # 3) Execute runner
+    # ---------------------------------------------------------
     try:
         runner_result = execute_heb_full_purchase(
             products=products,
@@ -576,25 +608,62 @@ def _handle_heb_execute(
             timeout_s=180,
             expected="pass",
             pickup_mode="recoger_en_tienda",
-            payment_mode="pagar_en_tienda",
+            payment_mode="pago_al_recibir",  # demo sin tarjeta
         )
     except Exception as e:
+        # Si el runner truena, igual generamos un evidence_id para poder guardar/consultar algo
+        evidence_id = f"EV-heb-{uuid.uuid4().hex[:10]}"
         reason = f"Error ejecutando flujo HEB: {type(e).__name__}: {e}"
+
+        evidence_url = _build_evidence_url(evidence_id)
+
+        # Guardamos un "run" mínimo para que /runs/{evidence_id} muestre el error
+        run_payload = {
+            "ok": False,
+            "status": "error",
+            "expected": "pass",
+            "outcome": "fail",
+            "reason": reason,
+            "evidence_id": evidence_id,
+            "steps": [],
+            "logs": [reason],
+            "screenshot_b64": None,
+            "duration_ms": None,
+            "meta": {
+                "base_url": base_url,
+                "mode": mode,
+                "products": products,
+                "pickup_mode": "recoger_en_tienda",
+                "payment_mode": "pago_al_recibir",
+                "tags": ["heb", "execute", "error", mode],
+                "evidence_url": evidence_url,
+            },
+        }
+        _save_run_best_effort(run_payload)
+
+        notice_block = ""
+        if notices:
+            notice_block = "\n\n" + "\n".join([f"- {n}" for n in notices])
+
         answer = (
             "Intenté ejecutar el flujo HEB pero ocurrió un error técnico.\n\n"
-            f"Detalle: {reason}"
+            f"- Detalle: {reason}\n"
+            f"- Evidencia: {evidence_url}"
+            f"{notice_block}"
         )
+
         meta = {
             "mode": "execute",
             "persona": persona,
             "base_url": base_url,
             "runner": {
                 "status": "error",
-                "evidence_url": None,
+                "evidence_url": evidence_url,
                 "report_url": None,
                 "duration_ms": None,
-                "raw": {"error": reason, "mode": mode, "products": products},
+                "raw": {"error": reason, "mode": mode, "products": products, "evidence_id": evidence_id},
             },
+            "evidence_id": evidence_id,
         }
         meta = _normalize_runner_meta(meta)
 
@@ -606,22 +675,28 @@ def _handle_heb_execute(
         return {
             "mode": "execute",
             "persona": persona,
-            "session_id": session["id"],
+            "session_id": session.get("id"),
             "thread_id": thread_id,
             "answer": answer,
             "runner": meta.get("runner"),
+            "evidence_id": evidence_id,
             "evidence_url": meta.get("evidence_url"),
             "report_url": meta.get("report_url"),
             "duration_ms": meta.get("duration_ms"),
             **_confidence("execute", prompt, base_url),
         }
 
-    # normal result
+    # ---------------------------------------------------------
+    # 4) Normal result: save run + return evidence link
+    # ---------------------------------------------------------
     status = str(runner_result.get("status") or "unknown").strip().lower()
-    reason = runner_result.get("reason") or "Flujo HEB ejecutado."
+    reason = str(runner_result.get("reason") or "Flujo HEB ejecutado.").strip()
     duration_ms = runner_result.get("duration_ms")
 
-    # HEB: order number si existe
+    evidence_id = str(runner_result.get("evidence_id") or "").strip() or None
+    evidence_url = _build_evidence_url(evidence_id)
+
+    # order number (si existe)
     order_number = None
     try:
         meta_out = runner_result.get("meta") or {}
@@ -630,13 +705,42 @@ def _handle_heb_execute(
     except Exception:
         order_number = None
 
-    # Notas de seguridad (si degradó purchase -> checkout)
+    # ✅ Asegura tags + guarda evidence_url en meta para que el /runs lo muestre también
+    run_payload = dict(runner_result if isinstance(runner_result, dict) else {})
+    meta_payload = run_payload.get("meta")
+    if not isinstance(meta_payload, dict):
+        meta_payload = {}
+        run_payload["meta"] = meta_payload
+
+    # tags para index (PR agent en el futuro) + debug
+    tags = meta_payload.get("tags")
+    if not isinstance(tags, list):
+        tags = []
+    base_tags = ["heb", "execute", mode]
+    for t in base_tags:
+        if t not in tags:
+            tags.append(t)
+    meta_payload["tags"] = tags
+
+    # guarda evidence_url dentro del run payload
+    if evidence_url:
+        meta_payload["evidence_url"] = evidence_url
+
+    # guarda también base_url/prompt (útil para auditoría)
+    meta_payload.setdefault("base_url", base_url)
+    meta_payload.setdefault("prompt", prompt)
+
+    # Persistir en run_store (así /runs/{evidence_id} sirve)
+    _save_run_best_effort(run_payload)
+
+    # ---------------------------------------------------------
+    # 5) Build human answer
+    # ---------------------------------------------------------
     notice_block = ""
     if notices:
         notice_block = "\n\n" + "\n".join([f"- {n}" for n in notices])
 
-    human_status = "PASÓ ✅" if status == "passed" else "FALLÓ ❌"
-    headline = "Ejecuté el flujo HEB (automatizado)."
+    human_status = "PASÓ ✅" if status == "passed" else "FALLÓ ❌" if status == "failed" else "UNKNOWN"
 
     if mode == "cart":
         mode_line = "Modo: **CARRITO** (solo agregar productos)"
@@ -646,14 +750,16 @@ def _handle_heb_execute(
         mode_line = "Modo: **PURCHASE** (coloca orden real con pagar/recoger en tienda)"
 
     order_line = f"\n- **Orden:** {order_number}" if order_number else ""
+    evid_line = f"\n- **Evidencia:** {evidence_url}" if evidence_url else ""
 
     answer = (
-        f"{headline}\n\n"
+        "Ejecuté el flujo HEB (automatizado).\n\n"
         f"- Status del runner: **{status.upper()}** ({human_status})\n"
         f"- {mode_line}\n"
         f"- Detalle: {reason}\n"
         f"- Duración: {duration_ms} ms"
         f"{order_line}"
+        f"{evid_line}"
         f"{notice_block}"
     )
 
@@ -663,11 +769,12 @@ def _handle_heb_execute(
         "base_url": base_url,
         "runner": {
             "status": status,
-            "evidence_url": None,
+            "evidence_url": evidence_url,
             "report_url": None,
             "duration_ms": duration_ms,
             "raw": runner_result,
         },
+        "evidence_id": evidence_id,
     }
     meta = _normalize_runner_meta(meta)
 
@@ -679,10 +786,11 @@ def _handle_heb_execute(
     return {
         "mode": "execute",
         "persona": persona,
-        "session_id": session["id"],
+        "session_id": session.get("id"),
         "thread_id": thread_id,
         "answer": answer,
         "runner": meta.get("runner"),
+        "evidence_id": evidence_id,
         "evidence_url": meta.get("evidence_url"),
         "report_url": meta.get("report_url"),
         "duration_ms": meta.get("duration_ms"),
@@ -821,11 +929,19 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
 
     # DOC (artefactos QA en JSON estricto)
     if mode == "doc":
+        kwargs = {}
+        # ✅ Si tu SDK soporta response_format, esto elimina el fallback casi al 100%
+        try:
+            kwargs["response_format"] = {"type": "json_object"}
+        except Exception:
+            pass
+
         resp = client.chat.completions.create(
             model=settings.OPENAI_MODEL,
             messages=messages + [{"role": "user", "content": "Return ONLY valid JSON. No additional text."}],
             temperature=settings.DOC_TEMPERATURE,
             max_tokens=settings.DOC_MAX_TOKENS,
+            **kwargs,
         )
         raw = (resp.choices[0].message.content or "").strip()
 
