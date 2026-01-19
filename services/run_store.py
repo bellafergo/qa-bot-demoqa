@@ -185,6 +185,11 @@ def save_run(run_payload: Dict[str, Any]) -> Optional[str]:
                 _TAG_INDEX[t] = lst
 
         return evid
+    
+def save_run_by_id(run_id: str, run_payload: Dict[str, Any]) -> Optional[str]:
+    payload = dict(run_payload or {})
+    payload["evidence_id"] = run_id
+    return save_run(payload)
 
 
 def get_run(evidence_id: str) -> Optional[Dict[str, Any]]:
