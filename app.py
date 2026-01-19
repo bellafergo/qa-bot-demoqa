@@ -17,6 +17,7 @@ from services.run_store import get_run
 
 from api.routes.health import router as health_router
 from api.routes.meta import router as meta_router
+from api.routes.execute import router as execute_router
 from api.routes.threads import router as threads_router
 from api.routes.chat import router as chat_router
 from api.routes.webhooks import router as webhooks_router  # /webhooks/github vive aquí
@@ -174,3 +175,4 @@ app.include_router(meta_router, tags=["meta"])
 app.include_router(threads_router, tags=["threads"])
 app.include_router(chat_router, tags=["chat"])
 app.include_router(webhooks_router, tags=["webhooks"])  # /webhooks/github
+app.include_router(execute_router, tags=["execute"])

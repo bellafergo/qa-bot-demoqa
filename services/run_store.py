@@ -184,6 +184,13 @@ def save_run(run_payload: Dict[str, Any]) -> Optional[str]:
                     lst.append(evid)
                 _TAG_INDEX[t] = lst
 
+                # Persistencia best-effort a Supabase (no rompe si falla)
+        try:
+            from services.run_store_supabase import persist_run_supabase
+            persist_run_supabase(run_payload)
+        except Exception:
+            pass
+
         return evid
     
 def save_run_by_id(run_id: str, run_payload: Dict[str, Any]) -> Optional[str]:
