@@ -52,7 +52,6 @@ def execute_heb_full_purchase(
     base_url = "https://www.heb.com.mx"
 
     # ---------- Parse products ----------
-    # None/[] => no agrega nada, usa lo que ya esté en carrito.
     raw_products = products or []
     parsed_products: List[Tuple[str, int]] = []
 
@@ -155,6 +154,7 @@ def execute_heb_full_purchase(
                     logs.append(f"[HEB] Screenshot failed at {step_name}: {type(e).__name__}: {e}")
 
             def _dismiss_overlays_quick() -> None:
+                # Escape + click esquina para cerrar overlays
                 try:
                     page.keyboard.press("Escape")
                 except Exception:
@@ -173,78 +173,93 @@ def execute_heb_full_purchase(
             def _close_heb_suggested_popup() -> None:
                 """
                 Cierra el popup grande de "¿Olvidas algo?" que bloquea el flujo.
-                En tus pantallas se ve como modal con X y contenido 'Antojos de último momento'.
                 """
                 try:
                     title = page.get_by_text(re.compile(r"¿Olvidas algo\?", re.IGNORECASE)).first
-                    if title.is_visible(timeout=1200):
-                        snap("popup_olvidas_algo_visible")
+                    try:
+                        title.wait_for(timeout=1200)
+                    except Exception:
+                        return
 
-                        # Intentos: selector conocido + X por role/text
-                        for loc in [
-                            page.locator("button.icon-remove").first,  # ✅ visto en tu DOM
-                            page.get_by_role("button", name=re.compile(r"Cerrar|✕|X", re.IGNORECASE)).first,
-                            page.locator("div[role='dialog'] button").filter(
-                                has_text=re.compile(r"^x$|^×$|cerrar", re.IGNORECASE)
-                            ).first,
-                            page.locator("div[role='dialog'] button").first,
-                        ]:
-                            try:
-                                if loc.is_visible(timeout=800):
-                                    loc.click(timeout=3000)
-                                    page.wait_for_timeout(400)
-                                    logs.append("[HEB] Cerrado popup '¿Olvidas algo?'.")
-                                    snap("popup_olvidas_algo_closed")
-                                    return
-                            except Exception:
-                                pass
+                    # Ojo: puede existir pero no ser visible
+                    try:
+                        if not title.is_visible():
+                            return
+                    except Exception:
+                        return
 
-                        # fallback: Escape
+                    snap("popup_olvidas_algo_visible")
+
+                    for loc in [
+                        page.locator("button.icon-remove").first,  # visto en DOM
+                        page.get_by_role("button", name=re.compile(r"Cerrar|✕|X", re.IGNORECASE)).first,
+                        page.locator("div[role='dialog'] button").filter(
+                            has_text=re.compile(r"^x$|^×$|cerrar", re.IGNORECASE)
+                        ).first,
+                        page.locator("div[role='dialog'] button").first,
+                    ]:
                         try:
-                            page.keyboard.press("Escape")
-                            page.wait_for_timeout(400)
-                            logs.append("[HEB] Intento cierre popup '¿Olvidas algo?' con ESC.")
-                            snap("popup_olvidas_algo_closed_esc")
+                            loc.wait_for(state="attached", timeout=1200)
+                            if loc.is_visible(timeout=800):
+                                loc.click(timeout=3000)
+                                page.wait_for_timeout(400)
+                                logs.append("[HEB] Cerrado popup '¿Olvidas algo?'.")
+                                snap("popup_olvidas_algo_closed")
+                                return
                         except Exception:
                             pass
+
+                    # fallback: Escape
+                    try:
+                        page.keyboard.press("Escape")
+                        page.wait_for_timeout(400)
+                        logs.append("[HEB] Intento cierre popup '¿Olvidas algo?' con ESC.")
+                        snap("popup_olvidas_algo_closed_esc")
+                    except Exception:
+                        pass
                 except Exception:
                     pass
 
             def _close_feedback_modal() -> None:
                 """
                 Cierra el modal de encuesta: 'Ayúdanos a seguir mejorando'
-                que aparece en /checkout/orderPlaced (tu última pantalla).
                 """
                 try:
                     header = page.get_by_text(re.compile(r"Ayúdanos a seguir mejorando", re.IGNORECASE)).first
-                    if header.is_visible(timeout=1200):
-                        snap("feedback_modal_visible")
+                    try:
+                        header.wait_for(timeout=1200)
+                    except Exception:
+                        return
 
-                        for loc in [
-                            page.get_by_role("button", name=re.compile(r"Cerrar|✕|X", re.IGNORECASE)).first,
-                            page.locator("div[role='dialog'] button").filter(
-                                has_text=re.compile(r"^x$|^×$|cerrar", re.IGNORECASE)
-                            ).first,
-                            page.locator("div[role='dialog'] button").first,
-                        ]:
-                            try:
-                                if loc.is_visible(timeout=800):
-                                    loc.click(timeout=3000)
-                                    page.wait_for_timeout(350)
-                                    logs.append("[HEB] Modal de encuesta cerrado.")
-                                    snap("feedback_modal_closed")
-                                    return
-                            except Exception:
-                                pass
+                    if not header.is_visible():
+                        return
 
-                        # fallback: ESC
+                    snap("feedback_modal_visible")
+                    for loc in [
+                        page.get_by_role("button", name=re.compile(r"Cerrar|✕|X", re.IGNORECASE)).first,
+                        page.locator("div[role='dialog'] button").filter(
+                            has_text=re.compile(r"^x$|^×$|cerrar", re.IGNORECASE)
+                        ).first,
+                        page.locator("div[role='dialog'] button").first,
+                    ]:
                         try:
-                            page.keyboard.press("Escape")
-                            page.wait_for_timeout(350)
-                            logs.append("[HEB] Intento cierre modal encuesta con ESC.")
-                            snap("feedback_modal_closed_esc")
+                            loc.wait_for(state="attached", timeout=1200)
+                            if loc.is_visible(timeout=800):
+                                loc.click(timeout=3000)
+                                page.wait_for_timeout(350)
+                                logs.append("[HEB] Modal de encuesta cerrado.")
+                                snap("feedback_modal_closed")
+                                return
                         except Exception:
                             pass
+
+                    try:
+                        page.keyboard.press("Escape")
+                        page.wait_for_timeout(350)
+                        logs.append("[HEB] Intento cierre modal encuesta con ESC.")
+                        snap("feedback_modal_closed_esc")
+                    except Exception:
+                        pass
                 except Exception:
                     pass
 
@@ -295,6 +310,38 @@ def execute_heb_full_purchase(
                             pass
                     except Exception:
                         pass
+
+            def _robust_click(locators: List[Any], *, step_name: str, after_ms: int = 700) -> None:
+                """
+                Click robusto: normal -> force -> DOM click (si aplica).
+                Lanza AssertionError si nada funciona.
+                """
+                last_err = None
+                for i, loc in enumerate(locators, start=1):
+                    try:
+                        loc.wait_for(state="attached", timeout=15000)
+                        try:
+                            loc.scroll_into_view_if_needed(timeout=5000)
+                        except Exception:
+                            pass
+
+                        try:
+                            # intento normal
+                            loc.click(timeout=12000)
+                        except Exception:
+                            # overlay/hidden
+                            loc.click(timeout=12000, force=True)
+
+                        page.wait_for_timeout(after_ms)
+                        snap(f"{step_name}_clicked_{i}")
+                        return
+                    except Exception as e:
+                        last_err = e
+                        _close_heb_suggested_popup()
+                        _dismiss_overlays_quick()
+                        continue
+
+                raise AssertionError(f"No pude clickear {step_name}. last_err={last_err}")
 
             def _get_password_input():
                 candidates = [
@@ -391,12 +438,31 @@ def execute_heb_full_purchase(
                 snap("post_login")
                 logs.append("[HEB] Login completado (best-effort).")
 
+            def _get_searchbox():
+                # HEB suele usar placeholder "Buscar productos" pero a veces cambia
+                candidates = [
+                    lambda: page.get_by_placeholder(re.compile(r"Buscar productos|Buscar", re.IGNORECASE)).first,
+                    lambda: page.locator('input[type="search"]').first,
+                    lambda: page.locator('input[placeholder]').filter(has_text=re.compile(r"", re.IGNORECASE)).first,
+                    lambda: page.locator("input").first,
+                ]
+                last_err = None
+                for g in candidates:
+                    try:
+                        el = g()
+                        el.wait_for(state="attached", timeout=8000)
+                        if el.is_visible(timeout=1200):
+                            return el
+                    except Exception as e:
+                        last_err = e
+                raise AssertionError(f"No pude ubicar searchbox. last_err={last_err}")
+
             def buscar_y_agregar(termino: str, cantidad: int = 1, step_prefix: str = "") -> bool:
                 logs.append(f"[HEB] Buscar/agregar: {termino} (qty={cantidad})")
                 _try_cerrar_modal_tienda()
                 _dismiss_overlays_quick()
 
-                sb = page.get_by_placeholder("Buscar productos")
+                sb = _get_searchbox()
                 sb.click(timeout=8000)
                 sb.fill(termino)
                 sb.press("Enter")
@@ -456,53 +522,113 @@ def execute_heb_full_purchase(
 
                 return True
 
-            # ---------- checkout navigation (confirmado por tus pantallas) ----------
+            # ---------- checkout navigation ----------
             def _minicart_finalizar_compra() -> None:
                 _close_heb_suggested_popup()
                 _dismiss_overlays_quick()
 
-                candidates = [
+                locs = [
                     page.get_by_role("button", name=re.compile(r"Finalizar compra", re.IGNORECASE)).first,
                     page.locator("button.vtex-button--see-cart").first,
                     page.locator('button:has-text("Finalizar compra")').first,
                 ]
+
+                _robust_click(locs, step_name="minicart_finalizar_compra", after_ms=650)
+
+                # Validar ruta checkout cart
+                try:
+                    page.wait_for_url(re.compile(r"/checkout/#/cart"), timeout=30000)
+                    snap("checkout_cart_loaded")
+                except Exception as e:
+                    snap("checkout_cart_not_loaded")
+                    raise AssertionError(f"No llegó a /checkout/#/cart tras 'Finalizar compra'. err={e}")
+
+            def _cart_proceder_al_pago() -> None:
+                """
+                FIX PRINCIPAL: El link existe pero puede estar HIDDEN.
+                - Esperar attached
+                - Scroll
+                - Click normal -> force
+                - Último recurso: DOM click
+                """
+                _close_heb_suggested_popup()
+                _dismiss_overlays_quick()
+                snap("cart_start")
+
+                link = page.locator("a#cart-to-orderform").first
+                # espera a que exista en el DOM (aunque esté hidden)
+                link.wait_for(state="attached", timeout=30000)
+
+                # darle tiempo a VTEX para “habilitar” / desocultar
+                page.wait_for_timeout(1200)
+                _close_heb_suggested_popup()
+                _dismiss_overlays_quick()
+
+                candidates = [
+                    link,
+                    page.get_by_role("link", name=re.compile(r"Proceder al pago", re.IGNORECASE)).first,
+                    page.locator("a.btn-place-order:has-text('Proceder al pago')").first,
+                    page.locator("a:has-text('Proceder al pago')").first,
+                ]
+
                 last_err = None
-                for loc in candidates:
+                for i, loc in enumerate(candidates, start=1):
                     try:
-                        loc.wait_for(state="visible", timeout=12000)
-                        loc.click(timeout=15000)
-                        snap("minicart_finalizar_compra_clicked")
-                        page.wait_for_url(re.compile(r"/checkout/#/cart"), timeout=25000)
-                        snap("checkout_cart_loaded")
+                        loc.wait_for(state="attached", timeout=15000)
+                        try:
+                            loc.scroll_into_view_if_needed(timeout=5000)
+                        except Exception:
+                            pass
+
+                        try:
+                            loc.click(timeout=12000)
+                        except Exception:
+                            # hidden/overlay
+                            loc.click(timeout=12000, force=True)
+
+                        page.wait_for_timeout(900)
+                        snap(f"cart_to_orderform_clicked_{i}")
+
+                        page.wait_for_url(re.compile(r"/checkout/#/shipping"), timeout=45000)
+                        snap("checkout_shipping_loaded")
                         return
                     except Exception as e:
                         last_err = e
+                        _close_heb_suggested_popup()
+                        _dismiss_overlays_quick()
+                        continue
 
-                raise AssertionError(f"No pude clickear 'Finalizar compra' mini-cart. last_err={last_err}")
+                # último recurso: DOM click directo
+                try:
+                    page.evaluate(
+                        """() => {
+                            const el = document.querySelector("a#cart-to-orderform");
+                            if (el) el.click();
+                        }"""
+                    )
+                    page.wait_for_timeout(900)
+                    snap("cart_to_orderform_dom_click")
+                    page.wait_for_url(re.compile(r"/checkout/#/shipping"), timeout=45000)
+                    snap("checkout_shipping_loaded")
+                    return
+                except Exception as e:
+                    last_err = last_err or e
 
-            def _cart_proceder_al_pago() -> None:
-                _close_heb_suggested_popup()
-                _dismiss_overlays_quick()
-                link = page.locator("a#cart-to-orderform").first
-                link.wait_for(state="visible", timeout=15000)
-                link.click(timeout=15000)
-                snap("cart_proceder_al_pago_clicked")
-                page.wait_for_url(re.compile(r"/checkout/#/shipping"), timeout=30000)
-                snap("checkout_shipping_loaded")
+                raise AssertionError(f"No pude avanzar a Shipping (Proceder al pago). last_err={last_err}")
 
             def _shipping_pickup_recoger_en_tienda() -> None:
                 """
                 Alineado a tus pantallas:
-                - Popup '¿Olvidas algo?' puede salir aquí
-                - Debe existir 'Elige una fecha de entrega'
-                - Botón 'Continuar a método de pago'
+                - puede aparecer popup '¿Olvidas algo?'
+                - seleccionar recoger/Pick&Go (best-effort)
+                - elegir fecha
+                - continuar a payment
                 """
                 _close_heb_suggested_popup()
                 _dismiss_overlays_quick()
 
                 snap("shipping_start")
 
-                # Pick and Go / Recoger (best-effort por texto)
                 if pickup_mode == "recoger_en_tienda":
                     try:
                         page.get_by_text(re.compile(r"Pick\s*&\s*Go|Recoger|Recoger en tienda", re.IGNORECASE)).first.click(timeout=10000)
@@ -518,7 +644,6 @@ def execute_heb_full_purchase(
                     page.wait_for_timeout(800)
                     snap("shipping_calendar_open")
 
-                    # Seleccionar primer día disponible (best-effort)
                     day_btn = page.locator("button:not([disabled])").filter(has_text=re.compile(r"^\d{1,2}$")).first
                     try:
                         day_btn.click(timeout=15000)
@@ -529,48 +654,46 @@ def execute_heb_full_purchase(
                 except Exception as e:
                     logs.append(f"[HEB] No pude abrir selector de fecha: {type(e).__name__}: {e}")
 
-                # Continuar a pago
                 _close_heb_suggested_popup()
                 _dismiss_overlays_quick()
+
                 candidates = [
                     page.get_by_role("button", name=re.compile(r"Continuar a método de pago", re.IGNORECASE)).first,
                     page.get_by_role("button", name=re.compile(r"Continuar", re.IGNORECASE)).first,
+                    page.locator('button:has-text("Continuar a método de pago")').first,
                 ]
-                last_err = None
-                for loc in candidates:
-                    try:
-                        loc.wait_for(state="visible", timeout=20000)
-                        loc.click(timeout=30000)
-                        snap("shipping_continue_to_payment_clicked")
-                        page.wait_for_url(re.compile(r"/checkout/#/payment"), timeout=30000)
-                        snap("checkout_payment_loaded")
-                        return
-                    except Exception as e:
-                        last_err = e
-                raise AssertionError(f"No pude avanzar a Payment desde Shipping. last_err={last_err}")
+                _robust_click(candidates, step_name="shipping_continue_to_payment", after_ms=800)
 
-            # ------------------- PAYMENT (según tus pantallas) -------------------
+                try:
+                    page.wait_for_url(re.compile(r"/checkout/#/payment"), timeout=45000)
+                    snap("checkout_payment_loaded")
+                except Exception as e:
+                    snap("checkout_payment_not_loaded")
+                    raise AssertionError(f"No llegó a /checkout/#/payment tras shipping. err={e}")
+
             def _payment_select_pago_al_recibir() -> None:
                 """
                 Selecciona 'Pago al recibir' (como en tus pantallas).
-                NOTA: el parámetro payment_mode se conserva en meta; hoy forzamos 'pago al recibir' para demo sin tarjeta.
                 """
                 _close_heb_suggested_popup()
                 _dismiss_overlays_quick()
                 snap("payment_start")
 
-                patterns = [
-                    r"Pago al recibir",
-                    r"Pago al contado",
-                    r"Efectivo",
-                ]
-
+                patterns = [r"Pago al recibir", r"Pago al contado", r"Efectivo"]
                 last_err = None
+
                 for pat in patterns:
                     try:
                         opt = page.get_by_text(re.compile(pat, re.IGNORECASE)).first
                         opt.wait_for(timeout=12000)
-                        opt.click(timeout=12000)
+                        try:
+                            opt.scroll_into_view_if_needed(timeout=4000)
+                        except Exception:
+                            pass
+                        try:
+                            opt.click(timeout=12000)
+                        except Exception:
+                            opt.click(timeout=12000, force=True)
                         page.wait_for_timeout(700)
                         snap("payment_pago_al_recibir_selected")
                         logs.append(f"[HEB] Método de pago seleccionado: {pat}")
@@ -588,7 +711,6 @@ def execute_heb_full_purchase(
                 _dismiss_overlays_quick()
                 snap("payment_pre_place_order")
 
-                # Scroll al final
                 try:
                     page.keyboard.press("End")
                     page.wait_for_timeout(800)
@@ -596,35 +718,21 @@ def execute_heb_full_purchase(
                     pass
 
                 candidates = [
-                    page.get_by_role("button", name=re.compile(r"Comprar ahora", re.IGNORECASE)).first,  # ✅ visto en tu pantalla
+                    page.get_by_role("button", name=re.compile(r"Comprar ahora", re.IGNORECASE)).first,
                     page.locator('button:has-text("Comprar ahora")').first,
                     page.get_by_role("button", name=re.compile(r"Realizar pedido|Confirmar|Finalizar", re.IGNORECASE)).first,
                     page.locator('button[type="submit"]').first,
                 ]
 
-                last_err = None
-                for i, loc in enumerate(candidates, start=1):
-                    try:
-                        loc.wait_for(state="visible", timeout=15000)
-                        loc.click(timeout=20000)
-                        page.wait_for_timeout(1200)
-                        snap(f"payment_place_order_clicked_{i}")
-                        logs.append(f"[HEB] Click CTA final (candidate #{i}).")
-                        return
-                    except Exception as e:
-                        last_err = e
-
-                snap("payment_place_order_not_found")
-                raise AssertionError(f"No se encontró CTA final ('Comprar ahora'). last_err={last_err}")
+                _robust_click(candidates, step_name="payment_place_order", after_ms=1200)
 
             def _extract_order_number() -> Optional[str]:
                 """
-                Extrae el número en pantalla final (tu screenshot):
+                Extrae el número en pantalla final:
                 'Orden #1602916184814-01'
                 """
                 snap("orderplaced_page")
 
-                # 1) Directo por texto visible
                 try:
                     loc = page.get_by_text(re.compile(r"Orden\s*#\s*\d{6,}-\d{1,3}", re.IGNORECASE)).first
                     loc.wait_for(timeout=15000)
@@ -635,7 +743,6 @@ def execute_heb_full_purchase(
                 except Exception:
                     pass
 
-                # 2) Fallback: body text
                 try:
                     body_text = page.locator("body").inner_text(timeout=5000)
                     m = re.search(r"Orden\s*#\s*([0-9]{6,}-[0-9]{1,3})", body_text, re.IGNORECASE)
@@ -653,7 +760,7 @@ def execute_heb_full_purchase(
 
                 _login()
 
-                # Agregar productos si mandan lista (si no, usamos carrito existente)
+                # Agregar productos si mandan lista
                 added_any = False
                 if parsed_products:
                     for idx, (term, qty) in enumerate(parsed_products, start=1):
@@ -672,13 +779,13 @@ def execute_heb_full_purchase(
                     snap("cart_mode_end")
 
                 else:
-                    # Checkout path confirmado por tus pantallas:
                     # mini-cart -> /checkout/#/cart -> a#cart-to-orderform -> shipping -> payment
                     try:
                         _minicart_finalizar_compra()
                     except Exception as e:
                         logs.append(f"[HEB] Mini-cart no disponible: {e}. Fallback /checkout/#/cart")
                         page.goto(f"{base_url}/checkout/#/cart", wait_until="commit", timeout=60000)
+                        page.wait_for_timeout(1200)
                         snap("fallback_checkout_cart")
 
                     _cart_proceder_al_pago()
@@ -693,14 +800,14 @@ def execute_heb_full_purchase(
                         _payment_select_pago_al_recibir()
                         _click_place_order()
 
-                        # Esperar redirección a orderPlaced (como tu pantalla)
+                        # Esperar redirección a orderPlaced
                         try:
                             page.wait_for_url(re.compile(r"/checkout/orderPlaced", re.IGNORECASE), timeout=60000)
                             snap("orderplaced_loaded")
                         except Exception as e:
                             logs.append(f"[HEB] No vi /orderPlaced en URL (best-effort): {type(e).__name__}: {e}")
+                            snap("orderplaced_url_not_seen")
 
-                        # Cerrar encuesta
                         _close_feedback_modal()
 
                         order_number = _extract_order_number()
