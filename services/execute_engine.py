@@ -129,6 +129,15 @@ def _looks_like_saucedemo(url: str) -> bool:
     return "saucedemo.com" in (url or "").lower()
 
 
+def _looks_like_heb(prompt: str, base_url: Optional[str] = None) -> bool:
+    p = (prompt or "").lower()
+    if "heb" in p or "h-e-b" in p or "heb.com.mx" in p:
+        return True
+    if base_url and "heb.com.mx" in (base_url or "").lower():
+        return True
+    return False
+
+
 def _strip_quotes(s: str) -> str:
     ss = (s or "").strip()
     if len(ss) >= 2 and ((ss[0] == ss[-1] == '"') or (ss[0] == ss[-1] == "'")):
@@ -173,20 +182,16 @@ def _ensure_has_assert(steps: List[Dict[str, Any]], base_url: str) -> List[Dict[
     )
     looks_like_login_flow = did_click_login or (did_fill_user and did_fill_pass)
 
-    # SauceDemo: asserts de "login exitoso" vs solo "pantalla existe"
     if _looks_like_saucedemo(base_url):
         if looks_like_login_flow:
-            # ✅ éxito real: no error + URL inventory
             steps.append({"action": "wait_ms", "ms": 450})
             steps.append({"action": "assert_not_visible", "selector": "[data-test='error']"})
             steps.append({"action": "assert_url_contains", "value": "inventory.html"})
             return steps
 
-        # si NO es login flow, al menos valida que el form existe (neutral)
         steps.append({"action": "assert_visible", "selector": "#user-name"})
         return steps
 
-    # Default genérico: deja un assert mínimo
     steps.append({"action": "assert_visible", "selector": "body"})
     return steps
 
@@ -286,18 +291,15 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
     def _extract_selectors_anywhere(text: str) -> List[str]:
         out: List[str] = []
 
-        # 1) CSS típicos: #id, .class, [attr=...]
         for _, sel in re.findall(r'(["\']?)(#[-\w]+|\.[-\w]+|\[[^\]]+\])\1', text):
             if sel and sel not in out:
                 out.append(sel)
 
-        # 2) Tags simples citados: "h1"
         for m in re.finditer(r'(["\'])([a-zA-Z][a-zA-Z0-9_-]*)\1', text):
             sel = m.group(2)
             if sel and sel not in out:
                 out.append(sel)
 
-        # 3) Tags simples sin comillas cuando viene como "selector h1"
         m = re.search(
             r'(?:selector|elemento|element|tag)\s+([a-zA-Z][a-zA-Z0-9_-]*)',
             text,
@@ -310,23 +312,16 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
 
         return out
 
-    # -----------------------------------------
-    # Caso: "visibles"
-    # -----------------------------------------
+    # visibles
     if "visibles" in low or "visible" in low:
         seen = _extract_selectors_anywhere(p)
-
         if _looks_like_saucedemo(base_url) and not seen:
             seen = ["#user-name", "#password", "#login-button"]
-
         for sel in seen:
             steps.append({"action": "assert_visible", "selector": sel})
-
         return _ensure_has_assert(steps, base_url)
 
-    # -----------------------------------------
-    # Fill patterns
-    # -----------------------------------------
+    # fill
     fill_patterns = [
         r'(?:llena|escribe|ingresa|teclea|fill|type)\s+(".*?"|\'.*?\'|#[-\w]+|\.[-\w]+|\[[^\]]+\]|[a-zA-Z][a-zA-Z0-9_-]*)\s+(?:con|with)\s+(".*?"|\'.*?\')',
     ]
@@ -337,9 +332,7 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
             steps.append({"action": "assert_visible", "selector": sel})
             steps.append({"action": "fill", "selector": sel, "value": val})
 
-    # -----------------------------------------
-    # Click patterns
-    # -----------------------------------------
+    # click
     click_patterns = [
         r'(?:haz\s+click\s+en|haz\s+clic\s+en|da\s+click\s+en|click)\s+(".*?"|\'.*?\'|#[-\w]+|\.[-\w]+|\[[^\]]+\]|[a-zA-Z][a-zA-Z0-9_-]*)',
     ]
@@ -349,9 +342,7 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
             steps.append({"action": "assert_visible", "selector": sel})
             steps.append({"action": "click", "selector": sel})
 
-    # -----------------------------------------
-    # Press
-    # -----------------------------------------
+    # press enter
     if re.search(r"\b(enter|intro|presiona\s+enter|presiona\s+intro)\b", low):
         last_sel = None
         for s in reversed(steps):
@@ -361,9 +352,7 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
         if last_sel:
             steps.append({"action": "press", "selector": last_sel, "key": "Enter"})
 
-    # -----------------------------------------
-    # Assert text
-    # -----------------------------------------
+    # assert text contains
     text_patterns = [
         r'(?:valida|validar|verify|assert)\s+.*?(?:texto|text).*?(".*?"|\'.*?\')',
         r'(?:assert_text_contains)\s+(".*?"|\'.*?\')',
@@ -376,13 +365,9 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
             break
     if found_text:
         steps.append({"action": "wait_ms", "ms": 300})
-        steps.append(
-            {"action": "assert_text_contains", "selector": "body", "text": found_text}
-        )
+        steps.append({"action": "assert_text_contains", "selector": "body", "text": found_text})
 
-    # -----------------------------------------
-    # Assert selector existe
-    # -----------------------------------------
+    # assert selector exists
     if re.search(r"(?:valida|validar|verify|assert).*(?:selector|elemento|element)", low):
         sels = _extract_selectors_anywhere(p)
         for sel in sels[:3]:
@@ -419,9 +404,7 @@ def _render_execute_answer(
 
 def _pull_evidence_fields(runner: Dict[str, Any]) -> Tuple[str, Optional[str]]:
     raw = runner.get("raw") if isinstance(runner.get("raw"), dict) else {}
-    evidence_id = str(
-        runner.get("evidence_id") or raw.get("evidence_id") or ""
-    ).strip()
+    evidence_id = str(runner.get("evidence_id") or raw.get("evidence_id") or "").strip()
     b64 = (
         runner.get("screenshot_b64")
         or runner.get("screenshotBase64")
@@ -456,11 +439,7 @@ def _build_fallback_pdf_bytes(
     c.setFont("Helvetica", 10)
     c.drawString(50, y, f"Base URL: {base_url}")
     y -= 14
-    c.drawString(
-        50,
-        y,
-        f"Status: {status}   Duration: {duration_ms} ms   Evidence ID: {evidence_id}",
-    )
+    c.drawString(50, y, f"Status: {status}   Duration: {duration_ms} ms   Evidence ID: {evidence_id}")
     y -= 14
     c.drawString(50, y, f"Prompt: {prompt[:1200]}")
     y -= 18
@@ -475,13 +454,7 @@ def _build_fallback_pdf_bytes(
     c.setFont("Helvetica", 9)
     for i, s in enumerate(steps[:80], start=1):
         line = f"{i}. {s.get('action')} " + (
-            " ".join(
-                [
-                    f"{k}={s.get(k)}"
-                    for k in ("url", "selector", "text", "key", "ms")
-                    if s.get(k) is not None
-                ]
-            )
+            " ".join([f"{k}={s.get(k)}" for k in ("url", "selector", "text", "key", "ms") if s.get(k) is not None])
         )
         c.drawString(55, y, line[:120])
         y -= 11
@@ -511,6 +484,52 @@ def handle_execute_mode(
 
     base_url = H.pick_base_url(req, session, prompt)
 
+    # ---------------------------------------------------------
+    # 🛡️ GUARD: HEB nunca debe ejecutarse por el engine genérico
+    # (HEB se maneja con runner dedicado en chat_service.py)
+    # ---------------------------------------------------------
+    if _looks_like_heb(prompt, base_url):
+        answer = (
+            "HEB se ejecuta con el runner dedicado (flujo carrito/checkout/compra completa), "
+            "no con el engine genérico de steps.\n\n"
+            "Usa un prompt como:\n"
+            "- \"Vanya, HEB modo checkout: agrega tomate y coca cola\"\n"
+            "- \"Vanya, HEB compra completa (pagar/recoger en tienda) CONFIRMAR_COMPRA\"\n"
+        )
+        meta = _normalize_runner_meta(
+            {
+                "mode": "execute",
+                "persona": persona,
+                "base_url": "https://www.heb.com.mx",
+                "runner": {
+                    "status": "blocked",
+                    "evidence_url": None,
+                    "report_url": None,
+                    "duration_ms": int((time.time() - t0) * 1000),
+                    "raw": {"blocked_reason": "HEB must use dedicated runner"},
+                },
+            }
+        )
+        try:
+            store.add_message(thread_id, "assistant", answer, meta=meta)
+        except Exception:
+            logger.exception("persist blocked HEB message failed (continuing)")
+        return {
+            "mode": "execute",
+            "persona": persona,
+            "session_id": session_id,
+            "thread_id": thread_id,
+            "answer": answer,
+            "runner": meta.get("runner"),
+            "evidence_url": meta.get("evidence_url"),
+            "report_url": meta.get("report_url"),
+            "duration_ms": meta.get("duration_ms"),
+            **_confidence("execute", prompt, "https://www.heb.com.mx"),
+        }
+
+    # ---------------------------------------------------------
+    # Base URL es obligatorio para el engine genérico
+    # ---------------------------------------------------------
     if not base_url:
         answer = (
             "To execute I need:\n"
@@ -518,12 +537,7 @@ def handle_execute_mode(
             "- What to validate (button / field / expected text)\n"
             "- Credentials (if applicable)"
         )
-        store.add_message(
-            thread_id,
-            "assistant",
-            answer,
-            meta={"mode": "execute", "persona": persona},
-        )
+        store.add_message(thread_id, "assistant", answer, meta={"mode": "execute", "persona": persona})
         return {
             "mode": "execute",
             "persona": persona,
@@ -546,7 +560,7 @@ def handle_execute_mode(
     if not steps:
         steps = _parse_steps_from_prompt(prompt, base_url)
 
-    # 2) LLM fallback para steps
+    # 2) LLM fallback para steps (más acotado)
     if not steps:
         client = _client()
         resp = client.chat.completions.create(
@@ -557,8 +571,13 @@ def handle_execute_mode(
                     "role": "user",
                     "content": (
                         f"Base URL: {base_url}\n"
-                        f"Generate Playwright steps to:\n{prompt}\n"
-                        'Return ONLY valid JSON: {"steps": [...]}'
+                        f"User request:\n{prompt}\n\n"
+                        "Generate Playwright steps using ONLY these actions:\n"
+                        "- goto(url)\n- click(selector)\n- fill(selector,value)\n- press(selector,key)\n"
+                        "- wait_ms(ms)\n- assert_visible(selector)\n- assert_not_visible(selector)\n"
+                        "- assert_url_contains(value)\n- assert_text_contains(selector,text)\n\n"
+                        'Return ONLY valid JSON: {"steps":[{"action":"goto","url":"..."}, ...]}\n'
+                        "No commentary."
                     ),
                 }
             ],
@@ -569,16 +588,8 @@ def handle_execute_mode(
         steps = H.extract_steps_from_text(raw)
 
     if not steps:
-        answer = (
-            "I couldn't generate executable steps. Tell me the exact element "
-            "(selector) or expected text."
-        )
-        store.add_message(
-            thread_id,
-            "assistant",
-            answer,
-            meta={"mode": "execute", "persona": persona, "base_url": base_url},
-        )
+        answer = "I couldn't generate executable steps. Tell me the exact element (selector) or expected text."
+        store.add_message(thread_id, "assistant", answer, meta={"mode": "execute", "persona": persona, "base_url": base_url})
         return {
             "mode": "execute",
             "persona": persona,
@@ -635,21 +646,17 @@ def handle_execute_mode(
         }
 
     ok = bool(runner.get("ok", True))
-    status = str(runner.get("status") or ("passed" if ok else "failed")).strip().lower() or (
-        "passed" if ok else "failed"
-    )
-    if status not in ("passed", "failed", "unknown"):
+    status = str(runner.get("status") or ("passed" if ok else "failed")).strip().lower()
+    if status not in ("passed", "failed", "unknown", "error"):
         status = "passed" if ok else "failed"
+    if status == "error":
+        status = "failed"
 
     msg = str(runner.get("message") or runner.get("detail") or runner.get("reason") or "").strip()
 
     duration_ms = runner.get("duration_ms")
     try:
-        duration_ms = (
-            int(duration_ms)
-            if duration_ms is not None
-            else int((time.time() - t0) * 1000)
-        )
+        duration_ms = int(duration_ms) if duration_ms is not None else int((time.time() - t0) * 1000)
     except Exception:
         duration_ms = int((time.time() - t0) * 1000)
 
@@ -694,9 +701,7 @@ def handle_execute_mode(
         rep = generate_pdf_report(
             prompt=prompt,
             base_url=base_url,
-            runner={**runner, "screenshot_data_url": screenshot_data_url}
-            if screenshot_data_url
-            else runner,
+            runner={**runner, "screenshot_data_url": screenshot_data_url} if screenshot_data_url else runner,
             steps=steps,
             evidence_id=evidence_id,
             meta={
@@ -741,9 +746,7 @@ def handle_execute_mode(
         try:
             res_pdf = cloud_upload_pdf_bytes(pdf_bytes, evidence_id=(evidence_id or "EV-unknown"))
             if isinstance(res_pdf, dict):
-                report_url = (
-                    (res_pdf.get("secure_url") or res_pdf.get("url") or "").strip() or None
-                )
+                report_url = (res_pdf.get("secure_url") or res_pdf.get("url") or "").strip() or None
             else:
                 report_url = str(res_pdf).strip() or None
 
