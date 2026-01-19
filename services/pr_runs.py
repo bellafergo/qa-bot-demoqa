@@ -364,12 +364,44 @@ def _format_runs_block(runs: List[Dict[str, Any]]) -> str:
 
 def _save_run_safe(*, evidence_id: str, run_payload: Dict[str, Any]) -> None:
     """
-    run_store.save_run() requiere evidence_id dentro del payload.
+    Guarda un run de forma segura en run_store.
+    - Fuerza evidence_id (compat runner)
+    - Normaliza meta para index por PR y tags
     """
     try:
         if not isinstance(run_payload, dict):
             return
-        run_payload["evidence_id"] = (run_payload.get("evidence_id") or evidence_id)
-        save_run(run_payload)
+
+        payload = dict(run_payload)
+
+        # --- evidence_id (clave primaria del store)
+        payload["evidence_id"] = (payload.get("evidence_id") or evidence_id)
+
+        # --- meta normalizada (para índices)
+        meta = payload.get("meta")
+        if not isinstance(meta, dict):
+            meta = {}
+            payload["meta"] = meta
+
+        # --- tags / suites
+        if "tags" not in meta:
+            if payload.get("tag"):
+                meta["tags"] = [payload["tag"]]
+            elif payload.get("tags"):
+                meta["tags"] = payload["tags"]
+
+        # --- PR context (si viene)
+        ctx = payload.get("ctx")
+        if isinstance(ctx, dict):
+            meta.setdefault("pr", {
+                "owner": ctx.get("owner"),
+                "repo": ctx.get("repo"),
+                "number": ctx.get("pr_number"),
+                "sha": ctx.get("sha"),
+            })
+
+        save_run(payload)
+
     except Exception:
         logger.exception("save_run failed for evidence_id=%s", evidence_id)
+
