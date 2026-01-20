@@ -111,6 +111,144 @@ def _extract_json_object(raw: str) -> Optional[Dict[str, Any]]:
     obj = _safe_json_loads(snippet)
     return obj if isinstance(obj, dict) else None
 
+def _repair_json_only(client: OpenAI, raw: str) -> str:
+    """
+    Último recurso: pide al modelo reparar y devolver SOLO JSON válido.
+    (No usa markdown, no usa backticks, no agrega texto extra.)
+    """
+    try:
+        resp = client.chat.completions.create(
+            model=settings.OPENAI_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a JSON repair tool. "
+                        "Return ONLY a valid JSON object. No markdown. No backticks. No explanations."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "Fix this into ONE valid JSON object that matches the expected schema.\n\n"
+                        f"RAW:\n{raw}"
+                    ),
+                },
+            ],
+            temperature=0,
+            max_tokens=settings.DOC_MAX_TOKENS,
+        )
+        return (resp.choices[0].message.content or "").strip()
+    except Exception:
+        return raw
+
+
+def _doc_call_json(client: OpenAI, messages: List[Dict[str, str]]) -> Tuple[str, Dict[str, Any]]:
+    """
+    Llama al modelo en modo DOC y garantiza:
+    - raw: texto devuelto por el modelo
+    - doc_json: dict (vacío si no se pudo parsear)
+    """
+    # intento 1: instrucción estricta
+    resp = client.chat.completions.create(
+        model=settings.OPENAI_MODEL,
+        messages=messages
+        + [{"role": "user", "content": "Return ONLY valid JSON. No additional text."}],
+        temperature=settings.DOC_TEMPERATURE,
+        max_tokens=settings.DOC_MAX_TOKENS,
+    )
+    raw = (resp.choices[0].message.content or "").strip()
+
+    doc_json = _extract_json_object(raw)
+    if isinstance(doc_json, dict):
+        return raw, doc_json
+
+    # intento 2: reparación “JSON only”
+    repaired = _repair_json_only(client, raw)
+    doc_json2 = _extract_json_object(repaired)
+    if isinstance(doc_json2, dict):
+        return repaired, doc_json2
+
+    # fallback duro: dict vacío (tu normalizador ya hará fallback seguro)
+    return raw, {}
+
+
+def _doc_contract_hint() -> str:
+    return (
+        "Return ONLY valid JSON (no markdown, no fences). "
+        "Use this schema:\n\n"
+        "{\n"
+        '  "executive_view": {\n'
+        '    "title": "string",\n'
+        '    "objective": "string",\n'
+        '    "top_risks": [{"priority":"P0|P1|P2","risk":"string","impact":"string"}],\n'
+        '    "matrix_summary": [{"id":"string","scenario":"string","expected":"string","priority":"P0|P1|P2"}],\n'
+        '    "recommended_suites": [{"tag":"string","reason":"string"}]\n'
+        "  },\n"
+        '  "qa_view": {"sections": [{"title":"string","content":"string"}]}\n'
+        "}\n"
+    )
+
+
+def _doc_call_json(client: OpenAI, messages: List[Dict[str, str]]) -> Tuple[str, Dict[str, Any]]:
+    """
+    1) Intenta JSON "estricto" con response_format si el modelo lo soporta.
+    2) Si falla parseo, hace 1 retry pidiendo reparar a JSON.
+    """
+    # intento 1
+    try:
+        resp = client.chat.completions.create(
+            model=settings.OPENAI_MODEL,
+            messages=messages + [{"role": "user", "content": _doc_contract_hint()}],
+            temperature=0.2,
+            max_tokens=settings.DOC_MAX_TOKENS,
+            # 🔒 Forzar JSON si está disponible en tu modelo
+            response_format={"type": "json_object"},
+        )
+        raw = (resp.choices[0].message.content or "").strip()
+        obj = _extract_json_object(raw) or {}
+        if isinstance(obj, dict) and obj:
+            return raw, obj
+    except TypeError:
+        # response_format no soportado por ese modelo/SDK
+        pass
+    except Exception:
+        pass
+
+    # intento 1 (sin response_format)
+    resp = client.chat.completions.create(
+        model=settings.OPENAI_MODEL,
+        messages=messages + [{"role": "user", "content": _doc_contract_hint()}],
+        temperature=0.2,
+        max_tokens=settings.DOC_MAX_TOKENS,
+    )
+    raw = (resp.choices[0].message.content or "").strip()
+    obj = _extract_json_object(raw)
+    if isinstance(obj, dict) and obj:
+        return raw, obj
+
+    # intento 2: repair
+    repair = client.chat.completions.create(
+        model=settings.OPENAI_MODEL,
+        messages=messages
+        + [
+            {
+                "role": "user",
+                "content": (
+                    "You returned invalid JSON. "
+                    "Repair the following into a SINGLE valid JSON object that matches the schema. "
+                    "Output ONLY JSON.\n\n"
+                    f"RAW:\n{raw[:6000]}"
+                ),
+            }
+        ],
+        temperature=0.0,
+        max_tokens=settings.DOC_MAX_TOKENS,
+    )
+    raw2 = (repair.choices[0].message.content or "").strip()
+    obj2 = _extract_json_object(raw2) or {}
+    return raw2, obj2 if isinstance(obj2, dict) else {}
+
 
 # ============================================================
 # Runner meta normalizer (para memoria)
@@ -266,8 +404,21 @@ def _render_doc_answer_from_json(doc: Dict[str, Any]) -> str:
                 f"{row.get('expected','')} | {row.get('priority','')} |"
             )
 
+    # ✅ (AQUÍ VA) suites recomendado para PR analysis
+    suites = ev.get("recommended_suites") or []
+    if suites:
+        lines.append("\n### Recommended suites")
+        for s in suites:
+            if not isinstance(s, dict):
+                continue
+            tag = (s.get("tag") or "").strip()
+            rsn = (s.get("reason") or "").strip()
+            if tag:
+                lines.append(f"- **{tag}**: {rsn}")
+
     lines.append("\n> Tip: Use the Executive / QA tabs for full detail.")
     return "\n".join(lines).strip()
+
 
 
 # ============================================================
@@ -929,26 +1080,9 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
 
     # DOC (artefactos QA en JSON estricto)
     if mode == "doc":
-        kwargs = {}
-        # ✅ Si tu SDK soporta response_format, esto elimina el fallback casi al 100%
-        try:
-            kwargs["response_format"] = {"type": "json_object"}
-        except Exception:
-            pass
+        raw, doc_json = _doc_call_json(client, messages)
 
-        resp = client.chat.completions.create(
-            model=settings.OPENAI_MODEL,
-            messages=messages + [{"role": "user", "content": "Return ONLY valid JSON. No additional text."}],
-            temperature=settings.DOC_TEMPERATURE,
-            max_tokens=settings.DOC_MAX_TOKENS,
-            **kwargs,
-        )
-        raw = (resp.choices[0].message.content or "").strip()
-
-        doc_json = _extract_json_object(raw)
-        if not isinstance(doc_json, dict):
-            doc_json = {}
-
+        # Normaliza al contrato que tu UI ya entiende
         doc_json = _normalize_doc_json(doc_json, raw=raw)
         answer = _render_doc_answer_from_json(doc_json)
 
@@ -957,7 +1091,7 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
                 thread_id,
                 "assistant",
                 answer,
-                meta={"mode": "doc", "persona": persona, "doc_json": doc_json, "doc_schema": "v2"},
+                meta={"mode": "doc", "persona": persona, "doc_json": doc_json, "doc_schema": "strict_v1"},
             )
         except Exception:
             logger.warning("Failed to persist doc answer (continuing)", exc_info=True)
