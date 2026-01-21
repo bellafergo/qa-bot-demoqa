@@ -8,8 +8,9 @@ from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse, JSONResponse
+import html
 
 from core.settings import settings
 from db import init_db
@@ -159,12 +160,116 @@ def on_startup():
 # ============================================================
 # ENDPOINTS
 # ============================================================
-@app.get("/runs/{evidence_id}")
-def read_run(evidence_id: str):
-    r = get_run(evidence_id)
-    if not r:
+@app.get("/runs/{evidence_id}", response_class=HTMLResponse)
+def get_run_evidence(evidence_id: str, request: Request, format: str = "html"):
+    run = run_store.get_run(evidence_id)
+    if not run:
         raise HTTPException(status_code=404, detail="Run not found")
-    return {"ok": True, "run": r}
+
+    # Si explícitamente piden JSON
+    accept = (request.headers.get("accept") or "").lower()
+    if format == "json" or "application/json" in accept:
+        return JSONResponse(run)
+
+    # Helpers
+    def _img_data_uri(b64: str) -> str:
+        b64 = (b64 or "").strip()
+        if not b64:
+            return ""
+        # tu take_screenshot_robust casi siempre regresa PNG base64
+        return f"data:image/png;base64,{b64}"
+
+    steps = run.get("steps") or []
+    logs = run.get("logs") or []
+    meta = run.get("meta") or {}
+    reason = run.get("reason") or ""
+    status = run.get("status") or "unknown"
+    duration_ms = run.get("duration_ms")
+
+    # Si en algún punto guardas URLs ya subidas (Cloudinary), muéstralas:
+    evidence_url = None
+    report_url = None
+    # intenta encontrarlas en varios lugares típicos
+    if isinstance(meta, dict):
+        evidence_url = meta.get("evidence_url") or meta.get("screenshot_url") or meta.get("evidenceUrl")
+        report_url = meta.get("report_url") or meta.get("report_pdf_url") or meta.get("reportUrl")
+
+    # screenshot principal: usa screenshot_b64 si existe, si no el último step
+    main_b64 = (run.get("screenshot_b64") or "").strip()
+    if not main_b64 and steps and isinstance(steps, list):
+        last = steps[-1] if isinstance(steps[-1], dict) else {}
+        main_b64 = (last.get("screenshot_b64") or "").strip()
+
+    main_img = _img_data_uri(main_b64)
+
+    # HTML
+    def esc(x):
+        return html.escape(str(x or ""))
+
+    items_html = []
+    if isinstance(steps, list):
+        for i, st in enumerate(steps, start=1):
+            if not isinstance(st, dict):
+                continue
+            name = esc(st.get("name") or f"step_{i}")
+            b64 = (st.get("screenshot_b64") or "").strip()
+            if not b64:
+                continue
+            img = _img_data_uri(b64)
+            items_html.append(
+                f"""
+                <div style="margin:16px 0; padding:12px; border:1px solid #eee; border-radius:10px;">
+                  <div style="font-weight:600; margin-bottom:8px;">{name}</div>
+                  <img src="{img}" style="max-width:100%; border-radius:10px; border:1px solid #ddd;" />
+                </div>
+                """
+            )
+
+    logs_html = ""
+    if isinstance(logs, list) and logs:
+        safe_logs = "\n".join([str(x) for x in logs][-400:])  # evita páginas enormes
+        logs_html = f"""
+        <h3>Logs</h3>
+        <pre style="white-space:pre-wrap; background:#0b0f19; color:#d6deeb; padding:12px; border-radius:10px; overflow:auto;">
+{esc(safe_logs)}
+        </pre>
+        """
+
+    links_html = []
+    if evidence_url:
+        links_html.append(f'<a href="{esc(evidence_url)}" target="_blank">Evidence URL</a>')
+    if report_url:
+        links_html.append(f'<a href="{esc(report_url)}" target="_blank">Report URL</a>')
+    links_html.append(f'<a href="/runs/{esc(evidence_id)}?format=json" target="_blank">View JSON</a>')
+
+    links_line = " | ".join(links_html)
+
+    html_out = f"""
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Run {esc(evidence_id)} — Evidence</title>
+      </head>
+      <body style="font-family: ui-sans-serif, system-ui, -apple-system; margin:24px; max-width:1100px;">
+        <h2>Run Evidence: {esc(evidence_id)}</h2>
+
+        <div style="margin:10px 0; padding:12px; border:1px solid #eee; border-radius:10px;">
+          <div><b>Status:</b> {esc(status)} </div>
+          <div><b>Duration:</b> {esc(duration_ms)} ms</div>
+          <div><b>Reason:</b> {esc(reason)}</div>
+          <div style="margin-top:8px;">{links_line}</div>
+        </div>
+
+        {"<h3>Última captura</h3><img src='"+main_img+"' style='max-width:100%; border-radius:10px; border:1px solid #ddd;' />" if main_img else "<p>No screenshot_b64 disponible.</p>"}
+
+        <h3>Steps</h3>
+        {''.join(items_html) if items_html else "<p>No steps con screenshots disponibles.</p>"}
+
+        {logs_html}
+      </body>
+    </html>
+    """
+    return HTMLResponse(content=html_out, status_code=200)
 
 
 # ============================================================
