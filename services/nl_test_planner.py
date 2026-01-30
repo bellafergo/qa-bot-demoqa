@@ -150,11 +150,13 @@ def validate_plan(plan: dict, max_steps: int = 25) -> tuple[bool, list[str]]:
     if not isinstance(plan, dict):
         return False, ["Plan must be a dict"]
 
-    # Required keys
+    # Required keys (minimal)
     required_keys = {"ok", "steps"}
     missing = required_keys - set(plan.keys())
     if missing:
         errors.append(f"Missing required keys: {', '.join(sorted(missing))}")
+
+    base_url = plan.get("base_url")
 
     # Validate steps
     steps = plan.get("steps")
@@ -175,13 +177,23 @@ def validate_plan(plan: dict, max_steps: int = 25) -> tuple[bool, list[str]]:
             if not action:
                 errors.append(f"Step {i} missing 'action'")
             elif action not in ALLOWED_ACTIONS:
-                errors.append(f"Step {i} has invalid action '{action}'. Allowed: {', '.join(sorted(ALLOWED_ACTIONS))}")
+                errors.append(
+                    f"Step {i} has invalid action '{action}'. Allowed: {', '.join(sorted(ALLOWED_ACTIONS))}"
+                )
 
             # Action-specific validation
-            if action == "goto" and not step.get("url"):
-                errors.append(f"Step {i}: 'goto' requires 'url'")
+            if action == "goto":
+                url = step.get("url")
+                if not url:
+                    errors.append(f"Step {i}: 'goto' requires 'url'")
+                else:
+                    # If url depends on {base_url} then plan must provide base_url
+                    if "{base_url}" in str(url) and not base_url:
+                        errors.append(f"Step {i}: 'goto' uses '{{base_url}}' but plan.base_url is missing")
+
             if action == "fill" and not step.get("selector"):
                 errors.append(f"Step {i}: 'fill' requires 'selector'")
+
             if action == "click" and not step.get("selector") and not step.get("intent"):
                 errors.append(f"Step {i}: 'click' requires 'selector' or 'intent'")
 
@@ -194,6 +206,10 @@ def validate_plan(plan: dict, max_steps: int = 25) -> tuple[bool, list[str]]:
     if plan.get("risk_flags") and "payment" in plan.get("risk_flags", []):
         if not plan.get("requires_confirmation"):
             errors.append("Plans with 'payment' risk must have requires_confirmation=True")
+
+    # Optional consistency: if requires_confirmation=True, risk_flags should include payment
+    if plan.get("requires_confirmation") and "payment" not in (plan.get("risk_flags") or []):
+        errors.append("requires_confirmation=True but missing 'payment' in risk_flags")
 
     is_valid = len(errors) == 0
     return is_valid, errors
@@ -412,27 +428,6 @@ def plan_from_text(
 ) -> dict[str, Any]:
     """
     Convert natural language text to a test plan.
-
-    Args:
-        text: Natural language description of the test.
-        base_url: Optional base URL for the target site.
-        app_hint: Optional hint about the target app (e.g., "HEB").
-        max_steps: Maximum steps allowed in the plan (default 25).
-
-    Returns:
-        A plan dict with schema:
-        {
-            "ok": bool,
-            "language": "es"|"en",
-            "intent": str,
-            "base_url": str|None,
-            "requires_confirmation": bool,
-            "summary": str,
-            "steps": list[dict],
-            "risk_flags": list[str],
-            "assumptions": list[str],
-            "errors": list[str]
-        }
     """
     errors: list[str] = []
     assumptions: list[str] = []
@@ -493,7 +488,9 @@ def plan_from_text(
     if intent == "checkout":
         steps = _generate_checkout_steps(effective_url)
         summary = "Checkout flow (stopped before payment)" if language == "en" else "Flujo de checkout (detenido antes del pago)"
-        if not base_url:
+
+        # ✅ FIX: check effective_url, not base_url
+        if not effective_url:
             assumptions.append("Requires base_url to be provided" if language == "en" else "Requiere que se proporcione base_url")
 
     elif intent in ("add_to_cart", "login_and_cart"):
@@ -509,10 +506,7 @@ def plan_from_text(
         steps = _generate_heb_cart_steps(products, include_login=include_login, base_url=effective_url)
 
         products_str = ", ".join(products) if products else "products"
-        if language == "es":
-            summary = f"Agregar productos al carrito: {products_str}"
-        else:
-            summary = f"Add to cart: {products_str}"
+        summary = (f"Agregar productos al carrito: {products_str}" if language == "es" else f"Add to cart: {products_str}")
 
         if include_login:
             assumptions.append("Using env placeholders for credentials" if language == "en" else "Usando placeholders de env para credenciales")
@@ -522,14 +516,13 @@ def plan_from_text(
     elif intent in ("login", "login_and_search"):
         include_search = intent == "login_and_search"
         if include_search:
-            # Extract search query
             products = _extract_products(text)
             query = products[0] if products else "product"
             steps = _generate_search_steps(query, effective_url, include_login=True, app_hint=app_hint)
-            summary = f"Login and search for: {query}" if language == "en" else f"Iniciar sesión y buscar: {query}"
+            summary = (f"Login and search for: {query}" if language == "en" else f"Iniciar sesión y buscar: {query}")
         else:
             steps = _generate_login_steps(effective_url, app_hint)
-            summary = "Login flow" if language == "en" else "Flujo de inicio de sesión"
+            summary = ("Login flow" if language == "en" else "Flujo de inicio de sesión")
 
         assumptions.append("Using env placeholders for credentials" if language == "en" else "Usando placeholders de env para credenciales")
 
@@ -537,7 +530,7 @@ def plan_from_text(
         products = _extract_products(text)
         query = products[0] if products else "product"
         steps = _generate_search_steps(query, effective_url, app_hint=app_hint)
-        summary = f"Search for: {query}" if language == "en" else f"Buscar: {query}"
+        summary = (f"Search for: {query}" if language == "en" else f"Buscar: {query}")
 
     else:
         # Generic navigate
@@ -546,7 +539,7 @@ def plan_from_text(
             {"action": "goto", "url": url},
             {"action": "screenshot"},
         ]
-        summary = f"Navigate to {url}" if language == "en" else f"Navegar a {url}"
+        summary = (f"Navigate to {url}" if language == "en" else f"Navegar a {url}")
         if not effective_url:
             assumptions.append("Requires base_url to be provided" if language == "en" else "Requiere que se proporcione base_url")
 
@@ -555,14 +548,15 @@ def plan_from_text(
         errors.append(f"Generated {len(steps)} steps, exceeds max_steps={max_steps}")
         steps = steps[:max_steps]
 
-    # Final validation
-    is_valid, validation_errors = validate_plan({
+    # ✅ Final validation (validate full plan incl. base_url)
+    plan_candidate: dict[str, Any] = {
         "ok": True,
         "steps": steps,
         "risk_flags": risk_flags,
         "requires_confirmation": requires_confirmation,
-    }, max_steps=max_steps)
-
+        "base_url": effective_url,
+    }
+    is_valid, validation_errors = validate_plan(plan_candidate, max_steps=max_steps)
     if not is_valid:
         errors.extend(validation_errors)
 
