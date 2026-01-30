@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+.pytest_cache/
+dist/
+build/
+node_modules/
+frontend/dist/
+vanya-frontend/dist/
+evidence/
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.mp4
+*.zip
+*.pdf
+local.db

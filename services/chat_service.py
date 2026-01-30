@@ -30,8 +30,54 @@ from core.qa_risk_engine import build_risk_brief, build_negative_and_edge_cases
 
 from services.execute_engine import handle_execute_mode  # engine general
 from runner import execute_test, execute_heb_full_purchase  # runners
+from services.document_store import query_documents
 
 logger = logging.getLogger("vanya.chat_service")
+
+
+# ============================================================
+# DOCUMENT CONTEXT HELPERS
+# ============================================================
+_DOCUMENT_KEYWORDS = frozenset({
+    "documento", "documentos", "pdf", "adjunto", "adjuntos",
+    "contrato", "contratos", "brd", "spec", "manual", "manuales",
+    "archivo", "archivos", "attached", "attachment", "file", "files",
+    "document", "documents", "specification", "requirements",
+})
+
+
+def _should_use_documents(prompt: str) -> bool:
+    """Check if prompt mentions document-related keywords."""
+    p = (prompt or "").lower()
+    return any(kw in p for kw in _DOCUMENT_KEYWORDS)
+
+
+def _get_document_context(thread_id: str, prompt: str, top_k: int = 5) -> str:
+    """
+    Query documents for the thread and return formatted context.
+    Returns empty string if no documents found or on error.
+    """
+    if not thread_id:
+        return ""
+    try:
+        result = query_documents(query=prompt, thread_id=thread_id, top_k=top_k)
+        if not result.get("ok"):
+            return ""
+        snippets = result.get("snippets") or []
+        if not snippets:
+            return ""
+
+        lines = ["[Document Context]"]
+        for i, s in enumerate(snippets[:top_k], start=1):
+            fname = s.get("filename") or "unknown"
+            text = (s.get("text") or "")[:800]  # limit snippet size
+            lines.append(f"--- Snippet {i} from '{fname}' ---")
+            lines.append(text)
+        lines.append("[End Document Context]")
+        return "\n".join(lines)
+    except Exception:
+        logger.warning("Failed to query documents (continuing)", exc_info=True)
+        return ""
 
 
 # ============================================================
@@ -1053,6 +1099,12 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         content = (m.get("content") or "").strip()
         if content:
             messages.append({"role": role, "content": content})
+
+    # Document context (only when keywords match and not in execute mode)
+    if mode != "execute" and _should_use_documents(prompt):
+        doc_context = _get_document_context(thread_id, prompt, top_k=5)
+        if doc_context:
+            messages.append({"role": "user", "content": doc_context})
 
     # EXECUTE
     if mode == "execute":

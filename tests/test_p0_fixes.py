@@ -58,12 +58,12 @@ def test_p0_3_sb_get_thread_returns_none_for_missing():
     print("[PASS] P0-3: sb_get_thread returns None for missing thread")
 
 
-def test_p0_3_get_thread_uses_supabase_when_available():
+def test_p0_3_get_thread_roundtrip():
     """
-    P0-3: get_thread should use sb_get_thread when Supabase is enabled.
+    P0-3: get_thread should work for created threads.
     This test creates a thread and retrieves it.
     """
-    from services.store import create_thread, get_thread, _has_supabase
+    from services.store import create_thread, get_thread
 
     # Create a thread first
     created = create_thread("Test Thread P0-3 Roundtrip")
@@ -78,12 +78,9 @@ def test_p0_3_get_thread_uses_supabase_when_available():
         assert "messages" in fetched, "get_thread must return messages array"
         assert isinstance(fetched["messages"], list), "messages must be a list"
 
-        backend = "Supabase" if _has_supabase() else "SQLite"
-        print(f"[PASS] P0-3: get_thread roundtrip works ({backend} backend)")
+        print(f"[PASS] P0-3: get_thread roundtrip works (Postgres via SQLAlchemy)")
 
     except KeyError:
-        # This can happen if Supabase is enabled but sb_get_thread wasn't working
-        # before the fix - now it should work
         print(f"[FAIL] P0-3: get_thread raised KeyError - thread not found after create")
         raise
 
@@ -121,7 +118,7 @@ if __name__ == "__main__":
         test_p0_2_create_thread_returns_correct_shape,
         test_p0_3_sb_get_thread_exists,
         test_p0_3_sb_get_thread_returns_none_for_missing,
-        test_p0_3_get_thread_uses_supabase_when_available,
+        test_p0_3_get_thread_roundtrip,
         test_response_backward_compatible,
     ]
 
