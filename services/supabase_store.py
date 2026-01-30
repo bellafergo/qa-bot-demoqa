@@ -1,17 +1,30 @@
 # services/supabase_store.py
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Callable, TypeVar
 import os
 import logging
 from datetime import datetime, timezone
 
 logger = logging.getLogger("vanya.supabase")
 
+# ============================================================
+# Env
+# ============================================================
 SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").strip()
+
+# IMPORTANT:
+# - SUPABASE_SERVICE_ROLE_KEY debe ser la "Secret key" (service_role) de Supabase (server-side).
+# - NO uses la "Publishable key" aquí.
 SUPABASE_SERVICE_ROLE_KEY = (os.getenv("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
 
-# Singleton
+# Modo estricto: si está en 1, el backend debe usar Supabase sí o sí (sin fallback a SQLite).
+SUPABASE_STRICT = (os.getenv("SUPABASE_STRICT", "0").strip() == "1")
+
+# Optional: ayuda a diagnosticar en logs (sin exponer secretos)
+SUPABASE_DEBUG = (os.getenv("SUPABASE_DEBUG", "0").strip() == "1")
+
+# Singleton client
 _supabase = None
 
 
@@ -26,39 +39,138 @@ def _is_configured() -> bool:
     return bool(SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)
 
 
-def supabase_client():
-    """
-    Regresa el cliente de Supabase (singleton).
-    SERVICE_ROLE_KEY = solo server-side.
-    """
-    global _supabase
-    if _supabase is not None:
-        return _supabase
-
-    if not _is_configured():
-        logger.warning("Supabase no configurado")
-        return None
-
-    try:
-        from supabase import create_client  # type: ignore
-        _supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-        return _supabase
-    except Exception:
-        logger.exception("No se pudo crear cliente Supabase")
-        return None
+def _mask(s: str, keep: int = 4) -> str:
+    s = s or ""
+    if len(s) <= keep:
+        return "*" * len(s)
+    return ("*" * (len(s) - keep)) + s[-keep:]
 
 
-def _safe_execute(fn, default):
+def _log_supabase_config() -> None:
+    """Log status at import time (NO secrets)."""
+    has_url = bool(SUPABASE_URL)
+    has_key = bool(SUPABASE_SERVICE_ROLE_KEY)
+
+    if SUPABASE_DEBUG:
+        logger.info(
+            "Supabase env: URL=%s KEY=%s STRICT=%s",
+            "SET" if has_url else "MISSING",
+            f"SET({_mask(SUPABASE_SERVICE_ROLE_KEY)})" if has_key else "MISSING",
+            "1" if SUPABASE_STRICT else "0",
+        )
+    else:
+        logger.info(
+            "Supabase env: URL=%s KEY=%s STRICT=%s",
+            "SET" if has_url else "MISSING",
+            "SET" if has_key else "MISSING",
+            "1" if SUPABASE_STRICT else "0",
+        )
+
+    if SUPABASE_STRICT and (not has_url or not has_key):
+        logger.error(
+            "FATAL: SUPABASE_STRICT=1 but Supabase credentials are missing. "
+            "Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (Secret key) in Render."
+        )
+
+
+_log_supabase_config()
+
+
+T = TypeVar("T")
+
+
+def _safe_execute(fn: Callable[[], T], default: T) -> T:
     try:
         return fn()
-    except Exception:
-        logger.exception("Supabase operation failed")
+    except Exception as e:
+        # Mejor diagnóstico en logs sin romper flujo
+        logger.exception("Supabase operation failed: %s", e)
         return default
 
 
 def _clip(s: str, n: int) -> str:
     s = (s or "").strip()
     return s if len(s) <= n else s[:n].rstrip() + "…"
+
+
+def _extract_error(e: Exception) -> str:
+    msg = str(e) or e.__class__.__name__
+    return _clip(msg, 300)
+
+
+# ============================================================
+# Client
+# ============================================================
+def supabase_client():
+    """
+    Retorna el cliente Supabase (singleton) o None.
+    Requiere SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (Secret key).
+    """
+    global _supabase
+    if _supabase is not None:
+        return _supabase
+
+    if not _is_configured():
+        logger.warning("Supabase not configured (missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY).")
+        return None
+
+    try:
+        from supabase import create_client  # type: ignore
+        _supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        return _supabase
+    except Exception as e:
+        logger.exception("Failed to create Supabase client: %s", _extract_error(e))
+        return None
+
+
+def check_supabase_health() -> Dict[str, Any]:
+    """
+    Prueba rápida para saber si:
+      - está configurado
+      - puede crear cliente
+      - puede hacer una query mínima
+
+    Returns:
+      {"ok": bool, "configured": bool, "client": bool, "reachable": bool, "error": str|None}
+    """
+    configured = _is_configured()
+    if not configured:
+        return {
+            "ok": False,
+            "configured": False,
+            "client": False,
+            "reachable": False,
+            "error": "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY",
+        }
+
+    sb = supabase_client()
+    if sb is None:
+        return {
+            "ok": False,
+            "configured": True,
+            "client": False,
+            "reachable": False,
+            "error": "Could not create Supabase client (check URL/key and supabase package).",
+        }
+
+    try:
+        # Query mínima: si falla aquí, casi siempre es KEY incorrecta o RLS/policies
+        sb.table("threads").select("id").limit(1).execute()
+        return {
+            "ok": True,
+            "configured": True,
+            "client": True,
+            "reachable": True,
+            "error": None,
+        }
+    except Exception as e:
+        return {
+            "ok": False,
+            "configured": True,
+            "client": True,
+            "reachable": False,
+            "error": _extract_error(e),
+        }
 
 
 # ============================================================
@@ -70,14 +182,15 @@ def sb_create_thread(title: str = "New chat") -> Optional[Dict[str, Any]]:
         return None
 
     payload = {
-        "title": (title or "New chat").strip(),
+        "title": (title or "New chat").strip() or "New chat",
         "updated_at": _utcnow_iso(),
     }
 
     def _op():
         res = sb.table("threads").insert(payload).execute()
-        if getattr(res, "data", None):
-            row = res.data[0]
+        data = getattr(res, "data", None) or []
+        if data:
+            row = data[0] or {}
             return {
                 "id": row.get("id"),
                 "title": row.get("title"),
@@ -89,10 +202,6 @@ def sb_create_thread(title: str = "New chat") -> Optional[Dict[str, Any]]:
 
 
 def sb_get_thread(thread_id: str) -> Optional[Dict[str, Any]]:
-    """
-    Fetch a single thread by ID from Supabase.
-    Returns {"id", "title", "updated_at"} or None if not found.
-    """
     sb = supabase_client()
     if not sb or not thread_id:
         return None
@@ -105,9 +214,9 @@ def sb_get_thread(thread_id: str) -> Optional[Dict[str, Any]]:
             .limit(1)
             .execute()
         )
-        data = getattr(res, "data", None)
-        if data and len(data) > 0:
-            row = data[0]
+        data = getattr(res, "data", None) or []
+        if data:
+            row = data[0] or {}
             return {
                 "id": row.get("id"),
                 "title": row.get("title") or "New chat",
@@ -124,9 +233,8 @@ def sb_touch_thread(thread_id: str) -> None:
         return
 
     def _op():
-        sb.table("threads").update(
-            {"updated_at": _utcnow_iso()}
-        ).eq("id", thread_id).execute()
+        sb.table("threads").update({"updated_at": _utcnow_iso()}).eq("id", thread_id).execute()
+        return None
 
     _safe_execute(_op, None)
 
@@ -141,9 +249,8 @@ def sb_update_thread_title(thread_id: str, title: str) -> None:
         return
 
     def _op():
-        sb.table("threads").update(
-            {"title": clean, "updated_at": _utcnow_iso()}
-        ).eq("id", thread_id).execute()
+        sb.table("threads").update({"title": clean, "updated_at": _utcnow_iso()}).eq("id", thread_id).execute()
+        return None
 
     _safe_execute(_op, None)
 
@@ -154,6 +261,7 @@ def sb_delete_thread(thread_id: str) -> bool:
         return False
 
     def _op():
+        # Orden: children primero
         sb.table("messages").delete().eq("thread_id", thread_id).execute()
         sb.table("runs").delete().eq("thread_id", thread_id).execute()
         sb.table("threads").delete().eq("id", thread_id).execute()
@@ -167,7 +275,7 @@ def sb_list_threads(limit: int = 80) -> List[Dict[str, Any]]:
     if not sb:
         return []
 
-    limit = max(1, min(limit, 200))
+    limit = max(1, min(int(limit or 80), 200))
 
     def _op():
         res = (
@@ -178,12 +286,14 @@ def sb_list_threads(limit: int = 80) -> List[Dict[str, Any]]:
             .execute()
         )
         threads = list(getattr(res, "data", None) or [])
-
         if not threads:
             return []
 
-        ids = [t["id"] for t in threads if t.get("id")]
+        ids = [t.get("id") for t in threads if t.get("id")]
+        if not ids:
+            return []
 
+        # Último mensaje por thread para preview
         res_m = (
             sb.table("messages")
             .select("thread_id,content,created_at")
@@ -203,7 +313,7 @@ def sb_list_threads(limit: int = 80) -> List[Dict[str, Any]]:
         out: List[Dict[str, Any]] = []
         for t in threads:
             tid = t.get("id")
-            last_msg = last_by_thread.get(tid)
+            last_msg = last_by_thread.get(tid) if tid else None
             out.append(
                 {
                     "id": tid,
@@ -212,7 +322,6 @@ def sb_list_threads(limit: int = 80) -> List[Dict[str, Any]]:
                     "preview": _clip(str(last_msg.get("content")) if last_msg else "", 60),
                 }
             )
-
         return out
 
     return list(_safe_execute(_op, []))
@@ -233,7 +342,7 @@ def sb_add_message(
 
     payload = {
         "thread_id": thread_id,
-        "role": (role or "assistant").strip(),
+        "role": (role or "assistant").strip() or "assistant",
         "content": content or "",
         "meta": meta or {},
     }
@@ -241,8 +350,9 @@ def sb_add_message(
     def _op():
         res = sb.table("messages").insert(payload).execute()
         sb_touch_thread(thread_id)
-        if getattr(res, "data", None):
-            return res.data[0].get("id")
+        data = getattr(res, "data", None) or []
+        if data:
+            return (data[0] or {}).get("id")
         return None
 
     return _safe_execute(_op, None)
@@ -253,7 +363,7 @@ def sb_list_messages(thread_id: str, limit: int = 50) -> List[Dict[str, Any]]:
     if not sb or not thread_id:
         return []
 
-    limit = max(1, min(limit, 200))
+    limit = max(1, min(int(limit or 50), 200))
 
     def _op():
         res = (
@@ -283,15 +393,16 @@ def sb_add_run(thread_id: str, status: str, runner_meta: Dict[str, Any]) -> Opti
 
     payload = {
         "thread_id": thread_id,
-        "status": (status or "unknown").strip(),
+        "status": (status or "unknown").strip() or "unknown",
         "runner": runner_meta or {},
     }
 
     def _op():
         res = sb.table("runs").insert(payload).execute()
         sb_touch_thread(thread_id)
-        if getattr(res, "data", None):
-            return res.data[0].get("id")
+        data = getattr(res, "data", None) or []
+        if data:
+            return (data[0] or {}).get("id")
         return None
 
     return _safe_execute(_op, None)
