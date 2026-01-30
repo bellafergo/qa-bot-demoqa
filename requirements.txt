@@ -11,7 +11,8 @@ greenlet==3.1.1
 h11==0.16.0
 httpcore==1.0.9
 httptools==0.7.1
-httpx==0.27.2
+# httpx <0.28 required by supabase==2.10.0
+httpx>=0.26.0,<0.28
 idna==3.11
 jiter==0.12.0
 openai==1.57.0
