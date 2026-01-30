@@ -88,6 +88,36 @@ def sb_create_thread(title: str = "New chat") -> Optional[Dict[str, Any]]:
     return _safe_execute(_op, None)
 
 
+def sb_get_thread(thread_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Fetch a single thread by ID from Supabase.
+    Returns {"id", "title", "updated_at"} or None if not found.
+    """
+    sb = supabase_client()
+    if not sb or not thread_id:
+        return None
+
+    def _op():
+        res = (
+            sb.table("threads")
+            .select("id,title,updated_at,created_at")
+            .eq("id", thread_id)
+            .limit(1)
+            .execute()
+        )
+        data = getattr(res, "data", None)
+        if data and len(data) > 0:
+            row = data[0]
+            return {
+                "id": row.get("id"),
+                "title": row.get("title") or "New chat",
+                "updated_at": row.get("updated_at") or row.get("created_at"),
+            }
+        return None
+
+    return _safe_execute(_op, None)
+
+
 def sb_touch_thread(thread_id: str) -> None:
     sb = supabase_client()
     if not sb or not thread_id:

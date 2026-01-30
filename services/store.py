@@ -122,9 +122,16 @@ def create_thread(title: str = "New chat") -> Dict[str, Any]:
 
     # ✅ Supabase-first
     if _has_supabase() and sb_create_thread:
-        thread_id = sb_create_thread(title)
-        _safe_touch_supabase(thread_id)
-        return {"id": thread_id, "title": title, "updated_at": None}
+        result = sb_create_thread(title)
+        # sb_create_thread returns {"id": ..., "title": ..., "updated_at": ...} or None
+        if result and isinstance(result, dict) and result.get("id"):
+            _safe_touch_supabase(result["id"])
+            return {
+                "id": result["id"],
+                "title": result.get("title") or title,
+                "updated_at": result.get("updated_at"),
+            }
+        # If Supabase returned None/invalid, fall through to SQLite
 
     # ✅ SQLite fallback
     db: Session = SessionLocal()
