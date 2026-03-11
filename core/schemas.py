@@ -1,8 +1,62 @@
 # core/schemas.py
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, Field
+
+
+# ============================================================
+# Step / Target contract
+# ============================================================
+
+class TargetFallback(BaseModel):
+    """
+    A single fallback strategy for locator resolution.
+    type: "css" | "text" | "role" | "name" | "testid"
+    value: selector string, role dict, or plain text depending on type.
+    """
+    type: str
+    value: Any
+
+    class Config:
+        extra = "allow"
+
+
+class TargetSpec(BaseModel):
+    """
+    Structured locator descriptor passed to the selector healer.
+    primary is tried first; fallbacks are tried in order.
+    """
+    primary: str
+    fallbacks: List[TargetFallback] = Field(default_factory=list)
+    timeout_ms: int = 3000
+    state: str = "visible"
+    intent: Optional[str] = None
+
+    class Config:
+        extra = "allow"
+
+
+class StepSpec(BaseModel):
+    """
+    Execution step. Supports both legacy (selector) and new (target) shapes.
+    """
+    action: str
+    # legacy flat selector — preserved for backward compat
+    selector: Optional[str] = None
+    # new structured target
+    target: Optional[TargetSpec] = None
+    # action-specific fields
+    url: Optional[str] = None
+    value: Optional[str] = None
+    text: Optional[str] = None
+    key: Optional[str] = None
+    ms: Optional[int] = None
+    expected: Optional[str] = None
+    timeout_ms: Optional[int] = None
+
+    class Config:
+        extra = "allow"  # allow additional fields without breaking
 
 
 class RunnerMeta(BaseModel):

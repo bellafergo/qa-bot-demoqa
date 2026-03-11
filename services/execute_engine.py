@@ -22,6 +22,7 @@ from services import store
 from runner import execute_test
 
 from core.login_intent_resolver import build_login_steps
+from core.step_normalizer import normalize_steps_to_target as _normalize_steps_to_target
 
 from services.cloudinary_service import upload_screenshot_b64 as cloud_upload_screenshot_b64
 from services.cloudinary_service import upload_pdf_bytes as cloud_upload_pdf_bytes
@@ -154,44 +155,6 @@ def _make_png_data_url(b64_or_data_url: Optional[str]) -> Optional[str]:
     if s.startswith("data:image"):
         return s
     return f"data:image/png;base64,{s}"
-
-
-_UI_ACTIONS = {"fill", "click", "press", "assert_visible", "assert_not_visible", "assert_text_contains"}
-
-
-def _normalize_steps_to_target(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    Upgrades flat selector-based steps to target-object steps.
-    - Leaves steps that already have a valid target dict unchanged.
-    - Leaves non-UI steps (goto, wait_ms, assert_url_contains) unchanged.
-    - Preserves the original "selector" key for backward compatibility.
-    """
-    out: List[Dict[str, Any]] = []
-    for step in steps:
-        action = str(step.get("action") or "").strip()
-        if action not in _UI_ACTIONS:
-            out.append(step)
-            continue
-
-        # already has a valid target dict — leave untouched
-        if isinstance(step.get("target"), dict) and step["target"].get("primary"):
-            out.append(step)
-            continue
-
-        selector = str(step.get("selector") or "").strip()
-        if not selector:
-            out.append(step)
-            continue
-
-        upgraded = dict(step)
-        upgraded["target"] = {
-            "primary": selector,
-            "fallbacks": [],
-            "timeout_ms": step.get("timeout_ms", 3000),
-            "state": "visible",
-        }
-        out.append(upgraded)
-    return out
 
 
 def _ensure_has_assert(steps: List[Dict[str, Any]], base_url: str) -> List[Dict[str, Any]]:

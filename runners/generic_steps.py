@@ -1,6 +1,7 @@
 # runners/generic_steps.py
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
@@ -29,6 +30,8 @@ from services.failure_classifier import classify_failure
 from services.memory_store import save_memory, load_memory  # ✅ fix real
 
 load_dotenv()
+
+logger = logging.getLogger("vanya.runner.generic")
 
 
 def execute_test(
@@ -176,11 +179,22 @@ def execute_test(
         target = _build_target(step, selector)
         intent = _safe_str(target.get("intent") or "unknown") or "unknown"
 
+        n_fallbacks = len(target.get("fallbacks") or [])
         locator, used, resolved_selector = resolve_locator(
             page,
             target,
             domain=domain,
             timeout_ms=target.get("timeout_ms"),
+        )
+
+        logger.debug(
+            "[RESOLVE] action=%s primary=%s fallbacks=%d used=%s resolved=%s domain=%s",
+            step.get("action"),
+            target.get("primary"),
+            n_fallbacks,
+            used,
+            resolved_selector,
+            domain,
         )
 
         # ✅ guardar solo si NO fue primary
@@ -215,6 +229,10 @@ def execute_test(
             },
         }
         classification = classify_failure(e, signals=signals)
+        logger.debug(
+            "[RESOLVE_FAIL] action=%s selector=%s domain=%s classification=%s error=%s",
+            action, selector, domain, classification, e,
+        )
         raise Exception({"error": str(e), "classification": classification})
 
     try:
