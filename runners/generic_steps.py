@@ -31,7 +31,12 @@ from services.failure_classifier import classify_failure
 from services.memory_store import save_memory, load_memory  # ✅ fix real
 
 from core.dom_analyzer import extract_dom_inventory
-from core.selector_resolver import resolve_intent, build_playwright_target, is_intent_only
+from core.selector_resolver import (
+    resolve_intent,
+    build_playwright_target,
+    build_well_known_form_target,
+    is_intent_only,
+)
 
 load_dotenv()
 
@@ -216,6 +221,25 @@ def execute_test(
                 logs.append(
                     f"[INTENT] step={step_index} action={action} intent={selector!r} "
                     f"→ no DOM match (score below threshold), falling back to healer"
+                )
+        # ────────────────────────────────────────────────────────────────
+
+        # ── Well-known form selector fallbacks ───────────────────────────
+        # When DOM resolution produced nothing (or DOM inventory was absent),
+        # try static fallback lists for common form fields before giving up.
+        if (
+            selector
+            and is_intent_only(selector)
+            and not target.get("fallbacks")
+            and action in ("fill", "click", "press")
+        ):
+            wk = build_well_known_form_target(action, selector)
+            if wk:
+                wk["intent"] = intent
+                target = wk
+                logs.append(
+                    f"[FORM] step={step_index} action={action} intent={selector!r} "
+                    f"→ well-known form target ({len(wk.get('fallbacks', []))} fallbacks)"
                 )
         # ────────────────────────────────────────────────────────────────
 
@@ -437,6 +461,28 @@ def execute_test(
                                 content = (loc.text_content(timeout=timeout_ms) or "").strip()
                             except Exception:
                                 content = ""
+
+                        # Fallback 1: full body via JS — catches SPA-rendered / lazy text
+                        if expected_text not in content:
+                            try:
+                                body_text = str(page.evaluate("() => document.body.innerText") or "")
+                                if expected_text in body_text:
+                                    content = body_text
+                            except Exception:
+                                pass
+
+                        # Fallback 2: ARIA labels — catches accessibility-only text
+                        if expected_text not in content:
+                            try:
+                                aria_text = str(page.evaluate(
+                                    "() => Array.from(document.querySelectorAll('[aria-label]'))"
+                                    ".map(el => el.getAttribute('aria-label') || '').join(' ')"
+                                ) or "")
+                                if expected_text in aria_text:
+                                    content = aria_text
+                            except Exception:
+                                pass
+
                         if expected_text not in content:
                             raise AssertionError(f"Texto no encontrado. Expected contiene: '{expected_text}'")
 

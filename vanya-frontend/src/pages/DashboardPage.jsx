@@ -212,10 +212,11 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div style={{ padding: "28px 32px", maxWidth: 1200 }}>
+      {/* ── Full-width content area — no maxWidth constraint ── */}
+      <div style={{ padding: "24px 28px" }}>
 
-        {/* ── KPI grid ─────────────────────────────────────────── */}
-        <div className="kpi-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))" }}>
+        {/* ── KPI grid (full width) ────────────────────────────── */}
+        <div className="kpi-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", marginBottom: 24 }}>
           <KpiCard
             label="Active Threads"
             value={loading ? "—" : threadCount}
@@ -257,145 +258,162 @@ export default function DashboardPage() {
           />
         </div>
 
-        {/* ── Two-column row: Recent Activity + Recommendations ── */}
+        {/* ── Main 2-column grid: 2fr left / 1fr right ─────────── */}
         <div style={{
           display: "grid",
-          gridTemplateColumns: "minmax(0, 1.6fr) minmax(0, 1fr)",
-          gap: 20,
-          marginBottom: 20,
+          gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1fr)",
+          gap: 24,
+          alignItems: "start",
         }}>
 
-          {/* Recent Activity */}
-          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-            <div style={{
-              padding: "14px 20px",
-              borderBottom: "1px solid var(--border)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}>
-              <div className="section-title" style={{ margin: 0 }}>Recent Activity</div>
-              <Link to="/chat" style={{ fontSize: 12, color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>
-                View all →
-              </Link>
-            </div>
+          {/* ── LEFT COLUMN ─────────────────────────────────────── */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
 
-            {loading ? (
-              <div style={{ padding: "24px 20px", color: "var(--text-3)", fontSize: 13 }}>
-                Loading conversations…
-              </div>
-            ) : recentFive.length === 0 ? (
-              <div style={{ padding: "24px 20px", color: "var(--text-3)", fontSize: 13 }}>
-                No conversations yet.{" "}
-                <Link to="/chat" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>
-                  Start a new chat →
+            {/* Recent Activity */}
+            <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+              <div style={{
+                padding: "14px 20px",
+                borderBottom: "1px solid var(--border)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}>
+                <div className="section-title" style={{ margin: 0 }}>Recent Activity</div>
+                <Link to="/chat" style={{ fontSize: 12, color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>
+                  View all →
                 </Link>
               </div>
-            ) : (
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Conversation</th>
-                    <th style={{ width: 140 }}>Last Updated</th>
-                    <th style={{ width: 80 }}>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentFive.map((t, i) => {
-                    const id    = String(t?.id || t?.thread_id || "");
-                    const title = buildTitle(t);
-                    return (
-                      <tr key={id || i}>
-                        <td>
-                          <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text)" }}>
-                            {title}
-                          </div>
-                          {id && (
-                            <div style={{ fontSize: 11, color: "var(--text-3)", fontFamily: "monospace", marginTop: 2 }}>
-                              {id.slice(0, 12)}…
+
+              {loading ? (
+                <div style={{ padding: "24px 20px", color: "var(--text-3)", fontSize: 13 }}>
+                  Loading conversations…
+                </div>
+              ) : recentFive.length === 0 ? (
+                <div style={{ padding: "24px 20px", color: "var(--text-3)", fontSize: 13 }}>
+                  No conversations yet.{" "}
+                  <Link to="/chat" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>
+                    Start a new chat →
+                  </Link>
+                </div>
+              ) : (
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Conversation</th>
+                      <th style={{ width: 140 }}>Last Updated</th>
+                      <th style={{ width: 80 }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentFive.map((t, i) => {
+                      const id    = String(t?.id || t?.thread_id || "");
+                      const title = buildTitle(t);
+                      return (
+                        <tr key={id || i}>
+                          <td>
+                            <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text)" }}>
+                              {title}
                             </div>
-                          )}
-                        </td>
-                        <td style={{ fontSize: 12, color: "var(--text-2)", whiteSpace: "nowrap" }}>
-                          {fmtDate(t?.updated_at)}
-                        </td>
-                        <td>
-                          <span className="badge badge-green">Active</span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
-
-          {/* Vanya Recommendations */}
-          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-            <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)" }}>
-              <div className="section-title" style={{ margin: 0 }}>Vanya Recommendations</div>
+                            {id && (
+                              <div style={{ fontSize: 11, color: "var(--text-3)", fontFamily: "monospace", marginTop: 2 }}>
+                                {id.slice(0, 12)}…
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ fontSize: 12, color: "var(--text-2)", whiteSpace: "nowrap" }}>
+                            {fmtDate(t?.updated_at)}
+                          </td>
+                          <td>
+                            <span className="badge badge-green">Active</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
             </div>
-            <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
-              {RECOMMENDATIONS.map((r, i) => (
-                <RecCard key={i} {...r} />
-              ))}
+
+            {/* Critical Business Flows */}
+            <div className="card">
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 14,
+              }}>
+                <div className="section-title" style={{ margin: 0 }}>Critical Business Flows</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <span className="badge badge-green">{healthyFlows} healthy</span>
+                  {cautionFlows > 0 && <span className="badge badge-orange">{cautionFlows} caution</span>}
+                </div>
+              </div>
+              <div style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))",
+                gap: 10,
+              }}>
+                {CRITICAL_FLOWS.map(f => (
+                  <FlowCard key={f.name} {...f} />
+                ))}
+              </div>
             </div>
-          </div>
 
-        </div>
+          </div>{/* end LEFT COLUMN */}
 
-        {/* ── Critical Flows ───────────────────────────────────── */}
-        <div className="card" style={{ marginBottom: 20 }}>
-          <div style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 14,
-          }}>
-            <div className="section-title" style={{ margin: 0 }}>Critical Business Flows</div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <span className="badge badge-green">{healthyFlows} healthy</span>
-              {cautionFlows > 0 && <span className="badge badge-orange">{cautionFlows} caution</span>}
+          {/* ── RIGHT COLUMN ────────────────────────────────────── */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+            {/* Vanya Recommendations */}
+            <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+              <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)" }}>
+                <div className="section-title" style={{ margin: 0 }}>Vanya Recommendations</div>
+              </div>
+              <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+                {RECOMMENDATIONS.map((r, i) => (
+                  <RecCard key={i} {...r} />
+                ))}
+              </div>
             </div>
-          </div>
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
-            gap: 10,
-          }}>
-            {CRITICAL_FLOWS.map(f => (
-              <FlowCard key={f.name} {...f} />
-            ))}
-          </div>
-        </div>
 
-        {/* ── Quick Actions ────────────────────────────────────── */}
-        <div className="card" style={{ marginBottom: 0 }}>
-          <div className="section-title">Quick Actions</div>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <Link to="/chat" className="quick-action">
-              <span className="quick-action-icon">✦</span>
-              <span className="quick-action-label">AI Chat</span>
-              <span className="quick-action-sub">Ask Vanya anything</span>
-            </Link>
-            <Link to="/planner" className="quick-action">
-              <span className="quick-action-icon">⚡</span>
-              <span className="quick-action-label">Test Planner</span>
-              <span className="quick-action-sub">Generate test plan</span>
-            </Link>
-            <Link to="/runs" className="quick-action">
-              <span className="quick-action-icon">◈</span>
-              <span className="quick-action-label">Lookup Run</span>
-              <span className="quick-action-sub">Review evidence</span>
-            </Link>
-            <Link to="/documents" className="quick-action">
-              <span className="quick-action-icon">⊟</span>
-              <span className="quick-action-label">Documents</span>
-              <span className="quick-action-sub">Upload test specs</span>
-            </Link>
-          </div>
-        </div>
+            {/* Quick Actions */}
+            <div className="card">
+              <div className="section-title">Quick Actions</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <Link to="/chat" className="quick-action" style={{ flexDirection: "row", gap: 12 }}>
+                  <span className="quick-action-icon" style={{ fontSize: 16 }}>✦</span>
+                  <div>
+                    <span className="quick-action-label">AI Chat</span>
+                    <span className="quick-action-sub" style={{ display: "block" }}>Ask Vanya anything</span>
+                  </div>
+                </Link>
+                <Link to="/planner" className="quick-action" style={{ flexDirection: "row", gap: 12 }}>
+                  <span className="quick-action-icon" style={{ fontSize: 16 }}>⚡</span>
+                  <div>
+                    <span className="quick-action-label">Test Planner</span>
+                    <span className="quick-action-sub" style={{ display: "block" }}>Generate test plan</span>
+                  </div>
+                </Link>
+                <Link to="/runs" className="quick-action" style={{ flexDirection: "row", gap: 12 }}>
+                  <span className="quick-action-icon" style={{ fontSize: 16 }}>◈</span>
+                  <div>
+                    <span className="quick-action-label">Lookup Run</span>
+                    <span className="quick-action-sub" style={{ display: "block" }}>Review evidence</span>
+                  </div>
+                </Link>
+                <Link to="/documents" className="quick-action" style={{ flexDirection: "row", gap: 12 }}>
+                  <span className="quick-action-icon" style={{ fontSize: 16 }}>⊟</span>
+                  <div>
+                    <span className="quick-action-label">Documents</span>
+                    <span className="quick-action-sub" style={{ display: "block" }}>Upload test specs</span>
+                  </div>
+                </Link>
+              </div>
+            </div>
 
+          </div>{/* end RIGHT COLUMN */}
+
+        </div>{/* end main 2-col grid */}
       </div>
     </div>
   );

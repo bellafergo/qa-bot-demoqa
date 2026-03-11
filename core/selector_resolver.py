@@ -247,6 +247,68 @@ def build_playwright_target(resolution: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def build_well_known_form_target(action: str, intent: str) -> Optional[Dict[str, Any]]:
+    """
+    For common form fields (username, password, login button) return a target dict
+    with multiple CSS/role fallbacks so selector_healer can try them sequentially.
+
+    Called as a last resort when DOM inventory resolution fails or is unavailable.
+    Returns None if the intent does not match any known pattern.
+    """
+    kws = set(_keywords(intent))
+    if not kws:
+        return None
+
+    # ── Password field (fill / press) ─────────────────────────────────────────
+    if action in ("fill", "press") and kws & {"password", "pass", "contraseña",
+                                               "contrasena", "pwd", "passwd"}:
+        return {
+            "primary": "#password",
+            "fallbacks": [
+                {"type": "css",         "value": "input[name='password']"},
+                {"type": "css",         "value": "input[type='password']"},
+                {"type": "placeholder", "value": "Password"},
+                {"type": "label",       "value": "Password"},
+            ],
+        }
+
+    # ── Username / email field (fill / press) ─────────────────────────────────
+    if action in ("fill", "press") and kws & {"username", "user", "email",
+                                               "usuario", "correo"}:
+        return {
+            "primary": "#username",
+            "fallbacks": [
+                {"type": "css",         "value": "input[name='username']"},
+                {"type": "css",         "value": "input[name='user']"},
+                {"type": "css",         "value": "input[name='email']"},
+                {"type": "css",         "value": "input[type='email']"},
+                {"type": "css",         "value": "input[type='text']"},
+                {"type": "placeholder", "value": "Username"},
+                {"type": "placeholder", "value": "Email"},
+                {"type": "label",       "value": "Username"},
+                {"type": "label",       "value": "Email"},
+            ],
+        }
+
+    # ── Login / submit button (click) ─────────────────────────────────────────
+    if action == "click" and kws & {"login", "signin", "sign", "submit",
+                                     "entrar", "ingresar", "acceder"}:
+        return {
+            "primary": "button[type='submit']",
+            "fallbacks": [
+                {"type": "css",  "value": "input[type='submit']"},
+                {"type": "text", "value": "Login"},
+                {"type": "text", "value": "Sign in"},
+                {"type": "text", "value": "Sign In"},
+                {"type": "text", "value": "Log in"},
+                {"type": "role", "value": {"role": "button", "name": "Login"}},
+                {"type": "role", "value": {"role": "button", "name": "Sign in"}},
+            ],
+        }
+
+    return None
+
+
 def is_intent_only(selector: str) -> bool:
     """
     Returns True if the selector looks like a natural-language intent
