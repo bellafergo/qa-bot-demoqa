@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from services.run_store import save_run, get_run
 from services.queue import get_queue
-from workers.jobs import run_execute_steps_job
+from workers.jobs import run_execute_steps_job, run_suite_job
 
 logger = logging.getLogger("vanya")
 router = APIRouter()
@@ -73,3 +73,20 @@ def execute_steps(req: ExecuteStepsRequest) -> Dict[str, Any]:
         "expected": req.expected,
     }
     return _enqueue("steps", run_execute_steps_job, payload, req.meta)
+
+
+class ExecuteSuiteRequest(BaseModel):
+    """
+    POST /execute_suite — enqueue a full TestSuite for async execution.
+    'suite' must be a serialized TestSuite dict.
+    'env' is an optional ExecEnv dict (base_url, headless, timeout_s, …).
+    """
+    suite: Dict[str, Any]
+    env:   Optional[Dict[str, Any]] = None
+    meta:  Optional[Dict[str, Any]] = None
+
+
+@router.post("/execute_suite")
+def execute_suite(req: ExecuteSuiteRequest) -> Dict[str, Any]:
+    payload = {"suite": req.suite, "env": req.env}
+    return _enqueue("suite", run_suite_job, payload, req.meta)

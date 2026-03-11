@@ -74,3 +74,55 @@ def run_execute_steps_job(evidence_id: str, payload: Dict[str, Any], meta: Dict[
         return run
 
 
+def run_suite_job(evidence_id: str, payload: Dict[str, Any], meta: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Worker job: execute a full TestSuite and persist the SuiteRunResult.
+    Payload keys: "suite" (TestSuite dict), "env" (ExecEnv dict, optional).
+    The result is saved under evidence_id so /runs/{evidence_id} works.
+    """
+    t0 = time.time()
+    save_run({
+        "evidence_id": evidence_id,
+        "status": "running",
+        "started_at": int(t0 * 1000),
+        "kind": "suite",
+        "meta": meta or {},
+    })
+
+    try:
+        from core.suite_models import TestSuite
+        from core.exec_env import ExecEnv
+        from services.test_orchestrator import run_suite
+
+        suite = TestSuite(**payload["suite"])
+        env   = ExecEnv(**payload["env"]) if payload.get("env") else None
+
+        suite_result = run_suite(suite, env=env)
+
+        run: Dict[str, Any] = suite_result.model_dump()
+        run["evidence_id"] = evidence_id
+        run["kind"]        = "suite"
+        run = _merge_meta(run, meta)
+
+        t1 = time.time()
+        run.setdefault("finished_at", int(t1 * 1000))
+
+        save_run(run)
+        return run
+
+    except Exception as e:
+        t1 = time.time()
+        err = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
+        run = {
+            "evidence_id": evidence_id,
+            "status": "error",
+            "started_at": int(t0 * 1000),
+            "finished_at": int(t1 * 1000),
+            "duration_ms": int((t1 - t0) * 1000),
+            "error_message": err[:8000],
+            "kind": "suite",
+            "meta": meta or {},
+        }
+        save_run(run)
+        logger.exception("suite job failed evidence_id=%s", evidence_id)
+        return run
