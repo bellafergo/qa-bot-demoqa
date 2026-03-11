@@ -241,7 +241,15 @@ def build_playwright_target(resolution: Dict[str, Any]) -> Dict[str, Any]:
     elif strategy == "name":
         primary = f"[name='{value}']"
     elif strategy in ("role", "text"):
-        primary = f"text={value}"
+        # Scope button/link roles to their element type so we never match a
+        # heading that happens to contain the same text (e.g. "Login Page" h2
+        # would match text=Login, clicking it instead of the submit button).
+        if strategy == "role" and element_type == "button":
+            primary = f"button:has-text('{value}')"
+        elif strategy == "role" and element_type == "link":
+            primary = f"a:has-text('{value}')"
+        else:
+            primary = f"text={value}"
     else:  # css or unknown
         primary = value
 

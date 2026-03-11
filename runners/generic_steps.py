@@ -436,6 +436,10 @@ def execute_test(
                     if action == "click":
                         try:
                             locator, used, domain, intent = _resolve(step, page, sel, inferred_base_url, step_index=i)
+                            logs.append(
+                                f"[CLICK] step={i} intent={sel!r} used={used!r} "
+                                f"locator={getattr(locator, '_selector', repr(locator))!r}"
+                            )
                             locator.wait_for(state="visible", timeout=timeout_ms)
                             locator.click(timeout=timeout_ms)
                             # Safe navigation wait for submit/login buttons

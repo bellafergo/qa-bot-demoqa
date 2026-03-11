@@ -261,6 +261,67 @@ class TestNormalizeWs:
         assert _normalize_ws("Secure Area") in _normalize_ws(page_text)
 
 
+# ── Primary selector scoping (role+button/link must not use broad text=) ─────
+
+class TestRolePrimaryScoping:
+    """
+    button:has-text() / a:has-text() must be used as primary for role strategy
+    so that headings containing the same word are not mistakenly clicked.
+    """
+
+    _BUTTON_RESOLUTION = {
+        "strategy":     "role",
+        "value":        "Login",
+        "score":        100,
+        "element_type": "button",
+        "source_field": "text",
+        "element":      {"text": "Login", "type": "submit", "visible": True},
+    }
+    _LINK_RESOLUTION = {
+        "strategy":     "role",
+        "value":        "Home",
+        "score":        90,
+        "element_type": "link",
+        "source_field": "text",
+        "element":      {"text": "Home", "visible": True},
+    }
+
+    def test_button_primary_is_has_text_not_bare_text(self):
+        t = build_playwright_target(self._BUTTON_RESOLUTION)
+        assert t["primary"] == "button:has-text('Login')", (
+            f"Expected button:has-text(), got: {t['primary']!r}"
+        )
+
+    def test_button_primary_not_broad_text_selector(self):
+        t = build_playwright_target(self._BUTTON_RESOLUTION)
+        assert not t["primary"].startswith("text="), (
+            "Primary must not be text= (would match headings)"
+        )
+
+    def test_link_primary_is_has_text(self):
+        t = build_playwright_target(self._LINK_RESOLUTION)
+        assert t["primary"] == "a:has-text('Home')"
+
+    def test_role_fallback_still_present(self):
+        """role type fallback must still exist in addition to the scoped primary."""
+        t = build_playwright_target(self._BUTTON_RESOLUTION)
+        role_fbs = [f for f in t["fallbacks"] if f["type"] == "role"]
+        assert len(role_fbs) >= 1
+        assert role_fbs[0]["value"] == {"role": "button", "name": "Login"}
+
+    def test_text_fallback_still_present(self):
+        t = build_playwright_target(self._BUTTON_RESOLUTION)
+        text_fbs = [f for f in t["fallbacks"] if f["type"] == "text"]
+        assert len(text_fbs) >= 1
+
+    def test_text_strategy_unchanged(self):
+        """Pure text strategy (e.g. for links without role) still uses text=."""
+        r = {"strategy": "text", "value": "Home", "score": 80,
+             "element_type": "link", "source_field": "text"}
+        t = build_playwright_target(r)
+        assert t["primary"] == "text=Home"
+
+
 # ── Backward compat: existing resolver still works ────────────────────────────
 
 class TestBackwardCompat:
