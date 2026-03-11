@@ -97,22 +97,22 @@ def _resolve_input(inputs: List[Dict[str, Any]], keywords: List[str]) -> Optiona
 
     if field == "testid" and item.get("testid"):
         return {"strategy": "testid", "value": item["testid"], "score": score,
-                "element_type": "input", "source_field": "testid"}
+                "element_type": "input", "source_field": "testid", "element": item}
     if field == "ariaLabel" and item.get("ariaLabel"):
         return {"strategy": "label", "value": item["ariaLabel"], "score": score,
-                "element_type": "input", "source_field": "ariaLabel"}
+                "element_type": "input", "source_field": "ariaLabel", "element": item}
     if field == "label" and item.get("label"):
         return {"strategy": "label", "value": item["label"], "score": score,
-                "element_type": "input", "source_field": "label"}
+                "element_type": "input", "source_field": "label", "element": item}
     if field == "placeholder" and item.get("placeholder"):
         return {"strategy": "placeholder", "value": item["placeholder"], "score": score,
-                "element_type": "input", "source_field": "placeholder"}
+                "element_type": "input", "source_field": "placeholder", "element": item}
     if field == "name" and item.get("name"):
         return {"strategy": "name", "value": item["name"], "score": score,
-                "element_type": "input", "source_field": "name"}
+                "element_type": "input", "source_field": "name", "element": item}
     if field == "id" and item.get("id"):
         return {"strategy": "css", "value": f"#{item['id']}", "score": score,
-                "element_type": "input", "source_field": "id"}
+                "element_type": "input", "source_field": "id", "element": item}
     return None
 
 
@@ -125,20 +125,20 @@ def _resolve_button(buttons: List[Dict[str, Any]], keywords: List[str]) -> Optio
 
     if field == "testid" and item.get("testid"):
         return {"strategy": "testid", "value": item["testid"], "score": score,
-                "element_type": "button", "source_field": "testid"}
+                "element_type": "button", "source_field": "testid", "element": item}
     if field == "ariaLabel" and item.get("ariaLabel"):
         return {"strategy": "label", "value": item["ariaLabel"], "score": score,
-                "element_type": "button", "source_field": "ariaLabel"}
+                "element_type": "button", "source_field": "ariaLabel", "element": item}
     txt = item.get("text") or item.get("value") or ""
     if field in ("text", "value") and txt:
         return {"strategy": "role", "value": txt, "score": score,
-                "element_type": "button", "source_field": field}
+                "element_type": "button", "source_field": field, "element": item}
     if field == "name" and item.get("name"):
         return {"strategy": "name", "value": item["name"], "score": score,
-                "element_type": "button", "source_field": "name"}
+                "element_type": "button", "source_field": "name", "element": item}
     if field == "id" and item.get("id"):
         return {"strategy": "css", "value": f"#{item['id']}", "score": score,
-                "element_type": "button", "source_field": "id"}
+                "element_type": "button", "source_field": "id", "element": item}
     return None
 
 
@@ -151,13 +151,13 @@ def _resolve_link(links: List[Dict[str, Any]], keywords: List[str]) -> Optional[
 
     if field == "ariaLabel" and item.get("ariaLabel"):
         return {"strategy": "label", "value": item["ariaLabel"], "score": score,
-                "element_type": "link", "source_field": "ariaLabel"}
+                "element_type": "link", "source_field": "ariaLabel", "element": item}
     if field == "text" and item.get("text"):
         return {"strategy": "text", "value": item["text"], "score": score,
-                "element_type": "link", "source_field": "text"}
+                "element_type": "link", "source_field": "text", "element": item}
     if field == "id" and item.get("id"):
         return {"strategy": "css", "value": f"#{item['id']}", "score": score,
-                "element_type": "link", "source_field": "id"}
+                "element_type": "link", "source_field": "id", "element": item}
     return None
 
 
@@ -211,31 +211,120 @@ def build_playwright_target(resolution: Dict[str, Any]) -> Dict[str, Any]:
     """
     Convert a resolution dict to a generic_steps target dict compatible with
     resolve_locator() in services/selector_healer.py.
+
+    When the resolution includes an 'element' dict (populated by the resolvers),
+    builds a comprehensive 9-priority fallback chain using all available element
+    attributes so the healer can try each in order before failing:
+
+      1. data-testid / data-test
+      2. aria-label
+      3. role + text   (buttons / links)
+      4. label association
+      5. placeholder
+      6. name attribute
+      7. id → CSS #id
+      8. visible text  (buttons / links)
+      9. safe CSS type/name fallback
     """
     strategy = resolution.get("strategy", "")
     value = resolution.get("value", "")
+    element = resolution.get("element") or {}
+    element_type = resolution.get("element_type", "")
 
+    # ── Primary selector ──────────────────────────────────────────────────────
     if strategy == "testid":
         primary = f"[data-testid='{value}']"
-        fallbacks = [{"type": "testid", "value": value}]
-    elif strategy == "label":
+    elif strategy in ("label",):
         primary = f"text={value}"
-        fallbacks = [{"type": "label", "value": value}]
     elif strategy == "placeholder":
         primary = f"[placeholder='{value}']"
-        fallbacks = [{"type": "placeholder", "value": value}]
     elif strategy == "name":
         primary = f"[name='{value}']"
-        fallbacks = [{"type": "name", "value": value}]
-    elif strategy == "role":
+    elif strategy in ("role", "text"):
         primary = f"text={value}"
-        fallbacks = [{"type": "role", "role": "button", "name": value}]
-    elif strategy == "text":
-        primary = f"text={value}"
-        fallbacks = [{"type": "text", "value": value}]
     else:  # css or unknown
         primary = value
-        fallbacks = []
+
+    # ── Comprehensive fallback chain from element attributes ──────────────────
+    # Each fallback type corresponds to one of the 9 priority levels.
+    # Dedup by (type, key) to avoid repeating the primary or duplicates.
+    fallbacks: List[Dict[str, Any]] = []
+    _seen: set = set()
+
+    def _add(fb_type: str, fb_val: Any, dedup_key: str = "") -> None:
+        key = dedup_key or f"{fb_type}:{fb_val}"
+        if key in _seen or not fb_val:
+            return
+        _seen.add(key)
+        fallbacks.append({"type": fb_type, "value": fb_val})
+
+    # Seed dedup with primary so we never repeat it
+    _seen.add(f"{strategy}:{value}")
+    _seen.add(f"css:{primary}")
+
+    # 1. testid
+    if element.get("testid"):
+        _add("testid", element["testid"])
+        _add("css", f"[data-test='{element['testid']}']",
+             dedup_key=f"css:data-test:{element['testid']}")
+
+    # 2. aria-label
+    if element.get("ariaLabel"):
+        _add("label", element["ariaLabel"], dedup_key=f"label:aria:{element['ariaLabel']}")
+
+    # 3. role + visible text  (buttons and links only)
+    if element_type in ("button", "link"):
+        txt = (element.get("text") or element.get("value") or "").strip()
+        if txt:
+            role = "button" if element_type == "button" else "link"
+            _add("role", {"role": role, "name": txt},
+                 dedup_key=f"role:{element_type}:{txt}")
+
+    # 4. label association
+    if element.get("label"):
+        _add("label", element["label"], dedup_key=f"label:assoc:{element['label']}")
+
+    # 5. placeholder
+    if element.get("placeholder"):
+        _add("placeholder", element["placeholder"])
+
+    # 6. name attribute
+    if element.get("name"):
+        _add("name", element["name"])
+
+    # 7. id → CSS #id
+    if element.get("id"):
+        _add("css", f"#{element['id']}", dedup_key=f"css:id:{element['id']}")
+
+    # 8. visible text  (buttons and links only)
+    if element_type in ("button", "link"):
+        txt = (element.get("text") or element.get("value") or "").strip()
+        if txt:
+            _add("text", txt, dedup_key=f"text:{txt}")
+
+    # 9. safe CSS type/name fallback  (inputs)
+    if element_type == "input":
+        if element.get("name"):
+            _add("css", f"input[name='{element['name']}']",
+                 dedup_key=f"css:input:name:{element['name']}")
+        if element.get("type") and element.get("type") not in ("text", "hidden"):
+            _add("css", f"input[type='{element['type']}']",
+                 dedup_key=f"css:input:type:{element['type']}")
+
+    # If element data was sparse, fall back to a single type-matched fallback
+    if not fallbacks:
+        if strategy == "testid":
+            fallbacks = [{"type": "testid", "value": value}]
+        elif strategy == "label":
+            fallbacks = [{"type": "label", "value": value}]
+        elif strategy == "placeholder":
+            fallbacks = [{"type": "placeholder", "value": value}]
+        elif strategy == "name":
+            fallbacks = [{"type": "name", "value": value}]
+        elif strategy == "role":
+            fallbacks = [{"type": "role", "value": {"role": "button", "name": value}}]
+        elif strategy == "text":
+            fallbacks = [{"type": "text", "value": value}]
 
     return {
         "primary": primary,
@@ -243,7 +332,7 @@ def build_playwright_target(resolution: Dict[str, Any]) -> Dict[str, Any]:
         "intent": resolution.get("source_field", ""),
         "resolved_by": "selector_resolver",
         "resolution_score": resolution.get("score", 0),
-        "element_type": resolution.get("element_type", ""),
+        "element_type": element_type,
     }
 
 

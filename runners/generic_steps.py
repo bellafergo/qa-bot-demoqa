@@ -43,6 +43,15 @@ load_dotenv()
 logger = logging.getLogger("vanya.runner.generic")
 
 
+def _normalize_ws(s: str) -> str:
+    """
+    Normalize whitespace for text comparison.
+    Collapses tabs, newlines, and runs of spaces into a single space, then strips.
+    Preserves case (case-sensitive by default).
+    """
+    return " ".join(s.split())
+
+
 def execute_test(
     steps: List[Dict[str, Any]],
     base_url: Optional[str] = None,
@@ -78,6 +87,7 @@ def execute_test(
     logs: List[str] = []
     evidence_id = f"EV-{uuid.uuid4().hex[:10]}"
     resolution_log: List[Dict[str, Any]] = []
+    healing_log: List[Dict[str, Any]] = []       # structured selector healing events
     failure_context: Optional[Dict[str, Any]] = None
     last_page_context: Optional[Dict[str, Any]] = None
     dom_inventory: Optional[Dict[str, Any]] = None  # captured after first goto
@@ -285,6 +295,20 @@ def execute_test(
 
         # ✅ guardar solo si NO fue primary
         if used != "primary":
+            # Structured healing event — stored in run payload for observability
+            healing_log.append({
+                "selector_healed":  True,
+                "original_selector": step.get("selector") or target.get("primary", ""),
+                "healed_selector":  resolved_selector,
+                "healing_strategy": used,
+                "fallback_index":   res_meta.get("fallback_index"),
+                "domain":           domain,
+                "timestamp":        _now_ms(),
+                "step_index":       step_index,
+                "action":           step.get("action"),
+                "intent":           intent,
+            })
+
             try:
                 current = load_memory(domain) or {}
                 healed = current.get("healed_selectors") or {}
@@ -447,6 +471,9 @@ def execute_test(
                         if not expected_text:
                             raise ValueError("assert_text_contains requiere expected/text")
 
+                        # Normalize whitespace in expected for comparison (preserves case)
+                        expected_norm = _normalize_ws(expected_text)
+
                         target_sel = _selector_from_step(step) or "body"
                         loc = page.locator(target_sel)
                         loc.wait_for(state="visible", timeout=timeout_ms)
@@ -462,28 +489,32 @@ def execute_test(
                             except Exception:
                                 content = ""
 
+                        # Compare with normalized whitespace (handles \t, \n, double-spaces)
+                        def _found(raw: str) -> bool:
+                            return expected_norm in _normalize_ws(raw)
+
                         # Fallback 1: full body via JS — catches SPA-rendered / lazy text
-                        if expected_text not in content:
+                        if not _found(content):
                             try:
                                 body_text = str(page.evaluate("() => document.body.innerText") or "")
-                                if expected_text in body_text:
+                                if _found(body_text):
                                     content = body_text
                             except Exception:
                                 pass
 
                         # Fallback 2: ARIA labels — catches accessibility-only text
-                        if expected_text not in content:
+                        if not _found(content):
                             try:
                                 aria_text = str(page.evaluate(
                                     "() => Array.from(document.querySelectorAll('[aria-label]'))"
                                     ".map(el => el.getAttribute('aria-label') || '').join(' ')"
                                 ) or "")
-                                if expected_text in aria_text:
+                                if _found(aria_text):
                                     content = aria_text
                             except Exception:
                                 pass
 
-                        if expected_text not in content:
+                        if not _found(content):
                             raise AssertionError(f"Texto no encontrado. Expected contiene: '{expected_text}'")
 
                         _record_step(i, step, "passed", extra={"target": target_sel})
@@ -608,6 +639,7 @@ def execute_test(
         },
         # Observability extensions — all optional, never break existing consumers
         "resolution_log": resolution_log,
+        "healing_log":    healing_log,       # structured selector healing events
         "failure_context": failure_context,
         "page_context": last_page_context,
     }

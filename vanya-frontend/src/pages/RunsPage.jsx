@@ -58,6 +58,10 @@ export default function RunsPage() {
     }
   }, [evidenceId]);
 
+  // Selector healing — sourced from resolution_log (always present) or healing_log (new)
+  const healedEntries = (run?.resolution_log || []).filter(e => e?.fallback_used === true);
+  const hasHealing = healedEntries.length > 0;
+
   const passedSteps = run?.steps?.filter(s => String(s.status || "").toLowerCase().includes("pass")).length ?? 0;
   const failedSteps = run?.steps?.filter(s => {
     const s2 = String(s.status || "").toLowerCase();
@@ -120,6 +124,11 @@ export default function RunsPage() {
               <code style={{ fontSize: 12, color: "var(--text-2)" }}>
                 {run.evidence_id}
               </code>
+            )}
+            {hasHealing && (
+              <span className="badge badge-orange" title={`${healedEntries.length} selector(s) auto-healed`}>
+                ⚡ Auto-healed ({healedEntries.length})
+              </span>
             )}
           </div>
 
@@ -253,6 +262,58 @@ export default function RunsPage() {
                         </td>
                         <td style={{ color: "var(--text-3)", fontSize: 12, whiteSpace: "nowrap" }}>
                           {step.duration_ms ? `${step.duration_ms}ms` : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Selector Healing Panel */}
+          {hasHealing && (
+            <div className="card" style={{ marginBottom: 20, padding: 0, overflow: "hidden" }}>
+              <div style={{
+                padding: "14px 20px",
+                borderBottom: "1px solid var(--border)",
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+              }}>
+                <div className="section-title" style={{ margin: 0 }}>Selector Healing</div>
+                <span className="badge badge-orange">⚡ {healedEntries.length} auto-healed</span>
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 44 }}>Step</th>
+                      <th>Action</th>
+                      <th>Original Selector</th>
+                      <th>Healed Selector</th>
+                      <th style={{ width: 110 }}>Strategy</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {healedEntries.map((e, i) => (
+                      <tr key={i}>
+                        <td style={{ color: "var(--text-3)", fontWeight: 600 }}>
+                          {e.step_index != null ? e.step_index + 1 : "—"}
+                        </td>
+                        <td>
+                          <code style={{ fontSize: 12 }}>{e.action || "—"}</code>
+                        </td>
+                        <td style={{ fontSize: 12, color: "var(--red)", wordBreak: "break-all", maxWidth: 200 }}>
+                          {e.original_selector || e.primary || "—"}
+                        </td>
+                        <td style={{ fontSize: 12, color: "var(--green)", wordBreak: "break-all", maxWidth: 200 }}>
+                          {e.resolved || "—"}
+                        </td>
+                        <td>
+                          <span className="badge badge-gray" style={{ fontSize: 11 }}>
+                            {e.fallback_type || e.used || "—"}
+                          </span>
                         </td>
                       </tr>
                     ))}
