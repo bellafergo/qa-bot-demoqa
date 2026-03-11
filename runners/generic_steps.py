@@ -187,7 +187,7 @@ def execute_test(
         intent = _safe_str(target.get("intent") or "unknown") or "unknown"
 
         n_fallbacks = len(target.get("fallbacks") or [])
-        locator, used, resolved_selector = resolve_locator(
+        locator, used, resolved_selector, res_meta = resolve_locator(
             page,
             target,
             domain=domain,
@@ -195,12 +195,13 @@ def execute_test(
         )
 
         logger.debug(
-            "[RESOLVE] action=%s primary=%s fallbacks=%d used=%s resolved=%s domain=%s",
+            "[RESOLVE] action=%s primary=%s fallbacks=%d used=%s resolved=%s fb_index=%s domain=%s",
             step.get("action"),
             target.get("primary"),
             n_fallbacks,
             used,
             resolved_selector,
+            res_meta.get("fallback_index"),
             domain,
         )
 
@@ -216,6 +217,9 @@ def execute_test(
             "used": used,
             "resolved": resolved_selector,
             "fallback_used": used != "primary",
+            "fallback_index": res_meta.get("fallback_index"),
+            "fallback_type": res_meta.get("fallback_type"),
+            "attempts": res_meta.get("attempts"),
             "url": page_ctx.get("url"),
             "element": elem_ctx,
         })
