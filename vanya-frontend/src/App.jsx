@@ -3,17 +3,20 @@
  * App - Router shell with Layout
  *
  * Routes:
- * - /chat      → ChatPage (existing chat functionality)
- * - /planner   → PlannerPage (NL test planner)
- * - /documents → DocumentsPage (document upload/query)
- * - /runs      → RunsPage (execution evidence)
- * - /settings  → SettingsPage (placeholder)
+ * - /           → /dashboard (default)
+ * - /dashboard  → DashboardPage (QA Intelligence home)
+ * - /chat       → ChatPage
+ * - /planner    → PlannerPage
+ * - /documents  → DocumentsPage
+ * - /runs       → RunsPage
+ * - /settings   → SettingsPage
  */
 import React from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import "./App.css";
 
 import Layout from "./components/Layout";
+import DashboardPage from "./pages/DashboardPage";
 import ChatPage from "./pages/ChatPage";
 import PlannerPage from "./pages/PlannerPage";
 import DocumentsPage from "./pages/DocumentsPage";
@@ -70,18 +73,19 @@ export default function App() {
       <Routes>
         {/* Layout wrapper with nested routes */}
         <Route path="/" element={<Layout />}>
-          {/* Default redirect to /chat */}
-          <Route index element={<Navigate to="/chat" replace />} />
+          {/* Default → dashboard */}
+          <Route index element={<Navigate to="/dashboard" replace />} />
 
           {/* Main routes */}
-          <Route path="chat" element={<ChatPage />} />
-          <Route path="planner" element={<PlannerPage />} />
+          <Route path="dashboard" element={<DashboardPage />} />
+          <Route path="chat"      element={<ChatPage />} />
+          <Route path="planner"   element={<PlannerPage />} />
           <Route path="documents" element={<DocumentsPage />} />
-          <Route path="runs" element={<RunsPage />} />
-          <Route path="settings" element={<SettingsPage />} />
+          <Route path="runs"      element={<RunsPage />} />
+          <Route path="settings"  element={<SettingsPage />} />
 
-          {/* Catch-all redirect */}
-          <Route path="*" element={<Navigate to="/chat" replace />} />
+          {/* Catch-all */}
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
       </Routes>
     </ErrorBoundary>

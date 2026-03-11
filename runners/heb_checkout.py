@@ -398,8 +398,8 @@ def execute_heb_full_purchase(
                         snap(f"click_retry_{name}_{i}")
                     except Exception:
                         pass
-
-                raise AssertionError(f"No pude clickear {name}. last_err={last_err}")
+                        
+                        raise AssertionError(f"No pude clickear
 
             # ---------- login helpers ----------
             def _get_password_input():
@@ -623,53 +623,94 @@ def execute_heb_full_purchase(
 
                 raise AssertionError(f"No pude clickear 'Finalizar compra' mini-cart. last_err={last_err}")
 
-            def _cart_proceder_al_pago() -> None:
-                """
-                FIX PRINCIPAL:
-                - El CTA existe pero puede estar hidden/cubierto por popup
-                - Reintenta con click robusto y valida navegación a /shipping
-                """
-                if page is None:
-                    raise AssertionError("page is None in _cart_proceder_al_pago")
+                def _cart_proceder_al_pago() -> None:
+                    """
+                    /checkout/#/cart -> /checkout/#/shipping
+                    Fix: CTA a veces existe pero está hidden o bloqueado por overlays.
+                    """
+                    _close_heb_suggested_popup()
+                    _try_cerrar_modal_tienda()
+                    _dismiss_overlays_quick()
 
-                _close_heb_suggested_popup()
-                _dismiss_overlays_quick()
-                _try_cerrar_modal_tienda()
-
-                snap("cart_before_proceder")
-
-                # El CTA real en tus logs:
-                # a#cart-to-orderform  ... "Proceder al pago"
-                candidates = [
-                    page.locator("a#cart-to-orderform").first,
-                    page.locator("a.btn-place-order").first,
-                    page.locator("a:has-text('Proceder al pago')").first,
-                    page.get_by_role("link", name=re.compile(r"Proceder al pago", re.IGNORECASE)).first,
-                ]
-
-                last_err = None
-                for idx, loc in enumerate(candidates, start=1):
+                    # Asegura URL carrito
                     try:
-                        loc.wait_for(state="attached", timeout=12000)
-                        _click_robust(loc, f"cart_proceder_al_pago_candidate_{idx}", tries=6)
+                        if not re.search(r"/checkout/#/cart", page.url, re.IGNORECASE):
+                            page.goto(f"{base_url}/checkout/#/cart", wait_until="commit", timeout=60000)
+                            page.wait_for_timeout(1500)
+                            snap("checkout_cart_forced")
+                    except Exception:
+                        pass
 
-                        # Si al click aparece popup, ciérralo y vuelve a validar url
+                    # Espera que el carrito tenga "algo" de UI
+                    try:
+                        page.wait_for_load_state("domcontentloaded", timeout=20000)
+                    except Exception:
+                        pass
+
+                    # Candidatos
+                    candidates = [
+                        page.locator("a#cart-to-orderform").first,  # ✅ más estable (VTEX)
+                        page.get_by_text(re.compile(r"Proceder\s+al\s+pago", re.IGNORECASE)).first,
+                        page.get_by_text(re.compile(r"Proceder\s+a\s+la\s+compra", re.IGNORECASE)).first,
+                        page.get_by_role("link", name=re.compile(r"Proceder", re.IGNORECASE)).first,
+                        page.get_by_role("button", name=re.compile(r"Proceder|Continuar", re.IGNORECASE)).first,
+                    ]
+
+                    last_err = None
+
+                    for attempt in range(1, 5):
                         _close_heb_suggested_popup()
+                        _try_cerrar_modal_tienda()
                         _dismiss_overlays_quick()
 
-                        try:
-                            page.wait_for_url(re.compile(r"/checkout/#/shipping"), timeout=35000)
-                            snap("checkout_shipping_loaded")
-                            return
-                        except Exception as e:
-                            last_err = e
-                            snap(f"cart_after_click_no_shipping_{idx}")
-                            # reintenta con siguiente candidato
-                    except Exception as e:
-                        last_err = e
-                        snap(f"cart_proceder_click_failed_{idx}")
+                        snap(f"cart_before_proceed_attempt_{attempt}")
 
-                raise AssertionError(f"No pude avanzar a Shipping (Proceder al pago). last_err={last_err}")
+                        for loc in candidates:
+                            try:
+                                # 1) Espera a que exista (aunque no sea visible)
+                                loc.wait_for(state="attached", timeout=12000)
+
+                                # 2) Intenta volverlo visible
+                                try:
+                                    loc.scroll_into_view_if_needed(timeout=4000)
+                                except Exception:
+                                    pass
+
+                                page.wait_for_timeout(300)
+
+                                # 3) Si está visible, click normal
+                                if loc.is_visible(timeout=800):
+                                    loc.click(timeout=15000)
+                                else:
+                                    # 4) Si existe pero está "hidden", intenta click force
+                                    try:
+                                        loc.click(timeout=8000, force=True)
+                                    except Exception:
+                                        # 5) Último recurso: click por JS si es el id #cart-to-orderform
+                                        try:
+                                            page.evaluate(
+                                                "() => document.querySelector('#cart-to-orderform')?.click()"
+                                            )
+                                        except Exception:
+                                            raise
+
+                                snap(f"cart_proceed_clicked_attempt_{attempt}")
+                                page.wait_for_timeout(900)
+
+                                # Validación: llegamos a shipping
+                                page.wait_for_url(re.compile(r"/checkout/#/shipping", re.IGNORECASE), timeout=30000)
+                                snap("checkout_shipping_loaded")
+                                return
+
+                            except Exception as e:
+                                last_err = e
+                                continue
+
+                        page.wait_for_timeout(1000)
+
+                    snap("cart_proceed_failed")
+                    raise AssertionError(f"No pude avanzar a Shipping desde Cart. last_err={last_err}")
+
 
             def _shipping_pickup_recoger_en_tienda() -> None:
                 """

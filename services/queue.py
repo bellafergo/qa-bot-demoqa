@@ -1,3 +1,6 @@
+# services/queue.py
+from __future__ import annotations
+
 import os
 from redis import Redis
 from rq import Queue
@@ -10,5 +13,5 @@ def get_redis() -> Redis:
     return Redis.from_url(REDIS_URL)
 
 def get_queue(name: str = "vanya") -> Queue:
-    # timeout por job (ej. 30 min)
+    # 30 min por job (ajusta si HEB tarda más)
     return Queue(name, connection=get_redis(), default_timeout=60 * 30)

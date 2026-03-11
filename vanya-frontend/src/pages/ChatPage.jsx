@@ -249,7 +249,7 @@ export default function ChatPage() {
         )}
       </div>
 
-      {/* ── Chat canvas (dark — matches chat.jsx internal styles) ── */}
+      {/* ── Chat canvas (light) ────────────────────────────── */}
       <div style={{
         flex: 1,
         display: "flex",
@@ -260,14 +260,14 @@ export default function ChatPage() {
         {/* Chat toolbar */}
         <div style={{
           height: 46,
-          padding: "0 14px",
-          borderBottom: "1px solid rgba(255,255,255,0.07)",
+          padding: "0 16px",
+          borderBottom: "1px solid var(--border)",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
           gap: 10,
           flexShrink: 0,
-          background: "rgba(0,0,0,0.15)",
+          background: "var(--surface)",
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {/* Toggle sidebar */}
@@ -275,13 +275,13 @@ export default function ChatPage() {
               onClick={() => setIsSidebarOpen(s => !s)}
               title={isSidebarOpen ? "Hide history" : "Show history"}
               style={{
-                width: 30, height: 30,
-                borderRadius: 7,
-                border: "1px solid rgba(255,255,255,0.10)",
-                background: "rgba(255,255,255,0.06)",
-                color: "rgba(255,255,255,0.70)",
+                width: 28, height: 28,
+                borderRadius: 6,
+                border: "1px solid var(--border)",
+                background: "var(--surface)",
+                color: "var(--text-2)",
                 cursor: "pointer",
-                fontSize: 13,
+                fontSize: 12,
                 display: "flex", alignItems: "center", justifyContent: "center",
                 flexShrink: 0,
               }}
@@ -290,23 +290,19 @@ export default function ChatPage() {
             </button>
 
             <span style={{
-              fontSize: 12,
-              color: "rgba(255,255,255,0.40)",
+              fontSize: 11,
+              color: "var(--text-3)",
               fontFamily: "ui-monospace, monospace",
             }}>
-              {threadId ? `thread:${shortId(threadId)}` : "no thread"}
+              {threadId ? `thread:${shortId(threadId)}` : "no thread selected"}
             </span>
           </div>
 
           {/* Error badge */}
           {uiError && (
-            <div style={{
+            <div className="alert alert-error" style={{
               padding: "4px 10px",
-              borderRadius: 7,
-              background: "rgba(220,38,38,0.18)",
-              border: "1px solid rgba(220,38,38,0.35)",
               fontSize: 12,
-              color: "#fca5a5",
               maxWidth: 380,
               overflow: "hidden",
               textOverflow: "ellipsis",

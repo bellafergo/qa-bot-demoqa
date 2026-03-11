@@ -278,7 +278,7 @@ const pickExecBadge = (m) => {
 };
 
 const badgeColor = (kind) =>
-  kind === "bad" ? "#ff4d4f" : kind === "ok" ? "#52c41a" : "rgba(255,255,255,0.75)";
+  kind === "bad" ? "#b91c1c" : kind === "ok" ? "#15803d" : "#64748b";
 
 export default function Chat(props) {
   const {
@@ -348,12 +348,13 @@ export default function Chat(props) {
         <div
           style={{
             maxWidth: 760,
-            padding: "10px 12px",
+            padding: "12px 16px",
             borderRadius: 14,
-            background: role === "user" ? "rgba(120,160,255,0.18)" : "rgba(255,255,255,0.08)",
-            border: "1px solid rgba(255,255,255,0.12)",
-            color: "white",
+            background: role === "user" ? "var(--bubble-user-bg)" : "var(--bubble-bot-bg)",
+            border: `1px solid ${role === "user" ? "var(--bubble-user-border)" : "var(--bubble-bot-border)"}`,
+            color: "var(--bubble-text)",
             wordBreak: "break-word",
+            boxShadow: "var(--shadow-xs)",
           }}
         >
           {/* Header */}
@@ -367,7 +368,7 @@ export default function Chat(props) {
               flexWrap: "wrap",
             }}
           >
-            <span style={{ opacity: 0.75 }}>{isBot ? "Vanya" : "Tú"}</span>
+            <span style={{ color: "var(--bubble-meta)", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em" }}>{isBot ? "Vanya" : "You"}</span>
 
             {badge ? (
               <span
@@ -386,12 +387,12 @@ export default function Chat(props) {
               </span>
             ) : null}
 
-            {evidenceId ? <span style={{ opacity: 0.7 }}>· evid: {evidenceId}</span> : null}
+            {evidenceId ? <span style={{ color: "var(--bubble-meta)", fontSize: 11 }}>· evid: {evidenceId}</span> : null}
           </div>
 
           {/* Reason corto si existe */}
           {isBot && reason ? (
-            <div style={{ fontSize: 12, opacity: 0.75, marginBottom: content ? 8 : 0 }}>{reason}</div>
+            <div style={{ fontSize: 12, color: "var(--bubble-meta)", marginBottom: content ? 8 : 0 }}>{reason}</div>
           ) : null}
 
           {/* Texto */}
@@ -416,64 +417,78 @@ export default function Chat(props) {
   };
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
-      <div style={{ fontSize: 11, opacity: 0.55, padding: "8px 12px" }}>build: {BUILD_TAG}</div>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", background: "var(--chat-bg)" }}>
+      <div style={{ fontSize: 10, color: "var(--text-4)", padding: "6px 20px", borderBottom: "1px solid var(--border-light)" }}>build: {BUILD_TAG}</div>
 
-      <div style={{ flex: 1, overflow: "auto", padding: 14 }}>
+      <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
+        <div style={{ maxWidth: 800, margin: "0 auto" }}>
         {!threadId ? (
-          <div style={{ color: "rgba(255,255,255,0.7)", padding: 12 }}>
-            Selecciona un chat o crea uno nuevo.
+          <div style={{ color: "var(--text-3)", padding: "24px 0", textAlign: "center", fontSize: 14 }}>
+            Select a conversation or create a new one.
           </div>
         ) : null}
 
         {safeMessages.map(renderMsg)}
         <div ref={chatEndRef || undefined} />
+        </div>
       </div>
 
       <div
         style={{
-          padding: 12,
-          borderTop: "1px solid rgba(255,255,255,0.08)",
-          display: "flex",
-          gap: 10,
-          alignItems: "center",
+          padding: "12px 24px 16px",
+          borderTop: "1px solid var(--border)",
+          background: "var(--surface)",
         }}
       >
-        <textarea
-          value={input}
-          onChange={(e) => setInput?.(e.target.value)}
-          onKeyDown={onEnter}
-          placeholder="Escribe aquí… (Enter para enviar, Shift+Enter para salto)"
-          rows={1}
-          style={{
-            flex: 1,
-            resize: "none",
-            padding: "10px 12px",
-            borderRadius: 12,
-            border: "1px solid rgba(255,255,255,0.14)",
-            background: "rgba(0,0,0,0.25)",
-            color: "white",
-            outline: "none",
-          }}
-          disabled={isLoading}
-        />
+        <div style={{ maxWidth: 800, margin: "0 auto", display: "flex", gap: 10, alignItems: "flex-end" }}>
+          <textarea
+            value={input}
+            onChange={(e) => setInput?.(e.target.value)}
+            onKeyDown={onEnter}
+            placeholder="Type a message… (Enter to send, Shift+Enter for new line)"
+            rows={1}
+            style={{
+              flex: 1,
+              resize: "none",
+              padding: "12px 16px",
+              borderRadius: 12,
+              border: "1px solid var(--chat-input-border)",
+              background: "var(--chat-input-bg)",
+              color: "var(--text)",
+              outline: "none",
+              fontFamily: "inherit",
+              fontSize: 14,
+              lineHeight: 1.5,
+              boxShadow: "var(--shadow-xs)",
+              transition: "border-color 0.15s, box-shadow 0.15s",
+            }}
+            onFocus={e => { e.target.style.borderColor = "var(--border-focus)"; e.target.style.boxShadow = "0 0 0 3px rgba(79,107,255,0.12)"; }}
+            onBlur={e => { e.target.style.borderColor = "var(--chat-input-border)"; e.target.style.boxShadow = "var(--shadow-xs)"; }}
+            disabled={isLoading}
+          />
 
-        <button
-          onClick={() => handleSend?.()}
-          disabled={isLoading || !String(input || "").trim()}
-          style={{
-            padding: "10px 14px",
-            borderRadius: 12,
-            border: "1px solid rgba(255,255,255,0.14)",
-            background: isLoading ? "rgba(255,255,255,0.08)" : "rgba(120,160,255,0.35)",
-            color: "white",
-            cursor: isLoading ? "not-allowed" : "pointer",
-            fontWeight: 700,
-          }}
-          title={sessionId ? `session: ${sessionId}` : ""}
-        >
-          {isLoading ? "..." : "Enviar"}
-        </button>
+          <button
+            onClick={() => handleSend?.()}
+            disabled={isLoading || !String(input || "").trim()}
+            style={{
+              padding: "10px 18px",
+              borderRadius: 10,
+              border: "none",
+              background: isLoading || !String(input || "").trim() ? "var(--surface-3)" : "var(--accent)",
+              color: isLoading || !String(input || "").trim() ? "var(--text-3)" : "#ffffff",
+              cursor: isLoading || !String(input || "").trim() ? "not-allowed" : "pointer",
+              fontWeight: 700,
+              fontSize: 13,
+              fontFamily: "inherit",
+              flexShrink: 0,
+              transition: "background 0.15s",
+              boxShadow: isLoading || !String(input || "").trim() ? "none" : "0 2px 6px rgba(79,107,255,0.30)",
+            }}
+            title={sessionId ? `session: ${sessionId}` : ""}
+          >
+            {isLoading ? "…" : "Send"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -505,7 +520,7 @@ function EvidenceBlock({ evidenceUrl }) {
 
   return (
     <div style={{ marginTop: 10 }}>
-      <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 6 }}>Evidencia (captura)</div>
+      <div style={{ fontSize: 11, color: "var(--bubble-meta)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Screenshot</div>
 
       {canRenderImg ? (
         <img
@@ -514,29 +529,27 @@ function EvidenceBlock({ evidenceUrl }) {
           style={{
             width: "100%",
             maxWidth: 720,
-            borderRadius: 12,
-            border: "1px solid rgba(255,255,255,0.10)",
-            background: "rgba(0,0,0,0.25)",
+            borderRadius: 10,
+            border: "1px solid var(--border)",
+            boxShadow: "var(--shadow-sm)",
           }}
           loading="lazy"
           onError={() => setFailed(true)}
         />
       ) : (
-        <div style={{ fontSize: 12, opacity: 0.85 }}>
+        <div style={{ fontSize: 13 }}>
           <a
             href={hasValidHttpUrl(url) ? url : undefined}
             target="_blank"
             rel="noreferrer"
-            style={{ color: "rgba(160,200,255,0.95)" }}
-            onClick={(e) => {
-              if (!hasValidHttpUrl(url)) e.preventDefault();
-            }}
+            style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}
+            onClick={(e) => { if (!hasValidHttpUrl(url)) e.preventDefault(); }}
             title={url}
           >
-            Abrir evidencia
+            Open evidence ↗
           </a>
           {!hasValidHttpUrl(url) ? (
-            <div style={{ marginTop: 6, opacity: 0.7, wordBreak: "break-all" }}>{url}</div>
+            <div style={{ marginTop: 6, color: "var(--text-3)", wordBreak: "break-all", fontSize: 12 }}>{url}</div>
           ) : null}
         </div>
       )}
@@ -560,95 +573,78 @@ function RunDebugBlock({ runner }) {
   };
 
   return (
-    <div style={{ marginTop: 10 }}>
-      <details style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: 10 }}>
-        <summary style={{ cursor: "pointer", fontWeight: 800, opacity: 0.9 }}>Detalles (runner)</summary>
+    <div style={{ marginTop: 12 }}>
+      <details style={{ border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
+        <summary style={{ cursor: "pointer", fontWeight: 700, fontSize: 12, padding: "8px 12px", background: "var(--surface-2)", color: "var(--text-2)", userSelect: "none" }}>
+          Run details
+        </summary>
 
-        <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
-          <button
-            onClick={copyJson}
-            style={{
-              padding: "6px 10px",
-              borderRadius: 10,
-              border: "1px solid rgba(255,255,255,0.14)",
-              background: "rgba(255,255,255,0.08)",
-              color: "white",
-              cursor: "pointer",
-              fontWeight: 700,
-            }}
-          >
-            Copiar JSON
-          </button>
-
-          {runner?.evidence_id ? (
-            <span style={{ opacity: 0.7, fontSize: 12 }}>evidence_id: {runner.evidence_id}</span>
-          ) : null}
-
-          {runner?.status ? (
-            <span style={{ opacity: 0.7, fontSize: 12 }}>status: {String(runner.status)}</span>
-          ) : null}
-
-          {runner?.expected ? (
-            <span style={{ opacity: 0.7, fontSize: 12 }}>expected: {String(runner.expected)}</span>
-          ) : null}
-
-          {runner?.outcome ? (
-            <span style={{ opacity: 0.7, fontSize: 12 }}>outcome: {String(runner.outcome)}</span>
-          ) : null}
-        </div>
-
-        {steps.length ? (
-          <div style={{ marginTop: 10 }}>
-            <div style={{ fontWeight: 800, marginBottom: 6 }}>Steps</div>
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                <thead>
-                  <tr style={{ opacity: 0.8 }}>
-                    <th style={{ textAlign: "left", padding: 6 }}>#</th>
-                    <th style={{ textAlign: "left", padding: 6 }}>action</th>
-                    <th style={{ textAlign: "left", padding: 6 }}>selector/url</th>
-                    <th style={{ textAlign: "left", padding: 6 }}>status</th>
-                    <th style={{ textAlign: "left", padding: 6 }}>error</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {steps.map((s, i) => (
-                    <tr key={i} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-                      <td style={{ padding: 6, opacity: 0.8 }}>{s.index ?? i + 1}</td>
-                      <td style={{ padding: 6, fontWeight: 800 }}>{String(s.action || "")}</td>
-                      <td style={{ padding: 6, opacity: 0.9 }}>
-                        {s.url ? `url: ${s.url}` : s.selector ? `sel: ${s.selector}` : ""}
-                      </td>
-                      <td style={{ padding: 6 }}>{String(s.status || "")}</td>
-                      <td style={{ padding: 6, opacity: 0.8 }}>{s.error ? String(s.error) : ""}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ) : null}
-
-        {logs.length ? (
-          <div style={{ marginTop: 12 }}>
-            <div style={{ fontWeight: 800, marginBottom: 6 }}>Logs</div>
-            <pre
+        <div style={{ padding: "10px 12px" }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10, alignItems: "center" }}>
+            <button
+              onClick={copyJson}
               style={{
-                whiteSpace: "pre-wrap",
+                padding: "5px 10px",
+                borderRadius: 6,
+                border: "1px solid var(--border)",
+                background: "var(--surface)",
+                color: "var(--text-2)",
+                cursor: "pointer",
+                fontWeight: 600,
                 fontSize: 12,
-                lineHeight: 1.3,
-                background: "rgba(0,0,0,0.25)",
-                border: "1px solid rgba(255,255,255,0.10)",
-                borderRadius: 12,
-                padding: 10,
-                maxHeight: 240,
-                overflow: "auto",
+                fontFamily: "inherit",
               }}
             >
-              {logs.join("\n")}
-            </pre>
+              Copy JSON
+            </button>
+
+            {runner?.evidence_id && <span style={{ fontSize: 11, color: "var(--text-3)", fontFamily: "monospace" }}>id: {runner.evidence_id}</span>}
+            {runner?.status     && <span style={{ fontSize: 11, color: "var(--text-3)" }}>status: {String(runner.status)}</span>}
+            {runner?.expected   && <span style={{ fontSize: 11, color: "var(--text-3)" }}>expected: {String(runner.expected)}</span>}
+            {runner?.outcome    && <span style={{ fontSize: 11, color: "var(--text-3)" }}>outcome: {String(runner.outcome)}</span>}
           </div>
-        ) : null}
+
+          {steps.length ? (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontWeight: 700, fontSize: 11, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Steps</div>
+              <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 6 }}>
+                <table className="data-table" style={{ fontSize: 12 }}>
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>action</th>
+                      <th>selector / url</th>
+                      <th>status</th>
+                      <th>error</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {steps.map((s, i) => (
+                      <tr key={i}>
+                        <td style={{ color: "var(--text-3)" }}>{s.index ?? i + 1}</td>
+                        <td><code style={{ fontSize: 11 }}>{String(s.action || "")}</code></td>
+                        <td style={{ color: "var(--text-2)", maxWidth: 220, wordBreak: "break-all" }}>
+                          {s.url ? `url: ${s.url}` : s.selector ? `sel: ${s.selector}` : "—"}
+                        </td>
+                        <td style={{ color: String(s.status || "").toLowerCase().includes("pass") ? "var(--green)" : String(s.status || "").toLowerCase().includes("fail") ? "var(--red)" : "var(--text-3)", fontWeight: 600 }}>{String(s.status || "—")}</td>
+                        <td style={{ color: "var(--red-text)", fontSize: 11 }}>{s.error ? String(s.error) : ""}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+
+          {logs.length ? (
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 11, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Logs</div>
+              <pre className="code-block" style={{ fontSize: 11, maxHeight: 200, overflow: "auto", margin: 0 }}>
+                {logs.join("\n")}
+              </pre>
+            </div>
+          ) : null}
+        </div>
       </details>
     </div>
   );
