@@ -23,6 +23,7 @@ from runners.common import (
     _selector_from_step,
     _url_from_step,
 )
+from runners.page_context import build_failure_context, capture_element_context, capture_page_context
 from runners.screenshot import take_screenshot_robust
 
 from services.selector_healer import resolve_locator
@@ -68,6 +69,9 @@ def execute_test(
     report_steps: List[Dict[str, Any]] = []
     logs: List[str] = []
     evidence_id = f"EV-{uuid.uuid4().hex[:10]}"
+    resolution_log: List[Dict[str, Any]] = []
+    failure_context: Optional[Dict[str, Any]] = None
+    last_page_context: Optional[Dict[str, Any]] = None
 
     if not isinstance(steps, list) or not steps:
         return {
@@ -87,6 +91,9 @@ def execute_test(
                 "base_url": base_url,
                 "timeout_ms": None,
             },
+            "resolution_log": [],
+            "failure_context": None,
+            "page_context": None,
         }
 
     default_step_timeout_ms = 15000
@@ -174,7 +181,7 @@ def execute_test(
 
         return {"intent": intent, "primary": primary}
 
-    def _resolve(step: Dict[str, Any], page, selector: str, inferred_base_url: Optional[str]):
+    def _resolve(step: Dict[str, Any], page, selector: str, inferred_base_url: Optional[str], step_index: int = -1):
         domain = _domain_from_page(page, inferred_base_url)
         target = _build_target(step, selector)
         intent = _safe_str(target.get("intent") or "unknown") or "unknown"
@@ -196,6 +203,22 @@ def execute_test(
             resolved_selector,
             domain,
         )
+
+        # Lightweight resolution metadata for observability
+        page_ctx = capture_page_context(page)
+        elem_ctx = capture_element_context(locator)
+        resolution_log.append({
+            "step_index": step_index,
+            "action": step.get("action"),
+            "primary": target.get("primary"),
+            "original_selector": step.get("selector"),
+            "n_fallbacks": n_fallbacks,
+            "used": used,
+            "resolved": resolved_selector,
+            "fallback_used": used != "primary",
+            "url": page_ctx.get("url"),
+            "element": elem_ctx,
+        })
 
         # ✅ guardar solo si NO fue primary
         if used != "primary":
@@ -275,6 +298,7 @@ def execute_test(
                                 pass
 
                         _record_step(i, step, "passed", extra={"resolved_url": url, "domain": _domain_from_url(url)})
+                        last_page_context = capture_page_context(page)
                         continue
 
                     if action == "wait_ms":
@@ -291,7 +315,7 @@ def execute_test(
                     if action == "fill":
                         val = _safe_str(step.get("value"))
                         try:
-                            locator, used, domain, intent = _resolve(step, page, sel, inferred_base_url)
+                            locator, used, domain, intent = _resolve(step, page, sel, inferred_base_url, step_index=i)
                             locator.wait_for(state="visible", timeout=timeout_ms)
                             locator.fill(val, timeout=timeout_ms)
                             _record_step(i, step, "passed", extra={"locator_used": used, "intent": intent, "domain": domain})
@@ -301,7 +325,7 @@ def execute_test(
 
                     if action == "click":
                         try:
-                            locator, used, domain, intent = _resolve(step, page, sel, inferred_base_url)
+                            locator, used, domain, intent = _resolve(step, page, sel, inferred_base_url, step_index=i)
                             locator.wait_for(state="visible", timeout=timeout_ms)
                             locator.click(timeout=timeout_ms)
                             _record_step(i, step, "passed", extra={"locator_used": used, "intent": intent, "domain": domain})
@@ -312,7 +336,7 @@ def execute_test(
                     if action == "press":
                         key = _safe_str(step.get("key") or "Enter")
                         try:
-                            locator, used, domain, intent = _resolve(step, page, sel, inferred_base_url)
+                            locator, used, domain, intent = _resolve(step, page, sel, inferred_base_url, step_index=i)
                             locator.wait_for(state="visible", timeout=timeout_ms)
                             locator.press(key, timeout=timeout_ms)
                             _record_step(i, step, "passed", extra={"key": key, "locator_used": used, "intent": intent, "domain": domain})
@@ -322,7 +346,7 @@ def execute_test(
 
                     if action == "assert_visible":
                         try:
-                            locator, used, domain, intent = _resolve(step, page, sel, inferred_base_url)
+                            locator, used, domain, intent = _resolve(step, page, sel, inferred_base_url, step_index=i)
                             locator.wait_for(state="visible", timeout=timeout_ms)
                             _record_step(i, step, "passed", extra={"locator_used": used, "intent": intent, "domain": domain})
                             continue
@@ -378,6 +402,8 @@ def execute_test(
                     reason = f"Timeout en step {i + 1}: {action} — {type(e).__name__}: {e}"
                     logs.append(reason)
                     _record_step(i, step, "failed", err=reason)
+                    last_page_context = capture_page_context(page)
+                    failure_context = build_failure_context(step_index=i, action=action, step=step, error_str=reason, page_ctx=last_page_context)
 
                     shot, shot_logs = take_screenshot_robust(page)
                     logs.extend(shot_logs)
@@ -389,6 +415,8 @@ def execute_test(
                     reason = f"Fallo en step {i + 1}: {action} — {type(e).__name__}: {e}"
                     logs.append(reason)
                     _record_step(i, step, "failed", err=reason)
+                    last_page_context = capture_page_context(page)
+                    failure_context = build_failure_context(step_index=i, action=action, step=step, error_str=reason, page_ctx=last_page_context)
 
                     shot, shot_logs = take_screenshot_robust(page)
                     logs.extend(shot_logs)
@@ -401,6 +429,8 @@ def execute_test(
                     reason = f"Playwright error en step {i + 1}: {action} — {type(e).__name__}: {e}"
                     logs.append(reason)
                     _record_step(i, step, "error", err=reason)
+                    last_page_context = capture_page_context(page)
+                    failure_context = build_failure_context(step_index=i, action=action, step=step, error_str=reason, page_ctx=last_page_context)
 
                     shot, shot_logs = take_screenshot_robust(page)
                     logs.extend(shot_logs)
@@ -422,6 +452,8 @@ def execute_test(
 
                     logs.append(reason)
                     _record_step(i, step, "error", err=reason)
+                    last_page_context = capture_page_context(page)
+                    failure_context = build_failure_context(step_index=i, action=action, step=step, error_str=reason, page_ctx=last_page_context)
 
                     shot, shot_logs = take_screenshot_robust(page)
                     logs.extend(shot_logs)
@@ -480,4 +512,8 @@ def execute_test(
             "timeout_ms": timeout_ms_global,
             "viewport": {"width": vw, "height": vh},
         },
+        # Observability extensions — all optional, never break existing consumers
+        "resolution_log": resolution_log,
+        "failure_context": failure_context,
+        "page_context": last_page_context,
     }
