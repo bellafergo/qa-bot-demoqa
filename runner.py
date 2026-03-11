@@ -1,16 +1,12 @@
 # runner.py
 """
-Compat wrapper.
+Compat wrapper — keeps the stable public export:
+  from runner import execute_test
 
-Antes runner.py tenía toda la lógica (1636 líneas).
-Ahora la lógica vive en runners/* para mantenerlo limpio y modular.
-
-Mantén estos exports para no romper imports existentes:
-  - from runner import execute_test
-  - from runner import execute_heb_full_purchase
+runners/heb_checkout.py is preserved as an optional isolated module
+but is no longer part of the core import path.
 """
 
 from runners.generic_steps import execute_test
-from runners.heb_checkout import execute_heb_full_purchase
 
-__all__ = ["execute_test", "execute_heb_full_purchase"]
+__all__ = ["execute_test"]

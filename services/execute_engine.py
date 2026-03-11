@@ -130,15 +130,6 @@ def _looks_like_saucedemo(url: str) -> bool:
     return "saucedemo.com" in (url or "").lower()
 
 
-def _looks_like_heb(prompt: str, base_url: Optional[str] = None) -> bool:
-    p = (prompt or "").lower()
-    if "heb" in p or "h-e-b" in p or "heb.com.mx" in p:
-        return True
-    if base_url and "heb.com.mx" in (base_url or "").lower():
-        return True
-    return False
-
-
 def _strip_quotes(s: str) -> str:
     ss = (s or "").strip()
     if len(ss) >= 2 and ((ss[0] == ss[-1] == '"') or (ss[0] == ss[-1] == "'")):
@@ -502,49 +493,6 @@ def handle_execute_mode(
     session_id = session.get("id")
 
     base_url = H.pick_base_url(req, session, prompt)
-
-    # ---------------------------------------------------------
-    # 🛡️ GUARD: HEB nunca debe ejecutarse por el engine genérico
-    # (HEB se maneja con runner dedicado en chat_service.py)
-    # ---------------------------------------------------------
-    if _looks_like_heb(prompt, base_url):
-        answer = (
-            "HEB se ejecuta con el runner dedicado (flujo carrito/checkout/compra completa), "
-            "no con el engine genérico de steps.\n\n"
-            "Usa un prompt como:\n"
-            "- \"Vanya, HEB modo checkout: agrega tomate y coca cola\"\n"
-            "- \"Vanya, HEB compra completa (pagar/recoger en tienda) CONFIRMAR_COMPRA\"\n"
-        )
-        meta = _normalize_runner_meta(
-            {
-                "mode": "execute",
-                "persona": persona,
-                "base_url": "https://www.heb.com.mx",
-                "runner": {
-                    "status": "blocked",
-                    "evidence_url": None,
-                    "report_url": None,
-                    "duration_ms": int((time.time() - t0) * 1000),
-                    "raw": {"blocked_reason": "HEB must use dedicated runner"},
-                },
-            }
-        )
-        try:
-            store.add_message(thread_id, "assistant", answer, meta=meta)
-        except Exception:
-            logger.exception("persist blocked HEB message failed (continuing)")
-        return {
-            "mode": "execute",
-            "persona": persona,
-            "session_id": session_id,
-            "thread_id": thread_id,
-            "answer": answer,
-            "runner": meta.get("runner"),
-            "evidence_url": meta.get("evidence_url"),
-            "report_url": meta.get("report_url"),
-            "duration_ms": meta.get("duration_ms"),
-            **_confidence("execute", prompt, "https://www.heb.com.mx"),
-        }
 
     # ---------------------------------------------------------
     # Base URL es obligatorio para el engine genérico
