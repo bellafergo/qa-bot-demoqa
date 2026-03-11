@@ -43,6 +43,20 @@ load_dotenv()
 logger = logging.getLogger("vanya.runner.generic")
 
 
+_SUBMIT_KEYWORDS = frozenset({
+    "submit", "login", "sign", "signin", "entrar", "ingresar", "acceder",
+})
+
+
+def _is_submit_click(sel: str, intent: str) -> bool:
+    """
+    Returns True when the clicked target looks like a submit / login button.
+    Used to trigger safe post-click navigation wait.
+    """
+    hint = (str(sel or "") + " " + str(intent or "")).lower()
+    return any(kw in hint for kw in _SUBMIT_KEYWORDS)
+
+
 def _normalize_ws(s: str) -> str:
     """
     Normalize whitespace for text comparison.
@@ -424,6 +438,15 @@ def execute_test(
                             locator, used, domain, intent = _resolve(step, page, sel, inferred_base_url, step_index=i)
                             locator.wait_for(state="visible", timeout=timeout_ms)
                             locator.click(timeout=timeout_ms)
+                            # Safe navigation wait for submit/login buttons
+                            if _is_submit_click(sel, intent):
+                                try:
+                                    page.wait_for_load_state("networkidle", timeout=5000)
+                                except Exception:
+                                    try:
+                                        page.wait_for_timeout(500)
+                                    except Exception:
+                                        pass
                             _record_step(i, step, "passed", extra={"locator_used": used, "intent": intent, "domain": domain})
                             continue
                         except Exception as e:
