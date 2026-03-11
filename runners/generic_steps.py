@@ -30,6 +30,9 @@ from services.selector_healer import resolve_locator
 from services.failure_classifier import classify_failure
 from services.memory_store import save_memory, load_memory  # ✅ fix real
 
+from core.dom_analyzer import extract_dom_inventory
+from core.selector_resolver import resolve_intent, build_playwright_target, is_intent_only
+
 load_dotenv()
 
 logger = logging.getLogger("vanya.runner.generic")
@@ -72,6 +75,7 @@ def execute_test(
     resolution_log: List[Dict[str, Any]] = []
     failure_context: Optional[Dict[str, Any]] = None
     last_page_context: Optional[Dict[str, Any]] = None
+    dom_inventory: Optional[Dict[str, Any]] = None  # captured after first goto
 
     if not isinstance(steps, list) or not steps:
         return {
@@ -186,6 +190,35 @@ def execute_test(
         target = _build_target(step, selector)
         intent = _safe_str(target.get("intent") or "unknown") or "unknown"
 
+        # ── DOM-aware intent resolution ──────────────────────────────────
+        # When the selector is a plain-language intent (no CSS syntax) and
+        # the step has no rich target with fallbacks, try to resolve it
+        # against the captured DOM inventory before falling back to the healer.
+        action = _normalize_action(step)
+        if (
+            dom_inventory
+            and selector
+            and is_intent_only(selector)
+            and not target.get("fallbacks")
+            and action in ("fill", "click", "press", "assert_visible", "assert_not_visible")
+        ):
+            resolution = resolve_intent(dom_inventory, action, selector)
+            if resolution:
+                resolved_target = build_playwright_target(resolution)
+                resolved_target["intent"] = intent
+                target = resolved_target
+                logs.append(
+                    f"[INTENT] step={step_index} action={action} intent={selector!r} "
+                    f"→ strategy={resolution['strategy']} value={resolution['value']!r} "
+                    f"score={resolution['score']}"
+                )
+            else:
+                logs.append(
+                    f"[INTENT] step={step_index} action={action} intent={selector!r} "
+                    f"→ no DOM match (score below threshold), falling back to healer"
+                )
+        # ────────────────────────────────────────────────────────────────
+
         n_fallbacks = len(target.get("fallbacks") or [])
         locator, used, resolved_selector, res_meta = resolve_locator(
             page,
@@ -213,6 +246,8 @@ def execute_test(
             "action": step.get("action"),
             "primary": target.get("primary"),
             "original_selector": step.get("selector"),
+            "intent_resolved": bool(target.get("resolved_by") == "selector_resolver"),
+            "intent_strategy": target.get("resolved_by"),
             "n_fallbacks": n_fallbacks,
             "used": used,
             "resolved": resolved_selector,
@@ -303,6 +338,15 @@ def execute_test(
 
                         _record_step(i, step, "passed", extra={"resolved_url": url, "domain": _domain_from_url(url)})
                         last_page_context = capture_page_context(page)
+                        # Capture DOM inventory for intent-based selector resolution
+                        if dom_inventory is None:
+                            dom_inventory = extract_dom_inventory(page)
+                            if dom_inventory.get("inputs") or dom_inventory.get("buttons"):
+                                logs.append(
+                                    f"[DOM] inventory captured: "
+                                    f"{len(dom_inventory.get('inputs', []))} inputs, "
+                                    f"{len(dom_inventory.get('buttons', []))} buttons"
+                                )
                         continue
 
                     if action == "wait_ms":

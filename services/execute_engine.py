@@ -322,26 +322,38 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
             steps.append({"action": "assert_visible", "selector": sel})
         return _ensure_has_assert(steps, base_url)
 
-    # fill
+    # fill — multi-word field descriptions ("Fill username field with tomsmith")
     fill_patterns = [
-        r'(?:llena|escribe|ingresa|teclea|fill|type)\s+(".*?"|\'.*?\'|#[-\w]+|\.[-\w]+|\[[^\]]+\]|[a-zA-Z][a-zA-Z0-9_-]*)\s+(?:con|with)\s+(".*?"|\'.*?\')',
+        # CSS/quoted selector first (precise, backward-compat)
+        r'(?:llena|escribe|ingresa|teclea|fill|type)\s+(".*?"|\'.*?\'|#[-\w]+|\.[-\w]+|\[[^\]]+\])\s+(?:con|with)\s+(".*?"|\'.*?\'|\S+)',
+        # Natural-language field description (any words before "with"/"con")
+        r'(?:llena|escribe|ingresa|teclea|fill|type)\s+([\w][\w\s]*?)\s+(?:con|with)\s+(".*?"|\'.*?\'|\S+)',
     ]
+    seen_fill_sels: set = set()
     for pat in fill_patterns:
-        for m in re.finditer(pat, p, flags=re.IGNORECASE):
-            sel = _strip_quotes(m.group(1))
-            val = _strip_quotes(m.group(2))
-            steps.append({"action": "assert_visible", "selector": sel})
-            steps.append({"action": "fill", "selector": sel, "value": val})
+        for m in re.finditer(pat, p, flags=re.IGNORECASE | re.MULTILINE):
+            sel = _strip_quotes(m.group(1)).strip()
+            val = _strip_quotes(m.group(2)).strip()
+            if sel and val and sel not in seen_fill_sels:
+                seen_fill_sels.add(sel)
+                steps.append({"action": "assert_visible", "selector": sel})
+                steps.append({"action": "fill", "selector": sel, "value": val})
 
-    # click
+    # click — multi-word element descriptions ("Click login button")
     click_patterns = [
-        r'(?:haz\s+click\s+en|haz\s+clic\s+en|da\s+click\s+en|click)\s+(".*?"|\'.*?\'|#[-\w]+|\.[-\w]+|\[[^\]]+\]|[a-zA-Z][a-zA-Z0-9_-]*)',
+        # CSS/quoted selector first (precise, backward-compat)
+        r'(?:haz\s+click\s+en|haz\s+clic\s+en|da\s+click\s+en|click\s+on|click)\s+(".*?"|\'.*?\'|#[-\w]+|\.[-\w]+|\[[^\]]+\])',
+        # Natural-language element description (words until end-of-line)
+        r'(?:haz\s+click\s+en|haz\s+clic\s+en|da\s+click\s+en|click\s+on|click)\s+([\w][\w\s]*?)(?:\s*$)',
     ]
+    seen_click_sels: set = set()
     for pat in click_patterns:
-        for m in re.finditer(pat, p, flags=re.IGNORECASE):
-            sel = _strip_quotes(m.group(1))
-            steps.append({"action": "assert_visible", "selector": sel})
-            steps.append({"action": "click", "selector": sel})
+        for m in re.finditer(pat, p, flags=re.IGNORECASE | re.MULTILINE):
+            sel = _strip_quotes(m.group(1)).strip()
+            if sel and sel not in seen_click_sels:
+                seen_click_sels.add(sel)
+                steps.append({"action": "assert_visible", "selector": sel})
+                steps.append({"action": "click", "selector": sel})
 
     # press enter
     if re.search(r"\b(enter|intro|presiona\s+enter|presiona\s+intro)\b", low):
@@ -353,17 +365,23 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
         if last_sel:
             steps.append({"action": "press", "selector": last_sel, "key": "Enter"})
 
-    # assert text contains
+    # assert text contains — extended to catch "Verify that X is visible/present"
     text_patterns = [
+        # explicit text assertion
         r'(?:valida|validar|verify|assert)\s+.*?(?:texto|text).*?(".*?"|\'.*?\')',
         r'(?:assert_text_contains)\s+(".*?"|\'.*?\')',
+        # "Verify that 'X' is visible/present" (quoted)
+        r'(?:verify|verifica|check|assert)\s+(?:that\s+)?["\']([^"\']+)["\']\s+(?:is\s+)?(?:visible|present|displayed)',
+        # "Verify that X is visible" (unquoted phrase before "is visible")
+        r'(?:verify|verifica|check|assert)\s+(?:that\s+)?([\w][^\n"\']*?)\s+is\s+(?:visible|present|displayed)\b',
     ]
     found_text = None
     for pat in text_patterns:
         mm = re.search(pat, p, flags=re.IGNORECASE)
         if mm:
-            found_text = _strip_quotes(mm.group(1))
-            break
+            found_text = _strip_quotes(mm.group(1)).strip()
+            if found_text:
+                break
     if found_text:
         steps.append({"action": "wait_ms", "ms": 300})
         steps.append({"action": "assert_text_contains", "selector": "body", "text": found_text})
@@ -577,6 +595,12 @@ def handle_execute_mode(
                         "- goto(url)\n- click(selector)\n- fill(selector,value)\n- press(selector,key)\n"
                         "- wait_ms(ms)\n- assert_visible(selector)\n- assert_not_visible(selector)\n"
                         "- assert_url_contains(value)\n- assert_text_contains(selector,text)\n\n"
+                        "IMPORTANT selector rules:\n"
+                        "- For fill/click/press: use the element's visible label or placeholder text as selector, "
+                        "NOT invented CSS classes. Examples: 'username', 'password', 'Login', 'Email address'.\n"
+                        "- For assert_text_contains: use selector='body' and text='the expected text'.\n"
+                        "- Never invent CSS selectors like '.some-class' or '#made-up-id' that you cannot verify exist.\n"
+                        "- Only use CSS selectors like '#id' or '[name=x]' if you are certain they exist on the page.\n\n"
                         'Return ONLY valid JSON: {"steps":[{"action":"goto","url":"..."}, ...]}\n'
                         "No commentary."
                     ),
