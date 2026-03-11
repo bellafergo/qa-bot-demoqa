@@ -39,32 +39,20 @@ class ErrorBoundary extends React.Component {
     if (this.state.hasError) {
       const msg = String(this.state.err?.message || this.state.err || "Error");
       return (
-        <div style={{ padding: 18, color: "white" }}>
-          <div
-            style={{
-              padding: "10px 12px",
-              borderRadius: 12,
-              background: "rgba(255,0,0,0.10)",
-              border: "1px solid rgba(255,0,0,0.25)",
-              maxWidth: 900,
-            }}
-          >
-            <div style={{ fontWeight: 900, marginBottom: 6 }}>UI Crashed</div>
-            <div style={{ opacity: 0.9, whiteSpace: "pre-wrap" }}>{msg}</div>
-            <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75 }}>
-              Open DevTools → Console to see the stack trace.
+        <div style={{ padding: 32, maxWidth: 600, margin: "0 auto" }}>
+          <div className="card" style={{ borderColor: "var(--red-border)" }}>
+            <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 8, color: "var(--red-text)" }}>
+              UI Crashed
+            </div>
+            <div style={{ fontSize: 13, color: "var(--text-2)", whiteSpace: "pre-wrap", marginBottom: 12 }}>
+              {msg}
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 14 }}>
+              Open DevTools → Console for the full stack trace.
             </div>
             <button
+              className="btn btn-secondary btn-sm"
               onClick={() => window.location.reload()}
-              style={{
-                marginTop: 12,
-                padding: "8px 16px",
-                borderRadius: 8,
-                border: "1px solid rgba(255,255,255,0.2)",
-                background: "rgba(255,255,255,0.1)",
-                color: "white",
-                cursor: "pointer",
-              }}
             >
               Reload Page
             </button>

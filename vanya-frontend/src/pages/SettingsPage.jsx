@@ -1,96 +1,55 @@
 // src/pages/SettingsPage.jsx
-/**
- * SettingsPage - Placeholder for future settings
- */
 import React from "react";
 
 export default function SettingsPage() {
+  const apiBase = import.meta?.env?.VITE_API_BASE || "https://qa-bot-demoqa.onrender.com";
+
   return (
-    <div style={{ padding: 20, maxWidth: 600, margin: "0 auto" }}>
-      <h2 style={{ marginBottom: 16, fontWeight: 800, color: "white" }}>
-        Settings
-      </h2>
+    <div className="page-wrap" style={{ maxWidth: 640 }}>
+      {/* ── Page header ────────────────────────────────── */}
+      <div className="page-header">
+        <h1 className="page-title">Settings</h1>
+        <p className="page-subtitle">Application configuration and preferences</p>
+      </div>
 
-      <p style={{ marginBottom: 24, opacity: 0.75, color: "white", fontSize: 14 }}>
-        Application settings and configuration.
-      </p>
+      {/* ── API config card ─────────────────────────────── */}
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div className="section-title">API Configuration</div>
 
-      <section
-        style={{
-          padding: 20,
-          borderRadius: 12,
-          border: "1px solid rgba(255,255,255,0.12)",
-          background: "rgba(0,0,0,0.2)",
-        }}
-      >
-        <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "white" }}>
-          API Configuration
-        </h3>
-
-        <div style={{ display: "grid", gap: 12 }}>
+        <div style={{ display: "grid", gap: 14 }}>
           <div>
-            <label
-              style={{
-                display: "block",
-                marginBottom: 6,
-                fontSize: 13,
-                opacity: 0.8,
-                color: "white",
-              }}
-            >
+            <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "var(--text-2)", marginBottom: 6 }}>
               API Base URL
             </label>
             <input
-              value={
-                import.meta?.env?.VITE_API_BASE ||
-                "https://qa-bot-demoqa.onrender.com"
-              }
+              className="input"
+              value={apiBase}
               readOnly
-              style={{
-                width: "100%",
-                padding: "10px 12px",
-                borderRadius: 10,
-                border: "1px solid rgba(255,255,255,0.14)",
-                background: "rgba(0,0,0,0.35)",
-                color: "white",
-                opacity: 0.7,
-                outline: "none",
-              }}
             />
-            <p style={{ marginTop: 6, fontSize: 11, opacity: 0.6, color: "white" }}>
-              Set via VITE_API_BASE environment variable
+            <p style={{ margin: "6px 0 0", fontSize: 11, color: "var(--text-3)" }}>
+              Configured via <code>VITE_API_BASE</code> environment variable
             </p>
           </div>
         </div>
+      </div>
 
-        <div
-          style={{
-            marginTop: 20,
-            padding: "12px 16px",
-            borderRadius: 10,
-            background: "rgba(78,107,255,0.1)",
-            border: "1px solid rgba(78,107,255,0.2)",
-          }}
-        >
-          <p style={{ margin: 0, fontSize: 13, color: "white", opacity: 0.85 }}>
-            More settings coming soon:
-          </p>
-          <ul
-            style={{
-              margin: "8px 0 0",
-              paddingLeft: 20,
-              fontSize: 12,
-              color: "white",
-              opacity: 0.7,
-            }}
-          >
-            <li>Theme preferences</li>
-            <li>Notification settings</li>
-            <li>Default execution options</li>
-            <li>API key management</li>
-          </ul>
+      {/* ── Coming soon card ─────────────────────────────── */}
+      <div className="card">
+        <div className="section-title">Upcoming Features</div>
+
+        <div className="alert alert-info" style={{ marginBottom: 0 }}>
+          <div>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>More settings coming soon</div>
+            <ul style={{ margin: 0, paddingLeft: 16, lineHeight: 2, fontSize: 13 }}>
+              <li>Theme preferences (light / dark / system)</li>
+              <li>Notification settings</li>
+              <li>Default execution options</li>
+              <li>API key management</li>
+              <li>Team and workspace settings</li>
+            </ul>
+          </div>
         </div>
-      </section>
+      </div>
     </div>
   );
 }

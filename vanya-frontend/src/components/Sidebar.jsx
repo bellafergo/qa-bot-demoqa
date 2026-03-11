@@ -2,24 +2,12 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 /**
- * Sidebar con Supabase via backend:
- * - Si NO te pasan `threads` (o viene vacío), hace fetch automático a /threads
- * - Si SI te pasan `threads`, respeta tus props (backwards compatible)
- * - Incluye botón refresh ↻
- * - Filtro local (sin romper)
- * - Títulos robustos (fix: preview estaba undefined)
- *
- * Requisitos:
- * - Define VITE_API_BASE en frontend (Vercel y local)
- *   Ej: VITE_API_BASE=https://qa-bot-demoqa.onrender.com
- * - Backend expone GET /threads
+ * Thread history sidebar — light panel, dark-chat compatible.
+ * Auto-fetches from /threads when no threads prop is supplied.
  */
 
 const API_BASE =
-  (import.meta?.env?.VITE_API_BASE || "https://qa-bot-demoqa.onrender.com").replace(
-    /\/$/,
-    ""
-  );
+  (import.meta?.env?.VITE_API_BASE || "https://qa-bot-demoqa.onrender.com").replace(/\/$/, "");
 
 async function fetchThreads(limit = 80, signal) {
   const res = await fetch(`${API_BASE}/threads?limit=${limit}`, {
@@ -37,14 +25,11 @@ function fmtDate(iso) {
   try {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return "";
-    return d.toLocaleString();
-  } catch {
-    return "";
-  }
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  } catch { return ""; }
 }
 
 function getThreadId(t) {
-  // Normaliza SIEMPRE a string y evita ids falsos
   const raw = t?.id ?? t?.thread_id ?? "";
   const id = String(raw || "").trim();
   return id || null;
@@ -53,21 +38,14 @@ function getThreadId(t) {
 function buildTitle(t) {
   const title = String(t?.title || "").trim();
   if (title && title.toLowerCase() !== "new chat") return title;
-
-  // FIX: preview estaba undefined en tu versión
   const preview = String(t?.preview || "").trim();
   if (preview) return preview.length > 48 ? preview.slice(0, 48) + "…" : preview;
-
   const id = getThreadId(t);
   if (id) return `Chat ${id.slice(0, 6)}…`;
-
   return "Chat";
 }
 
 export default function Sidebar({
-  // Backwards compatible:
-  // - Si tu App.jsx ya le pasa threads, se usa.
-  // - Si no le pasa nada, Sidebar se auto-abastece desde /threads
   threads: threadsProp = [],
   activeId = null,
   onNew,
@@ -79,33 +57,24 @@ export default function Sidebar({
   const [threadsRemote, setThreadsRemote] = useState([]);
   const [isFetching, setIsFetching] = useState(false);
   const [fetchErr, setFetchErr] = useState("");
-
   const abortRef = useRef(null);
 
   const usingRemote = !Array.isArray(threadsProp) || threadsProp.length === 0;
   const threads = usingRemote ? threadsRemote : threadsProp;
 
   const load = async () => {
-    // Solo hace fetch si no te pasan threads desde arriba
     if (!usingRemote) return;
-
     setIsFetching(true);
     setFetchErr("");
-
     try {
       abortRef.current?.abort?.();
       const controller = new AbortController();
       abortRef.current = controller;
-
       const data = await fetchThreads(120, controller.signal);
       setThreadsRemote(data);
     } catch (e) {
-      if (e?.name !== "AbortError") {
-        setFetchErr(e?.message || "Error cargando historial");
-      }
-    } finally {
-      setIsFetching(false);
-    }
+      if (e?.name !== "AbortError") setFetchErr(e?.message || "Error loading history");
+    } finally { setIsFetching(false); }
   };
 
   useEffect(() => {
@@ -114,25 +83,19 @@ export default function Sidebar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [usingRemote]);
 
-  const normalized = useMemo(() => {
-    // Limpia threads inválidos y normaliza ids
-    return (Array.isArray(threads) ? threads : [])
-      .map((t) => {
-        const id = getThreadId(t);
-        if (!id) return null;
-        return { ...t, __id: id };
-      })
-      .filter(Boolean);
-  }, [threads]);
+  const normalized = useMemo(() =>
+    (Array.isArray(threads) ? threads : [])
+      .map(t => { const id = getThreadId(t); return id ? { ...t, __id: id } : null; })
+      .filter(Boolean),
+  [threads]);
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
     if (!q) return normalized;
-
-    return normalized.filter((t) => {
-      const title = String(t?.title || "").toLowerCase();
+    return normalized.filter(t => {
+      const title   = String(t?.title   || "").toLowerCase();
       const preview = String(t?.preview || "").toLowerCase();
-      const id = String(t?.__id || "").toLowerCase();
+      const id      = String(t?.__id    || "").toLowerCase();
       return title.includes(q) || preview.includes(q) || id.includes(q);
     });
   }, [normalized, filter]);
@@ -141,210 +104,204 @@ export default function Sidebar({
   const busy = Boolean(isLoading || isFetching);
 
   return (
-    <div
-      style={{
-        width: 320,
-        borderRight: "1px solid rgba(255,255,255,0.08)",
-        padding: 12,
-        background: "rgba(0,0,0,0.15)",
-        height: "100%",
-        boxSizing: "border-box",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
-      <div
-        style={{
+    <div style={{
+      width: "var(--thread-w)",
+      minWidth: "var(--thread-w)",
+      height: "100%",
+      background: "var(--surface)",
+      borderRight: "1px solid var(--border)",
+      display: "flex",
+      flexDirection: "column",
+      overflow: "hidden",
+    }}>
+      {/* ── Header ──────────────────────────────────────── */}
+      <div style={{
+        padding: "14px 14px 10px",
+        borderBottom: "1px solid var(--border)",
+        flexShrink: 0,
+      }}>
+        <div style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          gap: 10,
           marginBottom: 10,
-        }}
-      >
-        <div style={{ fontWeight: 800, opacity: 0.9 }}>Historial</div>
+        }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.07em" }}>
+            Conversations
+          </span>
+          <button
+            onClick={load}
+            disabled={!usingRemote || busy}
+            title={!usingRemote ? "Threads via props" : "Refresh"}
+            style={{
+              width: 28, height: 28,
+              borderRadius: 6,
+              border: "1px solid var(--border)",
+              background: "var(--surface)",
+              color: "var(--text-2)",
+              cursor: !usingRemote || busy ? "not-allowed" : "pointer",
+              opacity: usingRemote ? 1 : 0.35,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 14,
+              transition: "background 0.15s",
+            }}
+          >
+            ↻
+          </button>
+        </div>
 
+        {/* New chat button */}
         <button
-          onClick={load}
-          disabled={!usingRemote || busy}
-          title={!usingRemote ? "Threads viene por props" : "Refrescar"}
+          onClick={() => { onNew?.(); if (usingRemote) setTimeout(load, 350); }}
+          disabled={busy}
           style={{
-            width: 36,
-            height: 36,
-            borderRadius: 10,
-            border: "1px solid rgba(255,255,255,0.12)",
-            background: "rgba(0,0,0,0.35)",
-            color: "white",
-            cursor: !usingRemote || busy ? "not-allowed" : "pointer",
-            opacity: usingRemote ? 0.95 : 0.35,
-            flexShrink: 0,
+            width: "100%",
+            padding: "8px 12px",
+            borderRadius: 7,
+            border: "1px solid var(--accent-border)",
+            background: "var(--accent-light)",
+            color: "var(--accent)",
+            cursor: busy ? "not-allowed" : "pointer",
+            fontWeight: 700,
+            fontSize: 13,
+            fontFamily: "inherit",
+            opacity: busy ? 0.7 : 1,
+            transition: "background 0.15s",
           }}
         >
-          ↻
+          + New Chat
         </button>
+
+        {/* Search */}
+        <div style={{ position: "relative", marginTop: 8 }}>
+          <span style={{
+            position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)",
+            fontSize: 12, color: "var(--text-3)", pointerEvents: "none",
+          }}>🔍</span>
+          <input
+            value={filter}
+            onChange={e => setFilter(e.target.value)}
+            placeholder="Search…"
+            style={{
+              width: "100%",
+              padding: "7px 10px 7px 28px",
+              border: "1px solid var(--border)",
+              borderRadius: 7,
+              background: "var(--surface-2)",
+              color: "var(--text)",
+              fontSize: 12,
+              fontFamily: "inherit",
+              outline: "none",
+              boxSizing: "border-box",
+            }}
+          />
+        </div>
       </div>
 
-      <button
-        onClick={() => {
-          onNew?.();
-          // Si usa remoto, refrescamos para que aparezca arriba
-          if (usingRemote) setTimeout(load, 350);
-        }}
-        disabled={busy}
-        style={{
-          width: "100%",
-          padding: "10px 12px",
-          borderRadius: 10,
-          border: "1px solid rgba(255,255,255,0.12)",
-          background: "#4e6bff",
-          color: "white",
-          cursor: busy ? "not-allowed" : "pointer",
-          fontWeight: 700,
-          opacity: busy ? 0.85 : 1,
-        }}
-      >
-        + New chat
-      </button>
-
-      <input
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
-        placeholder="Buscar…"
-        style={{
-          width: "100%",
-          marginTop: 10,
-          padding: "10px 12px",
-          borderRadius: 10,
-          border: "1px solid rgba(255,255,255,0.12)",
-          background: "rgba(0,0,0,0.25)",
-          color: "white",
-          outline: "none",
-          boxSizing: "border-box",
-        }}
-      />
-
-      {fetchErr ? (
-        <div style={{ marginTop: 10, color: "salmon", fontSize: 12, whiteSpace: "pre-wrap" }}>
+      {/* ── Error ───────────────────────────────────────── */}
+      {fetchErr && (
+        <div style={{ padding: "8px 14px", fontSize: 12, color: "var(--red-text)", background: "var(--red-bg)" }}>
           {fetchErr}
         </div>
-      ) : null}
+      )}
 
-      <div
-        style={{
-          marginTop: 12,
-          overflowY: "auto",
-          flex: 1,
-          paddingRight: 2,
-        }}
-      >
-        {filtered.map((t) => {
-          const id = t.__id; // ya normalizado
+      {/* ── Thread list ─────────────────────────────────── */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "6px 8px" }}>
+        {filtered.map(t => {
+          const id = t.__id;
           const title = buildTitle(t);
-          const subtitle =
-            String(t?.preview || "").trim() ||
-            (t?.updated_at ? fmtDate(t.updated_at) : "");
-
-          const isActive = String(id) === activeStr;
+          const subtitle = String(t?.preview || "").trim() || (t?.updated_at ? fmtDate(t.updated_at) : "");
+          const isActive = id === activeStr;
 
           return (
             <div
               key={id}
-              data-thread-id={id} // 👈 para debug rápido en DevTools
+              data-thread-id={id}
               onClick={() => onSelect?.(id)}
               role="button"
               tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") onSelect?.(id);
-              }}
+              onKeyDown={e => { if (e.key === "Enter" || e.key === " ") onSelect?.(id); }}
               style={{
-                marginTop: 10,
-                padding: 10,
+                padding: "9px 10px",
+                borderRadius: 8,
+                marginBottom: 2,
                 cursor: "pointer",
-                background: isActive
-                  ? "rgba(78,107,255,0.18)"
-                  : "rgba(0,0,0,0.18)",
-                borderRadius: 12,
-                border: isActive
-                  ? "1px solid rgba(78,107,255,0.55)"
-                  : "1px solid rgba(255,255,255,0.10)",
+                background: isActive ? "var(--accent-light)" : "transparent",
+                border: isActive ? "1px solid var(--accent-border)" : "1px solid transparent",
                 display: "flex",
-                alignItems: "center",
+                alignItems: "flex-start",
                 justifyContent: "space-between",
-                gap: 10,
-                opacity: busy ? 0.92 : 1,
+                gap: 8,
+                opacity: busy ? 0.85 : 1,
+                transition: "background 0.12s, border-color 0.12s",
               }}
+              onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = "var(--surface-2)"; }}
+              onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}
               title={title}
             >
-              <div style={{ minWidth: 0 }}>
-                <div
-                  style={{
-                    fontWeight: 750,
-                    fontSize: 13,
-                    color: "white",
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{
+                  fontWeight: isActive ? 700 : 500,
+                  fontSize: 13,
+                  color: isActive ? "var(--accent)" : "var(--text)",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}>
+                  {title}
+                </div>
+                {subtitle && (
+                  <div style={{
+                    fontSize: 11,
+                    color: "var(--text-3)",
+                    marginTop: 2,
                     overflow: "hidden",
                     textOverflow: "ellipsis",
                     whiteSpace: "nowrap",
-                    maxWidth: 220,
-                  }}
-                >
-                  {title}
-                </div>
-
-                {subtitle ? (
-                  <div
-                    style={{
-                      fontSize: 11,
-                      opacity: 0.7,
-                      marginTop: 3,
-                      color: "white",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                      maxWidth: 220,
-                    }}
-                  >
+                  }}>
                     {subtitle}
                   </div>
-                ) : null}
+                )}
               </div>
 
               <button
-                onClick={(e) => {
+                onClick={e => {
                   e.preventDefault();
-                  e.stopPropagation(); // IMPORTANTÍSIMO: que no seleccione el chat
+                  e.stopPropagation();
                   onDelete?.(id);
-                  // si se borró remoto, refrescamos
                   if (usingRemote) setTimeout(load, 350);
                 }}
                 disabled={busy}
-                title="Eliminar chat"
+                title="Delete chat"
                 style={{
-                  width: 34,
-                  height: 34,
-                  borderRadius: 10,
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  background: "rgba(0,0,0,0.35)",
-                  color: "white",
+                  width: 26, height: 26, flexShrink: 0,
+                  borderRadius: 5,
+                  border: "1px solid var(--border)",
+                  background: "var(--surface)",
+                  color: "var(--text-3)",
                   cursor: busy ? "not-allowed" : "pointer",
-                  opacity: 0.9,
-                  flexShrink: 0,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 11,
+                  opacity: 0,
+                  transition: "opacity 0.12s, color 0.12s",
                 }}
+                onMouseEnter={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.color = "var(--red)"; }}
+                onMouseLeave={e => { e.currentTarget.style.opacity = "0"; e.currentTarget.style.color = "var(--text-3)"; }}
               >
-                🗑️
+                ✕
               </button>
             </div>
           );
         })}
 
-        {busy && !filtered.length ? (
-          <div style={{ marginTop: 14, opacity: 0.7, fontSize: 12 }}>
-            Cargando chats…
+        {busy && !filtered.length && (
+          <div style={{ padding: "16px 10px", color: "var(--text-3)", fontSize: 12 }}>
+            Loading conversations…
           </div>
-        ) : null}
-
+        )}
         {!busy && !filtered.length && (
-          <div style={{ marginTop: 14, opacity: 0.7, fontSize: 12 }}>
-            No hay chats.
+          <div style={{ padding: "16px 10px", color: "var(--text-3)", fontSize: 12 }}>
+            No conversations yet.
           </div>
         )}
       </div>
