@@ -436,24 +436,37 @@ def execute_test(
                     if action == "click":
                         try:
                             locator, used, domain, intent = _resolve(step, page, sel, inferred_base_url, step_index=i)
+                            # Log the resolved selector from the last resolution_log entry
+                            _res = resolution_log[-1] if resolution_log else {}
+                            _resolved_sel = _res.get("resolved") or _res.get("primary") or sel
                             logs.append(
-                                f"[CLICK] step={i} intent={sel!r} used={used!r} "
-                                f"locator={getattr(locator, '_selector', repr(locator))!r}"
+                                f"[CLICK] step={i} intent={sel!r} "
+                                f"used={used!r} resolved={_resolved_sel!r}"
                             )
                             locator.wait_for(state="visible", timeout=timeout_ms)
+                            logs.append(f"[CLICK] locator visible — calling click()")
                             locator.click(timeout=timeout_ms)
-                            # Safe navigation wait for submit/login buttons
+                            logs.append(f"[CLICK] click() returned — checking navigation")
+                            # Navigation wait for submit/login buttons.
+                            # Use load (fires once DOM+resources ready) rather than
+                            # networkidle (requires 500ms of zero network) — more
+                            # reliable on slower deployments and CDN-heavy pages.
                             if _is_submit_click(sel, intent):
+                                _url_before = page.url
                                 try:
-                                    page.wait_for_load_state("networkidle", timeout=5000)
+                                    page.wait_for_load_state("load", timeout=8000)
                                 except Exception:
-                                    try:
-                                        page.wait_for_timeout(500)
-                                    except Exception:
-                                        pass
+                                    pass
+                                _url_after = page.url
+                                logs.append(
+                                    f"[NAV] url_before={_url_before!r} "
+                                    f"url_after={_url_after!r} "
+                                    f"navigated={_url_before != _url_after}"
+                                )
                             _record_step(i, step, "passed", extra={"locator_used": used, "intent": intent, "domain": domain})
                             continue
                         except Exception as e:
+                            logs.append(f"[CLICK_FAIL] step={i} intent={sel!r} error={type(e).__name__}: {e}")
                             _raise_classified(e, page, inferred_base_url, action, sel, step)
 
                     if action == "press":
