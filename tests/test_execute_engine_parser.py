@@ -123,3 +123,104 @@ class TestExistingParsingUnchanged:
 
     def test_none_returned_for_empty_prompt(self):
         assert _parse_steps_from_prompt("", BASE) is None
+
+
+# ── multi-step login flow (regression for early-return bug) ──────────────────
+
+_LOGIN_PROMPT = """\
+Open https://the-internet.herokuapp.com/login
+Fill username field with tomsmith
+Fill password field with SuperSecretPassword!
+Click login button
+Verify that "Secure Area" is visible"""
+
+_WRONG_PASS_PROMPT = """\
+Open https://the-internet.herokuapp.com/login
+Fill username field with tomsmith
+Fill password field with wrongpassword
+Click login button
+Verify that "Your password is invalid!" is visible"""
+
+
+class TestMultiStepLoginFlow:
+    """
+    The fill and click steps must NOT be dropped when 'visible' appears
+    in the same multi-step prompt.  Regression for the early-return bug
+    where the 'if visible in low' block returned before parsing fill/click.
+    """
+
+    def test_fill_steps_present(self):
+        steps = _parse_steps_from_prompt(_LOGIN_PROMPT, BASE)
+        assert steps is not None
+        fills = [s for s in steps if s["action"] == "fill"]
+        assert len(fills) == 2, f"expected 2 fill steps, got: {fills}"
+
+    def test_fill_username_value(self):
+        steps = _parse_steps_from_prompt(_LOGIN_PROMPT, BASE)
+        fills = [s for s in steps if s["action"] == "fill"]
+        usernames = [s for s in fills if "username" in str(s.get("selector", "")).lower()]
+        assert any(s["value"] == "tomsmith" for s in usernames)
+
+    def test_fill_password_value(self):
+        steps = _parse_steps_from_prompt(_LOGIN_PROMPT, BASE)
+        fills = [s for s in steps if s["action"] == "fill"]
+        passwords = [s for s in fills if "password" in str(s.get("selector", "")).lower()]
+        assert any(s["value"] == "SuperSecretPassword!" for s in passwords)
+
+    def test_click_step_present(self):
+        steps = _parse_steps_from_prompt(_LOGIN_PROMPT, BASE)
+        assert steps is not None
+        assert "click" in _actions(steps)
+
+    def test_click_targets_login_button(self):
+        steps = _parse_steps_from_prompt(_LOGIN_PROMPT, BASE)
+        click = _first_of(steps, "click")
+        assert click is not None
+        assert "login" in str(click.get("selector", "")).lower()
+
+    def test_assert_text_contains_secure_area(self):
+        steps = _parse_steps_from_prompt(_LOGIN_PROMPT, BASE)
+        step = _first_of(steps, "assert_text_contains")
+        assert step is not None
+        assert step["text"] == "Secure Area"
+        assert step["selector"] == "body"
+
+    def test_step_order_fill_before_click_before_assert(self):
+        steps = _parse_steps_from_prompt(_LOGIN_PROMPT, BASE)
+        actions = _actions(steps)
+        assert "fill" in actions
+        assert "click" in actions
+        assert "assert_text_contains" in actions
+        first_fill = actions.index("fill")
+        first_click = actions.index("click")
+        first_assert = actions.index("assert_text_contains")
+        assert first_fill < first_click < first_assert
+
+    def test_wrong_password_prompt_preserves_fill_click(self):
+        steps = _parse_steps_from_prompt(_WRONG_PASS_PROMPT, BASE)
+        assert steps is not None
+        actions = _actions(steps)
+        assert "fill" in actions
+        assert "click" in actions
+        assert "assert_text_contains" in actions
+
+    def test_wrong_password_assert_text(self):
+        steps = _parse_steps_from_prompt(_WRONG_PASS_PROMPT, BASE)
+        step = _first_of(steps, "assert_text_contains")
+        assert step is not None
+        assert "invalid" in step["text"].lower()
+
+    def test_goto_is_first_step(self):
+        steps = _parse_steps_from_prompt(_LOGIN_PROMPT, BASE)
+        assert steps[0]["action"] == "goto"
+
+    def test_single_visible_assertion_still_early_exits(self):
+        """
+        Single-line visibility prompt (no fill/click) must still use the
+        early-return path — no change to backward-compatible behavior.
+        """
+        steps = _parse_steps_from_prompt('Verify that "Secure Area" is visible', BASE)
+        actions = _actions(steps)
+        assert "assert_text_contains" in actions
+        assert "fill" not in actions
+        assert "click" not in actions

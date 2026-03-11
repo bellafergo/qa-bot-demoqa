@@ -304,8 +304,14 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
 
         return out
 
-    # visibles
-    if "visibles" in low or "visible" in low:
+    # visibles — only take this early-return path when there are NO fill/click
+    # actions in the same prompt.  If fill/click are present, fall through so
+    # those patterns are processed first and the text assertion is appended by
+    # the standard section at the bottom (which handles the same pattern).
+    _has_form_actions = bool(
+        re.search(r'\b(fill|type|llena|escribe|ingresa|teclea|click)\b', low)
+    )
+    if ("visibles" in low or "visible" in low) and not _has_form_actions:
         # "Verify that 'X' is visible" → text assertion, NOT selector assertion.
         # Must be checked before _extract_selectors_anywhere() to avoid greedily
         # picking up URL fragments (e.g. ".herokuapp") as selectors.
