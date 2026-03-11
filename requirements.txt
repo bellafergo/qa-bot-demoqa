@@ -36,6 +36,8 @@ watchfiles==1.1.1
 websockets==15.0.1
 python-multipart==0.0.9
 supabase==2.10.0
+redis==7.3.0
+rq==2.7.0
 
 # Database
 psycopg2-binary==2.9.9
