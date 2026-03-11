@@ -30,54 +30,8 @@ from core.qa_risk_engine import build_risk_brief, build_negative_and_edge_cases
 
 from services.execute_engine import handle_execute_mode  # engine general
 from runner import execute_test, execute_heb_full_purchase  # runners
-from services.document_store import query_documents
 
 logger = logging.getLogger("vanya.chat_service")
-
-
-# ============================================================
-# DOCUMENT CONTEXT HELPERS
-# ============================================================
-_DOCUMENT_KEYWORDS = frozenset({
-    "documento", "documentos", "pdf", "adjunto", "adjuntos",
-    "contrato", "contratos", "brd", "spec", "manual", "manuales",
-    "archivo", "archivos", "attached", "attachment", "file", "files",
-    "document", "documents", "specification", "requirements",
-})
-
-
-def _should_use_documents(prompt: str) -> bool:
-    """Check if prompt mentions document-related keywords."""
-    p = (prompt or "").lower()
-    return any(kw in p for kw in _DOCUMENT_KEYWORDS)
-
-
-def _get_document_context(thread_id: str, prompt: str, top_k: int = 5) -> str:
-    """
-    Query documents for the thread and return formatted context.
-    Returns empty string if no documents found or on error.
-    """
-    if not thread_id:
-        return ""
-    try:
-        result = query_documents(query=prompt, thread_id=thread_id, top_k=top_k)
-        if not result.get("ok"):
-            return ""
-        snippets = result.get("snippets") or []
-        if not snippets:
-            return ""
-
-        lines = ["[Document Context]"]
-        for i, s in enumerate(snippets[:top_k], start=1):
-            fname = s.get("filename") or "unknown"
-            text = (s.get("text") or "")[:800]  # limit snippet size
-            lines.append(f"--- Snippet {i} from '{fname}' ---")
-            lines.append(text)
-        lines.append("[End Document Context]")
-        return "\n".join(lines)
-    except Exception:
-        logger.warning("Failed to query documents (continuing)", exc_info=True)
-        return ""
 
 
 # ============================================================
@@ -187,36 +141,6 @@ def _repair_json_only(client: OpenAI, raw: str) -> str:
         return (resp.choices[0].message.content or "").strip()
     except Exception:
         return raw
-
-
-def _doc_call_json(client: OpenAI, messages: List[Dict[str, str]]) -> Tuple[str, Dict[str, Any]]:
-    """
-    Llama al modelo en modo DOC y garantiza:
-    - raw: texto devuelto por el modelo
-    - doc_json: dict (vacío si no se pudo parsear)
-    """
-    # intento 1: instrucción estricta
-    resp = client.chat.completions.create(
-        model=settings.OPENAI_MODEL,
-        messages=messages
-        + [{"role": "user", "content": "Return ONLY valid JSON. No additional text."}],
-        temperature=settings.DOC_TEMPERATURE,
-        max_tokens=settings.DOC_MAX_TOKENS,
-    )
-    raw = (resp.choices[0].message.content or "").strip()
-
-    doc_json = _extract_json_object(raw)
-    if isinstance(doc_json, dict):
-        return raw, doc_json
-
-    # intento 2: reparación “JSON only”
-    repaired = _repair_json_only(client, raw)
-    doc_json2 = _extract_json_object(repaired)
-    if isinstance(doc_json2, dict):
-        return repaired, doc_json2
-
-    # fallback duro: dict vacío (tu normalizador ya hará fallback seguro)
-    return raw, {}
 
 
 def _doc_contract_hint() -> str:
@@ -413,46 +337,57 @@ def _normalize_doc_json(doc: Dict[str, Any], raw: Optional[str] = None) -> Dict[
         "raw_fallback": doc,
     }
 
-
 def _render_doc_answer_from_json(doc: Dict[str, Any]) -> str:
     ev = doc.get("executive_view", {}) if isinstance(doc, dict) else {}
-    title = ev.get("title", "QA Artifact")
-    objective = ev.get("objective", "")
+    if not isinstance(ev, dict):
+        ev = {}
+
+    title = (ev.get("title") or "QA Artifact").strip() or "QA Artifact"
+    objective = (ev.get("objective") or "").strip()
 
     lines: List[str] = [f"## {title}"]
     if objective:
         lines.append(f"**Objective:** {objective}")
 
     risks = ev.get("top_risks") or []
-    if risks:
+    if isinstance(risks, list) and risks:
         lines.append("\n### Top risks")
         for r in risks:
             if not isinstance(r, dict):
                 continue
-            pr = r.get("priority", "")
-            rk = r.get("risk", "")
-            im = r.get("impact", "")
-            line = f"- **{pr}**: {rk}"
+            pr = (r.get("priority") or "").strip()
+            rk = (r.get("risk") or "").strip()
+            im = (r.get("impact") or "").strip()
+
+            if not rk:
+                continue
+
+            line = f"- **{pr or 'P?'}**: {rk}"
             if im:
                 line += f" — {im}"
             lines.append(line)
 
     matrix = ev.get("matrix_summary") or []
-    if matrix:
+    if isinstance(matrix, list) and matrix:
         lines.append("\n### Matrix summary")
         lines.append("| ID | Scenario | Expected | Priority |")
         lines.append("|---|---|---|---|")
         for row in matrix:
             if not isinstance(row, dict):
                 continue
-            lines.append(
-                f"| {row.get('id','')} | {row.get('scenario','')} | "
-                f"{row.get('expected','')} | {row.get('priority','')} |"
-            )
+            tc_id = (row.get("id") or "").strip()
+            scn = (row.get("scenario") or "").strip()
+            exp = (row.get("expected") or "").strip()
+            pri = (row.get("priority") or "").strip()
 
-    # ✅ (AQUÍ VA) suites recomendado para PR analysis
+            if not scn:
+                continue
+
+            lines.append(f"| {tc_id} | {scn} | {exp} | {pri} |")
+
+    # ✅ suites recomendadas para PR analysis
     suites = ev.get("recommended_suites") or []
-    if suites:
+    if isinstance(suites, list) and suites:
         lines.append("\n### Recommended suites")
         for s in suites:
             if not isinstance(s, dict):
@@ -1099,12 +1034,6 @@ def handle_chat_run(req: Any) -> Dict[str, Any]:
         content = (m.get("content") or "").strip()
         if content:
             messages.append({"role": role, "content": content})
-
-    # Document context (only when keywords match and not in execute mode)
-    if mode != "execute" and _should_use_documents(prompt):
-        doc_context = _get_document_context(thread_id, prompt, top_k=5)
-        if doc_context:
-            messages.append({"role": "user", "content": doc_context})
 
     # EXECUTE
     if mode == "execute":
