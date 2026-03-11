@@ -333,6 +333,10 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
             steps.append({"action": "assert_visible", "selector": sel})
         return _ensure_has_assert(steps, base_url)
 
+    # Characters that distinguish a real CSS selector from plain English.
+    # Used below to decide whether a pre-click/pre-fill assert_visible is safe.
+    _CSS_CHARS = set("#.[]:>+~=\"'()")
+
     # fill — multi-word field descriptions ("Fill username field with tomsmith")
     fill_patterns = [
         # CSS/quoted selector first (precise, backward-compat)
@@ -347,7 +351,10 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
             val = _strip_quotes(m.group(2)).strip()
             if sel and val and sel not in seen_fill_sels:
                 seen_fill_sels.add(sel)
-                steps.append({"action": "assert_visible", "selector": sel})
+                # Same guard as click: skip assert_visible for natural-language
+                # selectors — the fill block already calls wait_for(visible).
+                if any(c in sel for c in _CSS_CHARS):
+                    steps.append({"action": "assert_visible", "selector": sel})
                 steps.append({"action": "fill", "selector": sel, "value": val})
 
     # click — multi-word element descriptions ("Click login button")
@@ -363,7 +370,14 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
             sel = _strip_quotes(m.group(1)).strip()
             if sel and sel not in seen_click_sels:
                 seen_click_sels.add(sel)
-                steps.append({"action": "assert_visible", "selector": sel})
+                # Only pre-check visibility for real CSS selectors.
+                # Natural-language selectors (e.g. "login button") have no CSS
+                # syntax chars and fall back to page.locator(sel) which is an
+                # invalid CSS descendant rule — the assert_visible would fail and
+                # abort before the click ever runs.  The click block itself calls
+                # locator.wait_for(state="visible") so the pre-check is redundant.
+                if any(c in sel for c in _CSS_CHARS):
+                    steps.append({"action": "assert_visible", "selector": sel})
                 steps.append({"action": "click", "selector": sel})
 
     # press enter

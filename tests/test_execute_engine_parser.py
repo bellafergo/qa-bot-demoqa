@@ -121,6 +121,42 @@ class TestExistingParsingUnchanged:
         # Should NOT have assert_text_contains (no quotes around text)
         assert "assert_text_contains" not in _actions(steps)
 
+    def test_no_assert_visible_before_natural_language_fill(self):
+        """Natural-language fill must NOT get a pre-check assert_visible before fill."""
+        steps = _parse_steps_from_prompt(
+            "Fill username field with tomsmith", BASE
+        )
+        assert steps is not None
+        actions = _actions(steps)
+        assert "fill" in actions
+        fill_idx = actions.index("fill")
+        # No assert_visible should appear at an index lower than fill
+        assert not any(
+            actions[j] == "assert_visible" for j in range(fill_idx)
+        ), "assert_visible must not precede natural-language fill"
+
+    def test_no_assert_visible_before_natural_language_click(self):
+        """Natural-language click must NOT get a pre-check assert_visible before click."""
+        steps = _parse_steps_from_prompt("Click login button", BASE)
+        assert steps is not None
+        actions = _actions(steps)
+        assert "click" in actions
+        click_idx = actions.index("click")
+        assert not any(
+            actions[j] == "assert_visible" for j in range(click_idx)
+        ), "assert_visible must not precede natural-language click"
+
+    def test_css_click_still_gets_assert_visible_before_click(self):
+        """Explicit CSS selectors should still get the pre-check assert_visible."""
+        steps = _parse_steps_from_prompt("Click #login-button", BASE)
+        assert steps is not None
+        actions = _actions(steps)
+        assert "click" in actions
+        click_idx = actions.index("click")
+        assert any(
+            actions[j] == "assert_visible" for j in range(click_idx)
+        ), "assert_visible should precede CSS click"
+
     def test_none_returned_for_empty_prompt(self):
         assert _parse_steps_from_prompt("", BASE) is None
 
