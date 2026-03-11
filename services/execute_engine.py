@@ -306,6 +306,20 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
 
     # visibles
     if "visibles" in low or "visible" in low:
+        # "Verify that 'X' is visible" → text assertion, NOT selector assertion.
+        # Must be checked before _extract_selectors_anywhere() to avoid greedily
+        # picking up URL fragments (e.g. ".herokuapp") as selectors.
+        _tv = re.search(
+            r'(?:verify|verifica|check|assert)\s+(?:that\s+)?["\']([^"\']+)["\']\s+(?:is\s+)?(?:visible|present|displayed)',
+            p,
+            flags=re.IGNORECASE,
+        )
+        if _tv:
+            found_text = _tv.group(1).strip()
+            steps.append({"action": "wait_ms", "ms": 300})
+            steps.append({"action": "assert_text_contains", "selector": "body", "text": found_text})
+            return steps
+
         seen = _extract_selectors_anywhere(p)
         if _looks_like_saucedemo(base_url) and not seen:
             seen = ["#user-name", "#password", "#login-button"]
