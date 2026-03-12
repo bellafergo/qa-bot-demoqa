@@ -379,9 +379,16 @@ def execute_test(
                         inferred_base_url = base_url or u
                     break
 
+            # Log every step before processing so missing steps are visible
+            logs.append(
+                f"[PLAN] {len(steps)} steps: "
+                + ", ".join(f"{j}:{_normalize_action(s)}" for j, s in enumerate(steps))
+            )
+
             for i, step in enumerate(steps):
                 action = _normalize_action(step)
                 timeout_ms = _pick_timeout_ms(step, default_step_timeout_ms)
+                logs.append(f"[STEP] i={i} action={action!r} sel={_selector_from_step(step)!r}")
 
                 try:
                     if action == "goto":

@@ -609,6 +609,13 @@ def handle_execute_mode(
     steps = _ensure_has_assert(steps, base_url)
     steps = _normalize_steps_to_target(steps)
 
+    # Log the final step list so any drop is visible in the run report
+    logger.info(
+        "[ENGINE] executing %d steps: %s",
+        len(steps),
+        [{"i": i, "action": s.get("action"), "sel": s.get("selector")} for i, s in enumerate(steps)],
+    )
+
     # 3) Ejecutar runner
     runner_any: Any = {}
     runner: Dict[str, Any] = {}
