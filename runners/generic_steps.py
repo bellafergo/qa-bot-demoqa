@@ -518,8 +518,9 @@ def execute_test(
                         if not expected_text:
                             raise ValueError("assert_text_contains requiere expected/text")
 
-                        # Normalize whitespace in expected for comparison (preserves case)
-                        expected_norm = _normalize_ws(expected_text)
+                        # Normalize whitespace for comparison (use a local name to avoid
+                        # shadowing the outer expected_norm which tracks pass/fail outcome)
+                        _expected_needle = _normalize_ws(expected_text)
 
                         target_sel = _selector_from_step(step) or "body"
                         loc = page.locator(target_sel)
@@ -538,7 +539,7 @@ def execute_test(
 
                         # Compare with normalized whitespace (handles \t, \n, double-spaces)
                         def _found(raw: str) -> bool:
-                            return expected_norm in _normalize_ws(raw)
+                            return _expected_needle in _normalize_ws(raw)
 
                         # Fallback 1: full body via JS — catches SPA-rendered / lazy text
                         if not _found(content):

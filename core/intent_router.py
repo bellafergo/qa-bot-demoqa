@@ -15,6 +15,8 @@ _PURCHASE_TOKEN_RE = re.compile(rf"(^|\W){_PURCHASE_TOKEN}(\W|$)", re.IGNORECASE
 _SITE_MARKERS = [
     # e-commerce targets
     "heb", "h-e-b", "heb.com.mx", "heb mexico",
+    # demo / test sites
+    "saucedemo", "saucedemo.com",
     # puedes agregar más: "walmart", "amazon", etc.
 ]
 
