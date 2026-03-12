@@ -156,7 +156,16 @@ def _build_runner_steps(
     steps: List[Dict[str, Any]] = []
     effective_base = base_url or test_case.base_url or ""
 
-    raw_steps  = [s.model_dump() if hasattr(s, "model_dump") else dict(s) for s in test_case.steps]
+    raw_steps = [s.model_dump() if hasattr(s, "model_dump") else dict(s) for s in test_case.steps]
+
+    # Expand generate_test_data steps and substitute {{entity.field}} placeholders
+    # before the steps reach the Playwright runner.
+    try:
+        from services.test_data_service import preprocess_data_steps
+        raw_steps, _ = preprocess_data_steps(raw_steps)
+    except Exception:
+        logger.warning("test_catalog: test_data preprocessing failed (non-fatal), continuing with raw steps")
+
     runner_steps = [_step_to_runner(s) for s in raw_steps]
 
     has_goto = any(s.get("action") == "goto" for s in runner_steps)
