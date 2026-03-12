@@ -23,6 +23,8 @@ from api.routes.threads import router as threads_router
 from api.routes.chat import router as chat_router
 from api.routes.webhooks import router as webhooks_router  # /webhooks/github vive aquí
 from api.routes.documents import router as documents_router
+from api.routes.test_catalog_routes import router as test_catalog_router
+from api.routes.test_catalog_routes import runs_router as test_runs_router
 
 logger = logging.getLogger("vanya")
 
@@ -157,6 +159,13 @@ def on_startup():
 
     logger.info("CORS allow_origins = %s", cors_origins)
 
+    # Load demo seed test cases into the catalog (no-op if already loaded)
+    try:
+        from services.test_catalog_service import load_seed_catalog
+        load_seed_catalog()
+    except Exception:
+        logger.exception("test_catalog: seed load failed (non-fatal)")
+
 
 # ============================================================
 # ENDPOINTS
@@ -283,3 +292,5 @@ app.include_router(chat_router, tags=["chat"])
 app.include_router(webhooks_router, tags=["webhooks"])  # /webhooks/github
 app.include_router(execute_router, tags=["execute"])
 app.include_router(documents_router, tags=["documents"])
+app.include_router(test_catalog_router)   # GET/POST /tests, POST /tests/{id}/run, POST /tests/run-suite
+app.include_router(test_runs_router)      # GET /test-runs, GET /test-runs/{run_id}
