@@ -202,8 +202,8 @@ class RiskSelectionService:
         tc_ids = [st.test_case_id for st in selection.selected_tests]
 
         try:
-            from services.catalog_orchestrator import orchestrator
-            job = orchestrator.enqueue_suite(test_case_ids=tc_ids)
+            from services.catalog_orchestrator import orchestrator_service
+            job = orchestrator_service.enqueue_suite(test_case_ids=tc_ids)
             return SelectAndRunResult(
                 selection           = selection,
                 orchestrator_job_id = job.job_id,

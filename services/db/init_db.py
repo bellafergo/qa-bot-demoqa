@@ -24,3 +24,18 @@ def init_catalog_db() -> None:
 
     Base.metadata.create_all(bind=engine, checkfirst=True)
     logger.info("db: catalog tables initialized (SQLite)")
+
+    # ── Schema migrations (idempotent) ────────────────────────────────────────
+    # Add test_type column to existing test_cases tables that pre-date this feature.
+    # SQLite does not support ADD COLUMN IF NOT EXISTS, so we catch the error.
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(test_cases)"))
+            existing_cols = {row[1] for row in result.fetchall()}
+            if "test_type" not in existing_cols:
+                conn.execute(text("ALTER TABLE test_cases ADD COLUMN test_type TEXT DEFAULT 'ui'"))
+                conn.commit()
+                logger.info("db: migrated test_cases — added test_type column")
+    except Exception:
+        logger.exception("db: migration for test_type failed (non-fatal)")

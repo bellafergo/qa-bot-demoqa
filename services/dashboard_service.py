@@ -48,6 +48,10 @@ class DashboardService:
         inactive = tc_by_status.get("inactive", 0)
         total_tc = sum(tc_by_status.values())
 
+        tc_by_test_type = catalog_repo.count_by_test_type()
+        total_ui_tests  = tc_by_test_type.get("ui",  0)
+        total_api_tests = tc_by_test_type.get("api", 0)
+
         # Runs
         run_by_status = test_run_repo.count_by_status()
         pass_runs  = run_by_status.get("pass",  0)
@@ -70,6 +74,8 @@ class DashboardService:
             total_test_cases    = total_tc,
             active_test_cases   = active,
             inactive_test_cases = inactive,
+            total_ui_tests      = total_ui_tests,
+            total_api_tests     = total_api_tests,
             total_runs          = total_runs,
             pass_runs           = pass_runs,
             fail_runs           = fail_runs,

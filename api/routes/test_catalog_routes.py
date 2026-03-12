@@ -88,6 +88,7 @@ def list_test_cases(
             type=c.type,
             priority=c.priority,
             status=c.status,
+            test_type=getattr(c, "test_type", "ui") or "ui",
             version=c.version,
             tags=c.tags,
             steps_count=len(c.steps),

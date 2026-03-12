@@ -34,6 +34,7 @@ from api.routes.rca_routes import router as rca_router
 from api.routes.business_risk_routes import router as business_risk_router
 from api.routes.coverage_routes import router as coverage_router
 from api.routes.risk_selection_routes import router as risk_selection_router
+from api.routes.api_testing_routes import router as api_testing_router
 
 logger = logging.getLogger("vanya")
 
@@ -327,3 +328,4 @@ app.include_router(rca_router)              # POST /rca/analyze, GET /rca/analyz
 app.include_router(business_risk_router)    # POST /business-risk/analyze
 app.include_router(coverage_router)         # GET /coverage/summary, /coverage/module/{module}
 app.include_router(risk_selection_router)   # POST /risk-selection/select-tests, /select-and-run
+app.include_router(api_testing_router)      # POST /api-testing/parse-spec, /generate-tests, /approve, /run

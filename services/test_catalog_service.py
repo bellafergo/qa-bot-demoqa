@@ -225,6 +225,7 @@ class TestCatalogService:
             type         = payload.type,
             priority     = payload.priority,
             status       = payload.status,
+            test_type    = getattr(payload, "test_type", "ui") or "ui",
             version      = payload.version,
             tags         = payload.tags,
             base_url     = payload.base_url,
@@ -352,28 +353,42 @@ class TestCatalogService:
         base_url: Optional[str],
         headless: bool,
         timeout_s: Optional[int],
+        auth_config: Optional[Dict[str, Any]] = None,
     ) -> TestRun:
-        """Build steps, run via Playwright runner, persist result."""
-        from runner import execute_test
-
+        """Build steps, run via appropriate runner (UI or API), persist result."""
         t0 = time.time()
         run_id     = str(uuid.uuid4())
         evidence_id = f"TC-{uuid.uuid4().hex[:10].upper()}"
 
-        logger.info("test_catalog: executing %s (%s) — run_id=%s env=%s",
-                    tc.test_case_id, tc.name, run_id, environment)
+        logger.info("test_catalog: executing %s (%s) — run_id=%s env=%s test_type=%s",
+                    tc.test_case_id, tc.name, run_id, environment,
+                    getattr(tc, "test_type", "ui"))
 
         steps = _build_runner_steps(tc, base_url=base_url)
         logger.debug("test_catalog: %s → %d steps: %s",
                      tc.test_case_id, len(steps), [s.get("action") for s in steps])
 
+        tc_test_type = getattr(tc, "test_type", "ui") or "ui"
+
         try:
-            result = execute_test(
-                steps=steps,
-                base_url=base_url or tc.base_url,
-                headless=headless,
-                timeout_s=timeout_s,
-            )
+            if tc_test_type == "api":
+                from services.api_runner import run_api_test
+                assertions_raw = [a.model_dump() for a in tc.assertions]
+                result = run_api_test(
+                    steps      = steps,
+                    base_url   = base_url or tc.base_url or "",
+                    assertions = assertions_raw,
+                    auth_config = auth_config,
+                    timeout_s  = timeout_s or 30,
+                )
+            else:
+                from runner import execute_test
+                result = execute_test(
+                    steps=steps,
+                    base_url=base_url or tc.base_url,
+                    headless=headless,
+                    timeout_s=timeout_s,
+                )
             if not isinstance(result, dict):
                 result = {}
 

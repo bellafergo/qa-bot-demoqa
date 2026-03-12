@@ -15,6 +15,8 @@ class DashboardSummary(BaseModel):
     total_test_cases:    int = 0
     active_test_cases:   int = 0
     inactive_test_cases: int = 0
+    total_ui_tests:      int = 0
+    total_api_tests:     int = 0
 
     # Runs
     total_runs: int   = 0
