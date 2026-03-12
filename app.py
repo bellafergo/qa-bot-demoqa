@@ -30,6 +30,7 @@ from api.routes.dashboard_routes import router as dashboard_router
 from api.routes.pr_analysis_routes import router as pr_analysis_router
 from api.routes.test_generation_routes import router as test_generation_router
 from api.routes.test_data_routes import router as test_data_router
+from api.routes.rca_routes import router as rca_router
 
 logger = logging.getLogger("vanya")
 
@@ -319,3 +320,4 @@ app.include_router(dashboard_router)      # GET /dashboard/summary, /recent-runs
 app.include_router(pr_analysis_router)    # POST /pr-analysis/analyze, /analyze-and-enqueue, …
 app.include_router(test_generation_router)  # POST /test-generation/generate, /approve, …
 app.include_router(test_data_router)        # POST /test-data/generate, GET /test-data/entity-types
+app.include_router(rca_router)              # POST /rca/analyze, GET /rca/analyze/{run_id}
