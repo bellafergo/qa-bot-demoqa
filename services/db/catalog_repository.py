@@ -152,6 +152,34 @@ class CatalogRepository:
         logger.debug("catalog_repo: deleted %s", test_case_id)
         return True
 
+    def count_by_status(self) -> dict:
+        """Return {status: count} for all test cases."""
+        from sqlalchemy import func
+        with get_session() as s:
+            rows = (
+                s.query(TestCaseRow.status, func.count(TestCaseRow.id))
+                .group_by(TestCaseRow.status)
+                .all()
+            )
+        return {status: count for status, count in rows}
+
+    def all_modules(self) -> list:
+        """Return list of (test_case_id, module) tuples for all test cases."""
+        with get_session() as s:
+            rows = s.query(TestCaseRow.test_case_id, TestCaseRow.module).all()
+        return [(r[0], r[1] or "") for r in rows]
+
+    def count_test_cases_by_module(self) -> dict:
+        """Return {module: count} for all test cases."""
+        from sqlalchemy import func
+        with get_session() as s:
+            rows = (
+                s.query(TestCaseRow.module, func.count(TestCaseRow.id))
+                .group_by(TestCaseRow.module)
+                .all()
+            )
+        return {(m or ""): c for m, c in rows}
+
     def clear_all(self) -> None:
         """Wipe all rows — used in tests only."""
         with get_session() as s:

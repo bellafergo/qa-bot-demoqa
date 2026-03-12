@@ -101,6 +101,42 @@ class TestRunRepository:
             rows = q.all()
         return [_row_to_model(r) for r in rows]
 
+    def count_by_status(self) -> dict:
+        """Return {status: count} for all test runs."""
+        from sqlalchemy import func
+        with get_session() as s:
+            rows = (
+                s.query(TestRunRow.status, func.count(TestRunRow.run_id))
+                .group_by(TestRunRow.status)
+                .all()
+            )
+        return {status: count for status, count in rows}
+
+    def get_last_executed_at(self) -> Optional[str]:
+        """Return the most recent executed_at ISO string, or None."""
+        from sqlalchemy import func
+        with get_session() as s:
+            result = s.query(func.max(TestRunRow.executed_at)).scalar()
+        return result
+
+    def count_runs_by_test_case(self) -> dict:
+        """Return {test_case_id: {status: count}} aggregation."""
+        from sqlalchemy import func
+        with get_session() as s:
+            rows = (
+                s.query(
+                    TestRunRow.test_case_id,
+                    TestRunRow.status,
+                    func.count(TestRunRow.run_id),
+                )
+                .group_by(TestRunRow.test_case_id, TestRunRow.status)
+                .all()
+            )
+        result: dict = {}
+        for tc_id, status, count in rows:
+            result.setdefault(tc_id, {})[status] = count
+        return result
+
     def clear_all(self) -> None:
         """Wipe all rows — used in tests only."""
         with get_session() as s:

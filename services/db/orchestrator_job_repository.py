@@ -142,6 +142,24 @@ class OrchestratorJobRepository:
             )
         return [_row_to_model(r) for r in rows]
 
+    def count_by_status(self) -> dict:
+        """Return {status: count} for all orchestrator jobs."""
+        from sqlalchemy import func
+        with get_session() as s:
+            rows = (
+                s.query(OrchestratorJobRow.status, func.count(OrchestratorJobRow.job_id))
+                .group_by(OrchestratorJobRow.status)
+                .all()
+            )
+        return {status: count for status, count in rows}
+
+    def get_last_created_at(self) -> Optional[str]:
+        """Return the most recent created_at ISO string, or None."""
+        from sqlalchemy import func
+        with get_session() as s:
+            result = s.query(func.max(OrchestratorJobRow.created_at)).scalar()
+        return result
+
     def clear_all(self) -> None:
         """Wipe all rows — used in tests only."""
         with get_session() as s:

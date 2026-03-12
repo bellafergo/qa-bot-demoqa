@@ -26,6 +26,8 @@ from api.routes.documents import router as documents_router
 from api.routes.test_catalog_routes import router as test_catalog_router
 from api.routes.test_catalog_routes import runs_router as test_runs_router
 from api.routes.test_orchestrator_routes import router as orchestrator_router
+from api.routes.dashboard_routes import router as dashboard_router
+from api.routes.pr_analysis_routes import router as pr_analysis_router
 
 logger = logging.getLogger("vanya")
 
@@ -311,3 +313,5 @@ app.include_router(documents_router, tags=["documents"])
 app.include_router(test_catalog_router)   # GET/POST /tests, POST /tests/{id}/run, POST /tests/run-suite
 app.include_router(test_runs_router)      # GET /test-runs, GET /test-runs/{run_id}
 app.include_router(orchestrator_router)   # POST /orchestrator/jobs/single|suite, GET /orchestrator/jobs
+app.include_router(dashboard_router)      # GET /dashboard/summary, /recent-runs, /by-module, …
+app.include_router(pr_analysis_router)    # POST /pr-analysis/analyze, /analyze-and-enqueue, …
