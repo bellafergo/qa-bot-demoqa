@@ -36,12 +36,9 @@ def _make_payload(**overrides) -> TestCaseCreate:
 
 
 def _fresh_service() -> TestCatalogService:
-    """Return a new service instance pointing at fresh in-memory stores."""
-    import services.test_catalog_service as svc_module
-    # Wipe module-level state for isolation
-    svc_module._CATALOG.clear()
-    svc_module._RUN_STORE.clear()
-    svc_module._RUN_ORDER.clear()
+    """Return a new service instance with a clean DB state."""
+    from services.test_catalog_service import _reset_for_testing
+    _reset_for_testing()
     return TestCatalogService()
 
 
@@ -302,11 +299,8 @@ class TestCatalogCRUD:
 
 class TestSeedLoader:
     def test_seed_loads_without_error(self):
-        import services.test_catalog_service as svc_module
-        svc_module._CATALOG.clear()
-        svc_module._RUN_STORE.clear()
-        svc_module._RUN_ORDER.clear()
-        from services.test_catalog_service import load_seed_catalog
+        from services.test_catalog_service import _reset_for_testing, load_seed_catalog
+        _reset_for_testing()
         load_seed_catalog()
         svc = TestCatalogService()
         cases = svc.list_test_cases(status=None)
@@ -340,10 +334,8 @@ class TestSeedLoader:
 
 class TestRunHistory:
     def test_save_and_retrieve_run(self):
-        import services.test_catalog_service as svc_module
-        svc_module._CATALOG.clear()
-        svc_module._RUN_STORE.clear()
-        svc_module._RUN_ORDER.clear()
+        from services.test_catalog_service import _reset_for_testing
+        _reset_for_testing()
         svc = TestCatalogService()
 
         run = TestRun(
@@ -361,10 +353,8 @@ class TestRunHistory:
         assert retrieved.status == "pass"
 
     def test_list_runs_most_recent_first(self):
-        import services.test_catalog_service as svc_module
-        svc_module._CATALOG.clear()
-        svc_module._RUN_STORE.clear()
-        svc_module._RUN_ORDER.clear()
+        from services.test_catalog_service import _reset_for_testing
+        _reset_for_testing()
         svc = TestCatalogService()
 
         for i in range(3):
@@ -378,10 +368,8 @@ class TestRunHistory:
         assert runs[0].test_case_id == "TC-R-2"   # most recent last saved → first in list
 
     def test_list_runs_filtered_by_test_case_id(self):
-        import services.test_catalog_service as svc_module
-        svc_module._CATALOG.clear()
-        svc_module._RUN_STORE.clear()
-        svc_module._RUN_ORDER.clear()
+        from services.test_catalog_service import _reset_for_testing
+        _reset_for_testing()
         svc = TestCatalogService()
 
         for tc_id in ("TC-A", "TC-B", "TC-A"):

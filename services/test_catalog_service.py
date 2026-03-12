@@ -2,25 +2,25 @@
 """
 Test Catalog Service
 ====================
-Manages the in-memory test case catalog and drives test execution.
+Manages the test case catalog and drives test execution.
+
+Persistence is backed by SQLite via repository classes.
+In-memory caching is not used — the DB is the single source of truth.
 
 Architecture:
   TestCatalogService
       ↓  converts steps
-  execute_test()            ← existing Playwright runner (runners/generic_steps.py)
+  execute_test()            ← existing Playwright runner
       ↓  produces runner result
-  TestRun record            ← stored in _RUN_STORE (in-memory, TTL)
+  TestRun record            ← persisted via TestRunRepository
 
-Thread-safe. Designed to be a module-level singleton so imports don't
-duplicate state.
+Thread-safe: repository sessions use per-operation commits.
 
-Upgrade path: swap _CATALOG / _RUN_STORE with a real DB by replacing
-the four private CRUD helpers at the bottom of this file.
+Upgrade path: replace sqlite engine URL with Postgres/Supabase DSN.
 """
 from __future__ import annotations
 
 import logging
-import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -28,24 +28,10 @@ from typing import Any, Dict, List, Literal, Optional
 
 from models.test_case import TestCase, TestCaseCreate, TestStep, TestAssertion
 from models.test_run import TestRun, SuiteRunResult
+from services.db.catalog_repository import catalog_repo
+from services.db.test_run_repository import test_run_repo
 
 logger = logging.getLogger("vanya.test_catalog")
-
-
-# ── In-memory stores (replace with DB for production scale) ───────────────────
-
-_lock = threading.RLock()
-
-# test_case_id -> TestCase
-_CATALOG: Dict[str, TestCase] = {}
-
-# run_id -> TestRun  (kept for TTL-style cleanup; list_runs returns recent ones)
-_RUN_STORE: Dict[str, TestRun] = {}
-
-# Ordered list of run_ids for list operations (most recent first)
-_RUN_ORDER: List[str] = []
-
-_MAX_RUNS_KEPT = 500   # GC threshold — prune oldest when exceeded
 
 
 def _now_utc() -> datetime:
@@ -54,7 +40,6 @@ def _now_utc() -> datetime:
 
 # ── Step format normalizer ────────────────────────────────────────────────────
 
-# Maps catalog action names → runner action names
 _ACTION_ALIASES: Dict[str, str] = {
     "input":  "fill",
     "type":   "fill",
@@ -86,13 +71,13 @@ def _step_to_runner(step: Dict[str, Any]) -> Dict[str, Any]:
     """
     Convert one catalog step dict to the runner's expected format.
 
-    Catalog format (what test authors write):
+    Catalog format:
       {"action": "goto",   "value": "https://..."}
       {"action": "input",  "target": "username", "value": "testuser"}
       {"action": "click",  "target": "login button"}
       {"action": "wait_ms","ms": 500}
 
-    Runner format (what execute_test() expects):
+    Runner format:
       {"action": "goto",   "url": "https://..."}
       {"action": "fill",   "selector": "username", "value": "testuser"}
       {"action": "click",  "selector": "login button"}
@@ -102,20 +87,16 @@ def _step_to_runner(step: Dict[str, Any]) -> Dict[str, Any]:
     action = _normalize_action(s.get("action", ""))
     s["action"] = action
 
-    # goto: "value" -> "url"
     if action == "goto":
         if not s.get("url") and s.get("value"):
             s["url"] = s.pop("value")
-        # "target" can also hold the URL in some authoring styles
         if not s.get("url") and s.get("target"):
             s["url"] = s.pop("target")
 
-    # fill/click/press/assert_visible: "target" -> "selector"
     elif action in ("fill", "click", "press", "assert_visible", "assert_not_visible"):
         if not s.get("selector") and s.get("target"):
             s["selector"] = s.pop("target")
 
-    # assert_text_contains: "value" -> "text", default selector "body"
     elif action == "assert_text_contains":
         if not s.get("text") and s.get("value"):
             s["text"] = s.pop("value")
@@ -123,12 +104,10 @@ def _step_to_runner(step: Dict[str, Any]) -> Dict[str, Any]:
             s["selector"] = s.pop("target")
         s.setdefault("selector", "body")
 
-    # assert_url_contains: "value" stays as "value"
     elif action == "assert_url_contains":
         if not s.get("value") and s.get("target"):
             s["value"] = s.pop("target")
 
-    # wait_ms: "value" can carry the milliseconds
     elif action == "wait_ms":
         if s.get("ms") is None and s.get("value") is not None:
             try:
@@ -140,27 +119,15 @@ def _step_to_runner(step: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _assertion_to_step(assertion: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """
-    Convert a TestCase assertion dict to a runner step dict.
-
-    Assertion format:
-      {"type": "text_visible",       "value": "Welcome"}
-      {"type": "url_contains",       "value": "/inventory"}
-      {"type": "element_visible",    "target": "#submit"}
-      {"type": "element_not_visible","target": ".error-msg"}
-    """
-    atype = _normalize_action(str(assertion.get("type") or ""))
-    value = assertion.get("value")
+    """Convert a TestCase assertion dict to a runner step dict."""
+    atype  = _normalize_action(str(assertion.get("type") or ""))
+    value  = assertion.get("value")
     target = assertion.get("target") or assertion.get("selector")
 
     if atype == "assert_text_contains":
         if not value:
             return None
-        return {
-            "action": "assert_text_contains",
-            "selector": target or "body",
-            "text": str(value),
-        }
+        return {"action": "assert_text_contains", "selector": target or "body", "text": str(value)}
 
     if atype == "assert_url_contains":
         if not value:
@@ -177,7 +144,6 @@ def _assertion_to_step(assertion: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             return None
         return {"action": "assert_not_visible", "selector": str(target)}
 
-    # Unknown assertion type — skip
     logger.warning("test_catalog: unknown assertion type %r — skipped", atype)
     return None
 
@@ -186,42 +152,22 @@ def _build_runner_steps(
     test_case: TestCase,
     base_url: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """
-    Produce the full ordered step list ready for execute_test().
-
-    Order:
-      1. goto (from first step or base_url)
-      2. remaining steps (normalized)
-      3. assertion steps (converted from test_case.assertions)
-    """
+    """Produce the full ordered step list ready for execute_test()."""
     steps: List[Dict[str, Any]] = []
-
-    # Determine effective base_url
     effective_base = base_url or test_case.base_url or ""
 
-    raw_steps = [
-        s.model_dump() if hasattr(s, "model_dump") else dict(s)
-        for s in test_case.steps
-    ]
+    raw_steps  = [s.model_dump() if hasattr(s, "model_dump") else dict(s) for s in test_case.steps]
     runner_steps = [_step_to_runner(s) for s in raw_steps]
 
-    # Ensure the first step is goto
     has_goto = any(s.get("action") == "goto" for s in runner_steps)
     if not has_goto and effective_base:
         steps.append({"action": "goto", "url": effective_base})
     elif not has_goto and not effective_base:
-        logger.warning(
-            "test_catalog: test case %s has no goto and no base_url",
-            test_case.test_case_id,
-        )
+        logger.warning("test_catalog: %s has no goto and no base_url", test_case.test_case_id)
 
     steps.extend(runner_steps)
 
-    # Convert assertions → steps
-    raw_assertions = [
-        a.model_dump() if hasattr(a, "model_dump") else dict(a)
-        for a in test_case.assertions
-    ]
+    raw_assertions = [a.model_dump() if hasattr(a, "model_dump") else dict(a) for a in test_case.assertions]
     for a in raw_assertions:
         step = _assertion_to_step(a)
         if step:
@@ -234,8 +180,7 @@ def _build_runner_steps(
 
 class TestCatalogService:
     """
-    Stateless service class. All state lives in the module-level dicts
-    so it survives class re-instantiation.
+    Stateless service class. All state is persisted via repositories.
     """
 
     # ── Catalog CRUD ──────────────────────────────────────────────────────────
@@ -250,60 +195,42 @@ class TestCatalogService:
         tags: Optional[List[str]] = None,
         limit: int = 200,
     ) -> List[TestCase]:
-        """Return test cases matching the given filters, most recently created first."""
-        with _lock:
-            cases = list(_CATALOG.values())
-
-        if module:
-            cases = [c for c in cases if c.module.lower() == module.lower()]
-        if type_:
-            cases = [c for c in cases if c.type == type_]
-        if priority:
-            cases = [c for c in cases if c.priority == priority]
-        if status:
-            cases = [c for c in cases if c.status == status]
-        if tags:
-            tag_set = {t.lower() for t in tags}
-            cases = [c for c in cases if tag_set.issubset({t.lower() for t in c.tags})]
-
-        cases.sort(key=lambda c: c.created_at, reverse=True)
-        return cases[:limit]
+        return catalog_repo.list_test_cases(
+            module=module, type_=type_, priority=priority,
+            status=status, tags=tags, limit=limit,
+        )
 
     def get_test_case(self, test_case_id: str) -> Optional[TestCase]:
-        with _lock:
-            return _CATALOG.get(test_case_id)
+        return catalog_repo.get_test_case(test_case_id)
 
     def create_test_case(self, payload: TestCaseCreate) -> TestCase:
-        with _lock:
-            if payload.test_case_id in _CATALOG:
-                raise ValueError(
-                    f"test_case_id '{payload.test_case_id}' already exists. "
-                    "Use a unique ID or delete the existing one first."
-                )
-            tc = TestCase(
-                test_case_id=payload.test_case_id,
-                name=payload.name,
-                module=payload.module,
-                type=payload.type,
-                priority=payload.priority,
-                status=payload.status,
-                version=payload.version,
-                tags=payload.tags,
-                base_url=payload.base_url,
-                steps=[TestStep(**s) for s in payload.steps],
-                assertions=[TestAssertion(**a) for a in payload.assertions],
+        if catalog_repo.get_test_case(payload.test_case_id) is not None:
+            raise ValueError(
+                f"test_case_id '{payload.test_case_id}' already exists. "
+                "Use a unique ID or delete the existing one first."
             )
-            _CATALOG[tc.test_case_id] = tc
-            logger.info("test_catalog: created %s — %s", tc.test_case_id, tc.name)
-            return tc
+        tc = TestCase(
+            test_case_id = payload.test_case_id,
+            name         = payload.name,
+            module       = payload.module,
+            type         = payload.type,
+            priority     = payload.priority,
+            status       = payload.status,
+            version      = payload.version,
+            tags         = payload.tags,
+            base_url     = payload.base_url,
+            steps        = [TestStep(**s) for s in payload.steps],
+            assertions   = [TestAssertion(**a) for a in payload.assertions],
+        )
+        catalog_repo.create_test_case(tc)
+        logger.info("test_catalog: created %s — %s", tc.test_case_id, tc.name)
+        return tc
 
     def delete_test_case(self, test_case_id: str) -> bool:
-        with _lock:
-            if test_case_id not in _CATALOG:
-                return False
-            del _CATALOG[test_case_id]
+        ok = catalog_repo.delete_test_case(test_case_id)
+        if ok:
             logger.info("test_catalog: deleted %s", test_case_id)
-            return True
+        return ok
 
     # ── Execution ─────────────────────────────────────────────────────────────
 
@@ -316,18 +243,11 @@ class TestCatalogService:
         headless: bool = True,
         timeout_s: Optional[int] = None,
     ) -> TestRun:
-        """
-        Execute a single test case and return a TestRun record.
-
-        Raises ValueError if test_case_id not found.
-        """
         tc = self.get_test_case(test_case_id)
         if tc is None:
             raise ValueError(f"Test case '{test_case_id}' not found in catalog")
         if tc.status == "inactive":
-            raise ValueError(
-                f"Test case '{test_case_id}' is inactive. Activate it before running."
-            )
+            raise ValueError(f"Test case '{test_case_id}' is inactive.")
 
         return self._execute(tc, environment=environment, base_url=base_url,
                              headless=headless, timeout_s=timeout_s)
@@ -346,14 +266,7 @@ class TestCatalogService:
         test_case_ids: Optional[List[str]] = None,
         limit: int = 50,
     ) -> SuiteRunResult:
-        """
-        Execute multiple test cases and aggregate results.
-
-        If test_case_ids is provided it takes precedence over filters.
-        Otherwise filters (module, type_, priority, tags) are applied.
-        """
-        import time as _time
-        t0 = _time.time()
+        t0 = time.time()
 
         if test_case_ids:
             cases = [self.get_test_case(tcid) for tcid in test_case_ids]
@@ -376,10 +289,8 @@ class TestCatalogService:
 
         for tc in cases:
             try:
-                run = self._execute(
-                    tc, environment=environment, base_url=base_url,
-                    headless=headless, timeout_s=timeout_s,
-                )
+                run = self._execute(tc, environment=environment, base_url=base_url,
+                                    headless=headless, timeout_s=timeout_s)
                 runs.append(run)
                 if run.status == "pass":
                     passed += 1
@@ -388,34 +299,23 @@ class TestCatalogService:
                 else:
                     errors += 1
             except Exception as e:
-                logger.exception(
-                    "test_catalog: suite run error on %s", tc.test_case_id
-                )
+                logger.exception("test_catalog: suite run error on %s", tc.test_case_id)
                 err_run = TestRun(
-                    test_case_id=tc.test_case_id,
-                    test_name=tc.name,
-                    environment=environment,
-                    status="error",
+                    test_case_id=tc.test_case_id, test_name=tc.name,
+                    environment=environment, status="error",
                     logs=[f"Suite runner error: {type(e).__name__}: {e}"],
                 )
                 runs.append(err_run)
                 errors += 1
 
-        total_ms = int((_time.time() - t0) * 1000)
+        total_ms = int((time.time() - t0) * 1000)
         result = SuiteRunResult(
-            suite_run_id=suite_id,
-            finished_at=_now_utc(),
-            environment=environment,
-            total=len(runs),
-            passed=passed,
-            failed=failed,
-            errors=errors,
-            duration_ms=total_ms,
-            runs=runs,
-            filter_applied=filter_applied,
+            suite_run_id=suite_id, finished_at=_now_utc(), environment=environment,
+            total=len(runs), passed=passed, failed=failed, errors=errors,
+            duration_ms=total_ms, runs=runs, filter_applied=filter_applied,
         )
         logger.info(
-            "test_catalog: suite %s finished — %d total, %d pass, %d fail, %d error, %dms",
+            "test_catalog: suite %s — %d total, %d pass, %d fail, %d error, %dms",
             suite_id, len(runs), passed, failed, errors, total_ms,
         )
         return result
@@ -428,18 +328,10 @@ class TestCatalogService:
         test_case_id: Optional[str] = None,
         limit: int = 100,
     ) -> List[TestRun]:
-        """Return recent TestRun records, most recent first."""
-        with _lock:
-            ordered = [_RUN_STORE[rid] for rid in reversed(_RUN_ORDER) if rid in _RUN_STORE]
-
-        if test_case_id:
-            ordered = [r for r in ordered if r.test_case_id == test_case_id]
-
-        return ordered[:limit]
+        return test_run_repo.list_runs(test_case_id=test_case_id, limit=limit)
 
     def get_run(self, run_id: str) -> Optional[TestRun]:
-        with _lock:
-            return _RUN_STORE.get(run_id)
+        return test_run_repo.get_run(run_id)
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
@@ -452,26 +344,19 @@ class TestCatalogService:
         headless: bool,
         timeout_s: Optional[int],
     ) -> TestRun:
-        """Build steps, run via Playwright runner, record result."""
-        import time as _time
-        from runner import execute_test  # import here to avoid circular at module load
+        """Build steps, run via Playwright runner, persist result."""
+        from runner import execute_test
 
-        t0 = _time.time()
-        run_id = str(uuid.uuid4())
+        t0 = time.time()
+        run_id     = str(uuid.uuid4())
         evidence_id = f"TC-{uuid.uuid4().hex[:10].upper()}"
 
-        logger.info(
-            "test_catalog: executing %s (%s) — run_id=%s env=%s",
-            tc.test_case_id, tc.name, run_id, environment,
-        )
+        logger.info("test_catalog: executing %s (%s) — run_id=%s env=%s",
+                    tc.test_case_id, tc.name, run_id, environment)
 
         steps = _build_runner_steps(tc, base_url=base_url)
-        logger.debug(
-            "test_catalog: %s → %d runner steps: %s",
-            tc.test_case_id,
-            len(steps),
-            [s.get("action") for s in steps],
-        )
+        logger.debug("test_catalog: %s → %d steps: %s",
+                     tc.test_case_id, len(steps), [s.get("action") for s in steps])
 
         try:
             result = execute_test(
@@ -483,51 +368,45 @@ class TestCatalogService:
             if not isinstance(result, dict):
                 result = {}
 
-            runner_status = str(result.get("status") or "").lower()
-            run_status: Literal["pass", "fail", "error", "running"]
-            if runner_status in ("passed", "pass", "ok"):
-                run_status = "pass"
-            elif runner_status in ("failed", "fail"):
-                run_status = "fail"
-            else:
-                run_status = "error"
+            _ok      = result.get("ok")
+            _outcome = str(result.get("outcome") or "").lower()
+            _status  = str(result.get("status")  or "").lower()
 
-            duration_ms = result.get("duration_ms") or int((_time.time() - t0) * 1000)
+            run_status: Literal["pass", "fail", "error", "running"]
+            if _ok is True:
+                run_status = "pass"
+            elif _outcome == "pass" or _status == "passed":
+                run_status = "pass"
+            elif _status == "error":
+                run_status = "error"
+            else:
+                run_status = "fail"
+
+            duration_ms = result.get("duration_ms") or int((time.time() - t0) * 1000)
 
             run = TestRun(
-                run_id=run_id,
-                test_case_id=tc.test_case_id,
-                test_name=tc.name,
-                environment=environment,
-                status=run_status,
-                duration_ms=int(duration_ms),
-                evidence_id=evidence_id,
-                evidence_url=result.get("evidence_url"),
+                run_id=run_id, test_case_id=tc.test_case_id, test_name=tc.name,
+                environment=environment, status=run_status, duration_ms=int(duration_ms),
+                evidence_id=evidence_id, evidence_url=result.get("evidence_url"),
                 report_url=result.get("report_url"),
-                logs=result.get("logs") or [],
-                steps_result=result.get("steps") or [],
+                logs=result.get("logs") or [], steps_result=result.get("steps") or [],
                 meta={
-                    "runner_ok": result.get("ok"),
-                    "runner_outcome": result.get("outcome"),
-                    "runner_reason": result.get("reason"),
-                    "tc_module": tc.module,
-                    "tc_type": tc.type,
-                    "tc_priority": tc.priority,
-                    "tc_version": tc.version,
+                    "runner_ok":      run_status == "pass",
+                    "runner_outcome": _outcome,
+                    "runner_reason":  result.get("reason"),
+                    "tc_module":      tc.module,
+                    "tc_type":        tc.type,
+                    "tc_priority":    tc.priority,
+                    "tc_version":     tc.version,
                 },
             )
 
         except Exception as e:
-            logger.exception(
-                "test_catalog: runner error for %s", tc.test_case_id
-            )
+            logger.exception("test_catalog: runner error for %s", tc.test_case_id)
             run = TestRun(
-                run_id=run_id,
-                test_case_id=tc.test_case_id,
-                test_name=tc.name,
-                environment=environment,
-                status="error",
-                duration_ms=int((_time.time() - t0) * 1000),
+                run_id=run_id, test_case_id=tc.test_case_id, test_name=tc.name,
+                environment=environment, status="error",
+                duration_ms=int((time.time() - t0) * 1000),
                 evidence_id=evidence_id,
                 logs=[f"Runner error: {type(e).__name__}: {e}"],
             )
@@ -536,40 +415,40 @@ class TestCatalogService:
         return run
 
     def _save_run(self, run: TestRun) -> None:
-        with _lock:
-            _RUN_STORE[run.run_id] = run
-            if run.run_id not in _RUN_ORDER:
-                _RUN_ORDER.append(run.run_id)
-            # GC: prune oldest entries beyond threshold
-            while len(_RUN_ORDER) > _MAX_RUNS_KEPT:
-                oldest = _RUN_ORDER.pop(0)
-                _RUN_STORE.pop(oldest, None)
+        test_run_repo.create_run(run)
 
 
 # Module-level singleton — all routes import this instance
 catalog_service = TestCatalogService()
 
 
+# ── Test isolation helpers ────────────────────────────────────────────────────
+
+def _reset_for_testing() -> None:
+    """Wipe all catalog and run data. For use in tests only."""
+    catalog_repo.clear_all()
+    test_run_repo.clear_all()
+
+
 # ── Seed loader ───────────────────────────────────────────────────────────────
 
 def load_seed_catalog() -> None:
-    """Load demo test cases if the catalog is empty."""
+    """Load demo test cases only if the catalog table is empty."""
     from services.test_catalog_seed import SEED_TEST_CASES
+
+    if not catalog_repo.is_empty():
+        logger.debug("test_catalog: seed already loaded, skipped")
+        return
 
     loaded = 0
     for payload_dict in SEED_TEST_CASES:
         try:
             payload = TestCaseCreate(**payload_dict)
-            if catalog_service.get_test_case(payload.test_case_id) is None:
-                catalog_service.create_test_case(payload)
-                loaded += 1
+            catalog_service.create_test_case(payload)
+            loaded += 1
         except Exception as e:
-            logger.warning(
-                "test_catalog: seed load failed for %s — %s",
-                payload_dict.get("test_case_id", "?"), e,
-            )
+            logger.warning("test_catalog: seed failed for %s — %s",
+                           payload_dict.get("test_case_id", "?"), e)
 
     if loaded:
         logger.info("test_catalog: loaded %d seed test cases", loaded)
-    else:
-        logger.debug("test_catalog: seed already loaded, skipped")

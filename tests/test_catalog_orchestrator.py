@@ -24,22 +24,15 @@ import services.test_catalog_service as svc_module
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _fresh_orch() -> CatalogOrchestratorService:
-    """Return a service with clean in-memory state."""
-    orch_module._JOB_STORE.clear()
-    orch_module._JOB_ORDER.clear()
-    # Reset the queue (drain any stale items)
-    while not orch_module._QUEUE.empty():
-        try:
-            orch_module._QUEUE.get_nowait()
-        except Exception:
-            break
+    """Return a service with clean in-memory and DB state."""
+    from services.catalog_orchestrator import _reset_for_testing
+    _reset_for_testing()
     return CatalogOrchestratorService()
 
 
 def _fresh_catalog() -> TestCatalogService:
-    svc_module._CATALOG.clear()
-    svc_module._RUN_STORE.clear()
-    svc_module._RUN_ORDER.clear()
+    from services.test_catalog_service import _reset_for_testing
+    _reset_for_testing()
     return TestCatalogService()
 
 

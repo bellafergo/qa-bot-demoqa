@@ -43,6 +43,7 @@ from typing import Any, Dict, List, Literal, Optional
 
 from models.orchestrator_job import OrchestratorJob, JobStatus
 from services.test_catalog_service import catalog_service
+from services.db.orchestrator_job_repository import orch_job_repo
 
 logger = logging.getLogger("vanya.catalog_orchestrator")
 
@@ -71,26 +72,61 @@ def _now_utc() -> datetime:
 # ── Job store helpers ─────────────────────────────────────────────────────────
 
 def _save_job(job: OrchestratorJob) -> None:
+    """Persist job to in-memory store AND DB."""
     with _job_lock:
         _JOB_STORE[job.job_id] = job
         if job.job_id not in _JOB_ORDER:
             _JOB_ORDER.append(job.job_id)
-        # GC: prune oldest entries beyond threshold
+        # GC: prune oldest entries from memory (DB retains full history)
         while len(_JOB_ORDER) > MAX_JOBS_KEPT:
             oldest = _JOB_ORDER.pop(0)
             _JOB_STORE.pop(oldest, None)
+    try:
+        orch_job_repo.create_job(job)
+    except Exception:
+        logger.exception("orchestrator: DB create_job failed for %s", job.job_id)
+
+
+def _persist_job(job: OrchestratorJob) -> None:
+    """Sync in-memory job state to DB (called after status changes)."""
+    try:
+        orch_job_repo.update_job(job)
+    except Exception:
+        logger.exception("orchestrator: DB update_job failed for %s", job.job_id)
 
 
 def _get_job(job_id: str) -> Optional[OrchestratorJob]:
+    """Return from in-memory cache if present, else load from DB."""
     with _job_lock:
-        return _JOB_STORE.get(job_id)
+        if job_id in _JOB_STORE:
+            return _JOB_STORE[job_id]
+    # Not in memory — try DB (for historical jobs)
+    try:
+        return orch_job_repo.get_job(job_id)
+    except Exception:
+        logger.exception("orchestrator: DB get_job failed for %s", job_id)
+        return None
 
 
 def _list_jobs(limit: int = 100) -> List[OrchestratorJob]:
+    """
+    Return jobs from DB (full persistent history).
+    For active jobs not yet flushed to DB, in-memory state is fresher,
+    so merge: DB results are overridden by in-memory version where present.
+    """
+    try:
+        db_jobs = orch_job_repo.list_jobs(limit=limit)
+    except Exception:
+        logger.exception("orchestrator: DB list_jobs failed, falling back to memory")
+        with _job_lock:
+            return [_JOB_STORE[jid] for jid in reversed(_JOB_ORDER) if jid in _JOB_STORE][:limit]
+
+    # Override DB snapshots with live in-memory state for active jobs
     with _job_lock:
-        # Most recent first
-        ordered = [_JOB_STORE[jid] for jid in reversed(_JOB_ORDER) if jid in _JOB_STORE]
-    return ordered[:limit]
+        mem = dict(_JOB_STORE)
+
+    result = [mem.get(j.job_id, j) for j in db_jobs]
+    return result
 
 
 # ── Job execution ─────────────────────────────────────────────────────────────
@@ -108,6 +144,7 @@ def _run_job(job: OrchestratorJob) -> None:
     after each run.  Runs in its own daemon thread.
     """
     _update_job(job, status="running", started_at=_now_utc())
+    _persist_job(job)   # DB: status → running
     logger.info("orchestrator: job %s started — %d tests", job.job_id, job.total_count)
 
     for tc_id in job.test_case_ids:
@@ -162,6 +199,7 @@ def _run_job(job: OrchestratorJob) -> None:
         job.status      = final_status
         job.finished_at = _now_utc()
 
+    _persist_job(job)   # DB: final status + counters
     logger.info(
         "orchestrator: job %s → %s  (pass=%d fail=%d error=%d)",
         job.job_id, final_status, p, f, e,
@@ -324,3 +362,21 @@ class CatalogOrchestratorService:
 
 # Module-level singleton — routes import this
 orchestrator_service = CatalogOrchestratorService()
+
+
+# ── Test isolation helpers ────────────────────────────────────────────────────
+
+def _reset_for_testing() -> None:
+    """Wipe all in-memory and DB job state. For use in tests only."""
+    with _job_lock:
+        _JOB_STORE.clear()
+        _JOB_ORDER.clear()
+    while not _QUEUE.empty():
+        try:
+            _QUEUE.get_nowait()
+        except Exception:
+            break
+    try:
+        orch_job_repo.clear_all()
+    except Exception:
+        pass

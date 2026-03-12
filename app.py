@@ -152,6 +152,7 @@ def on_startup():
     level = getattr(logging, env_level, logging.INFO)
     logging.basicConfig(level=level)
 
+    # Legacy SQLAlchemy DB (threads / messages)
     if getattr(settings, "HAS_DB", False):
         init_db()
         logger.info("DB enabled: init_db() executed")
@@ -160,7 +161,14 @@ def on_startup():
 
     logger.info("CORS allow_origins = %s", cors_origins)
 
-    # Load demo seed test cases into the catalog (no-op if already loaded)
+    # Initialize catalog / runs / jobs SQLite DB
+    try:
+        from services.db.init_db import init_catalog_db
+        init_catalog_db()
+    except Exception:
+        logger.exception("catalog db: init failed (non-fatal)")
+
+    # Load demo seed test cases — skipped if catalog table is already populated
     try:
         from services.test_catalog_service import load_seed_catalog
         load_seed_catalog()
