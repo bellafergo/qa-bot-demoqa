@@ -108,17 +108,16 @@ def _apply_cors_headers_if_needed(request: Request, response: JSONResponse, allo
 # ============================================================
 # CORS
 # ============================================================
-DEFAULT_FRONTEND_ORIGINS = [
-    "https://valtre-vanya.vercel.app",
-    "http://localhost:5173",
-    "http://localhost:3000",
-]
-
-cors_origins = _normalize_origins(DEFAULT_FRONTEND_ORIGINS)
+# Origins and optional regex are fully driven by environment variables.
+# Set CORS_ORIGINS="https://your-app.vercel.app,http://localhost:5173" on Render.
+# Set CORS_ORIGIN_REGEX="^https://.*-zuperio-vanya\\.vercel\\.app$" to allow preview deploys.
+cors_origins = _normalize_origins(settings.CORS_ORIGINS)
+cors_origin_regex = settings.CORS_ORIGIN_REGEX or None
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
+    allow_origin_regex=cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -130,8 +130,8 @@ class Settings:
     @property
     def CORS_ORIGINS(self) -> List[str]:
         """
-        Override via env:
-          CORS_ORIGINS="http://localhost:5173,https://valtre-vanya.vercel.app"
+        Override via env var on Render:
+          CORS_ORIGINS="http://localhost:5173,https://zuperio-vanya.vercel.app"
         """
         env_val = (os.getenv("CORS_ORIGINS") or "").strip()
         if env_val:
@@ -140,15 +140,15 @@ class Settings:
         defaults = [
             "http://localhost:5173",
             "http://localhost:5174",
-            "https://valtre-vanya.vercel.app",
+            "https://zuperio-vanya.vercel.app",
         ]
         return [x.rstrip("/") for x in defaults]
 
     @property
     def CORS_ORIGIN_REGEX(self) -> str:
         """
-        Regex opcional para permitir previews (ej. Vercel):
-          CORS_ORIGIN_REGEX="^https:\\/\\/.*-valtre-vanya\\.vercel\\.app$"
+        Regex opcional para permitir previews de Vercel:
+          CORS_ORIGIN_REGEX="^https://.*-zuperio-vanya\\.vercel\\.app$"
         """
         return (os.getenv("CORS_ORIGIN_REGEX") or "").strip()
 
