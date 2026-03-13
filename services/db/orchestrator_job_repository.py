@@ -36,6 +36,10 @@ class OrchestratorJobRow(Base):
     created_at         = Column(String,  nullable=False)
     started_at         = Column(String)
     finished_at        = Column(String)
+    # Parallel-execution block extensions
+    retry_count        = Column(Integer, default=0)
+    skipped_count      = Column(Integer, default=0)
+    scheduling_notes   = Column(String)
 
 
 # ── Conversion helpers ────────────────────────────────────────────────────────
@@ -56,22 +60,25 @@ def _row_to_model(row: OrchestratorJobRow):
             return None
 
     return OrchestratorJob(
-        job_id          = row.job_id,
-        job_type        = row.job_type,
-        status          = row.status,
-        test_case_ids   = json.loads(row.test_case_ids_json or "[]"),
-        total_count     = row.total_count     or 0,
-        completed_count = row.completed_count or 0,
-        passed_count    = row.passed_count    or 0,
-        failed_count    = row.failed_count    or 0,
-        error_count     = row.error_count     or 0,
-        run_ids         = json.loads(row.run_ids_json   or "[]"),
-        results         = json.loads(row.results_json   or "[]"),
-        error_message   = row.error_message,
-        environment     = row.environment or "default",
-        created_at      = _parse_dt(row.created_at),
-        started_at      = _parse_dt(row.started_at),
-        finished_at     = _parse_dt(row.finished_at),
+        job_id           = row.job_id,
+        job_type         = row.job_type,
+        status           = row.status,
+        test_case_ids    = json.loads(row.test_case_ids_json or "[]"),
+        total_count      = row.total_count     or 0,
+        completed_count  = row.completed_count or 0,
+        passed_count     = row.passed_count    or 0,
+        failed_count     = row.failed_count    or 0,
+        error_count      = row.error_count     or 0,
+        run_ids          = json.loads(row.run_ids_json   or "[]"),
+        results          = json.loads(row.results_json   or "[]"),
+        error_message    = row.error_message,
+        environment      = row.environment or "default",
+        created_at       = _parse_dt(row.created_at),
+        started_at       = _parse_dt(row.started_at),
+        finished_at      = _parse_dt(row.finished_at),
+        retry_count      = row.retry_count    or 0,
+        skipped_count    = row.skipped_count  or 0,
+        scheduling_notes = row.scheduling_notes,
     )
 
 
@@ -98,6 +105,9 @@ class OrchestratorJobRepository:
             created_at         = job.created_at.isoformat(),
             started_at         = job.started_at.isoformat() if job.started_at else None,
             finished_at        = job.finished_at.isoformat() if job.finished_at else None,
+            retry_count        = getattr(job, "retry_count", 0) or 0,
+            skipped_count      = getattr(job, "skipped_count", 0) or 0,
+            scheduling_notes   = getattr(job, "scheduling_notes", None),
         )
         with get_session() as s:
             s.add(row)
@@ -122,6 +132,9 @@ class OrchestratorJobRepository:
             created_at         = job.created_at.isoformat(),
             started_at         = job.started_at.isoformat() if job.started_at else None,
             finished_at        = job.finished_at.isoformat() if job.finished_at else None,
+            retry_count        = getattr(job, "retry_count", 0) or 0,
+            skipped_count      = getattr(job, "skipped_count", 0) or 0,
+            scheduling_notes   = getattr(job, "scheduling_notes", None),
         )
         with get_session() as s:
             s.merge(row)

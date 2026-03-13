@@ -70,6 +70,21 @@ class DashboardService:
         total_jobs = sum(job_by_status.values())
         last_job_at = orch_job_repo.get_last_created_at()
 
+        # Execution scheduler live stats
+        exec_active_workers = 0
+        exec_queue_depth    = 0
+        exec_running_jobs   = running
+        exec_retried_runs   = 0
+        try:
+            from services.catalog_orchestrator import get_execution_status
+            ex = get_execution_status()
+            exec_active_workers = ex.get("active_workers", 0)
+            exec_queue_depth    = ex.get("queue_depth", 0)
+            exec_running_jobs   = ex.get("active_jobs", running)
+            exec_retried_runs   = ex.get("retried_tasks", 0)
+        except Exception:
+            pass
+
         return DashboardSummary(
             total_test_cases    = total_tc,
             active_test_cases   = active,
@@ -89,6 +104,9 @@ class DashboardService:
             failed_jobs         = failed,
             last_run_at         = last_run_at,
             last_job_at         = last_job_at,
+            active_workers      = exec_active_workers,
+            queue_depth         = exec_queue_depth,
+            retried_runs        = exec_retried_runs,
         )
 
     # ── Recent records ────────────────────────────────────────────────────────

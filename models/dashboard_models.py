@@ -37,6 +37,12 @@ class DashboardSummary(BaseModel):
     last_run_at: Optional[str] = None   # ISO-8601 string
     last_job_at: Optional[str] = None   # ISO-8601 string
 
+    # Execution scheduler (parallel-execution block)
+    active_workers: int = 0   # tests currently running across all jobs
+    queue_depth:    int = 0   # queued jobs + queued tasks
+    running_jobs:   int = 0   # jobs with status == "running"
+    retried_runs:   int = 0   # total retry attempts since process start
+
 
 class DashboardModuleMetrics(BaseModel):
     """Run metrics aggregated by test-case module."""

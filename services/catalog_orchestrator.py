@@ -14,10 +14,17 @@ Architecture
   CatalogOrchestratorService.enqueue_single / enqueue_suite
       ↓  creates OrchestratorJob, pushes to _QUEUE
   _worker_loop  (daemon thread — one global loop)
-      ↓  pulls job from _QUEUE, acquires _SEM (semaphore = MAX_CONCURRENCY)
-  _run_job  (per-job thread, bounded by semaphore)
-      ↓  calls catalog_service.run_test_case() per test_case_id
+      ↓  pulls job from _QUEUE, acquires _SEM (job-level semaphore)
+  _run_job  (per-job thread — dispatches tests to ThreadPoolExecutor)
+      ↓  _run_single_test() per test_case_id (parallel, bounded per-type)
       ↓  updates job counters + status atomically under _job_lock
+
+Parallel execution (execution-scheduler block)
+----------------------------------------------
+- _run_job now runs tests in parallel via ThreadPoolExecutor
+- _UI_SEM / _API_SEM enforce per-type concurrency limits
+- _schedule_tests() sorts tests by priority+type before dispatch
+- _run_single_test() retries on error status or runner exception
 
 Upgrade path
 ------------
@@ -37,9 +44,11 @@ import logging
 import os
 import queue
 import threading
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from models.orchestrator_job import OrchestratorJob, JobStatus
 from services.test_catalog_service import catalog_service
@@ -49,8 +58,14 @@ logger = logging.getLogger("vanya.catalog_orchestrator")
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-MAX_CONCURRENCY: int = int(os.getenv("ORCHESTRATOR_MAX_CONCURRENCY", "2"))
-MAX_JOBS_KEPT:   int = 500   # in-memory GC threshold
+MAX_CONCURRENCY:         int = int(os.getenv("ORCHESTRATOR_MAX_CONCURRENCY", "2"))
+MAX_JOBS_KEPT:           int = 500
+
+# Parallel execution settings (execution-scheduler block)
+EXECUTION_MAX_WORKERS:   int = int(os.getenv("EXECUTION_MAX_WORKERS",    "4"))
+EXECUTION_MAX_UI_WORKERS: int = int(os.getenv("EXECUTION_MAX_UI_WORKERS", "2"))
+EXECUTION_MAX_API_WORKERS: int = int(os.getenv("EXECUTION_MAX_API_WORKERS", "4"))
+EXECUTION_RETRY_LIMIT:   int = int(os.getenv("EXECUTION_RETRY_LIMIT",    "1"))
 
 # ── Module-level state ────────────────────────────────────────────────────────
 
@@ -63,6 +78,21 @@ _SEM:       threading.Semaphore = threading.Semaphore(MAX_CONCURRENCY)
 
 _worker_started: bool = False
 _worker_lock:    threading.Lock = threading.Lock()
+
+# Per-type concurrency semaphores
+_UI_SEM:  threading.Semaphore = threading.Semaphore(EXECUTION_MAX_UI_WORKERS)
+_API_SEM: threading.Semaphore = threading.Semaphore(EXECUTION_MAX_API_WORKERS)
+
+# Observability counters
+_STATS: Dict[str, int] = {
+    "active_workers":  0,   # tests currently holding a semaphore slot
+    "running_ui":      0,   # UI tests currently executing
+    "running_api":     0,   # API tests currently executing
+    "queued_tasks":    0,   # tasks submitted to executor but not yet running
+    "completed_tasks": 0,   # total tests completed since process start
+    "retried_tasks":   0,   # total retry attempts since process start
+}
+_STATS_LOCK: threading.Lock = threading.Lock()
 
 
 def _now_utc() -> datetime:
@@ -129,6 +159,180 @@ def _list_jobs(limit: int = 100) -> List[OrchestratorJob]:
     return result
 
 
+# ── Scheduling ────────────────────────────────────────────────────────────────
+
+_PRIORITY_ORDER: Dict[str, int] = {
+    "critical": 0,
+    "high":     1,
+    "medium":   2,
+    "low":      3,
+}
+
+_TYPE_ORDER: Dict[str, int] = {
+    "smoke":      0,
+    "regression": 1,
+    "e2e":        2,
+    "api":        3,
+    "ui":         4,
+    "negative":   5,
+}
+
+
+def _schedule_tests(test_case_ids: List[str]) -> Tuple[List[str], str]:
+    """
+    Sort test_case_ids by priority (critical first) then type (smoke first).
+
+    Returns (sorted_ids, scheduling_notes_str).
+    Uses a stable sort so tests with equal keys preserve insertion order.
+    """
+    from services.db.catalog_repository import catalog_repo
+
+    def _sort_key(tc_id: str) -> Tuple[int, int, str]:
+        try:
+            tc = catalog_repo.get_test_case(tc_id)
+            if tc is None:
+                return (99, 99, tc_id)
+            p = _PRIORITY_ORDER.get((tc.priority or "low").lower(), 3)
+            t = _TYPE_ORDER.get((tc.type or "smoke").lower(), 4)
+            return (p, t, tc_id)
+        except Exception:
+            return (99, 99, tc_id)
+
+    sorted_ids = sorted(test_case_ids, key=_sort_key)
+
+    # Build human-readable notes for the first 3 tests
+    tops: List[str] = []
+    for tc_id in sorted_ids[:3]:
+        try:
+            from services.db.catalog_repository import catalog_repo as _cr
+            tc = _cr.get_test_case(tc_id)
+            if tc:
+                tops.append(f"{tc.priority}/{tc.type_}")
+        except Exception:
+            pass
+
+    suffix = "…" if len(sorted_ids) > 3 else ""
+    notes = (
+        f"Scheduled {len(sorted_ids)} tests: [{', '.join(tops)}{suffix}]"
+        if tops
+        else f"Scheduled {len(sorted_ids)} tests"
+    )
+    return sorted_ids, notes
+
+
+# ── Test-type lookup ──────────────────────────────────────────────────────────
+
+def _get_test_type(tc_id: str) -> str:
+    """Return 'ui' or 'api' for a test case. Defaults to 'ui' on any error."""
+    try:
+        from services.db.catalog_repository import catalog_repo
+        tc = catalog_repo.get_test_case(tc_id)
+        if tc:
+            return getattr(tc, "test_type", "ui") or "ui"
+    except Exception:
+        pass
+    return "ui"
+
+
+# ── Single-test executor with retry ──────────────────────────────────────────
+
+def _run_single_test(
+    job: OrchestratorJob,
+    tc_id: str,
+    retry_limit: int,
+) -> Dict[str, Any]:
+    """
+    Execute one test case with retry policy.
+
+    Retry conditions:
+      - run.status == "error" (runner crash / timeout) → retry up to retry_limit
+      - run.status == "fail"  (assertion failure)      → do NOT retry
+      - run.status == "pass"                           → done
+
+    Per-type semaphores (UI_SEM / API_SEM) ensure bounded concurrency
+    across all jobs running simultaneously.
+    """
+    test_type = _get_test_type(tc_id)
+    sem = _UI_SEM if test_type == "ui" else _API_SEM
+
+    # Task is now actively processing (was "queued" in the executor)
+    with _STATS_LOCK:
+        _STATS["queued_tasks"] = max(0, _STATS["queued_tasks"] - 1)
+
+    was_retried = False
+    last_result: Dict[str, Any] = {
+        "test_case_id": tc_id,
+        "status":       "error",
+        "run_id":       None,
+        "duration_ms":  None,
+        "attempt":      1,
+        "test_type":    test_type,
+    }
+
+    for attempt in range(retry_limit + 1):
+        if attempt > 0:
+            was_retried = True
+            time.sleep(0.3)   # brief pause before retry
+
+        # Acquire per-type semaphore — blocks until a slot is free
+        sem.acquire()
+
+        # Track this attempt as active
+        with _STATS_LOCK:
+            _STATS["active_workers"] += 1
+            if test_type == "ui":
+                _STATS["running_ui"] += 1
+            else:
+                _STATS["running_api"] += 1
+
+        try:
+            run = catalog_service.run_test_case(tc_id, environment=job.environment)
+            last_result = {
+                "test_case_id": tc_id,
+                "run_id":       run.run_id,
+                "status":       run.status,
+                "duration_ms":  run.duration_ms,
+                "attempt":      attempt + 1,
+                "test_type":    test_type,
+            }
+        except Exception as exc:
+            last_result = {
+                "test_case_id": tc_id,
+                "run_id":       None,
+                "status":       "error",
+                "duration_ms":  None,
+                "error":        f"{type(exc).__name__}: {exc}",
+                "attempt":      attempt + 1,
+                "test_type":    test_type,
+            }
+        finally:
+            sem.release()
+            with _STATS_LOCK:
+                _STATS["active_workers"] = max(0, _STATS["active_workers"] - 1)
+                if test_type == "ui":
+                    _STATS["running_ui"] = max(0, _STATS["running_ui"] - 1)
+                else:
+                    _STATS["running_api"] = max(0, _STATS["running_api"] - 1)
+
+        # Retry decision: only on error, not on assertion failures
+        if last_result["status"] == "error" and attempt < retry_limit:
+            logger.info(
+                "orchestrator: retrying %s (attempt %d→%d) — status=error",
+                tc_id, attempt + 1, attempt + 2,
+            )
+            continue
+
+        break   # success ("pass"), assertion failure ("fail"), or retries exhausted
+
+    # Final accounting (once per test, after all retry attempts)
+    with _STATS_LOCK:
+        _STATS["completed_tasks"] += 1
+        if was_retried:
+            _STATS["retried_tasks"] += 1
+
+    return last_result
+
+
 # ── Job execution ─────────────────────────────────────────────────────────────
 
 def _update_job(job: OrchestratorJob, **kwargs: Any) -> None:
@@ -140,50 +344,78 @@ def _update_job(job: OrchestratorJob, **kwargs: Any) -> None:
 
 def _run_job(job: OrchestratorJob) -> None:
     """
-    Execute all test_case_ids in a job sequentially, updating counters
-    after each run.  Runs in its own daemon thread.
+    Execute all test_case_ids in a job in parallel, bounded by per-type
+    semaphores.  Tests are scheduled (sorted) before dispatch.
+    Runs in its own daemon thread (spawned by _worker_loop).
     """
     _update_job(job, status="running", started_at=_now_utc())
-    _persist_job(job)   # DB: status → running
+    _persist_job(job)
     logger.info("orchestrator: job %s started — %d tests", job.job_id, job.total_count)
 
-    for tc_id in job.test_case_ids:
-        try:
-            run = catalog_service.run_test_case(tc_id, environment=job.environment)
-            summary: Dict[str, Any] = {
-                "test_case_id": tc_id,
-                "run_id":       run.run_id,
-                "status":       run.status,
-                "duration_ms":  run.duration_ms,
-            }
+    # ── Smart scheduling: sort by priority/type ───────────────────────────────
+    sorted_ids, notes = _schedule_tests(job.test_case_ids)
+    _update_job(job, scheduling_notes=notes)
+    logger.debug("orchestrator: job %s — %s", job.job_id, notes)
+
+    if not sorted_ids:
+        with _job_lock:
+            job.status     = "failed"
+            job.finished_at = _now_utc()
+            job.error_message = "No test_case_ids to execute"
+        _persist_job(job)
+        return
+
+    # Track how many tests are "queued" in the executor
+    with _STATS_LOCK:
+        _STATS["queued_tasks"] += len(sorted_ids)
+
+    # ── Parallel dispatch via ThreadPoolExecutor ───────────────────────────────
+    n_workers = min(EXECUTION_MAX_WORKERS, len(sorted_ids))
+
+    with ThreadPoolExecutor(
+        max_workers=n_workers,
+        thread_name_prefix=f"orch-exec-{job.job_id[:8]}",
+    ) as pool:
+        futures = {
+            pool.submit(_run_single_test, job, tc_id, EXECUTION_RETRY_LIMIT): tc_id
+            for tc_id in sorted_ids
+        }
+
+        for future in as_completed(futures):
+            tc_id = futures[future]
+            try:
+                summary = future.result()
+            except Exception as exc:
+                summary = {
+                    "test_case_id": tc_id,
+                    "run_id":       None,
+                    "status":       "error",
+                    "duration_ms":  None,
+                    "error":        f"Executor error: {type(exc).__name__}: {exc}",
+                    "attempt":      1,
+                    "test_type":    "unknown",
+                }
+
             with _job_lock:
-                job.run_ids.append(run.run_id)
                 job.results.append(summary)
                 job.completed_count += 1
-                if run.status == "pass":
+                if summary.get("run_id"):
+                    job.run_ids.append(summary["run_id"])
+
+                s = summary.get("status", "error")
+                if s == "pass":
                     job.passed_count += 1
-                elif run.status == "error":
+                elif s == "error":
                     job.error_count += 1
                 else:
                     job.failed_count += 1
 
-        except Exception as e:
-            logger.exception(
-                "orchestrator: error running %s in job %s", tc_id, job.job_id
-            )
-            summary = {
-                "test_case_id": tc_id,
-                "run_id":       None,
-                "status":       "error",
-                "duration_ms":  None,
-                "error":        str(e),
-            }
-            with _job_lock:
-                job.results.append(summary)
-                job.completed_count += 1
-                job.error_count += 1
+                # Track total retries in the job record
+                extra_attempts = summary.get("attempt", 1) - 1
+                if extra_attempts > 0:
+                    job.retry_count = job.retry_count + extra_attempts
 
-    # Determine final job status
+    # ── Finalize job status ───────────────────────────────────────────────────
     with _job_lock:
         p = job.passed_count
         f = job.failed_count
@@ -199,10 +431,10 @@ def _run_job(job: OrchestratorJob) -> None:
         job.status      = final_status
         job.finished_at = _now_utc()
 
-    _persist_job(job)   # DB: final status + counters
+    _persist_job(job)
     logger.info(
-        "orchestrator: job %s → %s  (pass=%d fail=%d error=%d)",
-        job.job_id, final_status, p, f, e,
+        "orchestrator: job %s → %s  (pass=%d fail=%d error=%d retry=%d)",
+        job.job_id, final_status, p, f, e, job.retry_count,
     )
 
 
@@ -211,9 +443,12 @@ def _run_job(job: OrchestratorJob) -> None:
 def _worker_loop() -> None:
     """
     Daemon loop: pulls jobs from _QUEUE and dispatches each to its own
-    thread, bounded by _SEM so at most MAX_CONCURRENCY run simultaneously.
+    thread, bounded by _SEM so at most MAX_CONCURRENCY jobs run simultaneously.
     """
-    logger.info("orchestrator: worker loop started (max_concurrency=%d)", MAX_CONCURRENCY)
+    logger.info(
+        "orchestrator: worker loop started (max_concurrency=%d, max_workers=%d)",
+        MAX_CONCURRENCY, EXECUTION_MAX_WORKERS,
+    )
     while True:
         try:
             job: OrchestratorJob = _QUEUE.get(timeout=1)
@@ -246,6 +481,81 @@ def ensure_worker_started() -> None:
         t.start()
         _worker_started = True
     logger.info("orchestrator: background worker started")
+
+
+# ── Observability ─────────────────────────────────────────────────────────────
+
+def get_execution_status() -> Dict[str, Any]:
+    """
+    Return a snapshot of live execution stats for the /execution/status route.
+    All values are point-in-time approximations (no locking across both stores).
+    """
+    with _STATS_LOCK:
+        stats = dict(_STATS)
+
+    with _job_lock:
+        active_jobs = sum(1 for j in _JOB_STORE.values() if j.status == "running")
+        queued_jobs = sum(1 for j in _JOB_STORE.values() if j.status == "queued")
+
+    return {
+        "active_jobs":          active_jobs,
+        "queued_jobs":          queued_jobs,
+        "active_workers":       stats["active_workers"],
+        "queue_depth":          queued_jobs + stats["queued_tasks"],
+        "max_workers":          EXECUTION_MAX_WORKERS,
+        "max_ui_workers":       EXECUTION_MAX_UI_WORKERS,
+        "max_api_workers":      EXECUTION_MAX_API_WORKERS,
+        "running_ui_workers":   stats["running_ui"],
+        "running_api_workers":  stats["running_api"],
+        "queued_tasks":         stats["queued_tasks"],
+        "running_tasks":        stats["active_workers"],
+        "completed_tasks":      stats["completed_tasks"],
+        "retried_tasks":        stats["retried_tasks"],
+    }
+
+
+def retry_failed_tests(job_id: str) -> Optional[OrchestratorJob]:
+    """
+    Create and enqueue a new suite job that re-runs only the failed/errored
+    tests from a previous job.
+
+    Returns the new OrchestratorJob (status=queued) or None if:
+    - the original job is not found
+    - the original job has no failed/errored results
+    """
+    original = _get_job(job_id)
+    if original is None:
+        return None
+
+    # Collect failed/error test_case_ids (preserve order, deduplicate)
+    seen: set = set()
+    failed_ids: List[str] = []
+    for result in (original.results or []):
+        tc_id  = result.get("test_case_id")
+        status = result.get("status", "")
+        if tc_id and status in ("fail", "error") and tc_id not in seen:
+            seen.add(tc_id)
+            failed_ids.append(tc_id)
+
+    if not failed_ids:
+        return None
+
+    new_job = OrchestratorJob(
+        job_type         = "suite",
+        test_case_ids    = failed_ids,
+        total_count      = len(failed_ids),
+        environment      = original.environment,
+        scheduling_notes = (
+            f"Retry of {len(failed_ids)} failed test(s) from job {job_id[:8]}"
+        ),
+    )
+    _save_job(new_job)
+    _QUEUE.put(new_job)
+    logger.info(
+        "orchestrator: retry job %s — %d failed tests from job %s",
+        new_job.job_id, len(failed_ids), job_id,
+    )
+    return new_job
 
 
 # ── Public service facade ─────────────────────────────────────────────────────
@@ -376,6 +686,9 @@ def _reset_for_testing() -> None:
             _QUEUE.get_nowait()
         except Exception:
             break
+    with _STATS_LOCK:
+        for k in list(_STATS):
+            _STATS[k] = 0
     try:
         orch_job_repo.clear_all()
     except Exception:

@@ -39,3 +39,22 @@ def init_catalog_db() -> None:
                 logger.info("db: migrated test_cases — added test_type column")
     except Exception:
         logger.exception("db: migration for test_type failed (non-fatal)")
+
+    # ── orchestrator_jobs: parallel-execution block columns ───────────────────
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(orchestrator_jobs)"))
+            existing_cols = {row[1] for row in result.fetchall()}
+            migrations = [
+                ("retry_count",      "ALTER TABLE orchestrator_jobs ADD COLUMN retry_count INTEGER DEFAULT 0"),
+                ("skipped_count",    "ALTER TABLE orchestrator_jobs ADD COLUMN skipped_count INTEGER DEFAULT 0"),
+                ("scheduling_notes", "ALTER TABLE orchestrator_jobs ADD COLUMN scheduling_notes TEXT"),
+            ]
+            for col_name, sql in migrations:
+                if col_name not in existing_cols:
+                    conn.execute(text(sql))
+                    logger.info("db: migrated orchestrator_jobs — added %s column", col_name)
+            conn.commit()
+    except Exception:
+        logger.exception("db: migration for orchestrator_jobs parallel-execution columns failed (non-fatal)")

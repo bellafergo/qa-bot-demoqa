@@ -55,6 +55,11 @@ class OrchestratorJob(BaseModel):
     # Lightweight per-test summaries embedded in the job response
     results:          List[Dict[str, Any]] = Field(default_factory=list)
 
+    # Execution-scheduler extensions (added in parallel-execution block)
+    retry_count:      int = 0
+    skipped_count:    int = 0
+    scheduling_notes: Optional[str] = None
+
     # Timestamps
     created_at:       datetime = Field(default_factory=_now_utc)
     started_at:       Optional[datetime] = None
