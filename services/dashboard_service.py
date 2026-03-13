@@ -85,28 +85,44 @@ class DashboardService:
         except Exception:
             pass
 
+        # Failure intelligence lightweight metrics
+        fi_flaky_count      = 0
+        fi_regression_count = 0
+        fi_cluster_count    = 0
+        try:
+            from services.failure_intelligence_service import failure_intelligence_service
+            fi_summary = failure_intelligence_service.get_summary()
+            fi_flaky_count      = fi_summary.flaky_tests_count
+            fi_regression_count = fi_summary.recurrent_regressions_count
+            fi_cluster_count    = fi_summary.total_clusters
+        except Exception:
+            pass
+
         return DashboardSummary(
-            total_test_cases    = total_tc,
-            active_test_cases   = active,
-            inactive_test_cases = inactive,
-            total_ui_tests      = total_ui_tests,
-            total_api_tests     = total_api_tests,
-            total_runs          = total_runs,
-            pass_runs           = pass_runs,
-            fail_runs           = fail_runs,
-            error_runs          = error_runs,
-            pass_rate           = _pass_rate(pass_runs, total_runs),
-            total_jobs          = total_jobs,
-            queued_jobs         = queued,
-            running_jobs        = running,
-            completed_jobs      = completed,
-            partial_jobs        = partial,
-            failed_jobs         = failed,
-            last_run_at         = last_run_at,
-            last_job_at         = last_job_at,
-            active_workers      = exec_active_workers,
-            queue_depth         = exec_queue_depth,
-            retried_runs        = exec_retried_runs,
+            total_test_cases             = total_tc,
+            active_test_cases            = active,
+            inactive_test_cases          = inactive,
+            total_ui_tests               = total_ui_tests,
+            total_api_tests              = total_api_tests,
+            total_runs                   = total_runs,
+            pass_runs                    = pass_runs,
+            fail_runs                    = fail_runs,
+            error_runs                   = error_runs,
+            pass_rate                    = _pass_rate(pass_runs, total_runs),
+            total_jobs                   = total_jobs,
+            queued_jobs                  = queued,
+            running_jobs                 = running,
+            completed_jobs               = completed,
+            partial_jobs                 = partial,
+            failed_jobs                  = failed,
+            last_run_at                  = last_run_at,
+            last_job_at                  = last_job_at,
+            active_workers               = exec_active_workers,
+            queue_depth                  = exec_queue_depth,
+            retried_runs                 = exec_retried_runs,
+            flaky_tests_count            = fi_flaky_count,
+            recurrent_regressions_count  = fi_regression_count,
+            total_failure_clusters       = fi_cluster_count,
         )
 
     # ── Recent records ────────────────────────────────────────────────────────

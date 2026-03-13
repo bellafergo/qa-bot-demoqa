@@ -43,6 +43,11 @@ class DashboardSummary(BaseModel):
     running_jobs:   int = 0   # jobs with status == "running"
     retried_runs:   int = 0   # total retry attempts since process start
 
+    # Failure intelligence (Block 14)
+    flaky_tests_count:           int = 0
+    recurrent_regressions_count: int = 0
+    total_failure_clusters:      int = 0
+
 
 class DashboardModuleMetrics(BaseModel):
     """Run metrics aggregated by test-case module."""
