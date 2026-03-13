@@ -4,13 +4,18 @@ import { Outlet, useLocation } from "react-router-dom";
 import NavSidebar from "./NavSidebar";
 
 const ROUTE_META = {
-  // dashboard has its own hero header — suppress the generic bar
-  "/dashboard": null,
-  "/chat":      { title: "AI Chat",        subtitle: "Intelligent QA assistant" },
-  "/planner":   { title: "Test Planner",   subtitle: "Natural-language test generation" },
-  "/documents": { title: "Documents",      subtitle: "Upload and query test documents" },
-  "/runs":      { title: "Execution Runs", subtitle: "Review evidence and test results" },
-  "/settings":  { title: "Settings",       subtitle: "Configuration and preferences" },
+  "/dashboard":   null,  // has its own hero header
+  "/chat":        { title: "AI Chat",           subtitle: "Intelligent QA assistant" },
+  "/planner":     { title: "Test Planner",      subtitle: "Natural-language test generation" },
+  "/documents":   { title: "Documents",         subtitle: "Upload and query test documents" },
+  "/runs":        { title: "Runs & RCA",        subtitle: "Run history, evidence lookup, and root cause analysis" },
+  "/settings":    { title: "Settings",          subtitle: "Configuration and preferences" },
+  "/catalog":     { title: "Test Catalog",      subtitle: "Browse, filter, and execute catalog test cases" },
+  "/drafts":      { title: "Draft Approval",    subtitle: "Review and approve AI-generated test drafts" },
+  "/execution":   { title: "Execution Center",  subtitle: "Worker pool, job queue, and batch execution" },
+  "/pr-analysis": { title: "PR Analysis",       subtitle: "Analyze pull request QA impact and enqueue tests" },
+  "/api-testing": { title: "API Testing",       subtitle: "Parse OpenAPI specs, generate and run API tests" },
+  "/coverage":    { title: "Coverage",          subtitle: "Test coverage intelligence by module" },
 };
 
 export default function Layout() {

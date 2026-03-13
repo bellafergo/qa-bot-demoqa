@@ -98,3 +98,67 @@ export const deleteThread = (id) => apiDelete(`/threads/${id}`);
 
 export const chatRun = (prompt, thread_id, extra = {}) =>
   apiPost("/chat_run", { prompt, thread_id, headless: true, ...extra });
+
+// ========= Dashboard =========
+export const getDashboardSummary   = ()            => apiGet("/dashboard/summary");
+export const getDashboardRecentRuns = (limit = 20) => apiGet(`/dashboard/recent-runs?limit=${limit}`);
+export const getDashboardRecentJobs = (limit = 20) => apiGet(`/dashboard/recent-jobs?limit=${limit}`);
+export const getDashboardByModule  = ()            => apiGet("/dashboard/by-module");
+
+// ========= Test Catalog =========
+export function listTests(params = {}) {
+  const q = new URLSearchParams();
+  if (params.module)   q.set("module",   params.module);
+  if (params.type)     q.set("type",     params.type);
+  if (params.priority) q.set("priority", params.priority);
+  if (params.status !== undefined) q.set("status", params.status);
+  if (params.limit)    q.set("limit",    params.limit);
+  const qs = q.toString();
+  return apiGet(`/tests${qs ? "?" + qs : ""}`);
+}
+export const runTest  = (tc_id, body = {}) => apiPost(`/tests/${tc_id}/run`, body);
+export const runSuite = (body)             => apiPost("/tests/run-suite", body);
+
+// ========= Test Runs =========
+export function listTestRuns(params = {}) {
+  const q = new URLSearchParams();
+  if (params.test_case_id) q.set("test_case_id", params.test_case_id);
+  if (params.limit)        q.set("limit",        params.limit);
+  const qs = q.toString();
+  return apiGet(`/test-runs${qs ? "?" + qs : ""}`);
+}
+export const getTestRun = (run_id) => apiGet(`/test-runs/${run_id}`);
+
+// ========= Orchestrator / Execution =========
+export const listJobs        = (limit = 100) => apiGet(`/orchestrator/jobs?limit=${limit}`);
+export const getJob          = (id)          => apiGet(`/orchestrator/jobs/${id}`);
+export const enqueueSingle   = (body)        => apiPost("/orchestrator/jobs/single", body);
+export const enqueueSuite    = (body)        => apiPost("/orchestrator/jobs/suite", body);
+export const runBatch        = (body)        => apiPost("/execution/run-batch", body);
+export const getExecStatus   = ()            => apiGet("/execution/status");
+
+// ========= RCA / Business Risk =========
+export const analyzeRCA      = (body) => apiPost("/rca/analyze",           body);
+export const analyzeRisk     = (body) => apiPost("/business-risk/analyze", body);
+
+// ========= Test Generation =========
+export const generateTests   = (body) => apiPost("/test-generation/generate", body);
+export const approveTests    = (body) => apiPost("/test-generation/approve",  body);
+
+// ========= PR Analysis =========
+export const analyzePR           = (body) => apiPost("/pr-analysis/analyze",             body);
+export const analyzePRAndEnqueue = (body) => apiPost("/pr-analysis/analyze-and-enqueue", body);
+
+// ========= API Testing =========
+export const parseSpec        = (body) => apiPost("/api-testing/parse-spec",     body);
+export const generateApiTests = (body) => apiPost("/api-testing/generate-tests", body);
+export const approveApiTests  = (body) => apiPost("/api-testing/approve",        body);
+export const runApiTests      = (body) => apiPost("/api-testing/run",            body);
+
+// ========= Coverage =========
+export const getCoverageSummary = () => apiGet("/coverage/summary");
+
+// ========= Failure Intelligence =========
+export const getFailureIntel = () => apiGet("/failure-intelligence/summary");
+export const getFlakyTests   = () => apiGet("/failure-intelligence/flaky-tests");
+export const getClusters     = () => apiGet("/failure-intelligence/clusters");
