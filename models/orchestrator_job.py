@@ -25,7 +25,7 @@ def _new_uuid() -> str:
 
 
 JobStatus = Literal["queued", "running", "completed", "partial", "failed"]
-JobType   = Literal["single", "suite"]
+JobType   = Literal["single", "suite", "batch", "shard"]   # batch/shard added in Block 16
 
 
 class OrchestratorJob(BaseModel):

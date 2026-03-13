@@ -73,6 +73,49 @@ class RunnerMeta(BaseModel):
         extra = "allow"  # deja pasar campos adicionales sin romper
 
 
+# ============================================================
+# Canonical internal step structure (Block 16)
+# ============================================================
+
+class NormalizedStep(BaseModel):
+    """
+    Canonical internal step structure produced by normalizers and consumed by runners.
+
+    This is the single source of truth for what a step looks like between
+    the normalization phase and execution phase.  Both legacy (selector-based)
+    and structured (target-based) shapes are expressible here.
+
+    Fields
+    ------
+    action      : required — e.g. "goto", "fill", "click", "assert_visible"
+    target      : structured locator descriptor (primary + fallbacks)
+    selector    : raw CSS/Playwright selector (legacy compat, preserved as-is)
+    fallbacks   : convenience list mirroring target.fallbacks when target is absent
+    expected    : expected value used in assertion steps
+    timeout_ms  : per-step timeout (overrides runner default)
+    metadata    : arbitrary key/value bag for runner annotations (healing logs, etc.)
+
+    Action-specific pass-throughs (url, value, text, key, ms) are kept so
+    runners can read them directly without unwrapping extra dicts.
+    """
+    action:     str
+    target:     Optional[TargetSpec]          = None
+    selector:   Optional[str]                 = None   # legacy compat
+    fallbacks:  List[TargetFallback]          = Field(default_factory=list)
+    expected:   Optional[str]                 = None
+    timeout_ms: int                           = 10_000
+    metadata:   Dict[str, Any]                = Field(default_factory=dict)
+    # action-specific passthroughs
+    url:   Optional[str] = None
+    value: Optional[str] = None
+    text:  Optional[str] = None
+    key:   Optional[str] = None
+    ms:    Optional[int] = None
+
+    class Config:
+        extra = "allow"
+
+
 class ChatRunResponse(BaseModel):
     """
     Respuesta estándar de /chat_run.

@@ -293,7 +293,7 @@ class TestStatusTransitions:
             environment="default",
         )
         orch_module._save_job(job)
-        self._run_direct(job, [RuntimeError("boom")])
+        self._run_direct(job, [RuntimeError("boom"), RuntimeError("boom")])
         assert job.error_count == 1
         assert job.completed_count == 1
         assert job.results[0]["status"] == "error"

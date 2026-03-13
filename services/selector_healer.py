@@ -9,6 +9,9 @@ from playwright.sync_api import Page, Locator, TimeoutError as PwTimeout
 # ============================================================
 _SUPPORTED_TYPES = frozenset({
     "css", "testid", "name", "role", "label", "text", "placeholder",
+    # Block 16 additions
+    "partial_text",    # page.get_by_text(val, exact=False) — alias more explicit than "text"
+    "aria_heuristic",  # try [aria-label*=val], [title*=val], [alt*=val] in sequence
 })
 
 
@@ -133,6 +136,29 @@ def _try_fallback(page: Page, fb_type: str, fb_val: Any, timeout_ms: int) -> Tup
         loc = page.get_by_placeholder(val)
         loc.first.wait_for(state="visible", timeout=timeout_ms)
         return loc.first, f"placeholder={val}"
+
+    if fb_type == "partial_text":
+        txt = str(fb_val or "").strip()
+        if not txt:
+            raise ValueError("partial_text fallback: empty value")
+        loc = page.get_by_text(txt, exact=False)
+        loc.first.wait_for(state="visible", timeout=timeout_ms)
+        return loc.first, f"partial_text={txt}"
+
+    if fb_type == "aria_heuristic":
+        val = str(fb_val or "").strip()
+        if not val:
+            raise ValueError("aria_heuristic fallback: empty value")
+        # Try aria-label, then title, then alt with partial (contains) match
+        for attr in ("aria-label", "title", "alt"):
+            sel = f"[{attr}*='{val}']"
+            try:
+                loc = page.locator(sel)
+                loc.first.wait_for(state="visible", timeout=timeout_ms)
+                return loc.first, sel
+            except Exception:
+                pass
+        raise ValueError(f"aria_heuristic fallback: no element found for value '{val}'")
 
     raise ValueError(f"unsupported fallback type: {fb_type}")
 

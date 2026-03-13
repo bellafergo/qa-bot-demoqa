@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -21,6 +22,40 @@ def _now_utc() -> datetime:
 
 def _new_uuid() -> str:
     return str(uuid.uuid4())
+
+
+# ── Lifecycle state (Block 16) ────────────────────────────────────────────────
+
+class LifecycleState(str, Enum):
+    """
+    Extended lifecycle states for test cases.
+
+    Transitions (enforced by lifecycle_service):
+      draft      → active | archived
+      active     → deprecated | archived
+      deprecated → active | archived
+      archived   → (terminal — no further transitions)
+
+    The existing `status` field ("active" | "inactive") is kept for
+    backward compatibility with callers that rely on it.  lifecycle_state
+    is the richer, authoritative concept going forward.
+    """
+    draft      = "draft"
+    active     = "active"
+    deprecated = "deprecated"
+    archived   = "archived"
+
+
+class TestCaseVersionInfo(BaseModel):
+    """Version record appended to version_history on each state/content change."""
+    version:        int
+    lifecycle_state: Optional[str]  = None   # state at time of this version
+    created_from:   Optional[str]   = None   # test_case_id this was cloned from
+    modified_from:  Optional[str]   = None   # UUID of the previous TestCase record
+    change_summary: Optional[str]   = None
+    changed_at:     datetime        = Field(default_factory=_now_utc)
+
+    model_config = {"extra": "allow"}
 
 
 # ── Step / Assertion leaf types ───────────────────────────────────────────────
@@ -71,8 +106,11 @@ class TestCase(BaseModel):
     base_url:     Optional[str] = None    # override execution base URL
     steps:        List[TestStep]
     assertions:   List[TestAssertion] = Field(default_factory=list)
-    created_at:   datetime = Field(default_factory=_now_utc)
-    updated_at:   datetime = Field(default_factory=_now_utc)
+    created_at:      datetime              = Field(default_factory=_now_utc)
+    updated_at:      datetime              = Field(default_factory=_now_utc)
+    # Lifecycle management (Block 16) — optional, defaults preserve backward compat
+    lifecycle_state: LifecycleState        = LifecycleState.active
+    version_history: List[TestCaseVersionInfo] = Field(default_factory=list)
 
     model_config = {"extra": "ignore"}
 

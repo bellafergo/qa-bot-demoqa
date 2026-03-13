@@ -60,6 +60,7 @@ logger = logging.getLogger("vanya.catalog_orchestrator")
 
 MAX_CONCURRENCY:         int = int(os.getenv("ORCHESTRATOR_MAX_CONCURRENCY", "2"))
 MAX_JOBS_KEPT:           int = 500
+SHARD_SIZE:              int = int(os.getenv("ORCHESTRATOR_SHARD_SIZE", "20"))  # Block 16
 
 # Parallel execution settings (execution-scheduler block)
 EXECUTION_MAX_WORKERS:   int = int(os.getenv("EXECUTION_MAX_WORKERS",    "4"))
@@ -182,23 +183,27 @@ def _schedule_tests(test_case_ids: List[str]) -> Tuple[List[str], str]:
     """
     Sort test_case_ids by priority (critical first) then type (smoke first).
 
+    Within the same priority+type bucket, original insertion order is preserved
+    (fair FIFO ordering — tests submitted earlier run first).
+
     Returns (sorted_ids, scheduling_notes_str).
-    Uses a stable sort so tests with equal keys preserve insertion order.
     """
     from services.db.catalog_repository import catalog_repo
 
-    def _sort_key(tc_id: str) -> Tuple[int, int, str]:
+    def _sort_key(idx_and_id: Tuple[int, str]) -> Tuple[int, int, int]:
+        idx, tc_id = idx_and_id
         try:
             tc = catalog_repo.get_test_case(tc_id)
             if tc is None:
-                return (99, 99, tc_id)
+                return (99, 99, idx)
             p = _PRIORITY_ORDER.get((tc.priority or "low").lower(), 3)
             t = _TYPE_ORDER.get((tc.type or "smoke").lower(), 4)
-            return (p, t, tc_id)
+            return (p, t, idx)   # idx = FIFO tiebreaker within same priority+type
         except Exception:
-            return (99, 99, tc_id)
+            return (99, 99, idx)
 
-    sorted_ids = sorted(test_case_ids, key=_sort_key)
+    sorted_indexed = sorted(enumerate(test_case_ids), key=_sort_key)
+    sorted_ids = [tc_id for _, tc_id in sorted_indexed]
 
     # Build human-readable notes for the first 3 tests
     tops: List[str] = []
@@ -207,7 +212,7 @@ def _schedule_tests(test_case_ids: List[str]) -> Tuple[List[str], str]:
             from services.db.catalog_repository import catalog_repo as _cr
             tc = _cr.get_test_case(tc_id)
             if tc:
-                tops.append(f"{tc.priority}/{tc.type_}")
+                tops.append(f"{tc.priority}/{tc.type}")
         except Exception:
             pass
 
@@ -662,6 +667,93 @@ class CatalogOrchestratorService:
             job.job_id, len(resolved), environment,
         )
         return job
+
+    def enqueue_batch(
+        self,
+        test_case_ids: List[str],
+        *,
+        environment: str = "default",
+    ) -> OrchestratorJob:
+        """
+        Enqueue a list of test IDs as a single 'batch' job.
+
+        Unlike enqueue_suite, this does NO catalog filter resolution — callers
+        are responsible for supplying valid, active test_case_ids.  Useful for
+        direct programmatic dispatch (e.g. from PR analysis, coverage, CI hooks).
+
+        Returns the job immediately (status=queued).
+        """
+        if not test_case_ids:
+            job = OrchestratorJob(
+                job_type="batch",
+                test_case_ids=[],
+                total_count=0,
+                environment=environment,
+            )
+            job.status        = "failed"
+            job.finished_at   = _now_utc()
+            job.error_message = "enqueue_batch: empty test_case_ids list"
+            _save_job(job)
+            return job
+
+        job = OrchestratorJob(
+            job_type="batch",
+            test_case_ids=list(test_case_ids),
+            total_count=len(test_case_ids),
+            environment=environment,
+        )
+        _save_job(job)
+        _QUEUE.put(job)
+        logger.info(
+            "orchestrator: enqueued batch job %s — %d tests env=%s",
+            job.job_id, len(test_case_ids), environment,
+        )
+        return job
+
+    def enqueue_with_sharding(
+        self,
+        test_case_ids: List[str],
+        *,
+        shard_size: Optional[int] = None,
+        environment: str = "default",
+    ) -> List[OrchestratorJob]:
+        """
+        Split a large list of test IDs into shard sub-jobs and enqueue them all.
+
+        Shards run concurrently (each is an independent job).  Useful for suites
+        larger than SHARD_SIZE to avoid blocking the worker loop on a single job.
+
+        Returns the list of created OrchestratorJob objects (all status=queued).
+        """
+        size = shard_size or SHARD_SIZE
+        if size < 1:
+            size = SHARD_SIZE
+
+        shards = [
+            test_case_ids[i: i + size]
+            for i in range(0, len(test_case_ids), size)
+        ]
+
+        jobs: List[OrchestratorJob] = []
+        for idx, shard in enumerate(shards):
+            job = OrchestratorJob(
+                job_type="shard",
+                test_case_ids=shard,
+                total_count=len(shard),
+                environment=environment,
+                scheduling_notes=(
+                    f"Shard {idx + 1}/{len(shards)} of {len(test_case_ids)} total tests"
+                ),
+            )
+            _save_job(job)
+            _QUEUE.put(job)
+            jobs.append(job)
+
+        logger.info(
+            "orchestrator: enqueued %d shard jobs — %d total tests env=%s",
+            len(jobs), len(test_case_ids), environment,
+        )
+        return jobs
 
     def get_job(self, job_id: str) -> Optional[OrchestratorJob]:
         return _get_job(job_id)
