@@ -120,7 +120,7 @@ class EvidenceCapture:
             playwright_context.tracing.start(
                 screenshots=True,
                 snapshots=True,
-                sources=False,
+                sources=True,
             )
             self._trace_started = True
             logger.debug("evidence_capture: trace started for run %s", self.run_id)

@@ -25,6 +25,7 @@ from runners.common import (
 )
 from runners.page_context import build_failure_context, capture_element_context, capture_page_context
 from runners.screenshot import take_screenshot_robust
+from runners.evidence_capture import EvidenceCapture, EvidenceConfig
 
 from services.selector_healer import resolve_locator
 from services.failure_classifier import classify_failure
@@ -100,6 +101,11 @@ def execute_test(
     report_steps: List[Dict[str, Any]] = []
     logs: List[str] = []
     evidence_id = f"EV-{uuid.uuid4().hex[:10]}"
+    cap = EvidenceCapture(
+        run_id=evidence_id,
+        config=EvidenceConfig(screenshot_timeline=True, action_trace=True),
+    )
+    _ev_bundle = None
     resolution_log: List[Dict[str, Any]] = []
     healing_log: List[Dict[str, Any]] = []       # structured selector healing events
     failure_context: Optional[Dict[str, Any]] = None
@@ -370,6 +376,8 @@ def execute_test(
                 logs.append(f"Global timeout applied: {timeout_ms_global}ms")
 
             page = context.new_page()
+            cap.start_trace(context)
+            cap.attach_network_listener(page)
 
             inferred_base_url = base_url
             for st in steps:
@@ -406,6 +414,7 @@ def execute_test(
                                 pass
 
                         _record_step(i, step, "passed", extra={"resolved_url": url, "domain": _domain_from_url(url)})
+                        cap.capture_step_screenshot(page, i, action)
                         last_page_context = capture_page_context(page)
                         # Capture DOM inventory for intent-based selector resolution
                         if dom_inventory is None:
@@ -422,6 +431,7 @@ def execute_test(
                         ms = _as_int(step.get("ms"), 500)
                         page.wait_for_timeout(ms)
                         _record_step(i, step, "passed", extra={"ms": ms})
+                        cap.capture_step_screenshot(page, i, action)
                         continue
 
                     sel = _selector_from_step(step)
@@ -436,6 +446,7 @@ def execute_test(
                             locator.wait_for(state="visible", timeout=timeout_ms)
                             locator.fill(val, timeout=timeout_ms)
                             _record_step(i, step, "passed", extra={"locator_used": used, "intent": intent, "domain": domain})
+                            cap.capture_step_screenshot(page, i, action)
                             continue
                         except Exception as e:
                             _raise_classified(e, page, inferred_base_url, action, sel, step)
@@ -471,6 +482,7 @@ def execute_test(
                                     f"navigated={_url_before != _url_after}"
                                 )
                             _record_step(i, step, "passed", extra={"locator_used": used, "intent": intent, "domain": domain})
+                            cap.capture_step_screenshot(page, i, action)
                             continue
                         except Exception as e:
                             logs.append(f"[CLICK_FAIL] step={i} intent={sel!r} error={type(e).__name__}: {e}")
@@ -483,6 +495,7 @@ def execute_test(
                             locator.wait_for(state="visible", timeout=timeout_ms)
                             locator.press(key, timeout=timeout_ms)
                             _record_step(i, step, "passed", extra={"key": key, "locator_used": used, "intent": intent, "domain": domain})
+                            cap.capture_step_screenshot(page, i, action)
                             continue
                         except Exception as e:
                             _raise_classified(e, page, inferred_base_url, action, sel, step)
@@ -492,6 +505,7 @@ def execute_test(
                             locator, used, domain, intent = _resolve(step, page, sel, inferred_base_url, step_index=i)
                             locator.wait_for(state="visible", timeout=timeout_ms)
                             _record_step(i, step, "passed", extra={"locator_used": used, "intent": intent, "domain": domain})
+                            cap.capture_step_screenshot(page, i, action)
                             continue
                         except Exception as e:
                             _raise_classified(e, page, inferred_base_url, action, sel, step)
@@ -501,6 +515,7 @@ def execute_test(
                         if loc.is_visible():
                             raise AssertionError(f"assert_not_visible falló: se mostró {sel}")
                         _record_step(i, step, "passed")
+                        cap.capture_step_screenshot(page, i, action)
                         continue
 
                     if action == "assert_url_contains":
@@ -511,6 +526,7 @@ def execute_test(
                         if needle not in current:
                             raise AssertionError(f"assert_url_contains falló: '{needle}' no está en '{current}'")
                         _record_step(i, step, "passed", extra={"current_url": current})
+                        cap.capture_step_screenshot(page, i, action)
                         continue
 
                     if action == "assert_text_contains":
@@ -566,6 +582,7 @@ def execute_test(
                             raise AssertionError(f"Texto no encontrado. Expected contiene: '{expected_text}'")
 
                         _record_step(i, step, "passed", extra={"target": target_sel})
+                        cap.capture_step_screenshot(page, i, action)
                         continue
 
                     raise ValueError(f"Acción no soportada: {action}")
@@ -581,6 +598,8 @@ def execute_test(
                     shot, shot_logs = take_screenshot_robust(page)
                     logs.extend(shot_logs)
                     screenshot_b64 = shot
+                    cap.capture_step_screenshot(page, i, action)
+                    cap.capture_dom_snapshot(page, label=f"failure_step_{i}")
                     break
 
                 except (AssertionError, ValueError) as e:
@@ -594,6 +613,8 @@ def execute_test(
                     shot, shot_logs = take_screenshot_robust(page)
                     logs.extend(shot_logs)
                     screenshot_b64 = shot
+                    cap.capture_step_screenshot(page, i, action)
+                    cap.capture_dom_snapshot(page, label=f"failure_step_{i}")
                     break
 
                 except PlaywrightError as e:
@@ -608,6 +629,8 @@ def execute_test(
                     shot, shot_logs = take_screenshot_robust(page)
                     logs.extend(shot_logs)
                     screenshot_b64 = shot
+                    cap.capture_step_screenshot(page, i, action)
+                    cap.capture_dom_snapshot(page, label=f"failure_step_{i}")
                     break
 
                 except Exception as e:
@@ -631,6 +654,8 @@ def execute_test(
                     shot, shot_logs = take_screenshot_robust(page)
                     logs.extend(shot_logs)
                     screenshot_b64 = shot
+                    cap.capture_step_screenshot(page, i, action)
+                    cap.capture_dom_snapshot(page, label=f"failure_step_{i}")
                     break
 
             if screenshot_b64 is None:
@@ -640,6 +665,9 @@ def execute_test(
                     screenshot_b64 = shot
                 except Exception as e:
                     logs.append(f"Final screenshot failed: {type(e).__name__}: {e}")
+
+            cap.stop_trace(context)
+            _ev_bundle = cap.finalize({"steps_count": len(steps), "headless": headless})
 
             try:
                 context.close()
@@ -690,4 +718,14 @@ def execute_test(
         "healing_log":    healing_log,       # structured selector healing events
         "failure_context": failure_context,
         "page_context": last_page_context,
+        # Playwright execution evidence (screenshots, trace, DOM snapshots)
+        "evidence": _ev_bundle.to_dict() if _ev_bundle else {
+            "run_id":         evidence_id,
+            "screenshots":    [],
+            "network_events": [],
+            "dom_snapshots":  [],
+            "video_path":     None,
+            "trace_path":     None,
+            "metadata":       {},
+        },
     }

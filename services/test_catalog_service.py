@@ -185,6 +185,67 @@ def _build_runner_steps(
     return steps
 
 
+# ── Desktop step builder ──────────────────────────────────────────────────────
+
+_DESKTOP_ALIASES: Dict[str, str] = {
+    "input":      "input_text",
+    "fill":       "input_text",
+    "type":       "input_text",
+    "assert_text": "assert_text_contains",
+    "check_text": "assert_text_contains",
+    "verify_text": "assert_text_contains",
+    "exists":     "assert_exists",
+    "wait":       "wait_for",
+    "focus":      "focus_window",
+    "attach":     "attach_window",
+    "launch":     "launch_app",
+    "start":      "launch_app",
+    "open":       "launch_app",
+    "keys":       "type_keys",
+    "sendkeys":   "type_keys",
+    "sleep":      "wait_ms",
+}
+
+
+def _normalize_desktop_action(action: str) -> str:
+    a = (action or "").strip().lower()
+    return _DESKTOP_ALIASES.get(a, a)
+
+
+def _build_desktop_steps(test_case: TestCase) -> List[Dict[str, Any]]:
+    """
+    Convert catalog steps to the desktop runner format.
+
+    Unlike _build_runner_steps(), this function:
+      - Does NOT inject a goto step (desktop apps don't use URLs)
+      - Preserves 'target' as-is (not renamed to 'selector')
+      - Normalizes action names using desktop aliases
+      - Appends assertion steps as assert_text_contains / assert_exists
+    """
+    raw_steps = [s.model_dump() if hasattr(s, "model_dump") else dict(s) for s in test_case.steps]
+
+    desktop_steps: List[Dict[str, Any]] = []
+    for s in raw_steps:
+        step = dict(s)
+        step["action"] = _normalize_desktop_action(step.get("action", ""))
+        desktop_steps.append(step)
+
+    # Append assertions as desktop assert steps
+    raw_assertions = [a.model_dump() if hasattr(a, "model_dump") else dict(a) for a in test_case.assertions]
+    for a in raw_assertions:
+        atype  = _normalize_desktop_action(str(a.get("type") or ""))
+        target = a.get("target") or a.get("selector") or ""
+        value  = a.get("value") or ""
+        if atype in ("assert_text_contains", "assert_text"):
+            if value:
+                desktop_steps.append({"action": "assert_text_contains", "target": target, "value": value})
+        elif atype in ("assert_exists", "visible", "assert_visible"):
+            if target:
+                desktop_steps.append({"action": "assert_exists", "target": target})
+
+    return desktop_steps
+
+
 # ── Public service API ────────────────────────────────────────────────────────
 
 class TestCatalogService:
@@ -381,6 +442,13 @@ class TestCatalogService:
                     auth_config = auth_config,
                     timeout_s  = timeout_s or 30,
                 )
+            elif tc_test_type == "desktop":
+                from runners.desktop_runner import run_desktop_test
+                desktop_steps = _build_desktop_steps(tc)
+                result = run_desktop_test(
+                    steps     = desktop_steps,
+                    timeout_s = timeout_s,
+                )
             else:
                 from runner import execute_test
                 result = execute_test(
@@ -422,6 +490,7 @@ class TestCatalogService:
                     "tc_type":        tc.type,
                     "tc_priority":    tc.priority,
                     "tc_version":     tc.version,
+                    "evidence":       result.get("evidence"),
                 },
             )
 

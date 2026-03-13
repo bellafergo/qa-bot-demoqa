@@ -100,7 +100,7 @@ class TestCase(BaseModel):
     type:         Literal["smoke", "regression", "functional", "negative", "e2e"]
     priority:     Literal["low", "medium", "high", "critical"]
     status:       Literal["active", "inactive"] = "active"
-    test_type:    Literal["ui", "api"] = "ui"   # runner path: ui → Playwright, api → API runner
+    test_type:    Literal["ui", "api", "desktop"] = "ui"   # runner path: ui → Playwright, api → API runner, desktop → Desktop runner
     version:      int = 1
     tags:         List[str] = Field(default_factory=list)
     base_url:     Optional[str] = None    # override execution base URL
@@ -125,7 +125,7 @@ class TestCaseCreate(BaseModel):
     type:         Literal["smoke", "regression", "functional", "negative", "e2e"]
     priority:     Literal["low", "medium", "high", "critical"]
     status:       Literal["active", "inactive"] = "active"
-    test_type:    Literal["ui", "api"] = "ui"
+    test_type:    Literal["ui", "api", "desktop"] = "ui"
     version:      int = 1
     tags:         List[str] = Field(default_factory=list)
     base_url:     Optional[str] = None
