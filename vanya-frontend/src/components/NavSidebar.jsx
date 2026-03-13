@@ -23,10 +23,16 @@ const NAV_SECTIONS = [
   {
     label: "Tools",
     items: [
-      { to: "/chat",        icon: "✦", label: "AI Chat"     },
-      { to: "/api-testing", icon: "⌥", label: "API Testing" },
-      { to: "/planner",     icon: "⚡", label: "Planner"    },
-      { to: "/documents",   icon: "⊟", label: "Documents"   },
+      { to: "/chat",        icon: "✦", label: "AI Chat"      },
+      { to: "/api-testing", icon: "⌥", label: "API Testing"  },
+      { to: "/planner",     icon: "⚡", label: "Planner"     },
+      { to: "/documents",   icon: "⊟", label: "Documents"    },
+    ],
+  },
+  {
+    label: "Platform",
+    items: [
+      { to: "/integrations", icon: "⊕", label: "Integrations" },
     ],
   },
 ];

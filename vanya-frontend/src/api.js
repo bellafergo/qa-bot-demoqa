@@ -162,3 +162,12 @@ export const getCoverageSummary = () => apiGet("/coverage/summary");
 export const getFailureIntel = () => apiGet("/failure-intelligence/summary");
 export const getFlakyTests   = () => apiGet("/failure-intelligence/flaky-tests");
 export const getClusters     = () => apiGet("/failure-intelligence/clusters");
+
+// ========= Integrations =========
+export const listIntegrations         = ()          => apiGet(`/integrations`);
+export const getIntegration           = (id)        => apiGet(`/integrations/${id}`);
+export const runHealthCheck           = (id)        => apiPost(`/integrations/${id}/health-check`, {});
+export const enableIntegration        = (id)        => apiPost(`/integrations/${id}/enable`,       {});
+export const disableIntegration       = (id)        => apiPost(`/integrations/${id}/disable`,      {});
+export const updateIntegrationConfig  = (id, body)  => apiPost(`/integrations/${id}/config`,       body);
+export const getIntegrationActions    = (id)        => apiGet(`/integrations/${id}/actions`);
