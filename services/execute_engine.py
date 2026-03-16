@@ -24,6 +24,7 @@ from runner import execute_test
 from core.login_intent_resolver import build_login_steps
 from core.step_normalizer import normalize_steps_to_target as _normalize_steps_to_target
 from core.semantic_step_builder import build_semantic_target
+from core.semantic_intent_extractor import extract_intent as _extract_semantic_intent
 
 from services.cloudinary_service import upload_screenshot_b64 as cloud_upload_screenshot_b64
 from services.cloudinary_service import upload_pdf_bytes as cloud_upload_pdf_bytes
@@ -202,7 +203,7 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
         ("visible" in low or "visibles" in low)
         and not any(
             k in low
-            for k in ["login", "inicia", "iniciar", "fill", "llena", "escribe", "ingresa", "teclea"]
+            for k in ["inicia", "iniciar", "fill", "llena", "escribe", "ingresa", "teclea"]
         )
     )
     if _looks_like_saucedemo(base_url) and not _only_visibility_check and any(
@@ -361,6 +362,18 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
             steps.append({"action": "wait_ms", "ms": 300})
             steps.append({"action": "assert_text_contains", "selector": "body", "text": found_text})
             return steps
+
+        # Semantic intent extraction: try to produce a target-enriched
+        # assert_visible before falling back to raw selector extraction.
+        _si = _extract_semantic_intent(p)
+        if _si:
+            _st = build_semantic_target(_si["kind"], _si["name"], base_url)
+            steps.append({
+                "action": "assert_visible",
+                "selector": _st["primary"],  # backward compat
+                "target": _st,
+            })
+            return _ensure_has_assert(steps, base_url)
 
         seen = _extract_selectors_anywhere(p)
         if _looks_like_saucedemo(base_url):
