@@ -329,13 +329,30 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
         )
         if _tv:
             found_text = _tv.group(1).strip()
+            if _looks_like_saucedemo(base_url):
+                _login_texts_tv = {"accepted usernames", "password", "login"}
+                if not any(t in found_text.lower() for t in _login_texts_tv):
+                    _has_login_tv = (
+                        any(s.get("action") == "fill" and s.get("selector") == "#user-name" for s in steps)
+                        and any(s.get("action") == "fill" and s.get("selector") == "#password" for s in steps)
+                        and any(s.get("action") == "click" and s.get("selector") == "#login-button" for s in steps)
+                    )
+                    if not _has_login_tv:
+                        steps.extend([
+                            {"action": "fill", "selector": "#user-name", "value": "standard_user"},
+                            {"action": "fill", "selector": "#password", "value": "secret_sauce"},
+                            {"action": "click", "selector": "#login-button"},
+                        ])
             steps.append({"action": "wait_ms", "ms": 300})
             steps.append({"action": "assert_text_contains", "selector": "body", "text": found_text})
             return steps
 
         seen = _extract_selectors_anywhere(p)
-        if _looks_like_saucedemo(base_url) and not seen:
-            seen = ["#user-name", "#password", "#login-button"]
+        if _looks_like_saucedemo(base_url):
+            if "username" in low or "user name" in low or "user-name" in low:
+                seen = ["#user-name"]
+            elif not seen:
+                seen = ["#user-name", "#password", "#login-button"]
         for sel in seen:
             steps.append({"action": "assert_visible", "selector": sel})
         return _ensure_has_assert(steps, base_url)
