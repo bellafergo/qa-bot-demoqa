@@ -24,7 +24,10 @@ from runner import execute_test
 from core.login_intent_resolver import build_login_steps
 from core.step_normalizer import normalize_steps_to_target as _normalize_steps_to_target
 from core.semantic_step_builder import build_semantic_target
-from core.semantic_intent_extractor import extract_intent as _extract_semantic_intent
+from core.semantic_intent_extractor import (
+    extract_intent as _extract_semantic_intent,
+    extract_action_intent as _extract_semantic_action,
+)
 
 from services.cloudinary_service import upload_screenshot_b64 as cloud_upload_screenshot_b64
 from services.cloudinary_service import upload_pdf_bytes as cloud_upload_pdf_bytes
@@ -384,6 +387,33 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
         for sel in seen:
             steps.append({"action": "assert_visible", "selector": sel})
         return _ensure_has_assert(steps, base_url)
+
+    # -----------------------------------------
+    # 1a) Semantic action extractor
+    #     Fast path for natural-language click/fill/assert_text prompts.
+    #     Only fires when there are no CSS selector characters so that
+    #     CSS-based prompts still fall through to the regex patterns below.
+    # -----------------------------------------
+    if not any(c in p for c in '#.[]()"'):
+        _ai = _extract_semantic_action(p)
+        if _ai:
+            _a = _ai["action"]
+            if _a == "click":
+                _st = build_semantic_target(_ai["target"]["kind"], _ai["target"]["name"], base_url)
+                steps.append({"action": "assert_visible", "selector": _st["primary"]})
+                steps.append({"action": "click", "selector": _st["primary"], "target": _st})
+            elif _a == "fill":
+                _st = build_semantic_target(_ai["target"]["kind"], _ai["target"]["name"], base_url)
+                steps.append({
+                    "action": "fill",
+                    "selector": _st["primary"],
+                    "target": _st,
+                    "value": _ai["value"],
+                })
+            elif _a == "assert_text_contains":
+                steps.append({"action": "wait_ms", "ms": 300})
+                steps.append({"action": "assert_text_contains", "selector": "body", "text": _ai["text"]})
+            return _ensure_has_assert(steps, base_url)
 
     # Characters that distinguish a real CSS selector from plain English.
     # Used below to decide whether a pre-click/pre-fill assert_visible is safe.

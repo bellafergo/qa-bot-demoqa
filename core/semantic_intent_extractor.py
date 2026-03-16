@@ -1,30 +1,30 @@
 # core/semantic_intent_extractor.py
 """
-Extracts a single semantic intent from free-form prompt text.
-
-Returns {"kind": ..., "name": ...} or None when intent is not clear.
+Extracts semantic intents and action intents from free-form prompt text.
 
 Pure module — no I/O, no side effects, no runner/healer imports.
 
-Supported (MVP)
-  inputs:  username, password, email
-  buttons: login, submit, search
+── extract_intent(prompt) ──────────────────────────────────────────────────────
+Returns {"kind": ..., "name": ...} or None.
+Used by the visibility block to produce assert_visible steps.
 
-Examples:
   "campo username"        → {"kind": "input",  "name": "username"}
-  "campo password"        → {"kind": "input",  "name": "password"}
-  "campo email sea"       → {"kind": "input",  "name": "email"}
   "botón login"           → {"kind": "button", "name": "login"}
-  "login button"          → {"kind": "button", "name": "login"}
-  "submit button visible" → {"kind": "button", "name": "submit"}
-  "search button"         → {"kind": "button", "name": "search"}
-  "verify body"           → None
-  "some random text"      → None
+
+── extract_action_intent(prompt) ───────────────────────────────────────────────
+Returns a step-like dict describing a single UI action, or None.
+Used by the action block to produce click/fill/assert_text steps.
+
+  "haz click en login"          → {"action": "click",  "target": {"kind": "button", "name": "login"}}
+  "click login button"          → {"action": "click",  "target": {"kind": "button", "name": "login"}}
+  "escribe admin en username"   → {"action": "fill",   "target": {"kind": "input",  "name": "username"}, "value": "admin"}
+  "llena username con admin"    → {"action": "fill",   "target": {"kind": "input",  "name": "username"}, "value": "admin"}
+  "verifica que aparezca Swag"  → {"action": "assert_text_contains", "selector": "body", "text": "Swag"}
 """
 from __future__ import annotations
 
 import re
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 
 # ── Canonical name tables ──────────────────────────────────────────────────────
@@ -108,5 +108,100 @@ def extract_intent(prompt: str) -> Optional[Dict[str, str]]:
         canonical = _INPUT_ALIASES.get(word)
         if canonical is not None:
             return {"kind": "input", "name": canonical}
+
+    return None
+
+
+# ── Shared suffix strippers ────────────────────────────────────────────────────
+_BUTTON_SUFFIXES = ("button", "boton", "botón", "btn")
+_INPUT_SUFFIXES  = ("field", "campo", "input", "textbox")
+
+
+def _strip_type_suffix(raw: str, suffixes: tuple) -> str:
+    """Remove a trailing type-indicator word (e.g. 'button', 'field') from raw."""
+    for sfx in suffixes:
+        if raw.endswith(sfx):
+            raw = raw[: -len(sfx)].strip()
+    return raw
+
+
+def extract_action_intent(prompt: str) -> Optional[Dict[str, Any]]:
+    """
+    Extract a single UI action intent from free-form prompt text.
+
+    Returns one of:
+      {"action": "click",  "target": {"kind": "button", "name": <canonical>}}
+      {"action": "fill",   "target": {"kind": "input",  "name": <canonical>}, "value": <str>}
+      {"action": "assert_text_contains", "selector": "body", "text": <str>}
+    or None when no clear action is detected.
+
+    Resolution order: click → fill (value-first) → fill (field-first) → assert_text.
+    Returns None for empty/None input or unrecognised prompts.
+    """
+    if not prompt:
+        return None
+
+    p = prompt.strip()
+
+    # ── CLICK ──────────────────────────────────────────────────────────────────
+    # "haz click en login" / "click en login" / "da click en login" / "click login button"
+    _click_m = re.search(
+        r"(?:haz\s+click\s+en|haz\s+clic\s+en|da\s+click\s+en|click\s+en|click\s+on|click)"
+        r"\s+([\w][\w\s]*?)(?:\s+(?:button|boton|bot\u00f3n|btn))?\s*$",
+        p,
+        flags=re.IGNORECASE,
+    )
+    if _click_m:
+        raw = _strip_type_suffix(_click_m.group(1).strip().lower(), _BUTTON_SUFFIXES)
+        canonical = _BUTTON_ALIASES.get(raw)
+        if canonical:
+            return {"action": "click", "target": {"kind": "button", "name": canonical}}
+
+    # ── FILL — value-first: "escribe <value> en <field>" ─────────────────────
+    _fill_vf = re.search(
+        r"(?:escribe|ingresa|teclea)\s+(\S+)\s+en\s+([\w][\w\s]*?)(?:\s+(?:field|campo|input|textbox))?\s*$",
+        p,
+        flags=re.IGNORECASE,
+    )
+    if _fill_vf:
+        raw_field = _strip_type_suffix(_fill_vf.group(2).strip().lower(), _INPUT_SUFFIXES)
+        canonical = _INPUT_ALIASES.get(raw_field)
+        if canonical:
+            return {
+                "action": "fill",
+                "target": {"kind": "input", "name": canonical},
+                "value": _fill_vf.group(1).strip(),
+            }
+
+    # ── FILL — field-first: "llena <field> con <value>" / "fill <field> with <value>" ──
+    _fill_ff = re.search(
+        r"(?:llena|fill|type)\s+([\w][\w\s]*?)\s+(?:con|with)\s+(\S+)",
+        p,
+        flags=re.IGNORECASE,
+    )
+    if _fill_ff:
+        raw_field = _strip_type_suffix(_fill_ff.group(1).strip().lower(), _INPUT_SUFFIXES)
+        canonical = _INPUT_ALIASES.get(raw_field)
+        if canonical:
+            return {
+                "action": "fill",
+                "target": {"kind": "input", "name": canonical},
+                "value": _fill_ff.group(2).strip(),
+            }
+
+    # ── ASSERT TEXT ────────────────────────────────────────────────────────────
+    # "verifica que aparezca X" / "valida que se vea X" / "asegura que aparezca X"
+    _at_m = re.search(
+        r"(?:verifica|valida|asegura|verify|assert|check)"
+        r"\s+(?:que\s+)?(?:aparezca|se\s+vea|is\s+visible|is\s+present)"
+        r"(?:\s+el\s+texto)?"
+        r"\s+[\"']?(.+?)[\"']?\s*$",
+        p,
+        flags=re.IGNORECASE,
+    )
+    if _at_m:
+        text = _at_m.group(1).strip().strip("\"'")
+        if text:
+            return {"action": "assert_text_contains", "selector": "body", "text": text}
 
     return None
