@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 import uuid
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from services.run_store import save_run, get_run
 from services.queue import get_queue
@@ -15,6 +16,12 @@ from workers.jobs import run_execute_steps_job, run_suite_job
 
 logger = logging.getLogger("vanya")
 router = APIRouter()
+
+# ── Request guardrails ────────────────────────────────────────────────────────
+_MAX_STEPS = 200          # max steps per execute request
+_MAX_URL_LEN = 2048       # RFC-compliant practical cap
+_MAX_TIMEOUT_S = 300      # 5 min hard ceiling
+_URL_RE = re.compile(r"^https?://", re.IGNORECASE)
 
 
 class ExecuteStepsRequest(BaseModel):
@@ -25,6 +32,31 @@ class ExecuteStepsRequest(BaseModel):
     timeout_s: Optional[int] = None
     expected: Optional[str] = None
     meta: Optional[Dict[str, Any]] = None  # tags/pr/etc
+
+    @field_validator("steps")
+    @classmethod
+    def validate_steps(cls, v: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if len(v) > _MAX_STEPS:
+            raise ValueError(f"steps array exceeds maximum length of {_MAX_STEPS}")
+        return v
+
+    @field_validator("base_url")
+    @classmethod
+    def validate_base_url(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        if len(v) > _MAX_URL_LEN:
+            raise ValueError(f"base_url exceeds maximum length of {_MAX_URL_LEN} characters")
+        if not _URL_RE.match(v):
+            raise ValueError("base_url must start with http:// or https://")
+        return v
+
+    @field_validator("timeout_s")
+    @classmethod
+    def validate_timeout(cls, v: Optional[int]) -> Optional[int]:
+        if v is not None and v > _MAX_TIMEOUT_S:
+            raise ValueError(f"timeout_s exceeds maximum of {_MAX_TIMEOUT_S} seconds")
+        return v
 
 
 def _new_evidence_id() -> str:

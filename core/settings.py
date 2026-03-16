@@ -167,6 +167,30 @@ class Settings:
             return False
         return self.ENV in ("prod", "production")
 
+    # ----------------------------
+    # Startup validation
+    # ----------------------------
+    def validate(self) -> None:
+        """
+        Fail fast on missing critical configuration.
+        Call at application startup (not at test/import time).
+        Raises EnvironmentError listing all missing variables at once.
+        """
+        errors: List[str] = []
+        if not self.OPENAI_API_KEY:
+            errors.append("OPENAI_API_KEY is not set")
+        if errors:
+            raise EnvironmentError(
+                "Missing required configuration. "
+                "Set these environment variables:\n"
+                + "\n".join(f"  - {e}" for e in errors)
+            )
+
 
 # Singleton
 settings = Settings()
+
+# Fail fast in production — skip in dev/test to avoid breaking local setups
+# and CI environments that may not have all keys available.
+if settings.IS_PROD:
+    settings.validate()

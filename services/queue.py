@@ -9,6 +9,8 @@ from typing import Any, Callable
 logger = logging.getLogger("vanya")
 
 REDIS_URL = (os.getenv("REDIS_URL") or "").strip()
+_ENV = (os.getenv("ENV") or os.getenv("ENVIRONMENT") or "dev").strip().lower()
+_IS_PROD = _ENV in ("prod", "production")
 
 # ── Redis-backed queue (production) ──────────────────────────────────────────
 
@@ -28,6 +30,13 @@ if REDIS_URL:
 # ── In-memory fallback queue (no Redis configured) ───────────────────────────
 
 else:
+    if _IS_PROD:
+        raise RuntimeError(
+            "REDIS_URL is required in production environments. "
+            "LocalQueue is not suitable for multi-worker deployments. "
+            "Set the REDIS_URL environment variable before starting the server."
+        )
+
     logger.warning(
         "queue: REDIS_URL not set — using in-memory queue (jobs run in background threads). "
         "Not suitable for production multi-worker deployments."

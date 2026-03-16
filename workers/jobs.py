@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+import random
+import re
 import time
 import traceback
 from typing import Any, Dict, Optional
@@ -12,7 +14,63 @@ from runner import execute_test
 
 logger = logging.getLogger("vanya.worker")
 
+# ============================================================
+# Secret redaction — applied to all error messages before
+# they are stored in DB or emitted to logs.
+# ============================================================
+_SECRET_PATTERN = re.compile(
+    r"(password|passwd|token|api[_-]?key|secret|credential)"
+    r"([\"'\s:=]+)"
+    r"([\"']?)([^\s\"'&,\]}\)]{1,200})",
+    re.IGNORECASE,
+)
 
+
+def _redact(text: str) -> str:
+    """Replace secret values with ***REDACTED*** before logging or persisting."""
+    return _SECRET_PATTERN.sub(r"\1\2\3***REDACTED***", text)
+
+
+# ============================================================
+# Transient-error retry with exponential backoff
+# ============================================================
+_MAX_RETRIES = 3
+_BACKOFF_BASE = 2.0
+_TRANSIENT_KEYWORDS = ("timeout", "connection", "network", "temporary", "reset by peer", "broken pipe")
+
+
+def _is_transient(exc: Exception) -> bool:
+    """Return True for errors that are likely temporary and safe to retry."""
+    if isinstance(exc, (TimeoutError, ConnectionError, OSError)):
+        return True
+    msg = str(exc).lower()
+    return any(kw in msg for kw in _TRANSIENT_KEYWORDS)
+
+
+def _run_with_retry(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Call execute_test(**payload) with up to _MAX_RETRIES attempts."""
+    for attempt in range(1, _MAX_RETRIES + 1):
+        try:
+            return execute_test(**payload)
+        except Exception as e:
+            if attempt < _MAX_RETRIES and _is_transient(e):
+                wait = _BACKOFF_BASE ** attempt + random.uniform(0, 0.5)
+                logger.warning(
+                    "transient error on attempt %d/%d, retrying in %.1fs — %s: %s",
+                    attempt,
+                    _MAX_RETRIES,
+                    wait,
+                    type(e).__name__,
+                    _redact(str(e)),
+                )
+                time.sleep(wait)
+            else:
+                raise  # non-transient or last attempt → propagate to outer handler
+
+
+# ============================================================
+# Helpers
+# ============================================================
 def _merge_meta(run: Dict[str, Any], meta: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if meta and isinstance(meta, dict):
         run_meta = run.get("meta")
@@ -24,6 +82,9 @@ def _merge_meta(run: Dict[str, Any], meta: Optional[Dict[str, Any]]) -> Dict[str
     return run
 
 
+# ============================================================
+# Job handlers
+# ============================================================
 def run_execute_steps_job(evidence_id: str, payload: Dict[str, Any], meta: Dict[str, Any]) -> Dict[str, Any]:
     t0 = time.time()
     save_run({
@@ -35,8 +96,7 @@ def run_execute_steps_job(evidence_id: str, payload: Dict[str, Any], meta: Dict[
     })
 
     try:
-        # Ejecuta runner normal
-        run = execute_test(**payload)
+        run = _run_with_retry(payload)
 
         if not isinstance(run, dict):
             run = {"status": "failed", "error_message": "Runner returned non-dict"}
@@ -58,7 +118,8 @@ def run_execute_steps_job(evidence_id: str, payload: Dict[str, Any], meta: Dict[
 
     except Exception as e:
         t1 = time.time()
-        err = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
+        raw_err = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
+        err = _redact(raw_err)
         run = {
             "evidence_id": evidence_id,
             "status": "failed",
@@ -112,7 +173,8 @@ def run_suite_job(evidence_id: str, payload: Dict[str, Any], meta: Dict[str, Any
 
     except Exception as e:
         t1 = time.time()
-        err = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
+        raw_err = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
+        err = _redact(raw_err)
         run = {
             "evidence_id": evidence_id,
             "status": "error",
