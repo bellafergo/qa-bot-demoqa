@@ -172,7 +172,7 @@ def _ensure_has_assert(steps: List[Dict[str, Any]], base_url: str) -> List[Dict[
         and str(s.get("selector") or "") in ("#login-button", "button[type='submit']")
         for s in steps
     )
-    looks_like_login_flow = did_click_login or (did_fill_user and did_fill_pass)
+    looks_like_login_flow = (did_fill_user or did_fill_pass) and did_click_login
 
     if _looks_like_saucedemo(base_url):
         if looks_like_login_flow:
@@ -408,6 +408,26 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
             if found_text:
                 break
     if found_text:
+        if _looks_like_saucedemo(base_url):
+            _login_texts = {"accepted usernames", "password", "login"}
+            _is_login_text = any(t in found_text.lower() for t in _login_texts)
+            if not _is_login_text:
+                _has_login = (
+                    any(s.get("action") == "fill" and s.get("selector") == "#user-name" for s in steps)
+                    and any(s.get("action") == "fill" and s.get("selector") == "#password" for s in steps)
+                    and any(s.get("action") == "click" and s.get("selector") == "#login-button" for s in steps)
+                )
+                if not _has_login:
+                    logger.warning(
+                        "[ENGINE] assert_text_contains en SauceDemo sin login previo — "
+                        "el texto '%s' puede requerir autenticación previa. Agregando login automático.",
+                        found_text,
+                    )
+                    steps.extend([
+                        {"action": "fill", "selector": "#user-name", "value": "standard_user"},
+                        {"action": "fill", "selector": "#password", "value": "secret_sauce"},
+                        {"action": "click", "selector": "#login-button"},
+                    ])
         steps.append({"action": "wait_ms", "ms": 300})
         steps.append({"action": "assert_text_contains", "selector": "body", "text": found_text})
 
@@ -666,6 +686,13 @@ def handle_execute_mode(
         status = "passed" if ok else "failed"
     if status == "error":
         status = "failed"
+
+    # Support for expected-fail steps: if runner returned "failed" but at least
+    # one step has expected="fail", the test actually passed.
+    has_expected_fail = any(s.get("expected") == "fail" for s in steps)
+    if status == "failed" and has_expected_fail:
+        status = "passed"
+        runner["message"] = "La prueba pasó porque el fallo era el resultado esperado."
 
     msg = str(runner.get("message") or runner.get("detail") or runner.get("reason") or "").strip()
 
