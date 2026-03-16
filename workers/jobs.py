@@ -9,6 +9,7 @@ import traceback
 from typing import Any, Dict, Optional
 
 from services.run_store import save_run
+from services.failure_intelligence import classify_failure as _classify_failure
 
 from runner import execute_test
 
@@ -113,6 +114,10 @@ def run_execute_steps_job(evidence_id: str, payload: Dict[str, Any], meta: Dict[
         if status not in ("passed", "failed"):
             run["status"] = "failed" if run.get("ok") is False else (run.get("status") or "failed")
 
+        # Enrich failed runs with structured failure analysis
+        if run.get("status") == "failed":
+            run["failure_analysis"] = _classify_failure(run)
+
         save_run(run)
         return run
 
@@ -130,6 +135,7 @@ def run_execute_steps_job(evidence_id: str, payload: Dict[str, Any], meta: Dict[
             "kind": "steps",
             "meta": meta or {},
         }
+        run["failure_analysis"] = _classify_failure(run)
         save_run(run)
         logger.exception("steps job failed evidence_id=%s", evidence_id)
         return run
