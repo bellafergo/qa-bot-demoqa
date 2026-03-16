@@ -74,6 +74,25 @@ def get_clusters(
         raise HTTPException(status_code=500, detail=f"Cluster error: {exc}")
 
 
+# ── Run clusters (failure_clustering.py — in-memory run store) ────────────────
+
+@router.get("/run-clusters")
+def get_run_clusters(limit: int = Query(50, ge=1, le=200, description="Max recent runs to cluster")):
+    """
+    Return failure clusters derived from recent in-memory runs that carry a
+    failure_analysis dict (produced by failure_intelligence.py).
+
+    Schema per cluster: {cluster_id, failure_type, target, count, runs}.
+    Ordered by count descending.
+    """
+    from services.failure_clustering import get_recent_failure_clusters
+    try:
+        return get_recent_failure_clusters(limit=limit)
+    except Exception as exc:
+        logger.exception("failure-intelligence/run-clusters failed")
+        raise HTTPException(status_code=500, detail=f"Run cluster error: {exc}")
+
+
 # ── Flaky tests ────────────────────────────────────────────────────────────────
 
 @router.get("/flaky-tests", response_model=List[FlakyTestSignal])

@@ -162,6 +162,7 @@ export const getCoverageSummary = () => apiGet("/coverage/summary");
 export const getFailureIntel = () => apiGet("/failure-intelligence/summary");
 export const getFlakyTests   = () => apiGet("/failure-intelligence/flaky-tests");
 export const getClusters     = () => apiGet("/failure-intelligence/clusters");
+export const getRunClusters  = (limit = 50) => apiGet(`/failure-intelligence/run-clusters?limit=${limit}`);
 
 // ========= Integrations =========
 export const listIntegrations         = ()          => apiGet(`/integrations`);

@@ -4,7 +4,7 @@
  * GET /runs/{id} | GET /test-runs | POST /rca/analyze | POST /business-risk/analyze
  */
 import React, { useState, useEffect, useCallback } from "react";
-import { listTestRuns, getTestRun, analyzeRCA, analyzeRisk } from "../api";
+import { listTestRuns, getTestRun, analyzeRCA, analyzeRisk, getRunClusters } from "../api";
 
 const API_BASE = (
   import.meta?.env?.VITE_API_BASE || "https://qa-bot-demoqa.onrender.com"
@@ -79,6 +79,57 @@ function FailureAnalysisPanel({ fa, style }) {
         <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Confidence</div>
         <div><span className={confCls}>{fa.confidence || "—"}</span></div>
       </div>
+    </div>
+  );
+}
+
+function FailureClustersPanel({ clusters, loading }) {
+  if (loading) {
+    return (
+      <div className="card" style={{ marginBottom: 24 }}>
+        <div className="section-title" style={{ marginBottom: 10 }}>Failure Clusters</div>
+        <div style={{ fontSize: 13, color: "var(--text-3)" }}>Loading clusters…</div>
+      </div>
+    );
+  }
+  return (
+    <div className="card" style={{ marginBottom: 24, padding: 0, overflow: "hidden" }}>
+      <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 10 }}>
+        <div className="section-title" style={{ margin: 0 }}>Failure Clusters</div>
+        {clusters.length > 0 && <span className="badge badge-red">{clusters.length} cluster{clusters.length !== 1 ? "s" : ""}</span>}
+      </div>
+      {clusters.length === 0 ? (
+        <div style={{ padding: "16px 20px", fontSize: 13, color: "var(--text-3)" }}>No clustered failures yet.</div>
+      ) : (
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Failure Type</th>
+              <th>Target</th>
+              <th style={{ width: 80, textAlign: "right" }}>Count</th>
+            </tr>
+          </thead>
+          <tbody>
+            {clusters.map((c) => {
+              const typeCls = (() => {
+                const t = String(c.failure_type || "").toLowerCase();
+                if (t === "navigation_failed") return "badge badge-red";
+                if (t === "unknown")           return "badge badge-gray";
+                return "badge badge-orange";
+              })();
+              return (
+                <tr key={c.cluster_id}>
+                  <td><span className={typeCls}>{c.failure_type || "—"}</span></td>
+                  <td style={{ fontSize: 12, color: "var(--text-2)", fontFamily: "monospace" }}>
+                    {c.target || <span style={{ color: "var(--text-3)" }}>—</span>}
+                  </td>
+                  <td style={{ textAlign: "right", fontWeight: 700, fontSize: 14, color: "var(--text)" }}>{c.count}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }
@@ -294,6 +345,22 @@ function RunHistoryTab() {
   const [riskResult, setRiskResult] = useState(null);
   const [riskLoading, setRiskLoading] = useState(false);
 
+  // Failure clusters
+  const [clusters, setClusters]           = useState([]);
+  const [clustersLoading, setClustersLoading] = useState(true);
+
+  const loadClusters = useCallback(async () => {
+    setClustersLoading(true);
+    try {
+      const data = await getRunClusters(100);
+      setClusters(Array.isArray(data) ? data : []);
+    } catch {
+      setClusters([]);
+    } finally {
+      setClustersLoading(false);
+    }
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -307,7 +374,7 @@ function RunHistoryTab() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); loadClusters(); }, [load, loadClusters]);
 
   async function openDetail(run_id) {
     setSelected(run_id);
@@ -354,7 +421,10 @@ function RunHistoryTab() {
   }
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr)", gap: 24, alignItems: "start" }}>
+    <div>
+      <FailureClustersPanel clusters={clusters} loading={clustersLoading} />
+
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr)", gap: 24, alignItems: "start" }}>
 
       {/* Runs list */}
       <div>
@@ -403,6 +473,7 @@ function RunHistoryTab() {
       {/* Detail panel */}
       {selected && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
 
           {/* Run summary */}
           <div className="card">
@@ -513,6 +584,7 @@ function RunHistoryTab() {
           )}
         </div>
       )}
+      </div>
     </div>
   );
 }
