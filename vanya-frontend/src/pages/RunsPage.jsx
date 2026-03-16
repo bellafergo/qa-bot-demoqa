@@ -48,6 +48,41 @@ function RiskBadge({ level }) {
   return <span className="badge badge-green">LOW RISK</span>;
 }
 
+function FailureAnalysisPanel({ fa, style }) {
+  if (!fa) return null;
+  const typeCls = (() => {
+    const t = String(fa.failure_type || "").toLowerCase();
+    if (t === "navigation_failed") return "badge badge-red";
+    if (t === "unknown")           return "badge badge-gray";
+    return "badge badge-orange";
+  })();
+  const confCls = (() => {
+    const c = String(fa.confidence || "").toLowerCase();
+    if (c === "high")   return "badge badge-green";
+    if (c === "medium") return "badge badge-orange";
+    return "badge badge-gray";
+  })();
+  return (
+    <div className="card" style={style}>
+      <div className="section-title" style={{ marginBottom: 12 }}>Failure Analysis</div>
+      <div style={{ display: "grid", gridTemplateColumns: "90px 1fr", gap: "8px 12px", alignItems: "center" }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Type</div>
+        <div><span className={typeCls}>{fa.failure_type || "—"}</span></div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Layer</div>
+        <div style={{ fontSize: 12, color: "var(--text-2)" }}>{fa.layer || "—"}</div>
+        {fa.target && (
+          <>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Target</div>
+            <div><code style={{ fontSize: 11, color: "var(--text)" }}>{fa.target}</code></div>
+          </>
+        )}
+        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Confidence</div>
+        <div><span className={confCls}>{fa.confidence || "—"}</span></div>
+      </div>
+    </div>
+  );
+}
+
 // ── Evidence Lookup tab ───────────────────────────────────────────────────────
 
 function EvidenceLookupTab() {
@@ -164,6 +199,8 @@ function EvidenceLookupTab() {
               <div style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6 }}>{run.reason}</div>
             </div>
           )}
+
+          <FailureAnalysisPanel fa={run.failure_analysis} style={{ marginBottom: 20 }} />
 
           {run.steps?.length > 0 && (
             <div className="card" style={{ marginBottom: 20, padding: 0, overflow: "hidden" }}>
@@ -407,6 +444,9 @@ function RunHistoryTab() {
               </>
             ) : null}
           </div>
+
+          {/* Failure Analysis */}
+          <FailureAnalysisPanel fa={detail?.failure_analysis} />
 
           {/* RCA result */}
           {rcaResult && (
