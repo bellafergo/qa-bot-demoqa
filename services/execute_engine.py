@@ -197,7 +197,14 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
     # -----------------------------------------
     # 0) Login intent resolver (SauceDemo)
     # -----------------------------------------
-    if _looks_like_saucedemo(base_url) and any(
+    _only_visibility_check = (
+        ("visible" in low or "visibles" in low)
+        and not any(
+            k in low
+            for k in ["login", "inicia", "iniciar", "fill", "llena", "escribe", "ingresa", "teclea"]
+        )
+    )
+    if _looks_like_saucedemo(base_url) and not _only_visibility_check and any(
         k in low
         for k in [
             "login",
