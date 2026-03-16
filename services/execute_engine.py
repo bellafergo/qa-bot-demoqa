@@ -23,6 +23,7 @@ from runner import execute_test
 
 from core.login_intent_resolver import build_login_steps
 from core.step_normalizer import normalize_steps_to_target as _normalize_steps_to_target
+from core.semantic_step_builder import build_semantic_target
 
 from services.cloudinary_service import upload_screenshot_b64 as cloud_upload_screenshot_b64
 from services.cloudinary_service import upload_pdf_bytes as cloud_upload_pdf_bytes
@@ -257,14 +258,28 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
         ]
 
         if u is not None:
-            steps.append({"action": "fill", "selector": "#user-name", "value": u})
+            steps.append({
+                "action": "fill",
+                "selector": "#user-name",
+                "target": build_semantic_target("input", "username", base_url),
+                "value": u,
+            })
         if pw is not None:
-            steps.append({"action": "fill", "selector": "#password", "value": pw})
+            steps.append({
+                "action": "fill",
+                "selector": "#password",
+                "target": build_semantic_target("input", "password", base_url),
+                "value": pw,
+            })
 
         if (u is not None) or (pw is not None) or any(
             k in low for k in ["haz click", "da click", "click", "submit", "entrar", "login"]
         ):
-            steps.append({"action": "click", "selector": "#login-button"})
+            steps.append({
+                "action": "click",
+                "selector": "#login-button",
+                "target": build_semantic_target("button", "login", base_url),
+            })
             steps.append({"action": "wait_ms", "ms": 450})
 
             if negative:
@@ -339,9 +354,9 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
                     )
                     if not _has_login_tv:
                         steps.extend([
-                            {"action": "fill", "selector": "#user-name", "value": "standard_user"},
-                            {"action": "fill", "selector": "#password", "value": "secret_sauce"},
-                            {"action": "click", "selector": "#login-button"},
+                            {"action": "fill",  "selector": "#user-name",    "target": build_semantic_target("input",  "username", base_url), "value": "standard_user"},
+                            {"action": "fill",  "selector": "#password",     "target": build_semantic_target("input",  "password", base_url), "value": "secret_sauce"},
+                            {"action": "click", "selector": "#login-button", "target": build_semantic_target("button", "login",    base_url)},
                         ])
             steps.append({"action": "wait_ms", "ms": 300})
             steps.append({"action": "assert_text_contains", "selector": "body", "text": found_text})
@@ -448,9 +463,9 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
                         found_text,
                     )
                     steps.extend([
-                        {"action": "fill", "selector": "#user-name", "value": "standard_user"},
-                        {"action": "fill", "selector": "#password", "value": "secret_sauce"},
-                        {"action": "click", "selector": "#login-button"},
+                        {"action": "fill",  "selector": "#user-name",    "target": build_semantic_target("input",  "username", base_url), "value": "standard_user"},
+                        {"action": "fill",  "selector": "#password",     "target": build_semantic_target("input",  "password", base_url), "value": "secret_sauce"},
+                        {"action": "click", "selector": "#login-button", "target": build_semantic_target("button", "login",    base_url)},
                     ])
         steps.append({"action": "wait_ms", "ms": 300})
         steps.append({"action": "assert_text_contains", "selector": "body", "text": found_text})
