@@ -5,6 +5,7 @@
  */
 import React, { useState, useEffect, useCallback } from "react";
 import { listTests, runTest, runBatch } from "../api";
+import { useLang } from "../i18n/LangContext";
 
 const API_BASE = (import.meta?.env?.VITE_API_BASE || "https://qa-bot-demoqa.onrender.com").replace(/\/$/, "");
 
@@ -31,6 +32,8 @@ function fmtMs(ms) {
 }
 
 export default function CatalogPage() {
+  const { t } = useLang();
+
   const [filters, setFilters]   = useState({ module: "", type: "", priority: "", status: "active", test_type: "" });
   const [tests, setTests]       = useState([]);
   const [loading, setLoading]   = useState(false);
@@ -60,11 +63,11 @@ export default function CatalogPage() {
       const data = await listTests(params);
       setTests(Array.isArray(data) ? data : []);
     } catch (e) {
-      setError(e?.message || "Failed to load tests");
+      setError(e?.message || t("catalog.error.load_failed"));
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, [filters, t]);
 
   useEffect(() => { load(); }, []);   // load on mount
 
@@ -80,7 +83,7 @@ export default function CatalogPage() {
     if (selected.size === tests.length) {
       setSelected(new Set());
     } else {
-      setSelected(new Set(tests.map(t => t.test_case_id)));
+      setSelected(new Set(tests.map(tc => tc.test_case_id)));
     }
   }
 
@@ -91,7 +94,7 @@ export default function CatalogPage() {
       const run = await runTest(tc_id, { headless: true });
       setRunResult({ tc_id, run });
     } catch (e) {
-      setRunResult({ tc_id, error: e?.message || "Run failed" });
+      setRunResult({ tc_id, error: e?.message || t("catalog.error.run_failed") });
     } finally {
       setRunningId(null);
     }
@@ -105,7 +108,7 @@ export default function CatalogPage() {
       const result = await runBatch({ test_case_ids: Array.from(selected) });
       setBatchResult(result);
     } catch (e) {
-      setBatchResult({ error: e?.message || "Batch failed" });
+      setBatchResult({ error: e?.message || t("catalog.error.batch_failed") });
     } finally {
       setBatchLoading(false);
     }
@@ -118,47 +121,47 @@ export default function CatalogPage() {
       <div className="card" style={{ marginBottom: 20 }}>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
           <div>
-            <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 4 }}>Module</label>
+            <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 4 }}>{t("catalog.filter.module_label")}</label>
             <input
               className="input"
-              placeholder="e.g. checkout"
+              placeholder={t("catalog.filter.module_placeholder")}
               value={filters.module}
               onChange={e => setFilters(f => ({ ...f, module: e.target.value }))}
               style={{ width: 140 }}
             />
           </div>
           <div>
-            <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 4 }}>Type</label>
+            <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 4 }}>{t("catalog.filter.type_label")}</label>
             <select className="input" value={filters.type} onChange={e => setFilters(f => ({ ...f, type: e.target.value }))} style={{ width: 130 }}>
-              <option value="">All types</option>
+              <option value="">{t("catalog.filter.type_all")}</option>
               {["smoke","regression","functional","negative","e2e"].map(v => <option key={v} value={v}>{v}</option>)}
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 4 }}>Priority</label>
+            <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 4 }}>{t("catalog.filter.priority_label")}</label>
             <select className="input" value={filters.priority} onChange={e => setFilters(f => ({ ...f, priority: e.target.value }))} style={{ width: 120 }}>
-              <option value="">All priorities</option>
+              <option value="">{t("catalog.filter.priority_all")}</option>
               {["critical","high","medium","low"].map(v => <option key={v} value={v}>{v}</option>)}
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 4 }}>Status</label>
+            <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 4 }}>{t("catalog.filter.status_label")}</label>
             <select className="input" value={filters.status} onChange={e => setFilters(f => ({ ...f, status: e.target.value }))} style={{ width: 110 }}>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-              <option value="">All</option>
+              <option value="active">{t("catalog.filter.status_active")}</option>
+              <option value="inactive">{t("catalog.filter.status_inactive")}</option>
+              <option value="">{t("catalog.filter.status_all")}</option>
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 4 }}>Test type</label>
+            <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 4 }}>{t("catalog.filter.test_type_label")}</label>
             <select className="input" value={filters.test_type} onChange={e => setFilters(f => ({ ...f, test_type: e.target.value }))} style={{ width: 100 }}>
-              <option value="">All</option>
+              <option value="">{t("catalog.filter.test_type_all")}</option>
               <option value="ui">UI</option>
               <option value="api">API</option>
             </select>
           </div>
           <button className="btn btn-primary" onClick={load} disabled={loading}>
-            {loading ? "Loading…" : "Search"}
+            {loading ? t("catalog.filter.loading") : t("catalog.filter.search")}
           </button>
         </div>
       </div>
@@ -168,14 +171,14 @@ export default function CatalogPage() {
       {/* Batch action bar */}
       {selected.size > 0 && (
         <div className="card" style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 12, padding: "12px 18px", background: "var(--accent-light)", borderColor: "var(--accent-border)" }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--accent)" }}>{selected.size} selected</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--accent)" }}>{selected.size} {t("catalog.batch.selected")}</span>
           <button className="btn btn-primary btn-sm" onClick={handleRunBatch} disabled={batchLoading}>
-            {batchLoading ? "Enqueueing…" : `⚡ Run batch (${selected.size})`}
+            {batchLoading ? t("catalog.batch.enqueueing") : `${t("catalog.batch.run_batch")} (${selected.size})`}
           </button>
-          <button className="btn btn-secondary btn-sm" onClick={() => setSelected(new Set())}>Clear</button>
+          <button className="btn btn-secondary btn-sm" onClick={() => setSelected(new Set())}>{t("catalog.batch.clear")}</button>
           {batchResult && !batchResult.error && (
             <span style={{ fontSize: 12, color: "var(--green)", fontWeight: 600 }}>
-              ✓ Job {batchResult.job_id?.slice(0, 12)}… enqueued (status: {batchResult.status})
+              ✓ Job {batchResult.job_id?.slice(0, 12)}… {t("catalog.batch.enqueued")} (status: {batchResult.status})
             </span>
           )}
           {batchResult?.error && (
@@ -198,31 +201,31 @@ export default function CatalogPage() {
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div className="section-title" style={{ margin: 0 }}>
-            {loading ? "Loading…" : `${tests.length} test${tests.length !== 1 ? "s" : ""}`}
+            {loading ? t("catalog.table.loading") : `${tests.length} test${tests.length !== 1 ? "s" : ""}`}
           </div>
           {tests.length > 0 && (
             <button className="btn btn-secondary btn-sm" onClick={toggleAll}>
-              {selected.size === tests.length ? "Deselect all" : "Select all"}
+              {selected.size === tests.length ? t("catalog.table.deselect_all") : t("catalog.table.select_all")}
             </button>
           )}
         </div>
 
         {tests.length === 0 && !loading ? (
           <div style={{ padding: "24px 20px", color: "var(--text-3)", fontSize: 13 }}>
-            No tests match the current filters.
+            {t("catalog.table.no_results")}
           </div>
         ) : (
           <table className="data-table">
             <thead><tr>
               <th style={{ width: 36 }}></th>
-              <th>ID</th>
-              <th>Name</th>
-              <th>Module</th>
-              <th>Type</th>
-              <th>Priority</th>
-              <th>Runner</th>
-              <th>Steps</th>
-              <th style={{ width: 110 }}>Actions</th>
+              <th>{t("catalog.table.col.id")}</th>
+              <th>{t("catalog.table.col.name")}</th>
+              <th>{t("catalog.table.col.module")}</th>
+              <th>{t("catalog.table.col.type")}</th>
+              <th>{t("catalog.table.col.priority")}</th>
+              <th>{t("catalog.table.col.runner")}</th>
+              <th>{t("catalog.table.col.steps")}</th>
+              <th style={{ width: 110 }}>{t("catalog.table.col.actions")}</th>
             </tr></thead>
             <tbody>
               {tests.map(tc => (
@@ -251,7 +254,7 @@ export default function CatalogPage() {
                         disabled={runningId === tc.test_case_id}
                         onClick={() => handleRunSingle(tc.test_case_id)}
                       >
-                        {runningId === tc.test_case_id ? "…" : "▶ Run"}
+                        {runningId === tc.test_case_id ? "…" : t("catalog.table.run")}
                       </button>
                     </td>
                   </tr>
@@ -260,11 +263,11 @@ export default function CatalogPage() {
                       <td colSpan={9} style={{ background: "var(--surface-2)", padding: "12px 20px" }}>
                         <div style={{ fontSize: 12, color: "var(--text-2)", display: "flex", gap: 24, flexWrap: "wrap" }}>
                           <span><b>ID:</b> {tc.id}</span>
-                          <span><b>Status:</b> <span className={`badge ${statusClass(tc.status)}`}>{tc.status}</span></span>
-                          <span><b>Version:</b> {tc.version}</span>
-                          {tc.tags?.length > 0 && <span><b>Tags:</b> {tc.tags.join(", ")}</span>}
-                          <span><b>Steps:</b> {tc.steps_count}</span>
-                          <span><b>Updated:</b> {tc.updated_at ? new Date(tc.updated_at).toLocaleDateString() : "—"}</span>
+                          <span><b>{t("catalog.row.status")}</b> <span className={`badge ${statusClass(tc.status)}`}>{tc.status}</span></span>
+                          <span><b>{t("catalog.row.version")}</b> {tc.version}</span>
+                          {tc.tags?.length > 0 && <span><b>{t("catalog.row.tags")}</b> {tc.tags.join(", ")}</span>}
+                          <span><b>{t("catalog.row.steps")}</b> {tc.steps_count}</span>
+                          <span><b>{t("catalog.row.updated")}</b> {tc.updated_at ? new Date(tc.updated_at).toLocaleDateString() : "—"}</span>
                         </div>
                       </td>
                     </tr>
