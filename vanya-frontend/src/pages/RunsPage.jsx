@@ -48,6 +48,76 @@ function RiskBadge({ level }) {
   return <span className="badge badge-green">LOW RISK</span>;
 }
 
+// ── Evidence helpers ──────────────────────────────────────────────────────────
+
+function toDataUri(b64) {
+  if (!b64) return null;
+  return b64.startsWith("data:") ? b64 : `data:image/png;base64,${b64}`;
+}
+
+function getScreenshotSrc(detail) {
+  // 1. top-level screenshot_b64 (present in chat/execute runs)
+  if (detail.screenshot_b64) return toDataUri(detail.screenshot_b64);
+  // 2. meta.screenshot_b64 / meta.screenshot_url
+  const meta = detail.meta || {};
+  if (meta.screenshot_b64) return toDataUri(meta.screenshot_b64);
+  if (meta.screenshot_url) return meta.screenshot_url;
+  // 3. last step_result that has a screenshot
+  const steps = detail.steps_result || [];
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const s = steps[i];
+    if (s?.screenshot_b64) return toDataUri(s.screenshot_b64);
+    if (s?.screenshot_url) return s.screenshot_url;
+  }
+  return null;
+}
+
+function EvidenceCard({ detail }) {
+  const screenshotSrc = getScreenshotSrc(detail);
+  const hasLinks = detail.evidence_url || detail.report_url;
+  const hasAnything = screenshotSrc || hasLinks;
+
+  return (
+    <div className="card">
+      <div className="section-title" style={{ marginBottom: 10 }}>Evidence</div>
+      {!hasAnything ? (
+        <div style={{ fontSize: 12, color: "var(--text-3)" }}>No evidence available for this run.</div>
+      ) : (
+        <>
+          {screenshotSrc && (
+            <img
+              src={screenshotSrc}
+              alt="Run evidence screenshot"
+              style={{
+                width: "100%",
+                borderRadius: 6,
+                border: "1px solid var(--border)",
+                objectFit: "contain",
+                marginBottom: hasLinks ? 10 : 0,
+                display: "block",
+              }}
+            />
+          )}
+          {hasLinks && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {detail.evidence_url && (
+                <a href={detail.evidence_url} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm">
+                  Open Evidence ↗
+                </a>
+              )}
+              {detail.report_url && (
+                <a href={detail.report_url} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm">
+                  Open Report ↗
+                </a>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function FailureAnalysisPanel({ fa, style }) {
   if (!fa) return null;
   const typeCls = (() => {
@@ -515,6 +585,9 @@ function RunHistoryTab() {
               </>
             ) : null}
           </div>
+
+          {/* Evidence */}
+          {detail && !detail.error && <EvidenceCard detail={detail} />}
 
           {/* Failure Analysis */}
           <FailureAnalysisPanel fa={detail?.failure_analysis} />
