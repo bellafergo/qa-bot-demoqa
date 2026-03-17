@@ -1,50 +1,51 @@
 // src/components/NavSidebar.jsx
 import React from "react";
 import { NavLink } from "react-router-dom";
+import { useLang } from "../i18n/LangContext";
 
-const NAV_SECTIONS = [
+// Route → translation key for label
+const NAV_SECTIONS_DEF = [
   {
-    label: "Core",
+    labelKey: "nav.core",
     items: [
-      { to: "/dashboard",  icon: "⊞", label: "Dashboard"  },
-      { to: "/catalog",    icon: "☰", label: "Catalog"    },
-      { to: "/execution",  icon: "⚙", label: "Execution"  },
-      { to: "/runs",       icon: "◈", label: "Runs & RCA" },
+      { to: "/dashboard",  icon: "⊞", labelKey: "nav.dashboard"  },
+      { to: "/catalog",    icon: "☰", labelKey: "nav.catalog"    },
+      { to: "/execution",  icon: "⚙", labelKey: "nav.execution"  },
+      { to: "/runs",       icon: "◈", labelKey: "nav.runs"       },
     ],
   },
   {
-    label: "Intelligence",
+    labelKey: "nav.intelligence",
     items: [
-      { to: "/pr-analysis", icon: "◎", label: "PR Analysis" },
-      { to: "/coverage",    icon: "◐", label: "Coverage"    },
-      { to: "/drafts",      icon: "⊕", label: "Drafts"      },
+      { to: "/pr-analysis", icon: "◎", labelKey: "nav.pr_analysis" },
+      { to: "/coverage",    icon: "◐", labelKey: "nav.coverage"    },
+      { to: "/drafts",      icon: "⊕", labelKey: "nav.drafts"      },
     ],
   },
   {
-    label: "Tools",
+    labelKey: "nav.tools",
     items: [
-      { to: "/chat",        icon: "✦", label: "AI Chat"      },
-      { to: "/api-testing", icon: "⌥", label: "API Testing"  },
-      { to: "/planner",     icon: "⚡", label: "Planner"     },
-      { to: "/documents",   icon: "⊟", label: "Documents"    },
+      { to: "/chat",        icon: "✦", labelKey: "nav.chat"        },
+      { to: "/api-testing", icon: "⌥", labelKey: "nav.api_testing" },
+      { to: "/planner",     icon: "⚡", labelKey: "nav.planner"    },
+      { to: "/documents",   icon: "⊟", labelKey: "nav.documents"   },
     ],
   },
   {
-    label: "Platform",
+    labelKey: "nav.platform",
     items: [
-      { to: "/integrations", icon: "⊕", label: "Integrations" },
+      { to: "/integrations", icon: "⊕", labelKey: "nav.integrations" },
     ],
   },
 ];
 
-const BOTTOM_ITEMS = [
-  { to: "/settings", icon: "⊛", label: "Settings" },
+const BOTTOM_ITEMS_DEF = [
+  { to: "/settings", icon: "⊛", labelKey: "nav.settings" },
 ];
 
 function NavItem({ to, icon, label }) {
   return (
     <NavLink
-      key={to}
       to={to}
       style={({ isActive }) => ({
         display: "flex",
@@ -94,6 +95,8 @@ function NavItem({ to, icon, label }) {
 }
 
 export default function NavSidebar() {
+  const { lang, setLang, t } = useLang();
+
   return (
     <nav style={{
       width: "var(--nav-w)", minWidth: "var(--nav-w)",
@@ -126,24 +129,56 @@ export default function NavSidebar() {
 
       {/* Sections */}
       <div style={{ flex: 1, padding: "8px 8px", overflow: "auto" }}>
-        {NAV_SECTIONS.map(section => (
-          <div key={section.label} style={{ marginBottom: 8 }}>
+        {NAV_SECTIONS_DEF.map(section => (
+          <div key={section.labelKey} style={{ marginBottom: 8 }}>
             <div style={{
               fontSize: 9, fontWeight: 800, textTransform: "uppercase",
               letterSpacing: "0.12em", color: "var(--nav-text)",
               padding: "5px 10px 3px",
             }}>
-              {section.label}
+              {t(section.labelKey)}
             </div>
-            {section.items.map(item => <NavItem key={item.to} {...item} />)}
+            {section.items.map(item => (
+              <NavItem key={item.to} to={item.to} icon={item.icon} label={t(item.labelKey)} />
+            ))}
           </div>
         ))}
       </div>
 
-      {/* Bottom */}
+      {/* Bottom — settings + language toggle */}
       <div style={{ padding: "8px 8px 12px", borderTop: "1px solid var(--nav-border)" }}>
-        {BOTTOM_ITEMS.map(item => <NavItem key={item.to} {...item} />)}
-        <div style={{ marginTop: 8, padding: "0 10px", fontSize: 10, color: "var(--nav-text)", opacity: 0.6 }}>
+        {BOTTOM_ITEMS_DEF.map(item => (
+          <NavItem key={item.to} to={item.to} icon={item.icon} label={t(item.labelKey)} />
+        ))}
+
+        {/* Language toggle */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 4,
+          padding: "6px 10px", marginTop: 4,
+        }}>
+          <span style={{ fontSize: 10, color: "var(--nav-text)", opacity: 0.7, flexShrink: 0 }}>
+            {t("lang.label")}:
+          </span>
+          {["en", "es"].map(l => (
+            <button
+              key={l}
+              onClick={() => setLang(l)}
+              style={{
+                fontSize: 10,
+                fontWeight: lang === l ? 800 : 500,
+                color: lang === l ? "var(--nav-text-active)" : "var(--nav-text)",
+                background: lang === l ? "rgba(79,107,255,0.2)" : "transparent",
+                border: "none", cursor: "pointer",
+                padding: "2px 6px", borderRadius: 4,
+                transition: "background 0.15s, color 0.15s",
+              }}
+            >
+              {l.toUpperCase()}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ marginTop: 2, padding: "0 10px", fontSize: 10, color: "var(--nav-text)", opacity: 0.6 }}>
           v1.0 · QA Platform
         </div>
       </div>

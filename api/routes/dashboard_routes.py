@@ -24,8 +24,9 @@ from models.dashboard_models import (
     JobStatusBreakdown,
 )
 from models.orchestrator_job import OrchestratorJob
-from models.test_run import TestRun
+from models.run_contract import CanonicalRun
 from services.dashboard_service import dashboard_service
+from services.run_history_service import run_history_service
 
 logger = logging.getLogger("vanya.dashboard_routes")
 
@@ -47,11 +48,15 @@ def get_summary():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/recent-runs", response_model=List[TestRun])
+@router.get("/recent-runs", response_model=List[CanonicalRun])
 def get_recent_runs(limit: int = Query(20, ge=1, le=500)):
-    """Return the most recent test run records, newest first."""
+    """Return the most recent test run records as CanonicalRun, newest first.
+
+    Source: run_history_service → SQLite (official persistent store).
+    Includes both catalog runs and bridged chat/execute runs.
+    """
     try:
-        return dashboard_service.get_recent_runs(limit=limit)
+        return run_history_service.list_runs(limit=limit)
     except Exception as e:
         logger.exception("dashboard: get_recent_runs failed")
         raise HTTPException(status_code=500, detail=str(e))

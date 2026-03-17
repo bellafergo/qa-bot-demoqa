@@ -2,26 +2,30 @@
 import React from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import NavSidebar from "./NavSidebar";
+import { useLang } from "../i18n/LangContext";
 
+// null → page manages its own hero header (e.g. Dashboard)
 const ROUTE_META = {
-  "/dashboard":   null,  // has its own hero header
-  "/chat":        { title: "AI Chat",           subtitle: "Intelligent QA assistant" },
-  "/planner":     { title: "Test Planner",      subtitle: "Natural-language test generation" },
-  "/documents":   { title: "Documents",         subtitle: "Upload and query test documents" },
-  "/runs":        { title: "Runs & RCA",        subtitle: "Run history, evidence lookup, and root cause analysis" },
-  "/settings":    { title: "Settings",          subtitle: "Configuration and preferences" },
-  "/catalog":     { title: "Test Catalog",      subtitle: "Browse, filter, and execute catalog test cases" },
-  "/drafts":      { title: "Draft Approval",    subtitle: "Review and approve AI-generated test drafts" },
-  "/execution":   { title: "Execution Center",  subtitle: "Worker pool, job queue, and batch execution" },
-  "/pr-analysis": { title: "PR Analysis",       subtitle: "Analyze pull request QA impact and enqueue tests" },
-  "/api-testing": { title: "API Testing",       subtitle: "Parse OpenAPI specs, generate and run API tests" },
-  "/coverage":    { title: "Coverage",          subtitle: "Test coverage intelligence by module" },
+  "/dashboard":    null,
+  "/chat":         { titleKey: "layout.chat.title",          subtitleKey: "layout.chat.subtitle"          },
+  "/planner":      { titleKey: "layout.planner.title",       subtitleKey: "layout.planner.subtitle"       },
+  "/documents":    { titleKey: "layout.documents.title",     subtitleKey: "layout.documents.subtitle"     },
+  "/runs":         { titleKey: "layout.runs.title",          subtitleKey: "layout.runs.subtitle"          },
+  "/settings":     { titleKey: "layout.settings.title",      subtitleKey: "layout.settings.subtitle"      },
+  "/catalog":      { titleKey: "layout.catalog.title",       subtitleKey: "layout.catalog.subtitle"       },
+  "/drafts":       { titleKey: "layout.drafts.title",        subtitleKey: "layout.drafts.subtitle"        },
+  "/execution":    { titleKey: "layout.execution.title",     subtitleKey: "layout.execution.subtitle"     },
+  "/pr-analysis":  { titleKey: "layout.pr_analysis.title",   subtitleKey: "layout.pr_analysis.subtitle"   },
+  "/api-testing":  { titleKey: "layout.api_testing.title",   subtitleKey: "layout.api_testing.subtitle"   },
+  "/coverage":     { titleKey: "layout.coverage.title",      subtitleKey: "layout.coverage.subtitle"      },
+  "/integrations": { titleKey: "layout.integrations.title",  subtitleKey: "layout.integrations.subtitle"  },
 };
 
 export default function Layout() {
   const { pathname } = useLocation();
-  // null → dashboard (or other pages with their own hero) — no header bar
-  const meta = pathname in ROUTE_META ? ROUTE_META[pathname] : { title: "Vanya", subtitle: "" };
+  const { t } = useLang();
+
+  const meta = pathname in ROUTE_META ? ROUTE_META[pathname] : { titleKey: "nav.dashboard", subtitleKey: "" };
   const showHeader = meta !== null;
 
   return (
@@ -54,11 +58,11 @@ export default function Layout() {
                 letterSpacing: "-0.02em",
                 lineHeight: 1.2,
               }}>
-                {meta.title}
+                {t(meta.titleKey)}
               </div>
-              {meta.subtitle && (
+              {meta.subtitleKey && (
                 <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>
-                  {meta.subtitle}
+                  {t(meta.subtitleKey)}
                 </div>
               )}
             </div>
@@ -81,7 +85,7 @@ export default function Layout() {
                 boxShadow: "0 0 0 2px var(--green-bg)",
                 flexShrink: 0,
               }} />
-              Live
+              {t("common.live")}
             </div>
           </header>
         )}
