@@ -149,6 +149,10 @@ export const approveTests    = (body) => apiPost("/test-generation/approve",  bo
 export const generateDrafts  = (url)    => apiPost("/drafts/generate", { url });
 export const approveDrafts   = (drafts) => apiPost("/drafts/approve",  { drafts });
 
+// ========= App Map =========
+export const exploreApp = (url, maxPages = 5) =>
+  apiPost("/app-explorer/explore-app", { url, max_pages: maxPages });
+
 // ========= PR Analysis =========
 export const analyzePR           = (body) => apiPost("/pr-analysis/analyze",             body);
 export const analyzePRAndEnqueue = (body) => apiPost("/pr-analysis/analyze-and-enqueue", body);

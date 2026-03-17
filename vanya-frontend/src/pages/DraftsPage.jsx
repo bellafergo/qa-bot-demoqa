@@ -1,6 +1,6 @@
 // src/pages/DraftsPage.jsx
 import React, { useState, useEffect, useCallback } from "react";
-import { generateTests, approveTests, generateDrafts, approveDrafts, listTests, runSuite } from "../api";
+import { generateTests, approveTests, generateDrafts, approveDrafts, listTests, runSuite, exploreApp } from "../api";
 
 // ── Shared badge helpers ──────────────────────────────────────────────────────
 
@@ -32,6 +32,7 @@ const TABS = [
   { id: "explorer", label: "⊕ Explorer Drafts"   },
   { id: "catalog",  label: "▶ Catalog Execution" },
   { id: "ai",       label: "✦ AI Generation"     },
+  { id: "appmap",   label: "🗺 App Map"           },
 ];
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -276,6 +277,273 @@ function ExplorerDraftsPanel() {
           <div style={{ fontSize: 13 }}>
             Enter a URL above. Vanya will explore the page, detect patterns, and generate test drafts.
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// App Map Panel
+// Source: POST /app-explorer/explore-app
+// ══════════════════════════════════════════════════════════════════════════════
+
+function PageCard({ page }) {
+  const [open, setOpen] = useState(false);
+
+  const counts = [
+    { label: "inputs",  n: page.inputs?.length  ?? 0 },
+    { label: "buttons", n: page.buttons?.length ?? 0 },
+    { label: "links",   n: page.links?.length   ?? 0 },
+    { label: "forms",   n: page.forms?.length   ?? 0 },
+  ];
+
+  return (
+    <div className="card" style={{ marginBottom: 10 }}>
+      {/* Header row */}
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>{page.title || "(no title)"}</div>
+          <div style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-3)", marginTop: 2, wordBreak: "break-all" }}>
+            {page.url}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          {counts.map(c => (
+            <span key={c.label} className={`badge ${c.n > 0 ? "badge-blue" : "badge-gray"}`}>
+              {c.n} {c.label}
+            </span>
+          ))}
+          <button
+            style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: 11, fontWeight: 600, padding: "0 4px" }}
+            onClick={() => setOpen(v => !v)}
+          >
+            {open ? "▲ less" : "▼ detail"}
+          </button>
+        </div>
+      </div>
+
+      {/* Expanded detail */}
+      {open && (
+        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+
+          {/* Inputs */}
+          {page.inputs?.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Inputs</div>
+              <table className="data-table" style={{ fontSize: 11 }}>
+                <thead><tr><th>Name</th><th>Selector</th></tr></thead>
+                <tbody>
+                  {page.inputs.map((inp, i) => (
+                    <tr key={i}>
+                      <td style={{ fontWeight: 600 }}>{inp.name || "—"}</td>
+                      <td style={{ fontFamily: "monospace", color: "var(--text-2)" }}>{inp.selector || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Buttons */}
+          {page.buttons?.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Buttons</div>
+              <table className="data-table" style={{ fontSize: 11 }}>
+                <thead><tr><th>Name</th><th>Selector</th></tr></thead>
+                <tbody>
+                  {page.buttons.map((btn, i) => (
+                    <tr key={i}>
+                      <td style={{ fontWeight: 600 }}>{btn.name || "—"}</td>
+                      <td style={{ fontFamily: "monospace", color: "var(--text-2)" }}>{btn.selector || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Links */}
+          {page.links?.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Links</div>
+              <table className="data-table" style={{ fontSize: 11 }}>
+                <thead><tr><th>Text</th><th>Selector</th></tr></thead>
+                <tbody>
+                  {page.links.map((lnk, i) => (
+                    <tr key={i}>
+                      <td>{lnk.text || "—"}</td>
+                      <td style={{ fontFamily: "monospace", color: "var(--text-2)" }}>{lnk.selector || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Forms */}
+          {page.forms?.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Forms</div>
+              {page.forms.map((frm, i) => (
+                <div key={i} style={{ fontSize: 12, padding: "6px 10px", background: "var(--bg)", borderRadius: 6, marginBottom: 4 }}>
+                  <span style={{ fontWeight: 700 }}>{frm.name || `form_${i + 1}`}</span>
+                  {frm.fields?.length > 0 && (
+                    <span style={{ marginLeft: 8, color: "var(--text-3)" }}>
+                      fields: {frm.fields.join(", ")}
+                    </span>
+                  )}
+                  {frm.buttons?.length > 0 && (
+                    <span style={{ marginLeft: 8, color: "var(--text-3)" }}>
+                      · buttons: {frm.buttons.join(", ")}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AppMapPanel() {
+  const [url, setUrl]         = useState("");
+  const [maxPages, setMax]    = useState(5);
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState("");
+  const [result, setResult]   = useState(null);
+
+  async function handleExplore() {
+    const trimmed = url.trim();
+    if (!trimmed) return;
+    setLoading(true);
+    setError("");
+    setResult(null);
+    try {
+      const res = await exploreApp(trimmed, maxPages);
+      setResult(res);
+    } catch (e) {
+      setError(e?.message || "Exploration failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === "Enter") handleExplore();
+  }
+
+  return (
+    <div>
+      {/* Input row */}
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div className="section-title" style={{ marginBottom: 12 }}>Explore Application</div>
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 240 }}>
+            <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 4 }}>Start URL</label>
+            <input
+              className="input"
+              style={{ width: "100%" }}
+              placeholder="https://example.com"
+              value={url}
+              onChange={e => setUrl(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={loading}
+            />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 4 }}>Max pages</label>
+            <select className="input" value={maxPages} onChange={e => setMax(Number(e.target.value))} style={{ width: 90 }}>
+              {[1, 2, 3, 5, 8, 10, 15, 20].map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </div>
+          <button
+            className="btn btn-primary"
+            onClick={handleExplore}
+            disabled={loading || !url.trim()}
+            style={{ alignSelf: "flex-end" }}
+          >
+            {loading ? "Exploring…" : "🗺 Explore App"}
+          </button>
+        </div>
+        {error && <div className="alert alert-error" style={{ marginTop: 12 }}>{error}</div>}
+      </div>
+
+      {/* Loading */}
+      {loading && (
+        <div className="card" style={{ textAlign: "center", padding: "32px 20px", color: "var(--text-3)" }}>
+          Exploring app…
+        </div>
+      )}
+
+      {/* Results */}
+      {result && !loading && (
+        <>
+          {/* Summary card */}
+          <div className="card" style={{ marginBottom: 16, display: "flex", gap: 20, flexWrap: "wrap", alignItems: "center" }}>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 2 }}>Start URL</div>
+              <div style={{ fontFamily: "monospace", fontSize: 12, wordBreak: "break-all" }}>{result.start_url}</div>
+            </div>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 10 }}>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 22, fontWeight: 800, color: "var(--accent)" }}>{result.visited_count ?? 0}</div>
+                <div style={{ fontSize: 11, color: "var(--text-3)" }}>pages visited</div>
+              </div>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 22, fontWeight: 800, color: result.errors?.length > 0 ? "var(--red)" : "var(--text-3)" }}>
+                  {result.errors?.length ?? 0}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--text-3)" }}>errors</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Pages */}
+          {result.pages?.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-2)", marginBottom: 8 }}>
+                Pages ({result.pages.length})
+              </div>
+              {result.pages.map((page, i) => (
+                <PageCard key={page.url || i} page={page} />
+              ))}
+            </div>
+          )}
+
+          {/* Errors */}
+          {result.errors?.length > 0 && (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--red)", marginBottom: 8 }}>
+                Errors ({result.errors.length})
+              </div>
+              <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+                <table className="data-table" style={{ fontSize: 12 }}>
+                  <thead><tr><th>URL</th><th>Error</th></tr></thead>
+                  <tbody>
+                    {result.errors.map((e, i) => (
+                      <tr key={i}>
+                        <td style={{ fontFamily: "monospace", wordBreak: "break-all" }}>{e.url}</td>
+                        <td style={{ color: "var(--red)" }}>{e.error}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Empty state */}
+      {!loading && !result && !error && (
+        <div className="card" style={{ textAlign: "center", padding: "40px 20px", color: "var(--text-3)" }}>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>🗺</div>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>No app map generated yet</div>
+          <div style={{ fontSize: 13 }}>Enter a URL above to discover pages, inputs, buttons, and forms.</div>
         </div>
       )}
     </div>
@@ -874,6 +1142,7 @@ export default function DraftsPage() {
       {tab === "explorer" && <ExplorerDraftsPanel />}
       {tab === "catalog"  && <CatalogExecutionPanel />}
       {tab === "ai"       && <AIGenerationPanel />}
+      {tab === "appmap"   && <AppMapPanel />}
     </div>
   );
 }
