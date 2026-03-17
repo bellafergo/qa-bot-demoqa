@@ -512,5 +512,179 @@ class TestContractInvariants(unittest.TestCase):
         self._check(normalize_run({"evidence_id": "ev-y", "status": "queued", "meta": {}}))
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# 9. Evidence-lookup endpoint merge pattern
+#    Simulates what app.py does: {**run, **canonical.model_dump()}
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestEvidenceLookupMerge(unittest.TestCase):
+    """
+    Reproduces the merge logic used by GET /runs/{evidence_id}:
+        canonical = run_from_legacy_store(run)
+        merged = {**run, **canonical.model_dump()}
+        merged["evidence_id"] = run.get("evidence_id") or merged.get("run_id")
+
+    Verifies that:
+    - Canonical fields (status, artifacts, meta, run_id) are present and correct.
+    - Execution-specific legacy fields (failure_analysis, resolution_log, reason,
+      outcome, expected, logs) survive the merge unchanged.
+    - evidence_id alias is preserved for frontend backward compat.
+    - screenshot_b64 is reachable both at top level and inside artifacts.
+    """
+
+    def _make_run_store_payload(self, **overrides) -> Dict[str, Any]:
+        """Typical run_store dict as saved by workers/jobs.py."""
+        base = dict(
+            evidence_id  = "ev-abc123",
+            status       = "completed",
+            created_at   = 1_717_243_200_000,   # ms epoch
+            started_at   = 1_717_243_201_000,
+            finished_at  = 1_717_243_202_000,
+            duration_ms  = 1000,
+            kind         = "steps",
+            screenshot_b64 = "FAKE_B64",
+            evidence_url = "https://cdn.example.com/screenshot.png",
+            report_url   = "https://cdn.example.com/report.pdf",
+            reason       = "Element #submit not found",
+            outcome      = "fail",
+            expected     = "Login succeeds",
+            logs         = ["Step 1 ok", "Step 2 failed: timeout"],
+            failure_analysis = {"failure_type": "element_not_found", "layer": "ui", "confidence": "high"},
+            resolution_log   = [{"step_index": 2, "action": "click", "fallback_used": True}],
+            steps        = [
+                {"action": "goto",  "status": "passed"},
+                {"action": "click", "status": "failed", "screenshot_b64": "STEP_B64"},
+            ],
+            meta = {"base_url": "https://myapp.io", "tags": ["smoke"]},
+        )
+        base.update(overrides)
+        return base
+
+    def _merge(self, run: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply the same merge logic as app.py."""
+        canonical = run_from_legacy_store(run)
+        merged = {**run, **canonical.model_dump()}
+        merged["evidence_id"] = run.get("evidence_id") or merged.get("run_id")
+        return merged
+
+    # ── Canonical fields are correct ────────────────────────────────────────
+
+    def test_status_normalized_to_passed(self):
+        merged = self._merge(self._make_run_store_payload(status="completed"))
+        self.assertEqual(merged["status"], "passed")
+
+    def test_status_failed_normalized(self):
+        merged = self._merge(self._make_run_store_payload(status="failed"))
+        self.assertEqual(merged["status"], "failed")
+
+    def test_status_queued_preserved(self):
+        merged = self._merge(self._make_run_store_payload(status="queued"))
+        self.assertEqual(merged["status"], "queued")
+
+    def test_run_id_set_from_evidence_id(self):
+        merged = self._merge(self._make_run_store_payload())
+        self.assertEqual(merged["run_id"], "ev-abc123")
+
+    def test_artifacts_screenshot_b64(self):
+        merged = self._merge(self._make_run_store_payload())
+        arts = merged["artifacts"]
+        self.assertEqual(arts["screenshot_b64"], "FAKE_B64")
+
+    def test_artifacts_evidence_url(self):
+        merged = self._merge(self._make_run_store_payload())
+        self.assertEqual(merged["artifacts"]["evidence_url"], "https://cdn.example.com/screenshot.png")
+
+    def test_artifacts_report_url(self):
+        merged = self._merge(self._make_run_store_payload())
+        self.assertEqual(merged["artifacts"]["report_url"], "https://cdn.example.com/report.pdf")
+
+    def test_meta_base_url(self):
+        merged = self._merge(self._make_run_store_payload())
+        self.assertEqual(merged["meta"]["base_url"], "https://myapp.io")
+
+    def test_duration_ms_preserved(self):
+        merged = self._merge(self._make_run_store_payload())
+        self.assertEqual(merged["duration_ms"], 1000)
+
+    # ── Legacy extras survive the merge ─────────────────────────────────────
+
+    def test_failure_analysis_preserved(self):
+        merged = self._merge(self._make_run_store_payload())
+        fa = merged.get("failure_analysis")
+        self.assertIsNotNone(fa)
+        self.assertEqual(fa["failure_type"], "element_not_found")
+
+    def test_resolution_log_preserved(self):
+        merged = self._merge(self._make_run_store_payload())
+        rl = merged.get("resolution_log")
+        self.assertIsNotNone(rl)
+        self.assertEqual(len(rl), 1)
+        self.assertTrue(rl[0]["fallback_used"])
+
+    def test_reason_preserved(self):
+        merged = self._merge(self._make_run_store_payload())
+        self.assertEqual(merged.get("reason"), "Element #submit not found")
+
+    def test_outcome_preserved(self):
+        merged = self._merge(self._make_run_store_payload())
+        self.assertEqual(merged.get("outcome"), "fail")
+
+    def test_expected_preserved(self):
+        merged = self._merge(self._make_run_store_payload())
+        self.assertEqual(merged.get("expected"), "Login succeeds")
+
+    def test_logs_preserved(self):
+        merged = self._merge(self._make_run_store_payload())
+        logs = merged.get("logs")
+        self.assertIsInstance(logs, list)
+        self.assertEqual(len(logs), 2)
+
+    def test_steps_preserved(self):
+        merged = self._merge(self._make_run_store_payload())
+        steps = merged.get("steps")
+        self.assertIsInstance(steps, list)
+        self.assertEqual(len(steps), 2)
+        self.assertEqual(steps[0]["action"], "goto")
+
+    # ── evidence_id alias for frontend backward compat ───────────────────────
+
+    def test_evidence_id_alias_present(self):
+        merged = self._merge(self._make_run_store_payload())
+        self.assertEqual(merged["evidence_id"], "ev-abc123")
+
+    def test_evidence_id_equals_run_id(self):
+        merged = self._merge(self._make_run_store_payload())
+        self.assertEqual(merged["evidence_id"], merged["run_id"])
+
+    # ── Edge cases ───────────────────────────────────────────────────────────
+
+    def test_no_screenshot_artifacts_null(self):
+        p = self._make_run_store_payload()
+        del p["screenshot_b64"]
+        merged = self._merge(p)
+        self.assertIsNone(merged["artifacts"]["screenshot_b64"])
+
+    def test_screenshot_b64_also_at_top_level(self):
+        """Frontend reads run.screenshot_b64 directly — it must survive the merge."""
+        merged = self._merge(self._make_run_store_payload())
+        # The original screenshot_b64 survives because CanonicalRun.model_dump()
+        # does not have a top-level screenshot_b64 key, so it is not overwritten.
+        self.assertEqual(merged.get("screenshot_b64"), "FAKE_B64")
+
+    def test_empty_meta_safe(self):
+        p = self._make_run_store_payload(meta={})
+        merged = self._merge(p)
+        self.assertIsInstance(merged["meta"], dict)
+        self.assertIsNone(merged["meta"].get("base_url"))
+
+    def test_missing_optional_fields_default_null(self):
+        minimal = {"evidence_id": "ev-min", "status": "queued", "meta": {}}
+        merged = self._merge(minimal)
+        self.assertIsNone(merged.get("failure_analysis"))
+        self.assertIsNone(merged.get("resolution_log"))
+        self.assertEqual(merged["status"], "queued")
+        self.assertIsNotNone(merged.get("artifacts"))
+
+
 if __name__ == "__main__":
     unittest.main()

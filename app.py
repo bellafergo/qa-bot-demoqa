@@ -205,10 +205,19 @@ def get_run_evidence(evidence_id: str, request: Request, format: str = "html"):
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
 
-    # Si explícitamente piden JSON
+    # Si explícitamente piden JSON — devuelve CanonicalRun + extras legacy
     accept = (request.headers.get("accept") or "").lower()
     if format == "json" or "application/json" in accept:
-        return JSONResponse(run)
+        from services.run_mapper import run_from_legacy_store
+        canonical = run_from_legacy_store(run)
+        # Merge: canonical fields take priority; execution-specific extras
+        # (failure_analysis, resolution_log, reason, outcome, expected, logs, steps)
+        # are preserved from the original dict for backward compatibility.
+        merged = {**run, **canonical.model_dump()}
+        # Preserve evidence_id as alias — frontend uses it for display.
+        # run_id already holds the same value, but keep both for compat.
+        merged["evidence_id"] = run.get("evidence_id") or merged.get("run_id")
+        return JSONResponse(merged)
 
     # Helpers
     def _img_data_uri(b64: str) -> str:
