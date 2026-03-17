@@ -145,6 +145,10 @@ export const analyzeRisk     = (body) => apiPost("/business-risk/analyze", body)
 export const generateTests   = (body) => apiPost("/test-generation/generate", body);
 export const approveTests    = (body) => apiPost("/test-generation/approve",  body);
 
+// ========= Explorer Drafts =========
+export const generateDrafts  = (url)    => apiPost("/drafts/generate", { url });
+export const approveDrafts   = (drafts) => apiPost("/drafts/approve",  { drafts });
+
 // ========= PR Analysis =========
 export const analyzePR           = (body) => apiPost("/pr-analysis/analyze",             body);
 export const analyzePRAndEnqueue = (body) => apiPost("/pr-analysis/analyze-and-enqueue", body);
