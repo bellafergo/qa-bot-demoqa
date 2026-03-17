@@ -491,6 +491,7 @@ class TestCatalogService:
                     "tc_priority":    tc.priority,
                     "tc_version":     tc.version,
                     "evidence":       result.get("evidence"),
+                    "screenshot_b64": result.get("screenshot_b64"),
                 },
             )
 
