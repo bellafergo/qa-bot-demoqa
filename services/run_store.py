@@ -6,6 +6,16 @@ import time
 import threading
 from typing import Any, Dict, List, Optional, Tuple
 
+try:
+    from services.run_bridge import bridge_run_to_sqlite
+except Exception:  # pragma: no cover
+    bridge_run_to_sqlite = None  # type: ignore[assignment]
+
+try:
+    from services.run_store_supabase import persist_run_supabase
+except Exception:  # pragma: no cover
+    persist_run_supabase = None  # type: ignore[assignment]
+
 # ============================================================
 # In-memory Run Store (TTL + indexes)
 # - Guarda runs por evidence_id (compat)
@@ -186,8 +196,16 @@ def save_run(run_payload: Dict[str, Any]) -> Optional[str]:
 
                 # Persistencia best-effort a Supabase (no rompe si falla)
         try:
-            from services.run_store_supabase import persist_run_supabase
-            persist_run_supabase(run_payload)
+            if persist_run_supabase is not None:
+                persist_run_supabase(run_payload)
+        except Exception:
+            pass
+
+        # Bridge best-effort to SQLite (official run history) for final states.
+        # Skips queued/running; catalog runs never reach this path.
+        try:
+            if bridge_run_to_sqlite is not None:
+                bridge_run_to_sqlite(run_payload)
         except Exception:
             pass
 

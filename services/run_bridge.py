@@ -1,0 +1,177 @@
+# services/run_bridge.py
+"""
+Run Bridge — Chat/Execute → SQLite
+===================================
+Best-effort persistence of runs that flow through run_store (chat, async execute,
+PR-triggered) into the official SQLite store (test_run_repo / data/vanya.db).
+
+This module is called by run_store.save_run() for completed/failed payloads so
+that chat/execute runs appear in GET /test-runs alongside catalog runs.
+
+Design constraints
+------------------
+• Best-effort only — bridge_run_to_sqlite() NEVER raises; all exceptions are
+  logged and silently swallowed so the calling run_store.save_run() is not
+  affected in any way.
+• Only final states are bridged; queued / running payloads are skipped.
+• Catalog runs already reach test_run_repo via catalog_service._execute() and
+  never flow through run_store, so there is no double-write risk.
+• test_case_id is required by the SQLite schema.  For chat/execute runs it
+  defaults to "_chat" unless one is provided in meta.
+
+Field mapping (run_store payload → TestRun)
+--------------------------------------------
+evidence_id / run_id  → run_id + evidence_id
+status (arbitrary)    → mapped to "pass" / "fail" / "error"
+started_at / created_at (ms epoch or ISO) → executed_at (datetime)
+duration_ms           → duration_ms
+steps / steps_result  → steps_result
+logs                  → logs (capped at 500 entries)
+evidence_url          → evidence_url
+report_url            → report_url
+meta                  → meta (enriched: source=chat, bridge_persisted=True)
+screenshot_b64        → meta.screenshot_b64 (EvidenceCard reads it from there)
+meta.test_case_id     → test_case_id (or "_chat")
+meta.domain / prompt  → test_name
+
+Source label
+------------
+All bridged runs have meta["source"] = "chat" so they can be distinguished from
+catalog runs (meta["source"] = "catalog") in dashboards and analysis queries.
+"""
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timezone
+from typing import Any, Dict
+
+from models.test_run import TestRun
+from services.db.test_run_repository import test_run_repo
+
+logger = logging.getLogger("vanya.run_bridge")
+
+# States that are skip-worthy (intermediate lifecycle states, not final results)
+_SKIP_STATUSES = frozenset({"queued", "running", "pending"})
+
+# Map arbitrary run_store status strings → TestRun's status set
+# TestRun accepts: "pass" | "fail" | "error" | "running"
+_STATUS_MAP: Dict[str, str] = {
+    "passed":    "pass",
+    "pass":      "pass",
+    "completed": "pass",
+    "ok":        "pass",
+    "failed":    "fail",
+    "fail":      "fail",
+    "error":     "error",
+    "partial":   "fail",
+}
+
+
+def _map_status(raw: str) -> str:
+    return _STATUS_MAP.get(str(raw or "").strip().lower(), "error")
+
+
+def _to_datetime(value: Any) -> datetime:
+    """Convert ms-epoch int, ISO string, or datetime to a timezone-aware datetime."""
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value / 1000, tz=timezone.utc)
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            pass
+    return datetime.now(timezone.utc)
+
+
+def bridge_run_to_sqlite(payload: Dict[str, Any]) -> bool:
+    """
+    Persist a run_store payload to SQLite test_run_repo.
+
+    Called best-effort by run_store.save_run() for every completed/failed run.
+    Returns True on success, False on skip or error.  Never raises.
+    """
+    try:
+        # ── Skip intermediate states ──────────────────────────────────────────
+        raw_status = str(payload.get("status") or "").strip().lower()
+        if raw_status in _SKIP_STATUSES:
+            return False
+
+        # ── Require an evidence_id ────────────────────────────────────────────
+        evidence_id = str(payload.get("evidence_id") or payload.get("run_id") or "").strip()
+        if not evidence_id:
+            logger.debug("run_bridge: skip — no evidence_id in payload")
+            return False
+
+        # ── Build enriched meta ───────────────────────────────────────────────
+        meta: Dict[str, Any] = dict(payload.get("meta") or {})
+        meta.setdefault("source", "chat")      # label for analytics
+        meta["bridge_persisted"] = True
+        meta["evidence_id"] = evidence_id
+
+        # Move screenshot_b64 into meta so EvidenceCard finds it via
+        # run_from_catalog_testrun → artifacts.screenshot_b64 = meta["screenshot_b64"]
+        screenshot_b64 = (
+            payload.get("screenshot_b64")
+            or meta.get("screenshot_b64")
+            or ""
+        )
+        if screenshot_b64 and not meta.get("screenshot_b64"):
+            meta["screenshot_b64"] = screenshot_b64
+
+        # Preserve base_url if present at top level
+        if payload.get("base_url") and not meta.get("base_url"):
+            meta["base_url"] = payload["base_url"]
+
+        # ── Build TestRun ─────────────────────────────────────────────────────
+        # test_case_id: prefer explicit value, fallback to sentinel
+        test_case_id = (
+            meta.get("test_case_id")
+            or payload.get("test_case_id")
+            or "_chat"
+        )
+
+        # test_name: try several sources in priority order
+        test_name = (
+            meta.get("test_name")
+            or meta.get("domain")
+            or (str(payload.get("prompt") or "")[:80].strip() or None)
+            or "Chat / Execute Run"
+        )
+
+        executed_at = _to_datetime(
+            payload.get("started_at") or payload.get("created_at")
+        )
+
+        tr = TestRun(
+            run_id       = evidence_id,
+            test_case_id = test_case_id,
+            test_name    = test_name,
+            executed_at  = executed_at,
+            environment  = meta.get("environment") or "default",
+            status       = _map_status(raw_status),
+            duration_ms  = int(payload.get("duration_ms") or 0),
+            evidence_url = payload.get("evidence_url") or meta.get("evidence_url"),
+            report_url   = payload.get("report_url")   or meta.get("report_url"),
+            evidence_id  = evidence_id,
+            logs         = list(payload.get("logs") or [])[:500],   # cap volume
+            steps_result = list(
+                payload.get("steps") or payload.get("steps_result") or []
+            ),
+            meta         = meta,
+        )
+
+        test_run_repo.create_run(tr)
+        logger.info(
+            "run_bridge: persisted run %s → SQLite  source=chat status=%s",
+            evidence_id, tr.status,
+        )
+        return True
+
+    except Exception as exc:
+        logger.warning(
+            "run_bridge: failed to persist %s — %s: %s",
+            payload.get("evidence_id", "?"), type(exc).__name__, exc,
+        )
+        return False
