@@ -30,9 +30,9 @@ function ReasonBadge({ r }) {
 
 const TABS = [
   { id: "appmap",   label: "🗺 App Map"           },
-  { id: "ai",       label: "✦ AI Generation"     },
   { id: "explorer", label: "⊕ Explorer Drafts"   },
   { id: "catalog",  label: "▶ Catalog Execution" },
+  { id: "ai",       label: "✦ AI Generation"     },
 ];
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -40,7 +40,7 @@ const TABS = [
 // Source: Application Explorer → Suggested Tests → Draft Generator → Approve
 // ══════════════════════════════════════════════════════════════════════════════
 
-function ExplorerDraftsPanel() {
+function ExplorerDraftsPanel({ onGoToCatalog }) {
   const [url, setUrl]                 = useState("");
   const [loading, setLoading]         = useState(false);
   const [loadError, setLoadError]     = useState("");
@@ -103,7 +103,7 @@ function ExplorerDraftsPanel() {
     <div>
       {/* URL input */}
       <div className="card" style={{ marginBottom: 20 }}>
-        <div className="section-title" style={{ marginBottom: 12 }}>Generate Drafts from URL</div>
+        <div className="section-title" style={{ marginBottom: 12 }}>Generate Scenarios from URL</div>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <input
             className="input"
@@ -119,7 +119,7 @@ function ExplorerDraftsPanel() {
             onClick={handleGenerate}
             disabled={loading || !url.trim()}
           >
-            {loading ? "Exploring…" : "⊕ Generate Drafts"}
+            {loading ? "Discovering…" : "⊕ Discover Scenarios"}
           </button>
         </div>
         {loadError && (
@@ -171,17 +171,19 @@ function ExplorerDraftsPanel() {
           )}
 
           {approveResult && (
-            <div
-              className={`alert ${approveResult.ok ? "alert-success" : "alert-error"}`}
-              style={{ margin: 0, flex: 1 }}
-            >
-              {approveResult.ok
-                ? `✓ Saved ${(approveResult.saved || []).length} test(s)` +
-                  (approveResult.skipped?.length
-                    ? ` · ${approveResult.skipped.length} skipped`
-                    : "")
-                : `✗ ${approveResult.error}`
-              }
+            <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <div className={`alert ${approveResult.ok ? "alert-success" : "alert-error"}`} style={{ margin: 0 }}>
+                {approveResult.ok
+                  ? `✓ ${(approveResult.saved || []).length} test${(approveResult.saved || []).length !== 1 ? "s" : ""} added to catalog` +
+                    (approveResult.skipped?.length ? ` · ${approveResult.skipped.length} skipped` : "")
+                  : `✗ ${approveResult.error}`
+                }
+              </div>
+              {approveResult.ok && onGoToCatalog && (
+                <button className="btn btn-secondary btn-sm" onClick={onGoToCatalog}>
+                  ▶ Run in Catalog Execution →
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -271,11 +273,11 @@ function ExplorerDraftsPanel() {
 
       {/* Empty state */}
       {!loading && drafts.length === 0 && !loadError && (
-        <div className="card" style={{ textAlign: "center", padding: "40px 20px", color: "var(--text-3)" }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>⊕</div>
-          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>No drafts yet</div>
-          <div style={{ fontSize: 13 }}>
-            Enter a URL above. Vanya will explore the page, detect patterns, and generate test drafts.
+        <div className="card" style={{ padding: "40px 32px" }}>
+          <div style={{ fontSize: 28, marginBottom: 12 }}>⊕</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text)", marginBottom: 8 }}>No scenarios generated yet</div>
+          <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.8 }}>
+            Enter a URL above — Vanya will analyze the page structure and suggest test scenarios automatically.
           </div>
         </div>
       )}
@@ -883,7 +885,7 @@ function CatalogExecutionPanel() {
             </select>
           </div>
           <button className="btn btn-secondary" onClick={loadTests} disabled={loading} style={{ alignSelf: "flex-end" }}>
-            {loading ? "Loading…" : "↺ Refresh"}
+            {loading ? "Loading…" : "↺ Reload"}
           </button>
         </div>
         {loadError && <div className="alert alert-error" style={{ marginTop: 10 }}>{loadError}</div>}
@@ -913,7 +915,7 @@ function CatalogExecutionPanel() {
               onClick={() => handleExecute(selectedIds)}
               disabled={executing}
             >
-              {executing ? "Running…" : `▶ Execute Selected (${selectedIds.length})`}
+              {executing ? "Running…" : `▶ Run Selected Tests (${selectedIds.length})`}
             </button>
           )}
 
@@ -923,7 +925,7 @@ function CatalogExecutionPanel() {
             disabled={executing || visibleIds.length === 0}
             style={{ marginLeft: "auto" }}
           >
-            {executing ? "Running…" : `▶ Execute All Filtered (${visibleIds.length})`}
+            {executing ? "Running…" : `▶ Run All Filtered (${visibleIds.length})`}
           </button>
         </div>
       )}
@@ -935,7 +937,7 @@ function CatalogExecutionPanel() {
       {execResult && (
         <div className="card" style={{ marginBottom: 16, borderColor: "var(--accent-border)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
-            <span style={{ fontWeight: 700, fontSize: 14 }}>Suite result</span>
+            <span style={{ fontWeight: 700, fontSize: 14 }}>Execution complete</span>
             <span className="badge badge-gray">{execResult.total ?? 0} total</span>
             <span className="badge badge-green">{execResult.passed ?? 0} passed</span>
             {(execResult.failed ?? 0) > 0 && <span className="badge badge-red">{execResult.failed} failed</span>}
@@ -974,10 +976,11 @@ function CatalogExecutionPanel() {
               </tbody>
             </table>
           )}
-          <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-3)" }}>
-            View full history in the{" "}
-            <a href="/runs" style={{ color: "var(--accent)", textDecoration: "none", fontWeight: 600 }}>Runs</a>
-            {" "}page.
+          <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 12, color: "var(--text-3)" }}>Full history and evidence available in</span>
+            <a href="/runs" style={{ fontSize: 12, color: "var(--accent)", textDecoration: "none", fontWeight: 600 }}>
+              View Runs →
+            </a>
           </div>
         </div>
       )}
@@ -1032,15 +1035,18 @@ function CatalogExecutionPanel() {
 
       {loading && (
         <div className="card" style={{ textAlign: "center", padding: "32px 20px", color: "var(--text-3)" }}>
-          Loading catalog…
+          Loading test catalog…
         </div>
       )}
 
       {!loading && visible.length === 0 && !loadError && (
-        <div className="card" style={{ textAlign: "center", padding: "40px 20px", color: "var(--text-3)" }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>▶</div>
-          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>No tests found</div>
-          <div style={{ fontSize: 13 }}>Adjust the filters or approve drafts to populate the catalog.</div>
+        <div className="card" style={{ padding: "40px 32px" }}>
+          <div style={{ fontSize: 28, marginBottom: 12 }}>▶</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text)", marginBottom: 8 }}>No approved tests available</div>
+          <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.8 }}>
+            No catalog tests match your filters. Try adjusting the filters, or approve scenarios in the{" "}
+            <strong>Explorer Drafts</strong> tab to add tests to the catalog.
+          </div>
         </div>
       )}
     </div>
@@ -1122,7 +1128,7 @@ function AIGenerationPanel() {
     <div>
       {/* Generation form */}
       <div className="card" style={{ marginBottom: 20 }}>
-        <div className="section-title">Generate Test Drafts</div>
+        <div className="section-title">Generate Test Cases with AI</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div>
             <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 4 }}>
@@ -1206,7 +1212,7 @@ function AIGenerationPanel() {
                   onClick={handleApprove}
                   disabled={approving}
                 >
-                  {approving ? "Approving…" : `✓ Approve ${selectedDrafts.size}`}
+                  {approving ? "Adding to catalog…" : `✓ Add ${selectedDrafts.size} to Catalog`}
                 </button>
               </>
             )}
@@ -1283,10 +1289,12 @@ function AIGenerationPanel() {
       )}
 
       {!generating && drafts.length === 0 && !genError && (
-        <div className="card" style={{ textAlign: "center", padding: "40px 20px", color: "var(--text-3)" }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>✦</div>
-          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>No drafts yet</div>
-          <div style={{ fontSize: 13 }}>Enter a prompt above and click Generate to get AI-drafted test cases.</div>
+        <div className="card" style={{ padding: "40px 32px" }}>
+          <div style={{ fontSize: 28, marginBottom: 12 }}>✦</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text)", marginBottom: 8 }}>No test cases generated yet</div>
+          <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.8 }}>
+            Describe a feature or user flow above — Vanya will generate structured test cases ready to review and approve.
+          </div>
         </div>
       )}
     </div>
@@ -1297,11 +1305,42 @@ function AIGenerationPanel() {
 // Page root
 // ══════════════════════════════════════════════════════════════════════════════
 
+function KpiBar() {
+  return (
+    <div style={{
+      display: "flex", gap: 0,
+      borderBottom: "1px solid var(--border)",
+      marginBottom: 20,
+      paddingBottom: 16,
+    }}>
+      {[
+        { label: "Pages Discovered",   value: "—", hint: "from App Map"          },
+        { label: "Test Scenarios",      value: "—", hint: "suggested"             },
+        { label: "Approved Tests",      value: "—", hint: "in catalog"            },
+        { label: "Recent Runs",         value: "—", hint: "last execution"        },
+      ].map((kpi, i, arr) => (
+        <div key={kpi.label} style={{
+          flex: 1,
+          padding: "0 20px",
+          borderRight: i < arr.length - 1 ? "1px solid var(--border)" : "none",
+        }}>
+          <div style={{ fontSize: 22, fontWeight: 800, color: "var(--accent)" }}>{kpi.value}</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-2)", marginTop: 2 }}>{kpi.label}</div>
+          <div style={{ fontSize: 11, color: "var(--text-3)" }}>{kpi.hint}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function DraftsPage() {
   const [tab, setTab] = useState("appmap");
 
   return (
     <div className="page-wrap">
+      {/* KPI summary bar */}
+      <KpiBar />
+
       {/* Tab bar */}
       <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: "1px solid var(--border)", paddingBottom: 0 }}>
         {TABS.map(t => (
@@ -1326,7 +1365,7 @@ export default function DraftsPage() {
         ))}
       </div>
 
-      {tab === "explorer" && <ExplorerDraftsPanel />}
+      {tab === "explorer" && <ExplorerDraftsPanel onGoToCatalog={() => setTab("catalog")} />}
       {tab === "catalog"  && <CatalogExecutionPanel />}
       {tab === "ai"       && <AIGenerationPanel />}
       {tab === "appmap"   && <AppMapPanel onGoToExplorer={() => setTab("explorer")} />}
