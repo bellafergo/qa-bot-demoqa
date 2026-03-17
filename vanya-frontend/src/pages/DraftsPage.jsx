@@ -1,6 +1,6 @@
 // src/pages/DraftsPage.jsx
-import React, { useState } from "react";
-import { generateTests, approveTests, generateDrafts, approveDrafts } from "../api";
+import React, { useState, useEffect, useCallback } from "react";
+import { generateTests, approveTests, generateDrafts, approveDrafts, listTests, runSuite } from "../api";
 
 // ── Shared badge helpers ──────────────────────────────────────────────────────
 
@@ -29,8 +29,9 @@ function ReasonBadge({ r }) {
 // ── Tab bar ───────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: "explorer", label: "⊕ Explorer Drafts" },
-  { id: "ai",       label: "✦ AI Generation"   },
+  { id: "explorer", label: "⊕ Explorer Drafts"   },
+  { id: "catalog",  label: "▶ Catalog Execution" },
+  { id: "ai",       label: "✦ AI Generation"     },
 ];
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -275,6 +276,316 @@ function ExplorerDraftsPanel() {
           <div style={{ fontSize: 13 }}>
             Enter a URL above. Vanya will explore the page, detect patterns, and generate test drafts.
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Catalog Execution Panel
+// Source: GET /tests + POST /tests/run-suite
+// ══════════════════════════════════════════════════════════════════════════════
+
+const TYPE_BADGE   = { smoke: "badge-gray", regression: "badge-blue", functional: "badge-blue", negative: "badge-orange", e2e: "badge-blue" };
+const STATUS_BADGE = { active: "badge-green", inactive: "badge-gray" };
+const RUN_BADGE    = { pass: "badge-green", fail: "badge-red", error: "badge-orange", running: "badge-blue" };
+
+function CatalogExecutionPanel() {
+  const [tests, setTests]               = useState([]);
+  const [loading, setLoading]           = useState(false);
+  const [loadError, setLoadError]       = useState("");
+
+  // Filters
+  const [search, setSearch]             = useState("");
+  const [filterModule, setFilterModule] = useState("");
+  const [filterPriority, setFilterPri]  = useState("");
+  const [filterStatus, setFilterStatus] = useState("active");
+
+  // Selection
+  const [selected, setSelected]         = useState(new Set());
+
+  // Execution
+  const [executing, setExecuting]       = useState(false);
+  const [execResult, setExecResult]     = useState(null);
+  const [execError, setExecError]       = useState("");
+
+  const loadTests = useCallback(async () => {
+    setLoading(true);
+    setLoadError("");
+    setSelected(new Set());
+    setExecResult(null);
+    setExecError("");
+    try {
+      const params = { limit: 200 };
+      if (filterModule)   params.module   = filterModule;
+      if (filterPriority) params.priority = filterPriority;
+      // pass empty string to get all statuses, or the selected status value
+      params.status = filterStatus;
+      const res = await listTests(params);
+      setTests(res || []);
+    } catch (e) {
+      setLoadError(e?.message || "Failed to load tests");
+    } finally {
+      setLoading(false);
+    }
+  }, [filterModule, filterPriority, filterStatus]);
+
+  useEffect(() => { loadTests(); }, [loadTests]);
+
+  // Client-side text search
+  const visible = search.trim()
+    ? tests.filter(t =>
+        t.name?.toLowerCase().includes(search.toLowerCase()) ||
+        t.test_case_id?.toLowerCase().includes(search.toLowerCase())
+      )
+    : tests;
+
+  const allVisible = visible.length > 0 && visible.every(t => selected.has(t.test_case_id));
+
+  function toggleOne(id) {
+    setSelected(prev => {
+      const s = new Set(prev);
+      s.has(id) ? s.delete(id) : s.add(id);
+      return s;
+    });
+  }
+
+  function toggleAll() {
+    if (allVisible) {
+      setSelected(prev => {
+        const s = new Set(prev);
+        visible.forEach(t => s.delete(t.test_case_id));
+        return s;
+      });
+    } else {
+      setSelected(prev => {
+        const s = new Set(prev);
+        visible.forEach(t => s.add(t.test_case_id));
+        return s;
+      });
+    }
+  }
+
+  async function handleExecute(ids) {
+    if (!ids?.length) return;
+    setExecuting(true);
+    setExecResult(null);
+    setExecError("");
+    try {
+      const res = await runSuite({ test_case_ids: ids, headless: true });
+      setExecResult(res);
+    } catch (e) {
+      setExecError(e?.message || "Execution failed");
+    } finally {
+      setExecuting(false);
+    }
+  }
+
+  const selectedIds = [...selected];
+  const visibleIds  = visible.map(t => t.test_case_id);
+
+  return (
+    <div>
+      {/* Filters */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 4 }}>Search</label>
+            <input
+              className="input"
+              placeholder="Filter by name or ID…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{ width: "100%" }}
+            />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 4 }}>Module</label>
+            <input
+              className="input"
+              placeholder="e.g. login"
+              value={filterModule}
+              onChange={e => setFilterModule(e.target.value)}
+              onBlur={loadTests}
+              onKeyDown={e => e.key === "Enter" && loadTests()}
+              style={{ width: 130 }}
+            />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 4 }}>Priority</label>
+            <select className="input" value={filterPriority} onChange={e => setFilterPri(e.target.value)} style={{ width: 120 }}>
+              <option value="">All</option>
+              {["critical","high","medium","low"].map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 4 }}>Status</label>
+            <select className="input" value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ width: 110 }}>
+              <option value="active">active</option>
+              <option value="inactive">inactive</option>
+              <option value="">all</option>
+            </select>
+          </div>
+          <button className="btn btn-secondary" onClick={loadTests} disabled={loading} style={{ alignSelf: "flex-end" }}>
+            {loading ? "Loading…" : "↺ Refresh"}
+          </button>
+        </div>
+        {loadError && <div className="alert alert-error" style={{ marginTop: 10 }}>{loadError}</div>}
+      </div>
+
+      {/* Action bar */}
+      {visible.length > 0 && (
+        <div className="card" style={{
+          marginBottom: 12, padding: "10px 16px",
+          display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap",
+          background: selectedIds.length > 0 ? "var(--accent-light)" : undefined,
+          borderColor: selectedIds.length > 0 ? "var(--accent-border)" : undefined,
+        }}>
+          <button className="btn btn-secondary btn-sm" onClick={toggleAll}>
+            {allVisible ? "Deselect all" : `Select all visible (${visible.length})`}
+          </button>
+
+          {selectedIds.length > 0 && (
+            <span style={{ fontSize: 13, fontWeight: 600, color: "var(--accent)" }}>
+              {selectedIds.length} selected
+            </span>
+          )}
+
+          {selectedIds.length > 0 && (
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={() => handleExecute(selectedIds)}
+              disabled={executing}
+            >
+              {executing ? "Running…" : `▶ Execute Selected (${selectedIds.length})`}
+            </button>
+          )}
+
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => handleExecute(visibleIds)}
+            disabled={executing || visibleIds.length === 0}
+            style={{ marginLeft: "auto" }}
+          >
+            {executing ? "Running…" : `▶ Execute All Filtered (${visibleIds.length})`}
+          </button>
+        </div>
+      )}
+
+      {/* Execution error */}
+      {execError && <div className="alert alert-error" style={{ marginBottom: 12 }}>{execError}</div>}
+
+      {/* Execution result summary */}
+      {execResult && (
+        <div className="card" style={{ marginBottom: 16, borderColor: "var(--accent-border)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 700, fontSize: 14 }}>Suite result</span>
+            <span className="badge badge-gray">{execResult.total ?? 0} total</span>
+            <span className="badge badge-green">{execResult.passed ?? 0} passed</span>
+            {(execResult.failed ?? 0) > 0 && <span className="badge badge-red">{execResult.failed} failed</span>}
+            {(execResult.errors ?? 0) > 0 && <span className="badge badge-orange">{execResult.errors} errors</span>}
+            {execResult.duration_ms != null && (
+              <span style={{ fontSize: 12, color: "var(--text-3)", marginLeft: "auto" }}>
+                {(execResult.duration_ms / 1000).toFixed(1)}s
+              </span>
+            )}
+          </div>
+          {execResult.runs?.length > 0 && (
+            <table className="data-table" style={{ fontSize: 12 }}>
+              <thead>
+                <tr>
+                  <th>Test</th>
+                  <th>Status</th>
+                  <th>Duration</th>
+                  <th>Run ID</th>
+                </tr>
+              </thead>
+              <tbody>
+                {execResult.runs.map(r => (
+                  <tr key={r.run_id}>
+                    <td style={{ fontWeight: 600 }}>{r.test_name || r.test_case_id}</td>
+                    <td>
+                      <span className={`badge ${RUN_BADGE[r.status] || "badge-gray"}`}>{r.status}</span>
+                    </td>
+                    <td style={{ color: "var(--text-3)" }}>
+                      {r.duration_ms != null ? `${(r.duration_ms / 1000).toFixed(1)}s` : "—"}
+                    </td>
+                    <td style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-2)" }}>
+                      {r.run_id ? r.run_id.slice(0, 16) + "…" : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-3)" }}>
+            View full history in the{" "}
+            <a href="/runs" style={{ color: "var(--accent)", textDecoration: "none", fontWeight: 600 }}>Runs</a>
+            {" "}page.
+          </div>
+        </div>
+      )}
+
+      {/* Tests table */}
+      {!loading && visible.length > 0 && (
+        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th style={{ width: 32 }}>
+                  <input type="checkbox" checked={allVisible} onChange={toggleAll} />
+                </th>
+                <th>Name</th>
+                <th>Module</th>
+                <th>Type</th>
+                <th>Priority</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map(t => (
+                <tr
+                  key={t.test_case_id}
+                  style={{
+                    background: selected.has(t.test_case_id) ? "var(--accent-light)" : undefined,
+                    cursor: "pointer",
+                  }}
+                  onClick={() => toggleOne(t.test_case_id)}
+                >
+                  <td onClick={e => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={selected.has(t.test_case_id)}
+                      onChange={() => toggleOne(t.test_case_id)}
+                    />
+                  </td>
+                  <td>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>{t.name}</div>
+                    <div style={{ fontFamily: "monospace", fontSize: 10, color: "var(--text-3)" }}>{t.test_case_id}</div>
+                  </td>
+                  <td><span className="badge badge-gray">{t.module || "—"}</span></td>
+                  <td><span className={`badge ${TYPE_BADGE[t.type] || "badge-gray"}`}>{t.type || "—"}</span></td>
+                  <td><PriorityBadge p={t.priority} /></td>
+                  <td><span className={`badge ${STATUS_BADGE[t.status] || "badge-gray"}`}>{t.status}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {loading && (
+        <div className="card" style={{ textAlign: "center", padding: "32px 20px", color: "var(--text-3)" }}>
+          Loading catalog…
+        </div>
+      )}
+
+      {!loading && visible.length === 0 && !loadError && (
+        <div className="card" style={{ textAlign: "center", padding: "40px 20px", color: "var(--text-3)" }}>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>▶</div>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>No tests found</div>
+          <div style={{ fontSize: 13 }}>Adjust the filters or approve drafts to populate the catalog.</div>
         </div>
       )}
     </div>
@@ -561,6 +872,7 @@ export default function DraftsPage() {
       </div>
 
       {tab === "explorer" && <ExplorerDraftsPanel />}
+      {tab === "catalog"  && <CatalogExecutionPanel />}
       {tab === "ai"       && <AIGenerationPanel />}
     </div>
   );
