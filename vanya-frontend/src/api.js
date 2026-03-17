@@ -146,8 +146,9 @@ export const generateTests   = (body) => apiPost("/test-generation/generate", bo
 export const approveTests    = (body) => apiPost("/test-generation/approve",  body);
 
 // ========= Explorer Drafts =========
-export const generateDrafts  = (url)    => apiPost("/drafts/generate", { url });
-export const approveDrafts   = (drafts) => apiPost("/drafts/approve",  { drafts });
+export const generateDrafts          = (url)    => apiPost("/drafts/generate",            { url });
+export const generateDraftsFromPages = (pages)  => apiPost("/drafts/generate-from-pages", { pages });
+export const approveDrafts           = (drafts) => apiPost("/drafts/approve",             { drafts });
 
 // ========= App Map =========
 export const exploreApp = (url, maxPages = 5) =>
