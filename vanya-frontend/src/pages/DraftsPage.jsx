@@ -29,10 +29,10 @@ function ReasonBadge({ r }) {
 // ── Tab bar ───────────────────────────────────────────────────────────────────
 
 const TABS = [
+  { id: "appmap",   label: "🗺 App Map"           },
+  { id: "ai",       label: "✦ AI Generation"     },
   { id: "explorer", label: "⊕ Explorer Drafts"   },
   { id: "catalog",  label: "▶ Catalog Execution" },
-  { id: "ai",       label: "✦ AI Generation"     },
-  { id: "appmap",   label: "🗺 App Map"           },
 ];
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -432,8 +432,8 @@ function AppMapDraftCard({ draft }) {
         <span style={{ fontWeight: 700, fontSize: 13, fontFamily: "monospace", flex: 1 }}>{draft.test_name}</span>
         <PriorityBadge p={draft.priority} />
         <ReasonBadge   r={draft.reason} />
-        <span className="badge badge-gray">draft</span>
-        <span style={{ fontSize: 11, color: "var(--text-3)" }}>{draft.steps?.length ?? 0} steps</span>
+        <span className="badge badge-gray">suggested</span>
+        <span style={{ fontSize: 11, color: "var(--text-3)" }}>{draft.steps?.length ?? 0} actions</span>
         <button
           style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: 11, fontWeight: 600, padding: 0 }}
           onClick={() => setOpen(v => !v)}
@@ -444,7 +444,7 @@ function AppMapDraftCard({ draft }) {
       {open && draft.steps?.length > 0 && (
         <div style={{ marginTop: 8 }}>
           <table className="data-table" style={{ fontSize: 11 }}>
-            <thead><tr><th>#</th><th>Action</th><th>Selector / URL</th><th>Value</th></tr></thead>
+            <thead><tr><th>#</th><th>Action</th><th>Target / URL</th><th>Value</th></tr></thead>
             <tbody>
               {draft.steps.map((st, i) => (
                 <tr key={i}>
@@ -529,9 +529,19 @@ function AppMapPanel({ onGoToExplorer }) {
 
   return (
     <div>
+      {/* Hero header */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 20, fontWeight: 800, color: "var(--text)", marginBottom: 4 }}>
+          🗺 Application Discovery
+        </div>
+        <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.6 }}>
+          Automatically understand any application and generate QA coverage in seconds.
+        </div>
+      </div>
+
       {/* Input row */}
       <div className="card" style={{ marginBottom: 20 }}>
-        <div className="section-title" style={{ marginBottom: 12 }}>Explore Application</div>
+        <div className="section-title" style={{ marginBottom: 12 }}>Discover Application</div>
         <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
           <div style={{ flex: 1, minWidth: 240 }}>
             <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 4 }}>Start URL</label>
@@ -557,16 +567,16 @@ function AppMapPanel({ onGoToExplorer }) {
             disabled={exploring || !url.trim()}
             style={{ alignSelf: "flex-end" }}
           >
-            {exploring ? "Exploring…" : "🗺 Explore App"}
+            {exploring ? "Discovering…" : "🗺 Discover Application"}
           </button>
         </div>
         {exploreErr && <div className="alert alert-error" style={{ marginTop: 12 }}>{exploreErr}</div>}
       </div>
 
-      {/* Exploring loading */}
+      {/* Discovery loading */}
       {exploring && (
         <div className="card" style={{ textAlign: "center", padding: "32px 20px", color: "var(--text-3)" }}>
-          Exploring app…
+          Discovering application — navigating pages and mapping interactive elements…
         </div>
       )}
 
@@ -574,21 +584,31 @@ function AppMapPanel({ onGoToExplorer }) {
       {result && !exploring && (
         <>
           {/* Summary */}
-          <div className="card" style={{ marginBottom: 16, display: "flex", gap: 20, flexWrap: "wrap", alignItems: "center" }}>
-            <div>
-              <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 2 }}>Start URL</div>
-              <div style={{ fontFamily: "monospace", fontSize: 12, wordBreak: "break-all" }}>{result.start_url}</div>
-            </div>
-            <div style={{ marginLeft: "auto", display: "flex", gap: 16 }}>
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 8 }}>Start URL</div>
+            <div style={{ fontFamily: "monospace", fontSize: 12, wordBreak: "break-all", marginBottom: 16 }}>{result.start_url}</div>
+            <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
               <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 22, fontWeight: 800, color: "var(--accent)" }}>{result.visited_count ?? 0}</div>
-                <div style={{ fontSize: 11, color: "var(--text-3)" }}>visited</div>
+                <div style={{ fontSize: 26, fontWeight: 800, color: "var(--accent)" }}>{result.visited_count ?? 0}</div>
+                <div style={{ fontSize: 11, color: "var(--text-3)" }}>pages discovered</div>
               </div>
               <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 22, fontWeight: 800, color: result.errors?.length > 0 ? "var(--red)" : "var(--text-3)" }}>
+                <div style={{ fontSize: 26, fontWeight: 800, color: "var(--accent)" }}>
+                  {pages.reduce((sum, p) => sum + (p.inputs?.length ?? 0) + (p.buttons?.length ?? 0) + (p.links?.length ?? 0), 0)}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--text-3)" }}>interactive elements</div>
+              </div>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 26, fontWeight: 800, color: generatedDrafts.length > 0 ? "var(--green, #22c55e)" : "var(--text-3)" }}>
+                  {generatedDrafts.length > 0 ? generatedDrafts.length : "—"}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--text-3)" }}>test scenarios</div>
+              </div>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 26, fontWeight: 800, color: result.errors?.length > 0 ? "var(--red)" : "var(--text-3)" }}>
                   {result.errors?.length ?? 0}
                 </div>
-                <div style={{ fontSize: 11, color: "var(--text-3)" }}>errors</div>
+                <div style={{ fontSize: 11, color: "var(--text-3)" }}>exploration issues</div>
               </div>
             </div>
           </div>
@@ -611,15 +631,15 @@ function AppMapPanel({ onGoToExplorer }) {
 
               {selectedPages.size > 0 && (
                 <>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: "var(--accent)" }}>
-                    {selectedPages.size} page{selectedPages.size > 1 ? "s" : ""} selected
+                  <span className="badge badge-blue">
+                    Selected: {selectedPages.size} page{selectedPages.size > 1 ? "s" : ""}
                   </span>
                   <button
                     className="btn btn-primary btn-sm"
                     onClick={handleGenerateDrafts}
                     disabled={generating}
                   >
-                    {generating ? "Generating…" : `✦ Generate Drafts from Selected`}
+                    {generating ? "Generating…" : `✦ Generate Test Scenarios`}
                   </button>
                 </>
               )}
@@ -634,7 +654,7 @@ function AppMapPanel({ onGoToExplorer }) {
           {pages.length > 0 && (
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-2)", marginBottom: 8 }}>
-                Pages ({pages.length})
+                Discovered Pages ({pages.length})
               </div>
               {pages.map((page, i) => (
                 <PageCard
@@ -651,7 +671,7 @@ function AppMapPanel({ onGoToExplorer }) {
           {result.errors?.length > 0 && (
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "var(--red)", marginBottom: 8 }}>
-                Errors ({result.errors.length})
+                Exploration Issues ({result.errors.length})
               </div>
               <div className="card" style={{ padding: 0, overflow: "hidden" }}>
                 <table className="data-table" style={{ fontSize: 12 }}>
@@ -674,14 +694,14 @@ function AppMapPanel({ onGoToExplorer }) {
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-2)" }}>
-                  Generated Drafts ({generatedDrafts.length})
+                  Suggested Test Scenarios ({generatedDrafts.length})
                 </div>
-                <span className="badge badge-green">{generatedDrafts.length} ready</span>
+                <span className="badge badge-green">{generatedDrafts.length} ready to approve</span>
                 <button
                   className="btn btn-secondary btn-sm"
                   onClick={onGoToExplorer}
                 >
-                  ⊕ Go to Explorer Drafts to approve
+                  ⊕ Review &amp; Approve in Explorer Drafts
                 </button>
               </div>
               {generatedDrafts.map(d => (
@@ -700,10 +720,17 @@ function AppMapPanel({ onGoToExplorer }) {
 
       {/* Empty state */}
       {!exploring && !result && !exploreErr && (
-        <div className="card" style={{ textAlign: "center", padding: "40px 20px", color: "var(--text-3)" }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>🗺</div>
-          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>No app map generated yet</div>
-          <div style={{ fontSize: 13 }}>Enter a URL above to discover pages, inputs, buttons, and forms.</div>
+        <div className="card" style={{ padding: "40px 32px" }}>
+          <div style={{ fontSize: 28, marginBottom: 14 }}>🗺</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "var(--text)", marginBottom: 10 }}>
+            Discover your application automatically
+          </div>
+          <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.8, maxWidth: 500 }}>
+            <div>• Navigate to any URL and Vanya will crawl your application</div>
+            <div>• Detect all inputs, buttons, forms, and navigation links</div>
+            <div>• Generate ready-to-approve test scenarios in one click</div>
+            <div>• No manual test writing required</div>
+          </div>
         </div>
       )}
     </div>
@@ -1271,7 +1298,7 @@ function AIGenerationPanel() {
 // ══════════════════════════════════════════════════════════════════════════════
 
 export default function DraftsPage() {
-  const [tab, setTab] = useState("explorer");
+  const [tab, setTab] = useState("appmap");
 
   return (
     <div className="page-wrap">
