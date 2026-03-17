@@ -961,7 +961,7 @@ function CatalogExecutionPanel() {
               <tbody>
                 {execResult.runs.map(r => (
                   <tr key={r.run_id}>
-                    <td style={{ fontWeight: 600 }}>{r.test_name || r.test_case_id}</td>
+                    <td style={{ fontWeight: 600 }}>{r.test_name || r.test_id || r.test_case_id}</td>
                     <td>
                       <span className={`badge ${RUN_BADGE[r.status] || "badge-gray"}`}>{r.status}</span>
                     </td>

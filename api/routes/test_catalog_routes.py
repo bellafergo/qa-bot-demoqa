@@ -24,6 +24,8 @@ from pydantic import BaseModel, Field
 
 from models.test_case import TestCase, TestCaseCreate, TestCaseSummary
 from models.test_run import TestRun, SuiteRunResult
+from models.run_contract import CanonicalRun, CanonicalSuiteResult
+from services.run_mapper import run_from_catalog_testrun, suite_from_catalog_suite_result
 from services.test_catalog_service import catalog_service
 
 logger = logging.getLogger("vanya.test_catalog_routes")
@@ -133,10 +135,10 @@ def delete_test_case(test_case_id: str):
 
 # ── Execution endpoints ───────────────────────────────────────────────────────
 
-@router.post("/run-suite", response_model=SuiteRunResult)
+@router.post("/run-suite", response_model=CanonicalSuiteResult)
 def run_suite(body: RunSuiteRequest):
     """
-    Execute multiple test cases and return an aggregated SuiteRunResult.
+    Execute multiple test cases and return an aggregated CanonicalSuiteResult.
 
     Priority of selection:
       1. If `test_case_ids` is provided, only those cases run (order preserved).
@@ -146,7 +148,7 @@ def run_suite(body: RunSuiteRequest):
     Execution is sequential; results are returned once all cases finish.
     """
     try:
-        return catalog_service.run_suite(
+        sr = catalog_service.run_suite(
             environment=body.environment,
             base_url=body.base_url,
             headless=body.headless,
@@ -158,26 +160,28 @@ def run_suite(body: RunSuiteRequest):
             test_case_ids=body.test_case_ids,
             limit=body.limit,
         )
+        return suite_from_catalog_suite_result(sr)
     except Exception as e:
         logger.exception("run_suite failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/{test_case_id}/run", response_model=TestRun)
+@router.post("/{test_case_id}/run", response_model=CanonicalRun)
 def run_test_case(test_case_id: str, body: RunTestCaseRequest = RunTestCaseRequest()):
     """
     Execute a single test case by its `test_case_id`.
 
-    Returns a `TestRun` with status, duration, logs, and executed step details.
+    Returns a CanonicalRun with status, duration, steps, and artifacts.
     """
     try:
-        return catalog_service.run_test_case(
+        tr = catalog_service.run_test_case(
             test_case_id,
             environment=body.environment,
             base_url=body.base_url,
             headless=body.headless,
             timeout_s=body.timeout_s,
         )
+        return run_from_catalog_testrun(tr)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -187,19 +191,20 @@ def run_test_case(test_case_id: str, body: RunTestCaseRequest = RunTestCaseReque
 
 # ── Run history ───────────────────────────────────────────────────────────────
 
-@runs_router.get("", response_model=List[TestRun])
+@runs_router.get("", response_model=List[CanonicalRun])
 def list_test_runs(
     test_case_id: Optional[str] = Query(None),
     limit: int = Query(100, ge=1, le=500),
 ):
-    """Return recent test execution records, most recent first."""
-    return catalog_service.list_runs(test_case_id=test_case_id, limit=limit)
+    """Return recent test execution records as CanonicalRun, most recent first."""
+    runs = catalog_service.list_runs(test_case_id=test_case_id, limit=limit)
+    return [run_from_catalog_testrun(r) for r in runs]
 
 
-@runs_router.get("/{run_id}", response_model=TestRun)
+@runs_router.get("/{run_id}", response_model=CanonicalRun)
 def get_test_run(run_id: str):
-    """Return a single execution record by run_id."""
+    """Return a single execution record as CanonicalRun."""
     run = catalog_service.get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
-    return run
+    return run_from_catalog_testrun(run)

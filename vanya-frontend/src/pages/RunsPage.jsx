@@ -16,9 +16,10 @@ const TABS = ["Evidence Lookup", "Run History"];
 
 function statusBadgeClass(status) {
   const s = String(status || "").toLowerCase();
-  if (s === "pass" || s === "completed") return "badge badge-green";
-  if (s === "fail" || s === "failed" || s === "error") return "badge badge-red";
-  if (s === "running") return "badge badge-blue";
+  if (s === "pass" || s === "passed" || s === "completed") return "badge badge-green";
+  if (s === "fail" || s === "failed" || s === "error")     return "badge badge-red";
+  if (s === "running")                                     return "badge badge-blue";
+  if (s === "queued")                                      return "badge badge-orange";
   return "badge badge-gray";
 }
 
@@ -56,14 +57,17 @@ function toDataUri(b64) {
 }
 
 function getScreenshotSrc(detail) {
-  // 1. top-level screenshot_b64 (present in chat/execute runs)
+  // 1. canonical artifacts.screenshot_b64 (new contract)
+  const artifacts = detail.artifacts || {};
+  if (artifacts.screenshot_b64) return toDataUri(artifacts.screenshot_b64);
+  // 2. top-level screenshot_b64 (legacy chat/execute runs)
   if (detail.screenshot_b64) return toDataUri(detail.screenshot_b64);
-  // 2. meta.screenshot_b64 / meta.screenshot_url
+  // 3. meta.screenshot_b64 / meta.screenshot_url (legacy)
   const meta = detail.meta || {};
   if (meta.screenshot_b64) return toDataUri(meta.screenshot_b64);
   if (meta.screenshot_url) return meta.screenshot_url;
-  // 3. last step_result that has a screenshot
-  const steps = detail.steps_result || [];
+  // 4. last step entry with a screenshot
+  const steps = detail.steps_result || detail.steps || [];
   for (let i = steps.length - 1; i >= 0; i--) {
     const s = steps[i];
     if (s?.screenshot_b64) return toDataUri(s.screenshot_b64);
@@ -73,9 +77,13 @@ function getScreenshotSrc(detail) {
 }
 
 function EvidenceCard({ detail }) {
+  // Support both canonical (artifacts.*) and legacy (flat fields)
+  const artifacts    = detail.artifacts || {};
+  const evidenceUrl  = artifacts.evidence_url  || detail.evidence_url;
+  const reportUrl    = artifacts.report_url    || detail.report_url;
   const screenshotSrc = getScreenshotSrc(detail);
-  const hasLinks = detail.evidence_url || detail.report_url;
-  const hasAnything = screenshotSrc || hasLinks;
+  const hasLinks     = evidenceUrl || reportUrl;
+  const hasAnything  = screenshotSrc || hasLinks;
 
   return (
     <div className="card">
@@ -100,13 +108,13 @@ function EvidenceCard({ detail }) {
           )}
           {hasLinks && (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {detail.evidence_url && (
-                <a href={detail.evidence_url} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm">
+              {evidenceUrl && (
+                <a href={evidenceUrl} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm">
                   Open Evidence ↗
                 </a>
               )}
-              {detail.report_url && (
-                <a href={detail.report_url} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm">
+              {reportUrl && (
+                <a href={reportUrl} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm">
                   Open Report ↗
                 </a>
               )}
@@ -297,22 +305,30 @@ function EvidenceLookupTab() {
             {run.outcome && <div className="kpi-card"><div className="kpi-label">Outcome</div><div style={{ fontSize: 14, fontWeight: 700, color: "var(--text)", marginTop: 4 }}>{run.outcome}</div></div>}
           </div>
 
-          {(run.meta?.base_url || run.evidence_url || run.report_url) && (
-            <div className="card" style={{ marginBottom: 20 }}>
-              <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "center" }}>
-                {run.meta?.base_url && (
-                  <div>
-                    <div className="section-title" style={{ marginBottom: 2 }}>Base URL</div>
-                    <div style={{ fontSize: 13, color: "var(--text-2)", wordBreak: "break-all" }}>{run.meta.base_url}</div>
+          {/* Evidence links — support both canonical (artifacts.*) and legacy (flat) fields */}
+          {(() => {
+            const arts = run.artifacts || {};
+            const evUrl = arts.evidence_url || run.evidence_url;
+            const rpUrl = arts.report_url   || run.report_url;
+            const baseUrl = run.meta?.base_url;
+            if (!baseUrl && !evUrl && !rpUrl) return null;
+            return (
+              <div className="card" style={{ marginBottom: 20 }}>
+                <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "center" }}>
+                  {baseUrl && (
+                    <div>
+                      <div className="section-title" style={{ marginBottom: 2 }}>Base URL</div>
+                      <div style={{ fontSize: 13, color: "var(--text-2)", wordBreak: "break-all" }}>{baseUrl}</div>
+                    </div>
+                  )}
+                  <div style={{ marginLeft: "auto", display: "flex", gap: 10, flexShrink: 0 }}>
+                    {evUrl && <a href={evUrl} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm">View Evidence ↗</a>}
+                    {rpUrl && <a href={rpUrl} target="_blank" rel="noreferrer" className="btn btn-primary btn-sm">Download Report ↗</a>}
                   </div>
-                )}
-                <div style={{ marginLeft: "auto", display: "flex", gap: 10, flexShrink: 0 }}>
-                  {run.evidence_url && <a href={run.evidence_url} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm">View Evidence ↗</a>}
-                  {run.report_url && <a href={run.report_url} target="_blank" rel="noreferrer" className="btn btn-primary btn-sm">Download Report ↗</a>}
                 </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {run.reason && (
             <div className="card" style={{ marginBottom: 20 }}>
@@ -528,10 +544,10 @@ function RunHistoryTab() {
                     <td style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-2)" }}>
                       {(r.run_id || "").slice(0, 14)}…
                     </td>
-                    <td style={{ fontWeight: 600, fontSize: 13 }}>{r.test_case_id || "—"}</td>
+                    <td style={{ fontWeight: 600, fontSize: 13 }}>{r.test_id || r.test_case_id || "—"}</td>
                     <td><span className={statusBadgeClass(r.status)}>{r.status || "—"}</span></td>
                     <td style={{ fontSize: 12, color: "var(--text-3)" }}>{fmtMs(r.duration_ms)}</td>
-                    <td style={{ fontSize: 11, color: "var(--text-3)", whiteSpace: "nowrap" }}>{fmtDate(r.created_at)}</td>
+                    <td style={{ fontSize: 11, color: "var(--text-3)", whiteSpace: "nowrap" }}>{fmtDate(r.started_at || r.created_at)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -560,7 +576,7 @@ function RunHistoryTab() {
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
                   <span className={statusBadgeClass(detail.status)}>{detail.status}</span>
                   {detail.duration_ms != null && <span className="badge badge-gray">{fmtMs(detail.duration_ms)}</span>}
-                  {detail.test_case_id && <span className="badge badge-gray">{detail.test_case_id}</span>}
+                  {(detail.test_id || detail.test_case_id) && <span className="badge badge-gray">{detail.test_id || detail.test_case_id}</span>}
                 </div>
                 {detail.reason && (
                   <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.5, marginBottom: 8 }}>
