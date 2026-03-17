@@ -26,6 +26,7 @@ from models.test_case import TestCase, TestCaseCreate, TestCaseSummary
 from models.test_run import TestRun, SuiteRunResult
 from models.run_contract import CanonicalRun, CanonicalSuiteResult
 from services.run_mapper import run_from_catalog_testrun, suite_from_catalog_suite_result
+from services.run_history_service import run_history_service  # official run history source
 from services.test_catalog_service import catalog_service
 
 logger = logging.getLogger("vanya.test_catalog_routes")
@@ -196,15 +197,24 @@ def list_test_runs(
     test_case_id: Optional[str] = Query(None),
     limit: int = Query(100, ge=1, le=500),
 ):
-    """Return recent test execution records as CanonicalRun, most recent first."""
-    runs = catalog_service.list_runs(test_case_id=test_case_id, limit=limit)
-    return [run_from_catalog_testrun(r) for r in runs]
+    """
+    Return recent test execution records as CanonicalRun, most recent first.
+
+    Source: run_history_service → SQLite (official persistent store).
+    Only runs produced by the catalog execution path appear here.
+    Async chat/execute runs are accessible via GET /runs/{evidence_id}.
+    """
+    return run_history_service.list_runs(test_case_id=test_case_id, limit=limit)
 
 
 @runs_router.get("/{run_id}", response_model=CanonicalRun)
 def get_test_run(run_id: str):
-    """Return a single execution record as CanonicalRun."""
-    run = catalog_service.get_run(run_id)
+    """
+    Return a single execution record as CanonicalRun.
+
+    Source: run_history_service → SQLite (official persistent store).
+    """
+    run = run_history_service.get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
-    return run_from_catalog_testrun(run)
+    return run
