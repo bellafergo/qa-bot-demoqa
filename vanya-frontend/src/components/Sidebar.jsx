@@ -209,10 +209,10 @@ export default function Sidebar({
 
       {/* ── Thread list ─────────────────────────────────── */}
       <div style={{ flex: 1, overflowY: "auto", padding: "6px 8px" }}>
-        {filtered.map(t => {
-          const id = t.__id;
-          const title = buildTitle(t);
-          const subtitle = String(t?.preview || "").trim() || (t?.updated_at ? fmtDate(t.updated_at) : "");
+        {filtered.map(th => {
+          const id = th.__id;
+          const title = buildTitle(th);
+          const subtitle = String(th?.preview || "").trim() || (th?.updated_at ? fmtDate(th.updated_at) : "");
           const isActive = id === activeStr;
 
           return (
