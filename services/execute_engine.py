@@ -628,7 +628,25 @@ def handle_execute_mode(
     t0 = time.time()
     session_id = session.get("id")
 
-    base_url = H.pick_base_url(req, session, prompt)
+    try:
+        base_url = H.pick_base_url(req, session, prompt)
+    except Exception:
+        logger.exception("pick_base_url raised unexpectedly — treating as no base_url")
+        answer = (
+            "To execute I need:\n"
+            '- URL (or say "same")\n'
+            "- What to validate (button / field / expected text)\n"
+            "- Credentials (if applicable)"
+        )
+        store.add_message(thread_id, "assistant", answer, meta={"mode": "execute", "persona": persona})
+        return {
+            "mode": "execute",
+            "persona": persona,
+            "session_id": session_id,
+            "thread_id": thread_id,
+            "answer": answer,
+            **_confidence("execute", prompt, None),
+        }
 
     # ---------------------------------------------------------
     # Base URL es obligatorio para el engine genérico
