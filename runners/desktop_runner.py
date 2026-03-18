@@ -180,6 +180,13 @@ def run_desktop_test(
 
     adapter = DesktopAdapter(use_mock=use_mock)
 
+    logger.info(
+        "run_desktop_test START — evidence_id=%s steps=%d backend=%s",
+        evidence_id,
+        len(steps),
+        "mock" if adapter.is_mock else "pywinauto/real",
+    )
+
     logs.append(f"[PLAN] {len(steps)} desktop steps — mock={adapter.is_mock}")
     logs.append(
         "[PLAN] " + ", ".join(
@@ -413,6 +420,12 @@ def run_desktop_test(
     logs.append(
         f"[DONE] status={status} outcome={outcome} duration={duration_ms}ms "
         f"steps={len(report_steps)} screenshots={len(screenshots)}"
+    )
+    logger.info(
+        "run_desktop_test DONE — evidence_id=%s status=%s duration=%dms "
+        "steps=%d screenshots=%d backend=%s",
+        evidence_id, status, duration_ms, len(report_steps), len(screenshots),
+        "mock" if adapter.is_mock else "pywinauto/real",
     )
 
     return _build_result(

@@ -32,13 +32,20 @@ logger = logging.getLogger("vanya.desktop_adapter")
 def _should_use_mock() -> bool:
     """Return True when real Win32 automation is unavailable or suppressed."""
     if os.getenv("DESKTOP_RUNNER_MOCK", "").lower() in ("1", "true", "yes"):
+        logger.info("DesktopAdapter: mock forced via DESKTOP_RUNNER_MOCK env var")
         return True
     if platform.system() != "Windows":
+        logger.info(
+            "DesktopAdapter: mock active — not running on Windows (platform=%s)",
+            platform.system(),
+        )
         return True
     try:
         import pywinauto  # noqa: F401
+        logger.info("DesktopAdapter: pywinauto available — real Win32 backend selected")
         return False
     except ImportError:
+        logger.info("DesktopAdapter: mock active — pywinauto not installed (pip install pywinauto)")
         return True
 
 
@@ -212,7 +219,10 @@ class PywinautoBackend:
 
     def attach_window(self, window_title: str, timeout_s: int = 10) -> None:
         if self._app is None:
-            self._app = self._Application(backend="win32")
+            # No launch_app was called — connect to an existing process by window title.
+            # Required for TC-POS-003 and any test that attaches without launching first.
+            logger.info("PywinautoBackend: no app handle, connecting to existing window %r", window_title)
+            self._app = self._Application(backend="win32").connect(title=window_title)
         self._window = self._app.window(title=window_title)
         self._window.wait("exists ready", timeout=timeout_s)
         logger.info("PywinautoBackend: attached window %r", window_title)
@@ -238,7 +248,17 @@ class PywinautoBackend:
 
     def input_text(self, target: str, value: str) -> None:
         ctrl = self._resolve(target)
-        ctrl.set_edit_text(value)
+        try:
+            ctrl.set_edit_text(value)
+        except Exception:
+            # Fallback for legacy controls (VB6 TextBox, etc.) that ignore WM_SETTEXT.
+            # click_input focuses the control, then type_keys simulates real keystrokes.
+            logger.debug(
+                "PywinautoBackend: set_edit_text failed for %r, falling back to type_keys", target
+            )
+            ctrl.click_input()
+            ctrl.type_keys("^a{DELETE}", with_spaces=False)
+            ctrl.type_keys(value, with_spaces=True)
 
     def type_keys(self, target: str, keys: str) -> None:
         ctrl = self._resolve(target)
@@ -304,11 +324,11 @@ class DesktopAdapter:
         if force_mock:
             self._backend: Any = MockDesktopBackend()
             self.is_mock = True
-            logger.debug("DesktopAdapter: using MockDesktopBackend")
+            logger.info("DesktopAdapter: backend=MockDesktopBackend (deterministic, no real UI)")
         else:
             self._backend = PywinautoBackend()
             self.is_mock = False
-            logger.debug("DesktopAdapter: using PywinautoBackend")
+            logger.info("DesktopAdapter: backend=PywinautoBackend (real Win32 automation)")
 
     # ── Delegate all methods to backend ──────────────────────────────────
 
