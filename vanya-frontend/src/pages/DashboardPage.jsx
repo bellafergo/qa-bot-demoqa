@@ -308,6 +308,7 @@ function RiskSummaryCard({ summary, fi, loading, t }) {
   const totalRuns  = summary.total_runs ?? 0;
   const failRuns   = summary.fail_runs  ?? 0;
   const failRate   = totalRuns > 0 ? (failRuns / totalRuns) * 100 : null;
+  const limitedHistory = totalRuns < 5;
 
   let level = "LOW";
   const reasons = [];
@@ -332,9 +333,9 @@ function RiskSummaryCard({ summary, fi, loading, t }) {
   }
 
   const THEME = {
-    HIGH:   { bg: "#fff5f5", border: "#fca5a5", text: "var(--red, #dc2626)",    icon: "⚠",  labelKey: "dash.risk.high"   },
-    MEDIUM: { bg: "#fffbeb", border: "#fcd34d", text: "var(--orange, #ea580c)", icon: "◎",  labelKey: "dash.risk.medium" },
-    LOW:    { bg: "#f0fdf4", border: "#86efac", text: "var(--green, #16a34a)",  icon: "✓",  labelKey: "dash.risk.low"    },
+    HIGH:   { bg: "#fff5f5", border: "#fca5a5", text: "#dc2626", pillBg: "#fee2e2", icon: "⚠",  labelKey: "dash.risk.high"   },
+    MEDIUM: { bg: "#fffbeb", border: "#fcd34d", text: "#d97706", pillBg: "#fef3c7", icon: "◎",  labelKey: "dash.risk.medium" },
+    LOW:    { bg: "#f0fdf4", border: "#86efac", text: "#16a34a", pillBg: "#dcfce7", icon: "✓",  labelKey: "dash.risk.low"    },
   };
   const c = THEME[level];
 
@@ -346,13 +347,13 @@ function RiskSummaryCard({ summary, fi, loading, t }) {
     },
     {
       labelKey: "dash.risk.flaky_count",
-      value:    flakyCount,
-      accent:   flakyCount > 0 ? "var(--orange)" : undefined,
+      value:    String(flakyCount),
+      accent:   flakyCount > 0 ? "var(--orange)" : "var(--text-2)",
     },
     {
       labelKey: "dash.risk.fail_rate",
       value:    failRate !== null ? `${failRate.toFixed(1)}%` : "—",
-      accent:   failRate !== null && failRate >= 20 ? "var(--red)" : undefined,
+      accent:   failRate !== null && failRate >= 20 ? "var(--red)" : "var(--text-2)",
     },
   ];
 
@@ -361,41 +362,72 @@ function RiskSummaryCard({ summary, fi, loading, t }) {
       borderRadius: "var(--r-sm)",
       border: `1.5px solid ${c.border}`,
       background: c.bg,
-      padding: "16px",
-      height: "100%",
+      padding: "14px 16px",
       boxSizing: "border-box",
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-        <span style={{ fontSize: 22, lineHeight: 1 }}>{c.icon}</span>
-        <div>
-          <div style={{ fontWeight: 800, fontSize: 15, color: c.text }}>{t(c.labelKey)}</div>
-          {level === "LOW" && (
-            <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 1 }}>{t("dash.risk.healthy")}</div>
-          )}
-        </div>
+      {/* Header row: icon + level badge + optional sub */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+        <span style={{ fontSize: 16, lineHeight: 1, flexShrink: 0 }}>{c.icon}</span>
+        <span style={{
+          fontWeight: 700,
+          fontSize: 13,
+          color: c.text,
+          background: c.pillBg,
+          border: `1px solid ${c.border}`,
+          borderRadius: 4,
+          padding: "2px 8px",
+          letterSpacing: "0.01em",
+        }}>
+          {t(c.labelKey)}
+        </span>
+        {limitedHistory && (
+          <span style={{ fontSize: 10, color: "var(--text-3)", marginLeft: "auto", fontStyle: "italic" }}>
+            {t("dash.risk.limited_history")}
+          </span>
+        )}
+        {level === "LOW" && !limitedHistory && (
+          <span style={{ fontSize: 10, color: "var(--text-3)", marginLeft: "auto" }}>
+            {t("dash.risk.healthy")}
+          </span>
+        )}
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+      {/* Metrics: 3-column mini grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px 8px", marginBottom: reasons.length > 0 ? 10 : 0 }}>
         {metrics.map(({ labelKey, value, accent }) => (
-          <div key={labelKey} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-            <span style={{ color: "var(--text-2)" }}>{t(labelKey)}</span>
-            <span style={{ fontWeight: 700, color: accent || "var(--text)" }}>{value}</span>
+          <div key={labelKey} style={{
+            background: "rgba(255,255,255,0.55)",
+            border: "1px solid rgba(0,0,0,0.06)",
+            borderRadius: 6,
+            padding: "7px 8px",
+            textAlign: "center",
+          }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: accent, lineHeight: 1.1, marginBottom: 3 }}>
+              {value}
+            </div>
+            <div style={{ fontSize: 10, color: "var(--text-3)", lineHeight: 1.2 }}>
+              {t(labelKey)}
+            </div>
           </div>
         ))}
       </div>
 
+      {/* Reasons: inline pills */}
       {reasons.length > 0 && (
-        <div style={{
-          marginTop: 12,
-          fontSize: 11,
-          color: c.text,
-          borderTop: `1px solid ${c.border}`,
-          paddingTop: 8,
-          display: "flex",
-          flexDirection: "column",
-          gap: 3,
-        }}>
-          {reasons.map((r, i) => <div key={i}>· {r}</div>)}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, paddingTop: 8, borderTop: `1px solid ${c.border}` }}>
+          {reasons.map((r, i) => (
+            <span key={i} style={{
+              fontSize: 10,
+              color: c.text,
+              background: c.pillBg,
+              border: `1px solid ${c.border}`,
+              borderRadius: 3,
+              padding: "2px 7px",
+              fontWeight: 500,
+            }}>
+              {r}
+            </span>
+          ))}
         </div>
       )}
     </div>
