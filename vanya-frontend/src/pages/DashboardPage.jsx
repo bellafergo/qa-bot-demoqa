@@ -39,7 +39,360 @@ function statusClass(s) {
   return "badge-gray";
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────────
+function isPassStatus(s) {
+  return ["pass", "passed", "completed"].includes(String(s || "").toLowerCase());
+}
+
+// ── Visual widget: Pass Rate Trend ────────────────────────────────────────────
+
+function PassRateTrendChart({ runs, loading, t }) {
+  const data = [...(runs || [])].reverse().slice(-10);
+
+  if (!loading && data.length < 2) {
+    return (
+      <div style={{ textAlign: "center", padding: "24px 0" }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-2)" }}>{t("dash.trends.no_data")}</div>
+        <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 4 }}>{t("dash.trends.no_data_sub")}</div>
+      </div>
+    );
+  }
+
+  const W = 400, H = 110, PAD_L = 32, PAD_R = 8, PAD_T = 10, PAD_B = 24;
+  const innerW = W - PAD_L - PAD_R;
+  const innerH = H - PAD_T - PAD_B;
+
+  // Sliding 3-run window pass rate
+  const rates = data.map((_, i) => {
+    const window = data.slice(Math.max(0, i - 2), i + 1);
+    const passed = window.filter(r => isPassStatus(r.status)).length;
+    return passed / window.length;
+  });
+
+  const avgRate = rates.reduce((a, b) => a + b, 0) / Math.max(rates.length, 1);
+
+  const pts = rates.map((rate, i) => {
+    const x = PAD_L + (data.length <= 1 ? innerW / 2 : (i * innerW) / (data.length - 1));
+    const y = PAD_T + innerH * (1 - rate);
+    return [x, y];
+  });
+
+  const lineStr = pts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+
+  const areaPath =
+    `M ${pts[0][0].toFixed(1)},${(PAD_T + innerH).toFixed(1)} ` +
+    `L ${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)} ` +
+    pts.slice(1).map(([x, y]) => `L ${x.toFixed(1)},${y.toFixed(1)}`).join(" ") +
+    ` L ${pts[pts.length - 1][0].toFixed(1)},${(PAD_T + innerH).toFixed(1)} Z`;
+
+  const avgY = (PAD_T + innerH * (1 - avgRate)).toFixed(1);
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: 110, display: "block" }}>
+        <defs>
+          <linearGradient id="vanyaTrendGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stopColor="var(--accent)" stopOpacity="0.22" />
+            <stop offset="100%" stopColor="var(--accent)" stopOpacity="0.02" />
+          </linearGradient>
+        </defs>
+
+        {/* Grid lines */}
+        {[0, 0.5, 1].map(pct => {
+          const gy = (PAD_T + innerH * (1 - pct)).toFixed(1);
+          return (
+            <line key={pct} x1={PAD_L} y1={gy} x2={W - PAD_R} y2={gy}
+              stroke="var(--border)" strokeWidth="0.5" strokeDasharray="2,4" />
+          );
+        })}
+
+        {/* Area fill */}
+        <path d={areaPath} fill="url(#vanyaTrendGrad)" />
+
+        {/* Avg line */}
+        <line x1={PAD_L} y1={avgY} x2={W - PAD_R} y2={avgY}
+          stroke="var(--text-3)" strokeWidth="1" strokeDasharray="3,3" />
+
+        {/* Trend line */}
+        <polyline points={lineStr} fill="none" stroke="var(--accent)"
+          strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+
+        {/* Data points */}
+        {pts.map(([x, y], i) => (
+          <circle key={i} cx={x.toFixed(1)} cy={y.toFixed(1)} r="3.5"
+            fill={isPassStatus(data[i]?.status) ? "var(--green)" : "var(--red)"}
+            stroke="var(--surface)" strokeWidth="1.5" />
+        ))}
+
+        {/* Y-axis labels */}
+        <text x={PAD_L - 4} y={PAD_T + 4}           textAnchor="end" fontSize="9" fill="var(--text-3)">100%</text>
+        <text x={PAD_L - 4} y={PAD_T + innerH / 2 + 3} textAnchor="end" fontSize="9" fill="var(--text-3)">50%</text>
+        <text x={PAD_L - 4} y={PAD_T + innerH + 4}  textAnchor="end" fontSize="9" fill="var(--text-3)">0%</text>
+
+        {/* X-axis labels — show first, middle, last */}
+        {pts.length > 0 && [0, Math.floor((pts.length - 1) / 2), pts.length - 1]
+          .filter((v, i, arr) => arr.indexOf(v) === i)
+          .map(i => (
+            <text key={i} x={pts[i][0].toFixed(1)} y={H - 5}
+              textAnchor="middle" fontSize="8" fill="var(--text-3)">
+              {t("dash.trends.run")} {i + 1}
+            </text>
+          ))}
+      </svg>
+
+      <div style={{ display: "flex", gap: 12, marginTop: 6, fontSize: 11, color: "var(--text-3)" }}>
+        <span>{t("dash.trends.subtitle")}: <strong style={{ color: "var(--text-2)" }}>{data.length}</strong></span>
+        <span>· {t("dash.trends.avg")}: <strong style={{ color: "var(--accent)" }}>{(avgRate * 100).toFixed(0)}%</strong></span>
+      </div>
+    </div>
+  );
+}
+
+// ── Visual widget: Coverage Donut ─────────────────────────────────────────────
+
+function CoverageDonutChart({ summary, loading, t }) {
+  const ui    = summary?.total_ui_tests  ?? 0;
+  const api   = summary?.total_api_tests ?? 0;
+  const total = ui + api;
+
+  if (!loading && total === 0) {
+    return (
+      <div style={{ textAlign: "center", padding: "24px 0", fontSize: 12, color: "var(--text-3)" }}>
+        {t("dash.coverage.no_data")}
+      </div>
+    );
+  }
+
+  const CX = 56, CY = 56, R = 38, STROKE = 13;
+  const CIRC = 2 * Math.PI * R;
+  const uiArc  = total > 0 ? (ui  / total) * CIRC : 0;
+  const apiArc = total > 0 ? (api / total) * CIRC : 0;
+  const uiDeg  = total > 0 ? (ui  / total) * 360  : 0;
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+      <svg viewBox="0 0 112 112" style={{ width: 112, height: 112, flexShrink: 0 }}>
+        {/* Track */}
+        <circle cx={CX} cy={CY} r={R} fill="none" stroke="var(--border)" strokeWidth={STROKE} />
+
+        {/* UI segment */}
+        {ui > 0 && (
+          <circle cx={CX} cy={CY} r={R} fill="none"
+            stroke="var(--accent)" strokeWidth={STROKE}
+            strokeDasharray={`${uiArc.toFixed(2)} ${(CIRC - uiArc).toFixed(2)}`}
+            style={{ transform: `rotate(-90deg)`, transformOrigin: `${CX}px ${CY}px` }}
+          />
+        )}
+
+        {/* API segment */}
+        {api > 0 && (
+          <circle cx={CX} cy={CY} r={R} fill="none"
+            stroke="var(--green)" strokeWidth={STROKE}
+            strokeDasharray={`${apiArc.toFixed(2)} ${(CIRC - apiArc).toFixed(2)}`}
+            style={{ transform: `rotate(${(-90 + uiDeg).toFixed(2)}deg)`, transformOrigin: `${CX}px ${CY}px` }}
+          />
+        )}
+
+        {/* Center */}
+        <text x={CX} y={CY - 7} textAnchor="middle" fontSize="17" fontWeight="800" fill="var(--text)">
+          {loading ? "…" : total}
+        </text>
+        <text x={CX} y={CY + 9} textAnchor="middle" fontSize="9" fill="var(--text-3)">
+          {t("dash.coverage.total")}
+        </text>
+      </svg>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 12, flex: 1 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+          <span style={{ width: 9, height: 9, borderRadius: "50%", background: "var(--accent)", flexShrink: 0 }} />
+          <span style={{ color: "var(--text-2)", flex: 1 }}>{t("dash.coverage.ui")}</span>
+          <span style={{ fontWeight: 700, color: "var(--text)" }}>{loading ? "…" : ui}</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+          <span style={{ width: 9, height: 9, borderRadius: "50%", background: "var(--green)", flexShrink: 0 }} />
+          <span style={{ color: "var(--text-2)", flex: 1 }}>{t("dash.coverage.api")}</span>
+          <span style={{ fontWeight: 700, color: "var(--text)" }}>{loading ? "…" : api}</span>
+        </div>
+        {total > 0 && (
+          <div style={{ fontSize: 10, color: "var(--text-3)", borderTop: "1px solid var(--border)", paddingTop: 6 }}>
+            UI {ui > 0 ? ((ui / total) * 100).toFixed(0) : 0}%
+            {" · "}
+            API {api > 0 ? ((api / total) * 100).toFixed(0) : 0}%
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Visual widget: Failure Distribution ───────────────────────────────────────
+
+function FailureDistributionChart({ fi, loading, t }) {
+  if (!fi && !loading) {
+    return (
+      <div style={{ textAlign: "center", padding: "20px 0" }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-2)" }}>{t("dash.failures.no_data")}</div>
+        <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 4 }}>{t("dash.failures.no_data_sub")}</div>
+      </div>
+    );
+  }
+
+  const flaky       = fi?.flaky_tests_count             ?? 0;
+  const clusters    = fi?.total_clusters                ?? 0;
+  const regressions = fi?.recurrent_regressions_count   ?? 0;
+  const maxVal      = Math.max(flaky, clusters, regressions, 1);
+  const allZero     = flaky === 0 && clusters === 0 && regressions === 0;
+
+  const bars = [
+    { key: "dash.failures.flaky",       val: flaky,       color: "var(--orange)" },
+    { key: "dash.failures.clusters",    val: clusters,    color: "var(--accent)"  },
+    { key: "dash.failures.regressions", val: regressions, color: "var(--red)"     },
+  ];
+
+  if (allZero && !loading) {
+    return (
+      <div style={{ padding: "14px 0", fontSize: 12, color: "var(--green)", fontWeight: 600 }}>
+        ✓ {t("dash.failures.all_clear")}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {bars.map(({ key, val, color }) => (
+        <div key={key}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5, fontSize: 12 }}>
+            <span style={{ color: "var(--text-2)" }}>{t(key)}</span>
+            <span style={{ fontWeight: 700, color: val > 0 ? color : "var(--text-3)" }}>
+              {loading ? "…" : val}
+            </span>
+          </div>
+          <div style={{ height: 7, borderRadius: 4, background: "var(--border)", overflow: "hidden" }}>
+            <div style={{
+              height: "100%",
+              borderRadius: 4,
+              background: color,
+              width: loading ? "0%" : `${((val / maxVal) * 100).toFixed(1)}%`,
+              transition: "width 0.5s ease",
+              opacity: val === 0 ? 0.18 : 1,
+            }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Visual widget: Risk Summary ───────────────────────────────────────────────
+
+function RiskSummaryCard({ summary, fi, loading, t }) {
+  if (loading || !summary) {
+    return (
+      <div style={{ padding: "12px 0", fontSize: 12, color: "var(--text-3)" }}>
+        {t("dash.risk.no_data")}
+      </div>
+    );
+  }
+
+  const passRate   = summary.pass_rate ?? null;
+  const flakyCount = fi?.flaky_tests_count ?? 0;
+  const totalRuns  = summary.total_runs ?? 0;
+  const failRuns   = summary.fail_runs  ?? 0;
+  const failRate   = totalRuns > 0 ? (failRuns / totalRuns) * 100 : null;
+
+  let level = "LOW";
+  const reasons = [];
+
+  // HIGH threshold
+  if (passRate !== null && passRate < 60) level = "HIGH";
+  if (flakyCount >= 5)                    level = "HIGH";
+  if (failRate !== null && failRate >= 40) level = "HIGH";
+
+  // MEDIUM threshold (only if not already HIGH)
+  if (level !== "HIGH") {
+    if (passRate !== null && passRate < 80)   { level = "MEDIUM"; }
+    if (flakyCount >= 2)                      { level = "MEDIUM"; }
+    if (failRate !== null && failRate >= 20)   { level = "MEDIUM"; }
+  }
+
+  // Collect reasons
+  if (level === "HIGH" || level === "MEDIUM") {
+    if (passRate !== null && passRate < 80)    reasons.push(t("dash.risk.reason.pass_rate"));
+    if (flakyCount >= 2)                       reasons.push(t("dash.risk.reason.flaky"));
+    if (failRate !== null && failRate >= 20)    reasons.push(t("dash.risk.reason.fail_rate"));
+  }
+
+  const THEME = {
+    HIGH:   { bg: "#fff5f5", border: "#fca5a5", text: "var(--red, #dc2626)",    icon: "⚠",  labelKey: "dash.risk.high"   },
+    MEDIUM: { bg: "#fffbeb", border: "#fcd34d", text: "var(--orange, #ea580c)", icon: "◎",  labelKey: "dash.risk.medium" },
+    LOW:    { bg: "#f0fdf4", border: "#86efac", text: "var(--green, #16a34a)",  icon: "✓",  labelKey: "dash.risk.low"    },
+  };
+  const c = THEME[level];
+
+  const metrics = [
+    {
+      labelKey: "dash.risk.pass_rate",
+      value:    passRate !== null ? `${passRate.toFixed(1)}%` : "—",
+      accent:   passRate !== null && passRate < 80 ? "var(--orange)" : "var(--green)",
+    },
+    {
+      labelKey: "dash.risk.flaky_count",
+      value:    flakyCount,
+      accent:   flakyCount > 0 ? "var(--orange)" : undefined,
+    },
+    {
+      labelKey: "dash.risk.fail_rate",
+      value:    failRate !== null ? `${failRate.toFixed(1)}%` : "—",
+      accent:   failRate !== null && failRate >= 20 ? "var(--red)" : undefined,
+    },
+  ];
+
+  return (
+    <div style={{
+      borderRadius: "var(--r-sm)",
+      border: `1.5px solid ${c.border}`,
+      background: c.bg,
+      padding: "16px",
+      height: "100%",
+      boxSizing: "border-box",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+        <span style={{ fontSize: 22, lineHeight: 1 }}>{c.icon}</span>
+        <div>
+          <div style={{ fontWeight: 800, fontSize: 15, color: c.text }}>{t(c.labelKey)}</div>
+          {level === "LOW" && (
+            <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 1 }}>{t("dash.risk.healthy")}</div>
+          )}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+        {metrics.map(({ labelKey, value, accent }) => (
+          <div key={labelKey} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+            <span style={{ color: "var(--text-2)" }}>{t(labelKey)}</span>
+            <span style={{ fontWeight: 700, color: accent || "var(--text)" }}>{value}</span>
+          </div>
+        ))}
+      </div>
+
+      {reasons.length > 0 && (
+        <div style={{
+          marginTop: 12,
+          fontSize: 11,
+          color: c.text,
+          borderTop: `1px solid ${c.border}`,
+          paddingTop: 8,
+          display: "flex",
+          flexDirection: "column",
+          gap: 3,
+        }}>
+          {reasons.map((r, i) => <div key={i}>· {r}</div>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Existing sub-components ───────────────────────────────────────────────────
 
 function KpiCard({ label, value, sub, accent, icon }) {
   return (
@@ -75,16 +428,28 @@ function SectionCard({ title, link, linkLabel, children }) {
   );
 }
 
+function WidgetCard({ title, subtitle, children }) {
+  return (
+    <div className="card" style={{ padding: "16px 20px" }}>
+      <div style={{ marginBottom: 14 }}>
+        <div className="section-title" style={{ margin: 0 }}>{title}</div>
+        {subtitle && <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>{subtitle}</div>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
   const { t } = useLang();
 
-  const [summary, setSummary]       = useState(null);
-  const [recentRuns, setRecentRuns] = useState([]);
-  const [recentJobs, setRecentJobs] = useState([]);
-  const [fi, setFi]                 = useState(null);
-  const [loading, setLoading]       = useState(true);
+  const [summary, setSummary]         = useState(null);
+  const [recentRuns, setRecentRuns]   = useState([]);
+  const [recentJobs, setRecentJobs]   = useState([]);
+  const [fi, setFi]                   = useState(null);
+  const [loading, setLoading]         = useState(true);
   const [lastRefresh, setLastRefresh] = useState(null);
 
   const load = useCallback(async () => {
@@ -111,13 +476,13 @@ export default function DashboardPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const s = summary || {};
+  const s        = summary || {};
   const passRate = s.pass_rate != null ? `${s.pass_rate.toFixed(1)}%` : "—";
 
   return (
     <div style={{ height: "100%", overflow: "auto", background: "var(--bg)" }}>
 
-      {/* Hero */}
+      {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <div className="dash-hero">
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 20, flexWrap: "wrap" }}>
           <div>
@@ -145,25 +510,45 @@ export default function DashboardPage() {
 
       <div style={{ padding: "24px 28px" }}>
 
-        {/* KPI grid */}
+        {/* ── KPI grid ─────────────────────────────────────────────────────── */}
         <div className="kpi-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", marginBottom: 24 }}>
-          <KpiCard label={t("dash.kpi.total_tests")}    value={loading ? "…" : s.total_test_cases}    sub={`${s.active_test_cases ?? "—"} ${t("dash.kpi.active")}`}                    icon="☰" />
-          <KpiCard label={t("dash.kpi.total_runs")}     value={loading ? "…" : s.total_runs}           sub={`${s.pass_runs ?? 0} ${t("dash.kpi.pass")} · ${s.fail_runs ?? 0} ${t("dash.kpi.fail")}`} icon="▶" />
-          <KpiCard label={t("dash.kpi.pass_rate")}      value={loading ? "…" : passRate}               sub={t("dash.kpi.all_time")}                                                      accent={s.pass_rate >= 80 ? "var(--green)" : "var(--orange)"} icon="✓" />
-          <KpiCard label={t("dash.kpi.active_workers")} value={loading ? "…" : s.active_workers}       sub={`${s.queue_depth ?? 0} ${t("dash.kpi.queued")}`}                            icon="⚙" />
-          <KpiCard label={t("dash.kpi.total_jobs")}     value={loading ? "…" : s.total_jobs}           sub={`${s.running_jobs ?? 0} ${t("dash.kpi.running")} · ${s.queued_jobs ?? 0} ${t("dash.kpi.queued")}`} icon="◈" />
-          <KpiCard label={t("dash.kpi.ui_tests")}       value={loading ? "…" : s.total_ui_tests}       sub={t("dash.kpi.in_catalog")}                                                    icon="◻" />
-          <KpiCard label={t("dash.kpi.api_tests")}      value={loading ? "…" : s.total_api_tests}      sub={t("dash.kpi.in_catalog")}                                                    icon="⌥" />
+          <KpiCard label={t("dash.kpi.total_tests")}    value={loading ? "…" : s.total_test_cases} sub={`${s.active_test_cases ?? "—"} ${t("dash.kpi.active")}`}                        icon="☰" />
+          <KpiCard label={t("dash.kpi.total_runs")}     value={loading ? "…" : s.total_runs}        sub={`${s.pass_runs ?? 0} ${t("dash.kpi.pass")} · ${s.fail_runs ?? 0} ${t("dash.kpi.fail")}`} icon="▶" />
+          <KpiCard label={t("dash.kpi.pass_rate")}      value={loading ? "…" : passRate}            sub={t("dash.kpi.all_time")}                                                          accent={s.pass_rate >= 80 ? "var(--green)" : "var(--orange)"} icon="✓" />
+          <KpiCard label={t("dash.kpi.active_workers")} value={loading ? "…" : s.active_workers}    sub={`${s.queue_depth ?? 0} ${t("dash.kpi.queued")}`}                                icon="⚙" />
+          <KpiCard label={t("dash.kpi.total_jobs")}     value={loading ? "…" : s.total_jobs}        sub={`${s.running_jobs ?? 0} ${t("dash.kpi.running")} · ${s.queued_jobs ?? 0} ${t("dash.kpi.queued")}`} icon="◈" />
+          <KpiCard label={t("dash.kpi.ui_tests")}       value={loading ? "…" : s.total_ui_tests}    sub={t("dash.kpi.in_catalog")}                                                        icon="◻" />
+          <KpiCard label={t("dash.kpi.api_tests")}      value={loading ? "…" : s.total_api_tests}   sub={t("dash.kpi.in_catalog")}                                                        icon="⌥" />
           {fi && <KpiCard label={t("dash.kpi.flaky_tests")} value={fi.flaky_tests_count ?? 0} sub={`${fi.total_clusters ?? 0} ${t("dash.kpi.clusters")}`} accent={fi.flaky_tests_count > 0 ? "var(--orange)" : undefined} icon="⚠" />}
         </div>
 
-        {/* Main 2-column grid */}
+        {/* ── Visual row 1: Trend (2/3) + Coverage Donut (1/3) ─────────────── */}
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr)", gap: 20, marginBottom: 20 }}>
+          <WidgetCard title={t("dash.trends.title")} subtitle={`${t("dash.trends.subtitle")} · ${recentRuns.length}`}>
+            <PassRateTrendChart runs={recentRuns} loading={loading} t={t} />
+          </WidgetCard>
+          <WidgetCard title={t("dash.coverage.title")}>
+            <CoverageDonutChart summary={summary} loading={loading} t={t} />
+          </WidgetCard>
+        </div>
+
+        {/* ── Visual row 2: Failure Distribution (1/2) + Risk Summary (1/2) ── */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 24 }}>
+          <WidgetCard title={t("dash.failures.title")} subtitle={t("dash.failures.subtitle")}>
+            <FailureDistributionChart fi={fi} loading={loading} t={t} />
+          </WidgetCard>
+          <WidgetCard title={t("dash.risk.title")} subtitle={t("dash.risk.subtitle")}>
+            <RiskSummaryCard summary={summary} fi={fi} loading={loading} t={t} />
+          </WidgetCard>
+        </div>
+
+        {/* ── Bottom 2-col grid: runs/jobs (left) + intel/actions (right) ──── */}
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr)", gap: 24, alignItems: "start" }}>
 
           {/* LEFT */}
           <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
 
-            {/* Recent Runs — source: /dashboard/recent-runs → run_history_service → SQLite */}
+            {/* Recent Runs */}
             <SectionCard title={t("dash.recent_runs")} link="/runs" linkLabel={t("dash.recent_runs.link")}>
               {loading ? (
                 <div style={{ padding: "20px", color: "var(--text-3)", fontSize: 13 }}>{t("dash.loading_runs")}</div>
