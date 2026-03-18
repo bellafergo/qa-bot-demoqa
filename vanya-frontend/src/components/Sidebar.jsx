@@ -1,5 +1,6 @@
 // src/components/Sidebar.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useLang } from "../i18n/LangContext";
 
 /**
  * Thread history sidebar — light panel, dark-chat compatible.
@@ -53,6 +54,7 @@ export default function Sidebar({
   onDelete,
   isLoading = false,
 }) {
+  const { t } = useLang();
   const [filter, setFilter] = useState("");
   const [threadsRemote, setThreadsRemote] = useState([]);
   const [isFetching, setIsFetching] = useState(false);
@@ -127,12 +129,12 @@ export default function Sidebar({
           marginBottom: 10,
         }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.07em" }}>
-            Conversations
+            {t("chat.sidebar.title")}
           </span>
           <button
             onClick={load}
             disabled={!usingRemote || busy}
-            title={!usingRemote ? "Threads via props" : "Refresh"}
+            title={t("chat.sidebar.refresh")}
             style={{
               width: 28, height: 28,
               borderRadius: 6,
@@ -169,7 +171,7 @@ export default function Sidebar({
             transition: "background 0.15s",
           }}
         >
-          + New Chat
+          {t("chat.sidebar.new")}
         </button>
 
         {/* Search */}
@@ -181,7 +183,7 @@ export default function Sidebar({
           <input
             value={filter}
             onChange={e => setFilter(e.target.value)}
-            placeholder="Search…"
+            placeholder={t("chat.sidebar.search")}
             style={{
               width: "100%",
               padding: "7px 10px 7px 28px",
@@ -272,7 +274,7 @@ export default function Sidebar({
                   if (usingRemote) setTimeout(load, 350);
                 }}
                 disabled={busy}
-                title="Delete chat"
+                title={t("chat.sidebar.delete")}
                 style={{
                   width: 26, height: 26, flexShrink: 0,
                   borderRadius: 5,
@@ -296,12 +298,12 @@ export default function Sidebar({
 
         {busy && !filtered.length && (
           <div style={{ padding: "16px 10px", color: "var(--text-3)", fontSize: 12 }}>
-            Loading conversations…
+            {t("chat.sidebar.loading")}
           </div>
         )}
         {!busy && !filtered.length && (
           <div style={{ padding: "16px 10px", color: "var(--text-3)", fontSize: 12 }}>
-            No conversations yet.
+            {t("chat.sidebar.none")}
           </div>
         )}
       </div>

@@ -1,6 +1,7 @@
 // vanya-frontend/src/chat.jsx
 import React, { useMemo, useCallback, useState } from "react";
 import DocArtifactTabs from "./components/DocArtifactTabs";
+import { useLang } from "./i18n/LangContext";
 
 const getRunnerContract = (m) => {
   const meta = getMeta(m);
@@ -281,6 +282,7 @@ const badgeColor = (kind) =>
   kind === "bad" ? "#b91c1c" : kind === "ok" ? "#15803d" : "#64748b";
 
 export default function Chat(props) {
+  const { t } = useLang();
   const {
     messages = [],
     input = "",
@@ -289,7 +291,7 @@ export default function Chat(props) {
     isLoading = false,
     sessionId = null,
     threadId = null,
-    formatText = (t) => (typeof t === "string" ? t : ""),
+    formatText = (fmt) => (typeof fmt === "string" ? fmt : ""),
     chatEndRef = null,
   } = props || {};
 
@@ -368,7 +370,7 @@ export default function Chat(props) {
               flexWrap: "wrap",
             }}
           >
-            <span style={{ color: "var(--bubble-meta)", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em" }}>{isBot ? "Vanya" : "You"}</span>
+            <span style={{ color: "var(--bubble-meta)", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em" }}>{isBot ? t("chat.bubble.bot") : t("chat.bubble.user")}</span>
 
             {badge ? (
               <span
@@ -424,7 +426,7 @@ export default function Chat(props) {
         <div style={{ maxWidth: 800, margin: "0 auto" }}>
         {!threadId ? (
           <div style={{ color: "var(--text-3)", padding: "24px 0", textAlign: "center", fontSize: 14 }}>
-            Select a conversation or create a new one.
+            {t("chat.no_thread")}
           </div>
         ) : null}
 
@@ -445,7 +447,7 @@ export default function Chat(props) {
             value={input}
             onChange={(e) => setInput?.(e.target.value)}
             onKeyDown={onEnter}
-            placeholder="Type a message… (Enter to send, Shift+Enter for new line)"
+            placeholder={t("chat.input.placeholder")}
             rows={1}
             style={{
               flex: 1,
@@ -486,7 +488,7 @@ export default function Chat(props) {
             }}
             title={sessionId ? `session: ${sessionId}` : ""}
           >
-            {isLoading ? "…" : "Send"}
+            {isLoading ? "…" : t("chat.send")}
           </button>
         </div>
       </div>
@@ -496,6 +498,7 @@ export default function Chat(props) {
 
 // ---------- Evidence component ----------
 function EvidenceBlock({ evidenceUrl }) {
+  const { t } = useLang();
   const [failed, setFailed] = useState(false);
 
   const url = String(evidenceUrl || "").trim();
@@ -520,7 +523,7 @@ function EvidenceBlock({ evidenceUrl }) {
 
   return (
     <div style={{ marginTop: 10 }}>
-      <div style={{ fontSize: 11, color: "var(--bubble-meta)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Screenshot</div>
+      <div style={{ fontSize: 11, color: "var(--bubble-meta)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>{t("chat.screenshot")}</div>
 
       {canRenderImg ? (
         <img
@@ -546,7 +549,7 @@ function EvidenceBlock({ evidenceUrl }) {
             onClick={(e) => { if (!hasValidHttpUrl(url)) e.preventDefault(); }}
             title={url}
           >
-            Open evidence ↗
+            {t("chat.evidence_open")}
           </a>
           {!hasValidHttpUrl(url) ? (
             <div style={{ marginTop: 6, color: "var(--text-3)", wordBreak: "break-all", fontSize: 12 }}>{url}</div>
@@ -558,6 +561,7 @@ function EvidenceBlock({ evidenceUrl }) {
 }
 
 function RunDebugBlock({ runner }) {
+  const { t } = useLang();
   if (!runner || typeof runner !== "object") return null;
 
   const steps = Array.isArray(runner.steps) ? runner.steps : [];
@@ -606,16 +610,16 @@ function RunDebugBlock({ runner }) {
 
           {steps.length ? (
             <div style={{ marginBottom: 10 }}>
-              <div style={{ fontWeight: 700, fontSize: 11, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Steps</div>
+              <div style={{ fontWeight: 700, fontSize: 11, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>{t("chat.run.steps")}</div>
               <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 6 }}>
                 <table className="data-table" style={{ fontSize: 12 }}>
                   <thead>
                     <tr>
                       <th>#</th>
-                      <th>action</th>
-                      <th>selector / url</th>
-                      <th>status</th>
-                      <th>error</th>
+                      <th>{t("chat.run.col.action")}</th>
+                      <th>{t("chat.run.col.selector")}</th>
+                      <th>{t("chat.run.col.status")}</th>
+                      <th>{t("chat.run.col.error")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -638,7 +642,7 @@ function RunDebugBlock({ runner }) {
 
           {logs.length ? (
             <div>
-              <div style={{ fontWeight: 700, fontSize: 11, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Logs</div>
+              <div style={{ fontWeight: 700, fontSize: 11, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>{t("chat.run.logs")}</div>
               <pre className="code-block" style={{ fontSize: 11, maxHeight: 200, overflow: "auto", margin: 0 }}>
                 {logs.join("\n")}
               </pre>
@@ -652,6 +656,7 @@ function RunDebugBlock({ runner }) {
 
 // ---------- Report component ----------
 function ReportBlock({ reportUrl }) {
+  const { t } = useLang();
   const url = String(reportUrl || "").trim();
   if (!url) return null;
 
@@ -659,7 +664,7 @@ function ReportBlock({ reportUrl }) {
 
   return (
     <div style={{ marginTop: 10 }}>
-      <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 6 }}>Reporte (PDF)</div>
+      <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 6 }}>{t("chat.report.title")}</div>
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <a
@@ -681,7 +686,7 @@ function ReportBlock({ reportUrl }) {
             if (!safe) e.preventDefault();
           }}
         >
-          Abrir reporte
+          {t("chat.report.open")}
         </a>
 
         <span style={{ fontSize: 12, opacity: 0.75, wordBreak: "break-all" }}>{url}</span>

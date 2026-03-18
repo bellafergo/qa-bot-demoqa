@@ -12,6 +12,7 @@ import {
 } from "../api";
 import Sidebar from "../components/Sidebar";
 import Chat from "../chat";
+import { useLang } from "../i18n/LangContext";
 
 // ---- API guardrails ----
 const safeFn = (fn, name) => {
@@ -41,6 +42,7 @@ const formatText = (text) => {
 const shortId = (id) => (id ? `${String(id).slice(0, 8)}…` : "");
 
 export default function ChatPage() {
+  const { t } = useLang();
   const [messages, setMessages] = useState([]);
   const [input, setInput]       = useState("");
   const [uiError, setUiError]   = useState("");
@@ -66,10 +68,10 @@ export default function ChatPage() {
   const setWelcome = useCallback(() => {
     setMessages([{
       role: "bot",
-      content: "Hola, soy **Vanya**, tu Agente de QA inteligente. ¿En qué puedo ayudarte hoy con tus pruebas?",
+      content: t("chat.welcome"),
       meta: { mode: "welcome" },
     }]);
-  }, []);
+  }, [t]);
 
   const normalizeThreads = useCallback((list) => {
     const arr = Array.isArray(list) ? list : [];
@@ -92,11 +94,11 @@ export default function ChatPage() {
       setThreads(normalized);
       return normalized;
     } catch (e) {
-      setUiError(`Failed to load threads. Detail: ${String(e?.message || e)}`);
+      setUiError(`${t("chat.error.load_threads")} ${String(e?.message || e)}`);
       setThreads([]);
       return [];
     } finally { setIsThreadsLoading(false); }
-  }, [normalizeThreads]);
+  }, [normalizeThreads, t]);
 
   const mapBackendMessagesToUI = useCallback((items) => {
     if (!Array.isArray(items) || items.length === 0) return null;
@@ -131,10 +133,10 @@ export default function ChatPage() {
       if (ui) setMessages(ui); else setWelcome();
       if (refreshSidebar) await refreshThreads().catch(() => {});
     } catch (e) {
-      setUiError(`Failed to load chat. Detail: ${String(e?.message || e)}`);
+      setUiError(`${t("chat.error.load_chat")} ${String(e?.message || e)}`);
       setWelcome();
     } finally { setIsThreadsLoading(false); }
-  }, [mapBackendMessagesToUI, refreshThreads, setWelcome]);
+  }, [mapBackendMessagesToUI, refreshThreads, setWelcome, t]);
 
   const handleNew = useCallback(async () => {
     if (sidebarBusy) return;
@@ -149,15 +151,15 @@ export default function ChatPage() {
       setWelcome();
       await refreshThreads().catch(() => {});
     } catch (e) {
-      setUiError(`Failed to create chat. Detail: ${String(e?.message || e)}`);
+      setUiError(`${t("chat.error.create_chat")} ${String(e?.message || e)}`);
     } finally { setIsThreadsLoading(false); }
-  }, [refreshThreads, setWelcome, sidebarBusy]);
+  }, [refreshThreads, setWelcome, sidebarBusy, t]);
 
   const handleDelete = useCallback(async (id) => {
     if (sidebarBusy) return;
     const tid = String(id || "").trim();
     if (!tid) return;
-    const ok = window.confirm("Delete this chat? This cannot be undone.");
+    const ok = window.confirm(t("chat.delete_confirm"));
     if (!ok) return;
     setUiError("");
     setIsThreadsLoading(true);
@@ -170,9 +172,9 @@ export default function ChatPage() {
         setWelcome();
       }
     } catch (e) {
-      setUiError(`Failed to delete chat. Detail: ${String(e?.message || e)}`);
+      setUiError(`${t("chat.error.delete_chat")} ${String(e?.message || e)}`);
     } finally { setIsThreadsLoading(false); }
-  }, [refreshThreads, setWelcome, sidebarBusy, threadId]);
+  }, [refreshThreads, setWelcome, sidebarBusy, threadId, t]);
 
   const handleSelect = useCallback(async (id) => {
     if (sidebarBusy) return;
@@ -203,19 +205,19 @@ export default function ChatPage() {
         typeof resp?.text   === "string" ? resp.text : "";
       setMessages(prev => [...prev, {
         role: "bot",
-        content: answer || "Done.",
+        content: answer || t("chat.done"),
         meta: { ...(resp || {}), mode: resp?.mode || "chat_only", runner: resp?.runner || null },
       }]);
       await refreshThreads().catch(() => {});
     } catch (e) {
-      setUiError(`Error sending message. Detail: ${String(e?.message || e)}`);
+      setUiError(`${t("chat.error.send")} ${String(e?.message || e)}`);
       setMessages(prev => [...prev, {
         role: "bot",
-        content: "Error sending your message. Please try again.",
+        content: t("chat.error.send_retry"),
         meta: { mode: "error" },
       }]);
     } finally { setIsSending(false); }
-  }, [input, isSending, refreshThreads, sessionId, threadId]);
+  }, [input, isSending, refreshThreads, sessionId, threadId, t]);
 
   useEffect(() => {
     (async () => {
@@ -273,7 +275,7 @@ export default function ChatPage() {
             {/* Toggle sidebar */}
             <button
               onClick={() => setIsSidebarOpen(s => !s)}
-              title={isSidebarOpen ? "Hide history" : "Show history"}
+              title={isSidebarOpen ? t("chat.toolbar.hide_history") : t("chat.toolbar.show_history")}
               style={{
                 width: 28, height: 28,
                 borderRadius: 6,
@@ -294,7 +296,7 @@ export default function ChatPage() {
               color: "var(--text-3)",
               fontFamily: "ui-monospace, monospace",
             }}>
-              {threadId ? `thread:${shortId(threadId)}` : "no thread selected"}
+              {threadId ? `thread:${shortId(threadId)}` : t("chat.toolbar.no_thread")}
             </span>
           </div>
 

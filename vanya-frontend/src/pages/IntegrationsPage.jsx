@@ -9,6 +9,7 @@ import {
   updateIntegrationConfig,
   getIntegrationActions,
 } from "../api";
+import { useLang } from "../i18n/LangContext";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -20,12 +21,13 @@ const HEALTH_COLOR = {
   unknown:       "var(--text-2, #94a3b8)",
 };
 
-const HEALTH_LABEL = {
-  ok:            "Healthy",
-  degraded:      "Degraded",
-  unreachable:   "Unreachable",
-  unconfigured:  "Not configured",
-  unknown:       "Unknown",
+// Translation key map for health labels
+const HEALTH_KEY = {
+  ok:           "integrations.health.ok",
+  degraded:     "integrations.health.degraded",
+  unreachable:  "integrations.health.unreachable",
+  unconfigured: "integrations.health.unconfigured",
+  unknown:      "integrations.health.unknown",
 };
 
 const CONNECTOR_ICONS = {
@@ -36,8 +38,9 @@ const CONNECTOR_ICONS = {
 };
 
 function HealthBadge({ health }) {
+  const { t } = useLang();
   const color = HEALTH_COLOR[health] || HEALTH_COLOR.unknown;
-  const label = HEALTH_LABEL[health] || health;
+  const label = HEALTH_KEY[health] ? t(HEALTH_KEY[health]) : (health || t("integrations.health.unknown"));
   return (
     <span style={{
       display: "inline-flex", alignItems: "center", gap: 5,
@@ -54,6 +57,7 @@ function HealthBadge({ health }) {
 }
 
 function StatusPill({ enabled }) {
+  const { t } = useLang();
   return (
     <span style={{
       fontSize: 10, fontWeight: 700,
@@ -62,7 +66,7 @@ function StatusPill({ enabled }) {
       color:      enabled ? "var(--green, #22c55e)" : "var(--text-2, #94a3b8)",
       border: `1px solid ${enabled ? "rgba(34,197,94,0.3)" : "rgba(148,163,184,0.2)"}`,
     }}>
-      {enabled ? "Enabled" : "Disabled"}
+      {enabled ? t("integrations.status.enabled") : t("integrations.status.disabled")}
     </span>
   );
 }
@@ -98,6 +102,7 @@ const CONFIG_FIELDS = {
 };
 
 function ConfigForm({ connectorId, currentConfig, onSaved }) {
+  const { t } = useLang();
   const fields = CONFIG_FIELDS[connectorId] || [];
   const [values, setValues] = useState(() => {
     const init = {};
@@ -117,7 +122,6 @@ function ConfigForm({ connectorId, currentConfig, onSaved }) {
       fields.forEach(f => { if (values[f.key]) payload[f.key] = values[f.key]; });
       const cfg = await updateIntegrationConfig(connectorId, payload);
       setOk(true);
-      // Clear secret fields after save
       const cleared = { ...values };
       fields.filter(f => f.secret).forEach(f => { cleared[f.key] = ""; });
       setValues(cleared);
@@ -134,7 +138,7 @@ function ConfigForm({ connectorId, currentConfig, onSaved }) {
   return (
     <div style={{ marginTop: 16 }}>
       <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-2)", marginBottom: 10 }}>
-        Configuration
+        {t("integrations.config.title")}
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {fields.map(f => (
@@ -143,17 +147,17 @@ function ConfigForm({ connectorId, currentConfig, onSaved }) {
               {f.label}
               {f.secret && (
                 <span style={{ marginLeft: 6, fontSize: 10, color: "var(--text-3, #64748b)", background: "rgba(148,163,184,0.1)", padding: "1px 5px", borderRadius: 4 }}>
-                  write-only
+                  {t("integrations.config.write_only")}
                 </span>
               )}
               {f.secret && currentConfig && currentConfig[`${f.key}_present`] && (
-                <span style={{ marginLeft: 6, fontSize: 10, color: "var(--green, #22c55e)" }}>● set</span>
+                <span style={{ marginLeft: 6, fontSize: 10, color: "var(--green, #22c55e)" }}>{t("integrations.config.set")}</span>
               )}
             </div>
             <input
               className="input"
               type={f.type}
-              placeholder={f.secret ? "Leave blank to keep existing" : f.placeholder}
+              placeholder={f.secret ? t("integrations.config.ph_secret") : f.placeholder}
               value={values[f.key]}
               onChange={e => handleChange(f.key, e.target.value)}
               style={{ width: "100%", boxSizing: "border-box" }}
@@ -166,7 +170,7 @@ function ConfigForm({ connectorId, currentConfig, onSaved }) {
         <div className="alert alert-error" style={{ marginTop: 8, fontSize: 12 }}>{error}</div>
       )}
       {ok && (
-        <div style={{ marginTop: 8, fontSize: 12, color: "var(--green, #22c55e)" }}>Configuration saved. Secrets are not stored — only a presence flag is kept.</div>
+        <div style={{ marginTop: 8, fontSize: 12, color: "var(--green, #22c55e)" }}>{t("integrations.config.saved")}</div>
       )}
 
       <button
@@ -175,7 +179,7 @@ function ConfigForm({ connectorId, currentConfig, onSaved }) {
         onClick={handleSave}
         disabled={saving}
       >
-        {saving ? "Saving…" : "Save Config"}
+        {saving ? t("integrations.config.saving") : t("integrations.config.save")}
       </button>
     </div>
   );
@@ -184,6 +188,7 @@ function ConfigForm({ connectorId, currentConfig, onSaved }) {
 // ── Connector card ────────────────────────────────────────────────────────────
 
 function ConnectorCard({ summary, onAction }) {
+  const { t } = useLang();
   const [expanded,  setExpanded]  = useState(false);
   const [detail,    setDetail]    = useState(null);
   const [actions,   setActions]   = useState(null);
@@ -273,9 +278,9 @@ function ConnectorCard({ summary, onAction }) {
             className="btn btn-secondary btn-sm"
             onClick={handleHealthCheck}
             disabled={checking}
-            title="Run health check"
+            title={t("integrations.card.check")}
           >
-            {checking ? "…" : "Check"}
+            {checking ? "…" : t("integrations.card.check")}
           </button>
           <button
             className="btn btn-sm"
@@ -287,7 +292,7 @@ function ConnectorCard({ summary, onAction }) {
             onClick={handleToggle}
             disabled={toggling}
           >
-            {toggling ? "…" : summary.enabled ? "Disable" : "Enable"}
+            {toggling ? "…" : summary.enabled ? t("integrations.card.disable") : t("integrations.card.enable")}
           </button>
           <span style={{ fontSize: 12, color: "var(--text-2)", alignSelf: "center", paddingLeft: 4 }}>
             {expanded ? "▲" : "▼"}
@@ -302,7 +307,7 @@ function ConnectorCard({ summary, onAction }) {
           {detail && (
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-2)", marginBottom: 6 }}>
-                Last Health Check
+                {t("integrations.card.last_check")}
               </div>
               <div style={{ fontSize: 12, color: "var(--text-2)" }}>
                 {fmtTs(detail.last_check_at)}
@@ -319,7 +324,7 @@ function ConnectorCard({ summary, onAction }) {
           {actions && actions.length > 0 && (
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-2)", marginBottom: 6 }}>
-                Supported Actions
+                {t("integrations.card.supported")}
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {actions.map(a => (
@@ -353,6 +358,7 @@ function ConnectorCard({ summary, onAction }) {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function IntegrationsPage() {
+  const { t } = useLang();
   const [connectors, setConnectors] = useState([]);
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState(null);
@@ -363,15 +369,14 @@ export default function IntegrationsPage() {
       const data = await listIntegrations();
       setConnectors(Array.isArray(data) ? data : []);
     } catch (e) {
-      setError(e.message || "Failed to load integrations");
+      setError(e.message || t("integrations.error.load"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => { load(); }, [load]);
 
-  // Reload the full list after any toggle/config change so status pills update
   const handleAction = useCallback(async (connectorId, type) => {
     if (type === "toggle") await load();
   }, [load]);
@@ -379,26 +384,28 @@ export default function IntegrationsPage() {
   const enabledCount = connectors.filter(c => c.enabled).length;
   const healthyCount = connectors.filter(c => c.health === "ok").length;
 
+  const kpiItems = [
+    { labelKey: "integrations.kpi.connectors", value: connectors.length },
+    { labelKey: "integrations.kpi.enabled",    value: enabledCount,  color: "var(--green, #22c55e)" },
+    { labelKey: "integrations.kpi.healthy",    value: healthyCount,  color: "var(--green, #22c55e)" },
+  ];
+
   return (
     <div className="page-wrap">
       {/* Hero */}
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>Integrations</h1>
+        <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>{t("integrations.hero.title")}</h1>
         <p style={{ fontSize: 13, color: "var(--text-2)", margin: "4px 0 0" }}>
-          Connect Vanya to your enterprise tools. Secrets are never stored or returned — only presence flags are kept.
+          {t("integrations.hero.subtitle")}
         </p>
       </div>
 
       {/* KPI strip */}
       <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
-        {[
-          { label: "Connectors",    value: connectors.length },
-          { label: "Enabled",       value: enabledCount,  color: "var(--green, #22c55e)" },
-          { label: "Healthy",       value: healthyCount,  color: "var(--green, #22c55e)" },
-        ].map(k => (
-          <div key={k.label} className="kpi-card" style={{ minWidth: 110 }}>
+        {kpiItems.map(k => (
+          <div key={k.labelKey} className="kpi-card" style={{ minWidth: 110 }}>
             <div className="kpi-value" style={k.color ? { color: k.color } : {}}>{loading ? "…" : k.value}</div>
-            <div className="kpi-label">{k.label}</div>
+            <div className="kpi-label">{t(k.labelKey)}</div>
           </div>
         ))}
       </div>
@@ -411,14 +418,14 @@ export default function IntegrationsPage() {
       {/* Loading */}
       {loading && (
         <div style={{ fontSize: 13, color: "var(--text-2)", padding: 24, textAlign: "center" }}>
-          Loading connectors…
+          {t("integrations.loading")}
         </div>
       )}
 
       {/* Connector cards */}
       {!loading && !error && connectors.length === 0 && (
         <div style={{ fontSize: 13, color: "var(--text-2)", padding: 24, textAlign: "center" }}>
-          No connectors available.
+          {t("integrations.none")}
         </div>
       )}
 

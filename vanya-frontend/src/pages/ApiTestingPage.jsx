@@ -5,8 +5,14 @@
  */
 import React, { useState } from "react";
 import { parseSpec, generateApiTests, approveApiTests, runApiTests } from "../api";
+import { useLang } from "../i18n/LangContext";
 
-const TABS = ["1. Parse Spec", "2. Generate Tests", "3. Approve & Run"];
+// Tab labels are defined as keys — resolved via t() inside the component
+const TAB_KEYS = [
+  { labelKey: "api.tab.parse" },
+  { labelKey: "api.tab.generate" },
+  { labelKey: "api.tab.approve" },
+];
 
 function MethodBadge({ method }) {
   const colors = { GET: "badge-green", POST: "badge-blue", PUT: "badge-orange", PATCH: "badge-orange", DELETE: "badge-red" };
@@ -22,6 +28,7 @@ function statusClass(s) {
 }
 
 export default function ApiTestingPage() {
+  const { t } = useLang();
   const [activeTab, setActiveTab] = useState(0);
 
   // Step 1: Parse
@@ -126,7 +133,7 @@ export default function ApiTestingPage() {
 
       {/* Tab bar */}
       <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: "2px solid var(--border)", paddingBottom: 0 }}>
-        {TABS.map((t, i) => (
+        {TAB_KEYS.map((tab, i) => (
           <button
             key={i}
             onClick={() => setActiveTab(i)}
@@ -142,7 +149,7 @@ export default function ApiTestingPage() {
               cursor: "pointer",
             }}
           >
-            {t}
+            {t(tab.labelKey)}
           </button>
         ))}
       </div>
@@ -150,14 +157,14 @@ export default function ApiTestingPage() {
       {/* Tab 1: Parse */}
       {activeTab === 0 && (
         <div className="card">
-          <div className="section-title">Parse OpenAPI / Swagger Spec</div>
+          <div className="section-title">{t("api.parse.title")}</div>
           <div style={{ marginBottom: 12 }}>
-            <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 4 }}>Base URL (optional)</label>
+            <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 4 }}>{t("api.parse.base_url_label")}</label>
             <input className="input" style={{ width: "100%", maxWidth: 400 }} placeholder="https://api.example.com/v1" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} />
           </div>
           <div style={{ marginBottom: 12 }}>
             <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 4 }}>
-              OpenAPI / Swagger spec (JSON or YAML) <span style={{ color: "var(--red)" }}>*</span>
+              {t("api.parse.spec_label")} <span style={{ color: "var(--red)" }}>*</span>
             </label>
             <textarea
               className="input"
@@ -169,12 +176,12 @@ export default function ApiTestingPage() {
             />
           </div>
           <button className="btn btn-primary" onClick={handleParse} disabled={parsing || !specText.trim()}>
-            {parsing ? "Parsing…" : "→ Parse Spec"}
+            {parsing ? t("api.parse.parsing") : t("api.parse.btn")}
           </button>
           {parseError && <div className="alert alert-error" style={{ marginTop: 12 }}>{parseError}</div>}
           {endpoints.length > 0 && (
             <div className="alert alert-success" style={{ marginTop: 12 }}>
-              ✓ Found {endpoints.length} endpoint{endpoints.length !== 1 ? "s" : ""}. Go to tab 2 to generate tests.
+              {t("api.parse.found_prefix")} {endpoints.length} {endpoints.length !== 1 ? t("api.parse.endpoint_plural") : t("api.parse.endpoint_single")}. {t("api.parse.found_suffix")}
             </div>
           )}
         </div>
@@ -184,34 +191,34 @@ export default function ApiTestingPage() {
       {activeTab === 1 && (
         <div>
           {endpoints.length === 0 ? (
-            <div className="alert alert-error">No endpoints parsed yet. Go to tab 1 first.</div>
+            <div className="alert alert-error">{t("api.gen.no_endpoints")}</div>
           ) : (
             <>
               <div className="card" style={{ marginBottom: 16 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
                   <div className="section-title" style={{ margin: 0 }}>
-                    {endpoints.length} Endpoint{endpoints.length !== 1 ? "s" : ""} — select to target generation
+                    {endpoints.length} {endpoints.length !== 1 ? t("api.parse.endpoint_plural") : t("api.parse.endpoint_single")} — {t("api.gen.target_label")}
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
                     <button className="btn btn-secondary btn-sm" onClick={() => setSelectedEps(new Set(endpoints.map((_, i) => i)))}>
-                      Select all
+                      {t("api.gen.select_all")}
                     </button>
                     <button
                       className="btn btn-primary btn-sm"
                       onClick={handleGenerate}
                       disabled={generating}
                     >
-                      {generating ? "Generating…" : `✦ Generate (${selectedEps.size || "all"})`}
+                      {generating ? t("api.gen.generating") : `${t("api.gen.generate_prefix")} (${selectedEps.size || t("api.gen.all")})`}
                     </button>
                   </div>
                 </div>
                 <table className="data-table">
                   <thead><tr>
                     <th style={{ width: 36 }}></th>
-                    <th>Method</th>
-                    <th>Path</th>
-                    <th>Summary</th>
-                    <th>Tag</th>
+                    <th>{t("api.gen.col.method")}</th>
+                    <th>{t("api.gen.col.path")}</th>
+                    <th>{t("api.gen.col.summary")}</th>
+                    <th>{t("api.gen.col.tag")}</th>
                   </tr></thead>
                   <tbody>
                     {endpoints.map((ep, i) => (
@@ -232,7 +239,7 @@ export default function ApiTestingPage() {
 
               {drafts.length > 0 && (
                 <div className="alert alert-success">
-                  ✓ Generated {drafts.length} draft test{drafts.length !== 1 ? "s" : ""}. Go to tab 3 to approve and run.
+                  {t("api.gen.success_prefix")} {drafts.length} {drafts.length !== 1 ? t("api.gen.draft_plural") : t("api.gen.draft_single")}. {t("api.gen.success_suffix")}
                 </div>
               )}
             </>
@@ -244,27 +251,27 @@ export default function ApiTestingPage() {
       {activeTab === 2 && (
         <div>
           {drafts.length === 0 ? (
-            <div className="alert alert-error">No drafts generated yet. Go to tab 2 first.</div>
+            <div className="alert alert-error">{t("api.approve.no_drafts")}</div>
           ) : (
             <>
               {/* Drafts list */}
               <div className="card" style={{ marginBottom: 16, padding: 0, overflow: "hidden" }}>
                 <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <div className="section-title" style={{ margin: 0 }}>{drafts.length} Draft API Tests</div>
+                  <div className="section-title" style={{ margin: 0 }}>{drafts.length} {t("api.approve.drafts_title")}</div>
                   <button
                     className="btn btn-secondary btn-sm"
                     onClick={() => setSelDrafts(selectedDrafts.size === drafts.length ? new Set() : new Set(drafts.map(d => d.draft_id)))}
                   >
-                    {selectedDrafts.size === drafts.length ? "Deselect all" : "Select all"}
+                    {selectedDrafts.size === drafts.length ? t("api.approve.deselect_all") : t("api.approve.select_all")}
                   </button>
                 </div>
                 <table className="data-table">
                   <thead><tr>
                     <th style={{ width: 36 }}></th>
-                    <th>Name</th>
-                    <th>Method</th>
-                    <th>Endpoint</th>
-                    <th>Steps</th>
+                    <th>{t("api.approve.col.name")}</th>
+                    <th>{t("api.approve.col.method")}</th>
+                    <th>{t("api.approve.col.endpoint")}</th>
+                    <th>{t("api.approve.col.steps")}</th>
                   </tr></thead>
                   <tbody>
                     {drafts.map(d => (
@@ -284,39 +291,39 @@ export default function ApiTestingPage() {
 
               {/* Actions */}
               <div className="card">
-                <div className="section-title">Approve & Run</div>
+                <div className="section-title">{t("api.approve.section")}</div>
                 <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 14, alignItems: "center" }}>
                   <label style={{ fontSize: 13, color: "var(--text-2)", display: "flex", alignItems: "center", gap: 6 }}>
                     <input type="checkbox" checked={activate} onChange={e => setActivate(e.target.checked)} />
-                    Activate in catalog after approval
+                    {t("api.approve.activate")}
                   </label>
                   <button
                     className="btn btn-secondary"
                     onClick={handleApprove}
                     disabled={approving || selectedDrafts.size === 0}
                   >
-                    {approving ? "Approving…" : `✓ Approve ${selectedDrafts.size} drafts`}
+                    {approving ? t("api.approve.approving") : `${t("api.approve.approve_prefix")} ${selectedDrafts.size} ${t("api.approve.approve_drafts")}`}
                   </button>
                 </div>
                 {approveResult && (
                   <div className={`alert ${approveResult.ok ? "alert-success" : "alert-error"}`} style={{ marginBottom: 14 }}>
                     {approveResult.ok
-                      ? `✓ Created ${approveResult.total_created} test(s): ${(approveResult.created_test_case_ids || []).join(", ")}`
+                      ? `${t("api.approve.ok_prefix")} ${approveResult.total_created} ${t("api.approve.ok_suffix")} ${(approveResult.created_test_case_ids || []).join(", ")}`
                       : `✗ ${approveResult.error}`
                     }
                   </div>
                 )}
 
                 <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 10 }}>Run Tests</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 10 }}>{t("api.run.title")}</div>
                   <div style={{ display: "flex", gap: 12, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
                     <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
                       <input type="radio" name="runMode" value="draft" checked={runMode === "draft"} onChange={() => setRunMode("draft")} />
-                      Run drafts directly (synchronous)
+                      {t("api.run.mode_draft")}
                     </label>
                     <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
                       <input type="radio" name="runMode" value="catalog" checked={runMode === "catalog"} onChange={() => setRunMode("catalog")} />
-                      Run approved catalog tests (async)
+                      {t("api.run.mode_catalog")}
                     </label>
                   </div>
                   <button
@@ -324,17 +331,21 @@ export default function ApiTestingPage() {
                     onClick={handleRun}
                     disabled={running || selectedDrafts.size === 0}
                   >
-                    {running ? "Running…" : "▶ Run"}
+                    {running ? t("api.run.running") : t("api.run.run_btn")}
                   </button>
                 </div>
 
                 {runResult && !runResult.error && runResult.results && (
                   <div style={{ marginTop: 14 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
-                      Results: {runResult.passed ?? 0} passed / {runResult.failed ?? 0} failed
+                      {t("api.run.results_prefix")} {runResult.passed ?? 0} {t("api.run.results_passed")} / {runResult.failed ?? 0} {t("api.run.results_failed")}
                     </div>
                     <table className="data-table" style={{ fontSize: 12 }}>
-                      <thead><tr><th>Name</th><th>Status</th><th>Duration</th></tr></thead>
+                      <thead><tr>
+                        <th>{t("api.run.col.name")}</th>
+                        <th>{t("api.run.col.status")}</th>
+                        <th>{t("api.run.col.duration")}</th>
+                      </tr></thead>
                       <tbody>
                         {runResult.results.map((r, i) => (
                           <tr key={i}>
@@ -349,7 +360,7 @@ export default function ApiTestingPage() {
                 )}
                 {runResult?.mode === "catalog" && !runResult.error && (
                   <div className="alert alert-success" style={{ marginTop: 14 }}>
-                    ✓ Job {runResult.orchestrator_job_id?.slice(0, 14)}… enqueued — {runResult.test_case_count} test(s)
+                    {t("api.run.catalog_prefix")} {runResult.orchestrator_job_id?.slice(0, 14)}… {t("api.run.catalog_enqueued")} — {runResult.test_case_count} {t("api.run.catalog_tests")}
                   </div>
                 )}
                 {runResult?.error && (

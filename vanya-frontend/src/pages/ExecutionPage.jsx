@@ -5,6 +5,7 @@
  */
 import React, { useState, useEffect, useCallback } from "react";
 import { getExecStatus, listJobs, runBatch, getJob } from "../api";
+import { useLang } from "../i18n/LangContext";
 
 function statusClass(s) {
   const v = String(s || "").toLowerCase();
@@ -23,6 +24,8 @@ function fmtDate(iso) {
 }
 
 export default function ExecutionPage() {
+  const { t } = useLang();
+
   const [status, setStatus]         = useState(null);
   const [jobs, setJobs]             = useState([]);
   const [loading, setLoading]       = useState(true);
@@ -49,11 +52,11 @@ export default function ExecutionPage() {
       setStatus(st);
       setJobs(Array.isArray(jl) ? jl : []);
     } catch (e) {
-      setError(e?.message || "Failed to load");
+      setError(e?.message || t("exec.batch.load_error"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -67,7 +70,7 @@ export default function ExecutionPage() {
       setBatchResult({ ok: true, ...r });
       load();
     } catch (e) {
-      setBatchResult({ ok: false, error: e?.message || "Failed" });
+      setBatchResult({ ok: false, error: e?.message || t("exec.batch.submit_error") });
     } finally {
       setBatchLoading(false);
     }
@@ -89,22 +92,24 @@ export default function ExecutionPage() {
 
   const st = status || {};
 
+  const kpiItems = [
+    { labelKey: "exec.kpi.active_workers", value: loading ? "…" : st.active_workers ?? "—",  accent: st.active_workers > 0 ? "var(--green)" : undefined },
+    { labelKey: "exec.kpi.queue_depth",    value: loading ? "…" : st.queue_depth ?? "—",      accent: st.queue_depth > 0 ? "var(--orange)" : undefined },
+    { labelKey: "exec.kpi.max_workers",    value: loading ? "…" : st.max_workers ?? "—" },
+    { labelKey: "exec.kpi.ui_slots",       value: loading ? "…" : `${st.running_ui_workers ?? 0}/${st.max_ui_workers ?? "—"}` },
+    { labelKey: "exec.kpi.api_slots",      value: loading ? "…" : `${st.running_api_workers ?? 0}/${st.max_api_workers ?? "—"}` },
+    { labelKey: "exec.kpi.completed",      value: loading ? "…" : st.completed_tasks ?? "—",  accent: "var(--green)" },
+    { labelKey: "exec.kpi.retried",        value: loading ? "…" : st.retried_tasks ?? "—",    accent: st.retried_tasks > 0 ? "var(--orange)" : undefined },
+  ];
+
   return (
     <div className="page-wrap">
 
       {/* Status cards */}
       <div className="kpi-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", marginBottom: 24 }}>
-        {[
-          { label: "Active Workers",  value: loading ? "…" : st.active_workers ?? "—",  accent: st.active_workers > 0 ? "var(--green)" : undefined },
-          { label: "Queue Depth",     value: loading ? "…" : st.queue_depth ?? "—",      accent: st.queue_depth > 0 ? "var(--orange)" : undefined },
-          { label: "Max Workers",     value: loading ? "…" : st.max_workers ?? "—" },
-          { label: "UI Slots",        value: loading ? "…" : `${st.running_ui_workers ?? 0}/${st.max_ui_workers ?? "—"}` },
-          { label: "API Slots",       value: loading ? "…" : `${st.running_api_workers ?? 0}/${st.max_api_workers ?? "—"}` },
-          { label: "Completed Tasks", value: loading ? "…" : st.completed_tasks ?? "—",  accent: "var(--green)" },
-          { label: "Retried Tasks",   value: loading ? "…" : st.retried_tasks ?? "—",    accent: st.retried_tasks > 0 ? "var(--orange)" : undefined },
-        ].map(({ label, value, accent }) => (
-          <div key={label} className="kpi-card">
-            <div className="kpi-label">{label}</div>
+        {kpiItems.map(({ labelKey, value, accent }) => (
+          <div key={labelKey} className="kpi-card">
+            <div className="kpi-label">{t(labelKey)}</div>
             <div className="kpi-value" style={accent ? { color: accent } : {}}>{value}</div>
           </div>
         ))}
@@ -118,21 +123,21 @@ export default function ExecutionPage() {
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>
             <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div className="section-title" style={{ margin: 0 }}>
-                {loading ? "Loading…" : `${jobs.length} recent job${jobs.length !== 1 ? "s" : ""}`}
+                {loading ? t("exec.jobs.loading") : `${jobs.length} ${jobs.length !== 1 ? t("exec.jobs.recent_plural") : t("exec.jobs.recent")}`}
               </div>
-              <button className="btn btn-secondary btn-sm" onClick={load} disabled={loading}>↻ Refresh</button>
+              <button className="btn btn-secondary btn-sm" onClick={load} disabled={loading}>{t("exec.jobs.refresh")}</button>
             </div>
             {jobs.length === 0 && !loading ? (
-              <div style={{ padding: "20px", color: "var(--text-3)", fontSize: 13 }}>No jobs yet.</div>
+              <div style={{ padding: "20px", color: "var(--text-3)", fontSize: 13 }}>{t("exec.jobs.none")}</div>
             ) : (
               <table className="data-table">
                 <thead><tr>
-                  <th>Job ID</th>
-                  <th>Type</th>
-                  <th>Status</th>
-                  <th>Tests</th>
-                  <th>Pass/Fail</th>
-                  <th>Created</th>
+                  <th>{t("exec.jobs.col.job_id")}</th>
+                  <th>{t("exec.jobs.col.type")}</th>
+                  <th>{t("exec.jobs.col.status")}</th>
+                  <th>{t("exec.jobs.col.tests")}</th>
+                  <th>{t("exec.jobs.col.pass_fail")}</th>
+                  <th>{t("exec.jobs.col.created")}</th>
                 </tr></thead>
                 <tbody>
                   {jobs.map((j, i) => (
@@ -166,9 +171,9 @@ export default function ExecutionPage() {
 
           {/* Batch run form */}
           <div className="card">
-            <div className="section-title">Run Batch</div>
+            <div className="section-title">{t("exec.batch.title")}</div>
             <div style={{ fontSize: 12, color: "var(--text-2)", marginBottom: 10 }}>
-              Enter test case IDs (one per line or comma-separated):
+              {t("exec.batch.desc")}
             </div>
             <textarea
               className="input"
@@ -184,12 +189,12 @@ export default function ExecutionPage() {
               disabled={batchLoading || !batchInput.trim()}
               style={{ marginTop: 10, width: "100%" }}
             >
-              {batchLoading ? "Enqueueing…" : "⚡ Run Batch"}
+              {batchLoading ? t("exec.batch.enqueueing") : t("exec.batch.run")}
             </button>
             {batchResult && (
               <div className={`alert ${batchResult.ok ? "alert-success" : "alert-error"}`} style={{ marginTop: 10 }}>
                 {batchResult.ok
-                  ? `✓ Job ${batchResult.job_id?.slice(0, 14)}… enqueued — ${batchResult.total_count} test(s), status: ${batchResult.status}`
+                  ? `✓ Job ${batchResult.job_id?.slice(0, 14)}… ${t("exec.batch.enqueued")} — ${batchResult.total_count} ${t("exec.batch.tests_status")} ${batchResult.status}`
                   : `✗ ${batchResult.error}`
                 }
               </div>
@@ -199,9 +204,9 @@ export default function ExecutionPage() {
           {/* Job detail panel */}
           {selectedJob && (
             <div className="card">
-              <div className="section-title" style={{ marginBottom: 10 }}>Job Detail</div>
+              <div className="section-title" style={{ marginBottom: 10 }}>{t("exec.detail.title")}</div>
               {detailLoading ? (
-                <div style={{ fontSize: 13, color: "var(--text-3)" }}>Loading…</div>
+                <div style={{ fontSize: 13, color: "var(--text-3)" }}>{t("exec.detail.loading")}</div>
               ) : jobDetail?.error ? (
                 <div className="alert alert-error">{jobDetail.error}</div>
               ) : jobDetail ? (
@@ -211,10 +216,10 @@ export default function ExecutionPage() {
                   </div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
                     <span className={`badge ${statusClass(jobDetail.status)}`}>{jobDetail.status}</span>
-                    <span className="badge badge-gray">{jobDetail.total_count} tests</span>
-                    <span className="badge badge-green">{jobDetail.passed_count ?? 0} pass</span>
-                    <span className="badge badge-red">{jobDetail.failed_count ?? 0} fail</span>
-                    {jobDetail.error_count > 0 && <span className="badge badge-orange">{jobDetail.error_count} error</span>}
+                    <span className="badge badge-gray">{jobDetail.total_count} {t("exec.detail.tests")}</span>
+                    <span className="badge badge-green">{jobDetail.passed_count ?? 0} {t("exec.detail.pass")}</span>
+                    <span className="badge badge-red">{jobDetail.failed_count ?? 0} {t("exec.detail.fail")}</span>
+                    {jobDetail.error_count > 0 && <span className="badge badge-orange">{jobDetail.error_count} {t("exec.detail.error")}</span>}
                   </div>
                   {jobDetail.scheduling_notes && (
                     <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 10, lineHeight: 1.5 }}>
@@ -223,7 +228,11 @@ export default function ExecutionPage() {
                   )}
                   {jobDetail.results?.length > 0 && (
                     <table className="data-table" style={{ fontSize: 11 }}>
-                      <thead><tr><th>Test Case</th><th>Status</th><th>Attempt</th></tr></thead>
+                      <thead><tr>
+                        <th>{t("exec.detail.col.test_case")}</th>
+                        <th>{t("exec.detail.col.status")}</th>
+                        <th>{t("exec.detail.col.attempt")}</th>
+                      </tr></thead>
                       <tbody>
                         {jobDetail.results.map((r, i) => (
                           <tr key={i}>

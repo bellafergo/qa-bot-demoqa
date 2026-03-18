@@ -4,12 +4,14 @@
  * POST /documents/upload  |  GET /documents/query
  */
 import React, { useState, useCallback } from "react";
+import { useLang } from "../i18n/LangContext";
 
 const API_BASE = (
   import.meta?.env?.VITE_API_BASE || "https://qa-bot-demoqa.onrender.com"
 ).replace(/\/$/, "");
 
 export default function DocumentsPage() {
+  const { t } = useLang();
   const [file, setFile]           = useState(null);
   const [threadId, setThreadId]   = useState("");
   const [tags, setTags]           = useState("");
@@ -80,13 +82,13 @@ export default function DocumentsPage() {
     <div className="page-wrap" style={{ maxWidth: 860 }}>
       {/* ── Page header ─────────────────────────────────── */}
       <div className="page-header">
-        <h1 className="page-title">Documents</h1>
-        <p className="page-subtitle">Upload PDF, TXT, or DOCX files as RAG context for chat conversations</p>
+        <h1 className="page-title">{t("docs.title")}</h1>
+        <p className="page-subtitle">{t("docs.subtitle")}</p>
       </div>
 
       {/* ── Upload card ─────────────────────────────────── */}
       <div className="card" style={{ marginBottom: 20 }}>
-        <div className="section-title">Upload Document</div>
+        <div className="section-title">{t("docs.upload.title")}</div>
 
         <div style={{ display: "grid", gap: 12 }}>
           {/* File picker */}
@@ -107,10 +109,10 @@ export default function DocumentsPage() {
             <span style={{ fontSize: 20 }}>📄</span>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>
-                {file ? file.name : "Choose file…"}
+                {file ? file.name : t("docs.upload.choose")}
               </div>
               <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>
-                {file ? `${(file.size / 1024).toFixed(1)} KB` : "PDF, TXT, DOCX, MD supported"}
+                {file ? `${(file.size / 1024).toFixed(1)} KB` : t("docs.upload.formats")}
               </div>
             </div>
             <input
@@ -128,14 +130,14 @@ export default function DocumentsPage() {
               className="input"
               value={threadId}
               onChange={e => setThreadId(e.target.value)}
-              placeholder="Thread ID (optional)"
+              placeholder={t("docs.upload.thread_ph")}
               style={{ flex: 1, minWidth: 160 }}
             />
             <input
               className="input"
               value={tags}
               onChange={e => setTags(e.target.value)}
-              placeholder="Tags (comma-separated)"
+              placeholder={t("docs.upload.tags_ph")}
               style={{ flex: 1, minWidth: 160 }}
             />
           </div>
@@ -146,7 +148,7 @@ export default function DocumentsPage() {
               onClick={handleUpload}
               disabled={uploading || !file}
             >
-              {uploading ? "Uploading…" : "Upload Document"}
+              {uploading ? t("docs.upload.uploading") : t("docs.upload.btn")}
             </button>
           </div>
         </div>
@@ -156,7 +158,7 @@ export default function DocumentsPage() {
         )}
         {uploadResult?.ok && (
           <div className="alert alert-success" style={{ marginTop: 12 }}>
-            Document uploaded successfully
+            {t("docs.upload.success")}
             {uploadResult.doc?.filename && <span> — <strong>{uploadResult.doc.filename}</strong></span>}
             {uploadResult.doc?.chunks   && <span> ({uploadResult.doc.chunks} chunks)</span>}
           </div>
@@ -165,7 +167,7 @@ export default function DocumentsPage() {
 
       {/* ── Query card ──────────────────────────────────── */}
       <div className="card" style={{ marginBottom: 20 }}>
-        <div className="section-title">Search Documents</div>
+        <div className="section-title">{t("docs.search.title")}</div>
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
           <input
@@ -173,14 +175,14 @@ export default function DocumentsPage() {
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={e => e.key === "Enter" && handleQuery()}
-            placeholder="Search query…"
+            placeholder={t("docs.search.placeholder")}
             style={{ flex: 2, minWidth: 200 }}
           />
           <input
             className="input"
             value={queryThreadId}
             onChange={e => setQueryThreadId(e.target.value)}
-            placeholder="Thread ID (optional)"
+            placeholder={t("docs.search.thread_ph")}
             style={{ flex: 1, minWidth: 140 }}
           />
           <button
@@ -188,7 +190,7 @@ export default function DocumentsPage() {
             onClick={handleQuery}
             disabled={querying || !query.trim()}
           >
-            {querying ? "Searching…" : "Search"}
+            {querying ? t("docs.search.searching") : t("docs.search.btn")}
           </button>
         </div>
 
@@ -207,9 +209,9 @@ export default function DocumentsPage() {
             marginBottom: 12,
           }}>
             <div className="section-title" style={{ margin: 0 }}>
-              Results
+              {t("docs.results.title")}
             </div>
-            <span className="badge badge-accent">{snippets.length} snippet{snippets.length !== 1 ? "s" : ""}</span>
+            <span className="badge badge-accent">{snippets.length} {snippets.length !== 1 ? t("docs.results.snippets") : t("docs.results.snippet")}</span>
           </div>
 
           <div style={{ display: "grid", gap: 12 }}>
@@ -223,7 +225,7 @@ export default function DocumentsPage() {
                   gap: 8,
                 }}>
                   <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text)" }}>
-                    {s.filename || "Unknown file"}
+                    {s.filename || t("docs.results.unknown")}
                   </div>
                   <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                     {s.chunk_index !== undefined && (

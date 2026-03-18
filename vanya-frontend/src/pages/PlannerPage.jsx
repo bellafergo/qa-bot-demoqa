@@ -4,12 +4,14 @@
  * POST /plan_from_text  |  POST /execute_text
  */
 import React, { useState } from "react";
+import { useLang } from "../i18n/LangContext";
 
 const API_BASE = (
   import.meta?.env?.VITE_API_BASE || "https://qa-bot-demoqa.onrender.com"
 ).replace(/\/$/, "");
 
 export default function PlannerPage() {
+  const { t } = useLang();
   const [text, setText]       = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [appHint, setAppHint] = useState("");
@@ -64,22 +66,20 @@ export default function PlannerPage() {
     <div className="page-wrap" style={{ maxWidth: 900 }}>
       {/* ── Page header ────────────────────────────────── */}
       <div className="page-header">
-        <h1 className="page-title">Test Planner</h1>
-        <p className="page-subtitle">
-          Describe what to test in natural language — Vanya generates a structured test plan and optionally executes it
-        </p>
+        <h1 className="page-title">{t("planner.title")}</h1>
+        <p className="page-subtitle">{t("planner.subtitle")}</p>
       </div>
 
       {/* ── Input card ─────────────────────────────────── */}
       <div className="card" style={{ marginBottom: 20 }}>
-        <div className="section-title">Test Description</div>
+        <div className="section-title">{t("planner.section.desc")}</div>
 
         <div style={{ display: "grid", gap: 12 }}>
           <textarea
             className="input"
             value={text}
             onChange={e => setText(e.target.value)}
-            placeholder="E.g.: Add tomato and milk to the cart in HEB, then verify the cart total"
+            placeholder={t("planner.ph.text")}
             rows={4}
           />
 
@@ -88,14 +88,14 @@ export default function PlannerPage() {
               className="input"
               value={baseUrl}
               onChange={e => setBaseUrl(e.target.value)}
-              placeholder="Base URL (optional)"
+              placeholder={t("planner.ph.base_url")}
               style={{ flex: 1, minWidth: 200 }}
             />
             <input
               className="input"
               value={appHint}
               onChange={e => setAppHint(e.target.value)}
-              placeholder="App hint (e.g., HEB)"
+              placeholder={t("planner.ph.app_hint")}
               style={{ flex: 1, minWidth: 140 }}
             />
           </div>
@@ -107,7 +107,7 @@ export default function PlannerPage() {
               onChange={e => setConfirm(e.target.checked)}
               style={{ width: 14, height: 14, accentColor: "var(--accent)" }}
             />
-            Confirm risky actions (payment / checkout)
+            {t("planner.confirm_risky")}
           </label>
         </div>
 
@@ -119,14 +119,14 @@ export default function PlannerPage() {
             disabled={loading || !text.trim()}
             style={mode === "plan" ? { borderColor: "var(--accent)", color: "var(--accent)" } : {}}
           >
-            {loading && mode === "plan" ? "Generating…" : "Generate Plan"}
+            {loading && mode === "plan" ? t("planner.btn.generating") : t("planner.btn.generate")}
           </button>
           <button
             className="btn btn-primary"
             onClick={() => { setMode("execute"); handleExecute(); }}
             disabled={loading || !text.trim()}
           >
-            {loading && mode === "execute" ? "Executing…" : "Plan & Execute"}
+            {loading && mode === "execute" ? t("planner.btn.executing") : t("planner.btn.execute")}
           </button>
         </div>
 
@@ -140,10 +140,10 @@ export default function PlannerPage() {
         <div className="card" style={{ marginBottom: 20 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
             <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: "var(--text)" }}>
-              Generated Plan
+              {t("planner.plan.title")}
             </h2>
             <span className={`badge ${planOk ? "badge-green" : "badge-red"}`}>
-              {planOk ? "Valid" : "Invalid"}
+              {planOk ? t("planner.plan.valid") : t("planner.plan.invalid")}
             </span>
             {plan.language && <span className="badge badge-gray">{plan.language}</span>}
             {plan.intent   && <span style={{ fontSize: 12, color: "var(--text-2)" }}>{plan.intent}</span>}
@@ -157,14 +157,14 @@ export default function PlannerPage() {
 
           {hasPaymentRisk && (
             <div className="alert alert-warn" style={{ marginBottom: 16 }}>
-              ⚠ Payment risk detected.{plan.requires_confirmation ? " Confirmation required." : ""}
+              {t("planner.plan.payment_risk")}{plan.requires_confirmation ? ` ${t("planner.plan.confirm_req")}` : ""}
             </div>
           )}
 
           {/* Steps */}
           {plan.steps?.length > 0 && (
             <div style={{ marginBottom: 16 }}>
-              <div className="section-title">Steps ({plan.steps.length})</div>
+              <div className="section-title">{t("planner.plan.steps")} ({plan.steps.length})</div>
               <div className="card-inner" style={{ padding: 0, overflow: "hidden" }}>
                 {plan.steps.map((step, i) => (
                   <div
@@ -200,7 +200,7 @@ export default function PlannerPage() {
           {/* Assumptions */}
           {plan.assumptions?.length > 0 && (
             <div style={{ marginBottom: 12 }}>
-              <div className="section-title">Assumptions</div>
+              <div className="section-title">{t("planner.plan.assumptions")}</div>
               <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "var(--text-2)", lineHeight: 1.7 }}>
                 {plan.assumptions.map((a, i) => <li key={i}>{a}</li>)}
               </ul>
@@ -209,7 +209,7 @@ export default function PlannerPage() {
 
           {plan.errors?.length > 0 && (
             <div>
-              <div className="section-title" style={{ color: "var(--red)" }}>Plan Errors</div>
+              <div className="section-title" style={{ color: "var(--red)" }}>{t("planner.plan.errors")}</div>
               <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "var(--red-text)", lineHeight: 1.7 }}>
                 {plan.errors.map((e, i) => <li key={i}>{e}</li>)}
               </ul>
@@ -223,7 +223,7 @@ export default function PlannerPage() {
         <div className="card" style={{ borderColor: "var(--green-border)", background: "var(--green-bg)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
             <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: "var(--green-text)" }}>
-              Execution Result
+              {t("planner.run.title")}
             </h2>
             {run.status && (
               <span className={`badge ${String(run.status).toLowerCase().includes("pass") ? "badge-green" : "badge-red"}`}>
@@ -235,27 +235,27 @@ export default function PlannerPage() {
           <div style={{ display: "grid", gap: 8, fontSize: 13, color: "var(--text)" }}>
             {run.status && (
               <div style={{ display: "flex", gap: 8 }}>
-                <span style={{ color: "var(--text-3)", width: 100 }}>Status</span>
+                <span style={{ color: "var(--text-3)", width: 100 }}>{t("planner.run.status")}</span>
                 <strong>{run.status}</strong>
               </div>
             )}
             {run.evidence_id && (
               <div style={{ display: "flex", gap: 8 }}>
-                <span style={{ color: "var(--text-3)", width: 100 }}>Evidence ID</span>
+                <span style={{ color: "var(--text-3)", width: 100 }}>{t("planner.run.evidence_id")}</span>
                 <code style={{ fontSize: 12 }}>{run.evidence_id}</code>
               </div>
             )}
             {run.evidence_url && (
               <div style={{ display: "flex", gap: 8 }}>
-                <span style={{ color: "var(--text-3)", width: 100 }}>Evidence</span>
+                <span style={{ color: "var(--text-3)", width: 100 }}>{t("planner.run.evidence")}</span>
                 <a href={run.evidence_url} target="_blank" rel="noreferrer" style={{ color: "var(--accent)", fontSize: 13 }}>
-                  View ↗
+                  {t("planner.run.view")}
                 </a>
               </div>
             )}
             {run.duration_ms && (
               <div style={{ display: "flex", gap: 8 }}>
-                <span style={{ color: "var(--text-3)", width: 100 }}>Duration</span>
+                <span style={{ color: "var(--text-3)", width: 100 }}>{t("planner.run.duration")}</span>
                 <span>{run.duration_ms}ms</span>
               </div>
             )}
