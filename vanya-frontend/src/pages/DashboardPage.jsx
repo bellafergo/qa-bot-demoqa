@@ -48,7 +48,14 @@ function isPassStatus(s) {
 function PassRateTrendChart({ runs, loading, t }) {
   const data = [...(runs || [])].reverse().slice(-10);
 
-  if (!loading && data.length < 2) {
+  // Guard: must have at least 2 points to draw the chart.
+  // When loading, show skeleton. When done but insufficient data, show no-data state.
+  if (data.length < 2) {
+    if (loading) {
+      return (
+        <div style={{ textAlign: "center", padding: "24px 0", fontSize: 12, color: "var(--text-3)" }}>…</div>
+      );
+    }
     return (
       <div style={{ textAlign: "center", padding: "24px 0" }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-2)" }}>{t("dash.trends.no_data")}</div>
@@ -75,6 +82,9 @@ function PassRateTrendChart({ runs, loading, t }) {
     const y = PAD_T + innerH * (1 - rate);
     return [x, y];
   });
+
+  // Safety net: should never be empty here, but guard anyway
+  if (pts.length < 2) return null;
 
   const lineStr = pts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
 
