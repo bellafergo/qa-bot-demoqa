@@ -10,6 +10,7 @@ Demonstrates:
   - functional tests (feature-specific flows)
   - negative tests (expected failure scenarios)
   - e2e tests (multi-step flows)
+  - desktop tests (POS / Win32 via desktop_runner)
 """
 from typing import Any, Dict, List
 
@@ -173,4 +174,108 @@ SEED_TEST_CASES: List[Dict[str, Any]] = [
         ],
     },
 
+    # ══════════════════════════════════════════════════════════════════════════
+    # POS Desktop Test Cases (test_type = "desktop")
+    # Routed to runners/desktop_runner.py via TestCatalogService._execute()
+    # Mock-safe: runs on any OS via MockDesktopBackend when pywinauto unavailable
+    # ══════════════════════════════════════════════════════════════════════════
+
+    # ── TC-POS-001 ── Smoke: Login exitoso con credenciales válidas ───────────
+    {
+        "test_case_id": "TC-POS-001",
+        "name": "POS Login exitoso con credenciales válidas",
+        "module": "pos",
+        "type": "smoke",
+        "priority": "critical",
+        "test_type": "desktop",
+        "tags": ["pos", "login", "desktop", "smoke"],
+        "steps": [
+            {"action": "launch_app",    "value": "C:\\POS\\pos.exe"},
+            {"action": "attach_window", "target": "POS Login"},
+            {"action": "input",         "target": "usuario",            "value": "tester"},
+            {"action": "input",         "target": "password",           "value": "1234"},
+            {"action": "click",         "target": "Entrar"},
+            {"action": "wait_for",      "target": "pantalla_principal", "ms": 3000},
+            {"action": "assert_exists", "target": "pantalla_principal"},
+            {"action": "screenshot"},
+        ],
+        "assertions": [],
+    },
+
+    # ── TC-POS-002 ── Negative: Login con credenciales inválidas ─────────────
+    {
+        "test_case_id": "TC-POS-002",
+        "name": "POS Login con credenciales inválidas muestra error",
+        "module": "pos",
+        "type": "negative",
+        "priority": "high",
+        "test_type": "desktop",
+        "tags": ["pos", "login", "desktop", "negative"],
+        "steps": [
+            {"action": "launch_app",          "value": "C:\\POS\\pos.exe"},
+            {"action": "attach_window",       "target": "POS Login"},
+            {"action": "input",               "target": "usuario",     "value": "bad_user"},
+            {"action": "input",               "target": "password",    "value": "bad_pass"},
+            {"action": "click",               "target": "Entrar"},
+            {"action": "wait_for",            "target": "error_label", "ms": 3000},
+            {"action": "assert_text_contains","target": "error_label", "value": "invalid"},
+            {"action": "screenshot"},
+        ],
+        "assertions": [],
+    },
+
+    # ── TC-POS-003 ── Functional: Abrir módulo de ventas ─────────────────────
+    {
+        "test_case_id": "TC-POS-003",
+        "name": "POS Abrir módulo de ventas desde pantalla principal",
+        "module": "pos",
+        "type": "functional",
+        "priority": "high",
+        "test_type": "desktop",
+        "tags": ["pos", "ventas", "desktop", "functional"],
+        "steps": [
+            {"action": "attach_window", "target": "POS Principal"},
+            {"action": "click",         "target": "Ventas"},
+            {"action": "wait_for",      "target": "panel_ventas",  "ms": 3000},
+            {"action": "assert_exists", "target": "panel_ventas"},
+            {"action": "screenshot"},
+        ],
+        "assertions": [],
+    },
+
 ]
+
+
+# ── Ensure POS seed (idempotent upsert for existing catalogs) ─────────────────
+
+def ensure_pos_seed() -> Dict[str, int]:
+    """
+    Idempotently insert POS test cases into an existing catalog.
+
+    Safe to call multiple times — skips test cases that already exist.
+    Returns {"created": N, "skipped": N}.
+    """
+    import logging
+    from models.test_case import TestCaseCreate
+    from services.test_catalog_service import catalog_service
+
+    logger = logging.getLogger(__name__)
+    pos_cases = [tc for tc in SEED_TEST_CASES if tc.get("module") == "pos"]
+
+    created = 0
+    skipped = 0
+    for payload_dict in pos_cases:
+        tc_id = payload_dict["test_case_id"]
+        try:
+            if catalog_service.get_test_case(tc_id) is not None:
+                logger.debug("ensure_pos_seed: %s already exists, skipped", tc_id)
+                skipped += 1
+                continue
+            catalog_service.create_test_case(TestCaseCreate(**payload_dict))
+            logger.info("ensure_pos_seed: created %s", tc_id)
+            created += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("ensure_pos_seed: failed to create %s — %s", tc_id, exc)
+            skipped += 1
+
+    return {"created": created, "skipped": skipped}
