@@ -43,6 +43,49 @@ function fmtMs(ms) {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
 
+// ── Run type / backend inference helpers ──────────────────────────────────────
+
+function inferRunType(run) {
+  if (!run) return null;
+  const runner = (run.meta?.runner || "").toLowerCase();
+  if (runner === "desktop")                          return "desktop";
+  if (runner === "api")                              return "api";
+  const tt = (run.test_type || "").toLowerCase();
+  if (tt === "desktop")                              return "desktop";
+  if (tt === "api")                                  return "api";
+  const tcId = (run.test_id || run.test_case_id || "").toUpperCase();
+  if (tcId.startsWith("TC-POS-") || tcId.startsWith("POS-")) return "desktop";
+  return "ui";
+}
+
+function inferBackend(run) {
+  if (!run || run.meta?.is_mock == null) return null;
+  return run.meta.is_mock ? "mock" : "real";
+}
+
+function bestStepTarget(step) {
+  return step.target || step.window || step.control ||
+         step.selector || step.url || step.value || "—";
+}
+
+// ── Type / backend badges ─────────────────────────────────────────────────────
+
+function RunTypeBadge({ runType }) {
+  if (!runType || runType === "ui") return null;
+  if (runType === "desktop")
+    return <span className="badge badge-blue" style={{ fontSize: 10, letterSpacing: "0.04em" }}>⊞ DESKTOP</span>;
+  if (runType === "api")
+    return <span className="badge badge-gray" style={{ fontSize: 10, letterSpacing: "0.04em" }}>⌥ API</span>;
+  return null;
+}
+
+function BackendBadge({ backend }) {
+  if (!backend) return null;
+  if (backend === "mock")
+    return <span className="badge badge-orange" style={{ fontSize: 10 }}>◎ mock</span>;
+  return <span className="badge badge-green" style={{ fontSize: 10 }}>● real</span>;
+}
+
 function RiskBadge({ level }) {
   const { t } = useLang();
   if (!level) return null;
@@ -79,7 +122,7 @@ function getScreenshotSrc(detail) {
   return null;
 }
 
-function EvidenceCard({ detail }) {
+function EvidenceCard({ detail, runType }) {
   const { t } = useLang();
   // Support both canonical (artifacts.*) and legacy (flat fields)
   const artifacts    = detail.artifacts || {};
@@ -88,6 +131,7 @@ function EvidenceCard({ detail }) {
   const screenshotSrc = getScreenshotSrc(detail);
   const hasLinks     = evidenceUrl || reportUrl;
   const hasAnything  = screenshotSrc || hasLinks;
+  const isDesktop    = (runType || inferRunType(detail)) === "desktop";
 
   return (
     <div className="card">
@@ -97,18 +141,25 @@ function EvidenceCard({ detail }) {
       ) : (
         <>
           {screenshotSrc && (
-            <img
-              src={screenshotSrc}
-              alt={t("runs.detail.screenshot")}
-              style={{
-                width: "100%",
-                borderRadius: 6,
-                border: "1px solid var(--border)",
-                objectFit: "contain",
-                marginBottom: hasLinks ? 10 : 0,
-                display: "block",
-              }}
-            />
+            <>
+              {isDesktop && (
+                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>
+                  ⊞ {t("runs.desktop.screenshot")}
+                </div>
+              )}
+              <img
+                src={screenshotSrc}
+                alt={t("runs.detail.screenshot")}
+                style={{
+                  width: "100%",
+                  borderRadius: 6,
+                  border: isDesktop ? "2px solid var(--accent)" : "1px solid var(--border)",
+                  objectFit: "contain",
+                  marginBottom: hasLinks ? 10 : 0,
+                  display: "block",
+                }}
+              />
+            </>
           )}
           {hasLinks && (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -126,6 +177,44 @@ function EvidenceCard({ detail }) {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+function DesktopContextCard({ run }) {
+  const { t } = useLang();
+  if (!run) return null;
+  const runType = inferRunType(run);
+  if (runType !== "desktop") return null;
+
+  const meta       = run.meta || {};
+  const appPath    = meta.app_path    || run.app_path;
+  const winLogin   = meta.win_login   || run.win_login;
+  const winMain    = meta.win_main    || run.win_main;
+  const window_    = winLogin || winMain;
+  const backend    = inferBackend(run);
+  const evidenceId = run.evidence_id;
+
+  if (!appPath && !window_ && !backend && !evidenceId) return null;
+
+  const rows = [
+    appPath    && { label: t("runs.desktop.app_path"), value: appPath },
+    window_    && { label: t("runs.desktop.window"),   value: window_ },
+    backend    && { label: t("runs.desktop.backend"),  value: <BackendBadge backend={backend} /> },
+    evidenceId && { label: "Evidence ID", value: <code style={{ fontSize: 11, color: "var(--text-2)" }}>{evidenceId}</code> },
+  ].filter(Boolean);
+
+  return (
+    <div className="card" style={{ borderLeft: "3px solid var(--accent)" }}>
+      <div className="section-title" style={{ marginBottom: 10 }}>⊞ {t("runs.desktop.context")}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "90px 1fr", gap: "6px 12px", alignItems: "center" }}>
+        {rows.map(({ label, value }) => (
+          <React.Fragment key={label}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</div>
+            <div style={{ fontSize: 12, color: "var(--text-2)", wordBreak: "break-all" }}>{value}</div>
+          </React.Fragment>
+        ))}
+      </div>
     </div>
   );
 }
@@ -294,6 +383,8 @@ function EvidenceLookupTab() {
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
             <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "var(--text)" }}>{t("runs.detail.title")}</h2>
             <span className={statusBadgeClass(run.status)}>{run.status || "unknown"}</span>
+            <RunTypeBadge runType={inferRunType(run)} />
+            <BackendBadge backend={inferBackend(run)} />
             {run.evidence_id && <code style={{ fontSize: 12, color: "var(--text-2)" }}>{run.evidence_id}</code>}
             {hasHealing && (
               <span className="badge badge-orange" title={`${healedEntries.length} selector(s) auto-healed`}>
@@ -350,6 +441,8 @@ function EvidenceLookupTab() {
 
           <FailureAnalysisPanel fa={run.failure_analysis} style={{ marginBottom: 20 }} />
 
+          <DesktopContextCard run={run} />
+
           {run.steps?.length > 0 && (
             <div className="card" style={{ marginBottom: 20, padding: 0, overflow: "hidden" }}>
               <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)" }}>
@@ -371,7 +464,7 @@ function EvidenceLookupTab() {
                       <tr key={i}>
                         <td style={{ color: "var(--text-3)", fontWeight: 600 }}>{step.index ?? i + 1}</td>
                         <td><code style={{ fontSize: 12 }}>{step.action || "—"}</code></td>
-                        <td style={{ maxWidth: 320, wordBreak: "break-all", fontSize: 12, color: "var(--text-2)" }}>{step.url || step.selector || step.value || "—"}</td>
+                        <td style={{ maxWidth: 320, wordBreak: "break-all", fontSize: 12, color: "var(--text-2)" }}>{bestStepTarget(step)}</td>
                         <td><span style={{ fontSize: 11, fontWeight: 700, color: stepStatusColor(step.status), textTransform: "uppercase", letterSpacing: "0.03em" }}>{step.status || "—"}</span></td>
                         <td style={{ color: "var(--text-3)", fontSize: 12, whiteSpace: "nowrap" }}>{step.duration_ms ? `${step.duration_ms}ms` : "—"}</td>
                       </tr>
@@ -570,7 +663,12 @@ function RunHistoryTab() {
                     <td style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-2)" }}>
                       {(r.run_id || "").slice(0, 14)}…
                     </td>
-                    <td style={{ fontWeight: 600, fontSize: 13 }}>{r.test_id || r.test_case_id || "—"}</td>
+                    <td style={{ fontWeight: 600, fontSize: 13 }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                        {r.test_id || r.test_case_id || "—"}
+                        <RunTypeBadge runType={inferRunType(r)} />
+                      </span>
+                    </td>
                     <td><span className={statusBadgeClass(r.status)}>{r.status || "—"}</span></td>
                     <td style={{ fontSize: 12, color: "var(--text-3)" }}>{fmtMs(r.duration_ms)}</td>
                     <td style={{ fontSize: 11, color: "var(--text-3)", whiteSpace: "nowrap" }}>{fmtDate(r.started_at || r.created_at)}</td>
@@ -602,6 +700,8 @@ function RunHistoryTab() {
                   <span className={statusBadgeClass(detail.status)}>{detail.status}</span>
                   {detail.duration_ms != null && <span className="badge badge-gray">{fmtMs(detail.duration_ms)}</span>}
                   {(detail.test_id || detail.test_case_id) && <span className="badge badge-gray">{detail.test_id || detail.test_case_id}</span>}
+                  <RunTypeBadge runType={inferRunType(detail)} />
+                  <BackendBadge backend={inferBackend(detail)} />
                 </div>
                 {detail.reason && (
                   <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.5, marginBottom: 8 }}>
@@ -628,7 +728,10 @@ function RunHistoryTab() {
           </div>
 
           {/* Evidence */}
-          {detail && !detail.error && <EvidenceCard detail={detail} />}
+          {detail && !detail.error && <EvidenceCard detail={detail} runType={inferRunType(detail)} />}
+
+          {/* Desktop context */}
+          {detail && !detail.error && <DesktopContextCard run={detail} />}
 
           {/* Failure Analysis */}
           <FailureAnalysisPanel fa={detail?.failure_analysis} />
