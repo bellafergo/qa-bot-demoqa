@@ -3,10 +3,12 @@
 Ensure POS desktop test cases exist in the Vanya catalog and validate them.
 
 Usage (from project root):
-    .venv/bin/python scripts/add_pos_tests.py [--dry-run]
+    .venv/bin/python scripts/add_pos_tests.py [--dry-run] [--update]
 
 Options:
     --dry-run   List existing catalog without inserting anything.
+    --update    Force-update existing POS test cases with current config values.
+                Use this after editing config/pos_desktop.py.
 """
 import sys
 import os
@@ -14,8 +16,9 @@ import os
 # Allow running from project root
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-POS_IDS = ["TC-POS-001", "TC-POS-002", "TC-POS-003"]
-DRY_RUN = "--dry-run" in sys.argv
+POS_IDS      = ["TC-POS-001", "TC-POS-002", "TC-POS-003"]
+DRY_RUN      = "--dry-run" in sys.argv
+FORCE_UPDATE = "--update"  in sys.argv
 
 
 def main() -> None:
@@ -28,8 +31,11 @@ def main() -> None:
 
     # ── Insert (idempotent) ────────────────────────────────────────────────────
     if not DRY_RUN:
-        result = ensure_pos_seed()
-        print(f"\n[insert] created={result['created']}  skipped={result['skipped']}")
+        result = ensure_pos_seed(force_update=FORCE_UPDATE)
+        print(
+            f"\n[{'update' if FORCE_UPDATE else 'insert'}] "
+            f"created={result['created']}  updated={result.get('updated', 0)}  skipped={result['skipped']}"
+        )
     else:
         print("\n[dry-run] skipping insert")
 
