@@ -44,15 +44,21 @@ const TAB_DEFS = [
 // Source: Application Explorer → Suggested Tests → Draft Generator → Approve
 // ══════════════════════════════════════════════════════════════════════════════
 
-function ExplorerDraftsPanel({ onGoToCatalog }) {
+function ExplorerDraftsPanel({ onGoToCatalog, initialDrafts = [] }) {
   const { t } = useLang();
   const [url, setUrl]                 = useState("");
   const [loading, setLoading]         = useState(false);
   const [loadError, setLoadError]     = useState("");
-  const [drafts, setDrafts]           = useState([]);
-  const [selected, setSelected]       = useState(new Set());
+  const [drafts, setDrafts]           = useState(initialDrafts);
+  const [selected, setSelected]       = useState(() => new Set(initialDrafts.map(d => d.test_name)));
   const [expanded, setExpanded]       = useState(null);
+  const fromAppMap                    = initialDrafts.length > 0;
   const [approving, setApproving]     = useState(false);
+
+  useEffect(() => {
+    setDrafts(initialDrafts || []);
+    setSelected(new Set((initialDrafts || []).map(d => d.test_name)));
+  }, [initialDrafts]); // eslint-disable-line react-hooks/exhaustive-deps
   const [approveResult, setApproveResult] = useState(null);
 
   async function handleGenerate() {
@@ -131,6 +137,14 @@ function ExplorerDraftsPanel({ onGoToCatalog }) {
           <div className="alert alert-error" style={{ marginTop: 12 }}>{loadError}</div>
         )}
       </div>
+
+      {/* Banner: drafts imported from App Map */}
+      {fromAppMap && drafts.length > 0 && !approveResult && (
+        <div className="alert alert-info" style={{ marginBottom: 12, fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>
+          <span>◎</span>
+          <span>{drafts.length} {t("drafts.explorer.from_appmap_banner")}</span>
+        </div>
+      )}
 
       {/* Action bar */}
       {drafts.length > 0 && (
@@ -714,7 +728,7 @@ function AppMapPanel({ onGoToExplorer }) {
                 <span className="badge badge-green">{generatedDrafts.length} {t("drafts.appmap.ready_to_approve")}</span>
                 <button
                   className="btn btn-secondary btn-sm"
-                  onClick={onGoToExplorer}
+                  onClick={() => onGoToExplorer(generatedDrafts)}
                 >
                   {t("drafts.appmap.go_to_explorer")}
                 </button>
@@ -1355,6 +1369,13 @@ function KpiBar() {
 export default function DraftsPage() {
   const { t } = useLang();
   const [tab, setTab] = useState("appmap");
+  // Shared drafts: AppMap generates them and passes them to Explorer on navigation
+  const [sharedDrafts, setSharedDrafts] = useState([]);
+
+  function goToExplorerWithDrafts(drafts) {
+    setSharedDrafts(drafts || []);
+    setTab("explorer");
+  }
 
   return (
     <div className="page-wrap">
@@ -1385,10 +1406,10 @@ export default function DraftsPage() {
         ))}
       </div>
 
-      {tab === "explorer" && <ExplorerDraftsPanel onGoToCatalog={() => setTab("catalog")} />}
+      {tab === "explorer" && <ExplorerDraftsPanel onGoToCatalog={() => setTab("catalog")} initialDrafts={sharedDrafts} />}
       {tab === "catalog"  && <CatalogExecutionPanel />}
       {tab === "ai"       && <AIGenerationPanel />}
-      {tab === "appmap"   && <AppMapPanel onGoToExplorer={() => setTab("explorer")} />}
+      {tab === "appmap"   && <AppMapPanel onGoToExplorer={goToExplorerWithDrafts} />}
     </div>
   );
 }

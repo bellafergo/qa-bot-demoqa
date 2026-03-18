@@ -341,8 +341,9 @@ export const translations = {
     "drafts.explorer.skipped":          "skipped",
     "drafts.explorer.empty_title":      "No scenarios generated yet",
     "drafts.explorer.empty_desc":       "Enter a URL above — Vanya will analyze the page structure and suggest test scenarios automatically.",
-    "drafts.explorer.gen_error":        "Generation failed",
-    "drafts.explorer.approve_error":    "Approval failed",
+    "drafts.explorer.gen_error":           "Generation failed",
+    "drafts.explorer.approve_error":       "Approval failed",
+    "drafts.explorer.from_appmap_banner":  "scenarios imported from App Map — pre-selected and ready to approve.",
 
     "drafts.page.inputs":         "Inputs",
     "drafts.page.buttons":        "Buttons",
@@ -1074,8 +1075,9 @@ export const translations = {
     "drafts.explorer.skipped":          "omitidos",
     "drafts.explorer.empty_title":      "No hay escenarios generados aún",
     "drafts.explorer.empty_desc":       "Ingresa una URL — Vanya analizará la estructura de la página y sugerirá escenarios de prueba automáticamente.",
-    "drafts.explorer.gen_error":        "Error al generar",
-    "drafts.explorer.approve_error":    "Error al aprobar",
+    "drafts.explorer.gen_error":           "Error al generar",
+    "drafts.explorer.approve_error":       "Error al aprobar",
+    "drafts.explorer.from_appmap_banner":  "escenarios importados desde Mapa App — preseleccionados y listos para aprobar.",
 
     "drafts.page.inputs":         "Entradas",
     "drafts.page.buttons":        "Botones",
