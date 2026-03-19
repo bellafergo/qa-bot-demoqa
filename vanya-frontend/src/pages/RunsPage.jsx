@@ -3,7 +3,8 @@
  * Runs & RCA — Evidence Lookup + Run History with root cause and business risk analysis.
  * GET /runs/{id} | GET /test-runs | POST /rca/analyze | POST /business-risk/analyze
  */
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useLocation } from "react-router-dom";
 import { listTestRuns, getTestRun, analyzeRCA, analyzeRisk, getRunClusters } from "../api";
 import { useLang } from "../i18n/LangContext";
 
@@ -535,7 +536,7 @@ function EvidenceLookupTab() {
 
 // ── Run History tab ───────────────────────────────────────────────────────────
 
-function RunHistoryTab() {
+function RunHistoryTab({ initialRunId }) {
   const { t } = useLang();
   const [runs, setRuns]             = useState([]);
   const [loading, setLoading]       = useState(true);
@@ -543,6 +544,7 @@ function RunHistoryTab() {
   const [selected, setSelected]     = useState(null); // run_id
   const [detail, setDetail]         = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const autoOpenedRef = useRef(false);
 
   // RCA / risk panels
   const [rcaResult, setRcaResult]   = useState(null);
@@ -580,6 +582,15 @@ function RunHistoryTab() {
   }, [t]);
 
   useEffect(() => { load(); loadClusters(); }, [load, loadClusters]);
+
+  // Auto-open a specific run when navigated from Execution Center
+  useEffect(() => {
+    if (initialRunId && !autoOpenedRef.current) {
+      autoOpenedRef.current = true;
+      openDetail(initialRunId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialRunId]);
 
   async function openDetail(run_id) {
     setSelected(run_id);
@@ -810,7 +821,10 @@ function RunHistoryTab() {
 
 export default function RunsPage() {
   const { t } = useLang();
-  const [activeTab, setActiveTab] = useState(0);
+  const location = useLocation();
+  const navState = location.state || {};
+  const [activeTab, setActiveTab] = useState(navState.tab === 1 ? 1 : 0);
+  const [initialRunId] = useState(navState.run_id || null);
 
   return (
     <div className="page-wrap">
@@ -839,7 +853,7 @@ export default function RunsPage() {
       </div>
 
       {activeTab === 0 && <EvidenceLookupTab />}
-      {activeTab === 1 && <RunHistoryTab />}
+      {activeTab === 1 && <RunHistoryTab initialRunId={initialRunId} />}
     </div>
   );
 }

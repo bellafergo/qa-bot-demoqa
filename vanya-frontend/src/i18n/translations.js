@@ -281,6 +281,11 @@ export const translations = {
     "runs.risk.high":         "HIGH RISK",
     "runs.risk.medium":       "MEDIUM RISK",
     "runs.risk.low":          "LOW RISK",
+    "runs.desktop.context":   "Desktop Context",
+    "runs.desktop.app_path":  "App",
+    "runs.desktop.window":    "Window",
+    "runs.desktop.backend":   "Backend",
+    "runs.desktop.screenshot":"Desktop screenshot",
 
     // ── Drafts page ─────────────────────────────────────────────────────────
     "drafts.tab.appmap":   "🗺 App Map",
@@ -457,7 +462,9 @@ export const translations = {
     "exec.jobs.col.status":     "Status",
     "exec.jobs.col.tests":      "Tests",
     "exec.jobs.col.pass_fail":  "Pass / Fail",
+    "exec.jobs.col.duration":   "Duration",
     "exec.jobs.col.created":    "Created",
+    "exec.jobs.polling":        "live",
 
     "exec.batch.title":           "Run Batch",
     "exec.batch.desc":            "Enter test case IDs (one per line or comma-separated):",
@@ -477,6 +484,15 @@ export const translations = {
     "exec.detail.col.test_case":  "Test Case",
     "exec.detail.col.status":     "Status",
     "exec.detail.col.attempt":    "Attempt",
+    "exec.detail.col.duration":   "Duration",
+    "exec.jobs.col.actions":      "Actions",
+    "exec.jobs.open_runs":        "→ Runs",
+    "exec.jobs.open_runs_tip":    "Open first run in Runs page",
+    "exec.detail.ts.created":     "Created:",
+    "exec.detail.ts.started":     "Started:",
+    "exec.detail.ts.finished":    "Finished:",
+    "exec.detail.open_runs":      "→ Open in Runs",
+    "exec.detail.open_run_tip":   "Open run detail",
 
     // ── Chat page ───────────────────────────────────────────────────────────
     "chat.toolbar.hide_history": "Hide history",
@@ -1015,6 +1031,11 @@ export const translations = {
     "runs.risk.high":         "RIESGO ALTO",
     "runs.risk.medium":       "RIESGO MEDIO",
     "runs.risk.low":          "RIESGO BAJO",
+    "runs.desktop.context":   "Contexto Desktop",
+    "runs.desktop.app_path":  "App",
+    "runs.desktop.window":    "Ventana",
+    "runs.desktop.backend":   "Backend",
+    "runs.desktop.screenshot":"Captura de pantalla",
 
     // ── Drafts page ─────────────────────────────────────────────────────────
     "drafts.tab.appmap":   "🗺 Mapa App",
@@ -1191,7 +1212,9 @@ export const translations = {
     "exec.jobs.col.status":     "Estado",
     "exec.jobs.col.tests":      "Pruebas",
     "exec.jobs.col.pass_fail":  "Pasan / Fallan",
+    "exec.jobs.col.duration":   "Duración",
     "exec.jobs.col.created":    "Creado",
+    "exec.jobs.polling":        "en vivo",
 
     "exec.batch.title":           "Ejecutar Batch",
     "exec.batch.desc":            "Ingresa IDs de casos de prueba (uno por línea o separados por coma):",
@@ -1211,6 +1234,15 @@ export const translations = {
     "exec.detail.col.test_case":  "Caso de Prueba",
     "exec.detail.col.status":     "Estado",
     "exec.detail.col.attempt":    "Intento",
+    "exec.detail.col.duration":   "Duración",
+    "exec.jobs.col.actions":      "Acciones",
+    "exec.jobs.open_runs":        "→ Runs",
+    "exec.jobs.open_runs_tip":    "Abrir primer run en Runs",
+    "exec.detail.ts.created":     "Creado:",
+    "exec.detail.ts.started":     "Iniciado:",
+    "exec.detail.ts.finished":    "Finalizado:",
+    "exec.detail.open_runs":      "→ Ver en Runs",
+    "exec.detail.open_run_tip":   "Abrir detalle del run",
 
     // ── Chat page ───────────────────────────────────────────────────────────
     "chat.toolbar.hide_history": "Ocultar historial",

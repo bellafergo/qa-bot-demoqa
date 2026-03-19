@@ -3,17 +3,20 @@
  * Execution Center — worker pool, job queue, and batch execution.
  * GET /execution/status, GET /orchestrator/jobs, POST /execution/run-batch
  */
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { getExecStatus, listJobs, runBatch, getJob } from "../api";
 import { useLang } from "../i18n/LangContext";
 
+const POLL_INTERVAL_MS = 7000;
+
 function statusClass(s) {
   const v = String(s || "").toLowerCase();
-  if (v === "completed")              return "badge-green";
+  if (v === "completed")               return "badge-green";
   if (v === "failed" || v === "error") return "badge-red";
-  if (v === "running")                return "badge-blue";
-  if (v === "queued")                 return "badge-orange";
-  if (v === "partial")                return "badge-orange";
+  if (v === "running")                 return "badge-blue";
+  if (v === "queued")                  return "badge-orange";
+  if (v === "partial")                 return "badge-orange";
   return "badge-gray";
 }
 
@@ -23,23 +26,41 @@ function fmtDate(iso) {
   catch { return "—"; }
 }
 
+function fmtMs(ms) {
+  if (ms == null) return "—";
+  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
+}
+
+// Compute duration from timestamps when the model property isn't serialized
+function jobDurationMs(j) {
+  if (j.duration_ms != null) return j.duration_ms;
+  if (j.started_at && j.finished_at) {
+    return Math.round(new Date(j.finished_at) - new Date(j.started_at));
+  }
+  return null;
+}
+
 export default function ExecutionPage() {
   const { t } = useLang();
+  const navigate = useNavigate();
 
-  const [status, setStatus]         = useState(null);
-  const [jobs, setJobs]             = useState([]);
-  const [loading, setLoading]       = useState(true);
-  const [error, setError]           = useState("");
+  const [status, setStatus]   = useState(null);
+  const [jobs, setJobs]       = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState("");
 
   // Batch run form
-  const [batchInput, setBatchInput] = useState("");
+  const [batchInput, setBatchInput]     = useState("");
   const [batchLoading, setBatchLoading] = useState(false);
   const [batchResult, setBatchResult]   = useState(null);
 
   // Job detail
-  const [selectedJob, setSelectedJob] = useState(null);
-  const [jobDetail, setJobDetail]     = useState(null);
+  const [selectedJob, setSelectedJob]     = useState(null);
+  const [jobDetail, setJobDetail]         = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
+
+  // Auto-poll interval ref — keeps one interval at a time
+  const pollRef = useRef(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -58,16 +79,42 @@ export default function ExecutionPage() {
     }
   }, [t]);
 
+  // Initial load
   useEffect(() => { load(); }, [load]);
 
+  // Auto-poll while any job is queued or running; stop when all are done
+  useEffect(() => {
+    const hasActive = jobs.some(j => j.status === "queued" || j.status === "running");
+    if (hasActive && !pollRef.current) {
+      pollRef.current = setInterval(load, POLL_INTERVAL_MS);
+    } else if (!hasActive && pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, [jobs, load]);
+
+  // Clean up interval on unmount
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, []);
+
   async function handleBatch() {
-    const ids = batchInput.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+    // Normalize: trim, remove empty, deduplicate
+    const ids = [...new Set(
+      batchInput.split(/[\n,]+/).map(s => s.trim()).filter(Boolean)
+    )];
     if (!ids.length) return;
     setBatchLoading(true);
     setBatchResult(null);
     try {
       const r = await runBatch({ test_case_ids: ids });
       setBatchResult({ ok: true, ...r });
+      setBatchInput(""); // clear on success so user sees the job in the list
       load();
     } catch (e) {
       setBatchResult({ ok: false, error: e?.message || t("exec.batch.submit_error") });
@@ -91,6 +138,7 @@ export default function ExecutionPage() {
   }
 
   const st = status || {};
+  const hasActive = jobs.some(j => j.status === "queued" || j.status === "running");
 
   const kpiItems = [
     { labelKey: "exec.kpi.active_workers", value: loading ? "…" : st.active_workers ?? "—",  accent: st.active_workers > 0 ? "var(--green)" : undefined },
@@ -122,11 +170,17 @@ export default function ExecutionPage() {
           {error && <div className="alert alert-error" style={{ marginBottom: 12 }}>{error}</div>}
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>
             <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div className="section-title" style={{ margin: 0 }}>
-                {loading ? t("exec.jobs.loading") : `${jobs.length} ${jobs.length !== 1 ? t("exec.jobs.recent_plural") : t("exec.jobs.recent")}`}
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div className="section-title" style={{ margin: 0 }}>
+                  {loading ? t("exec.jobs.loading") : `${jobs.length} ${jobs.length !== 1 ? t("exec.jobs.recent_plural") : t("exec.jobs.recent")}`}
+                </div>
+                {hasActive && (
+                  <span className="badge badge-blue" style={{ fontSize: 10 }}>● {t("exec.jobs.polling")}</span>
+                )}
               </div>
               <button className="btn btn-secondary btn-sm" onClick={load} disabled={loading}>{t("exec.jobs.refresh")}</button>
             </div>
+
             {jobs.length === 0 && !loading ? (
               <div style={{ padding: "20px", color: "var(--text-3)", fontSize: 13 }}>{t("exec.jobs.none")}</div>
             ) : (
@@ -137,7 +191,9 @@ export default function ExecutionPage() {
                   <th>{t("exec.jobs.col.status")}</th>
                   <th>{t("exec.jobs.col.tests")}</th>
                   <th>{t("exec.jobs.col.pass_fail")}</th>
+                  <th>{t("exec.jobs.col.duration")}</th>
                   <th>{t("exec.jobs.col.created")}</th>
+                  <th style={{ width: 70 }}>{t("exec.jobs.col.actions")}</th>
                 </tr></thead>
                 <tbody>
                   {jobs.map((j, i) => (
@@ -157,7 +213,22 @@ export default function ExecutionPage() {
                         {" / "}
                         <span style={{ color: "var(--red)", fontWeight: 600 }}>{j.failed_count ?? 0}</span>
                       </td>
+                      <td style={{ fontSize: 12, color: "var(--text-3)" }}>{fmtMs(jobDurationMs(j))}</td>
                       <td style={{ fontSize: 11, color: "var(--text-3)", whiteSpace: "nowrap" }}>{fmtDate(j.created_at)}</td>
+                      <td onClick={e => e.stopPropagation()} style={{ padding: "4px 10px" }}>
+                        {j.run_ids?.length > 0 ? (
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            style={{ fontSize: 11, padding: "2px 8px", whiteSpace: "nowrap" }}
+                            onClick={() => navigate("/runs", { state: { tab: 1, run_id: j.run_ids[0] } })}
+                            title={t("exec.jobs.open_runs_tip")}
+                          >
+                            {t("exec.jobs.open_runs")}
+                          </button>
+                        ) : (
+                          <span style={{ fontSize: 10, color: "var(--text-3)" }}>—</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -214,13 +285,39 @@ export default function ExecutionPage() {
                   <div style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-3)", marginBottom: 8, wordBreak: "break-all" }}>
                     {jobDetail.job_id}
                   </div>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
                     <span className={`badge ${statusClass(jobDetail.status)}`}>{jobDetail.status}</span>
                     <span className="badge badge-gray">{jobDetail.total_count} {t("exec.detail.tests")}</span>
                     <span className="badge badge-green">{jobDetail.passed_count ?? 0} {t("exec.detail.pass")}</span>
                     <span className="badge badge-red">{jobDetail.failed_count ?? 0} {t("exec.detail.fail")}</span>
                     {jobDetail.error_count > 0 && <span className="badge badge-orange">{jobDetail.error_count} {t("exec.detail.error")}</span>}
+                    {jobDurationMs(jobDetail) != null && (
+                      <span className="badge badge-gray">{fmtMs(jobDurationMs(jobDetail))}</span>
+                    )}
                   </div>
+                  {/* Timestamps */}
+                  <div style={{ fontSize: 11, color: "var(--text-3)", display: "flex", flexWrap: "wrap", gap: "4px 16px", marginBottom: 10 }}>
+                    {jobDetail.created_at && (
+                      <span><span style={{ fontWeight: 700, color: "var(--text-2)" }}>{t("exec.detail.ts.created")}</span> {fmtDate(jobDetail.created_at)}</span>
+                    )}
+                    {jobDetail.started_at && (
+                      <span><span style={{ fontWeight: 700, color: "var(--text-2)" }}>{t("exec.detail.ts.started")}</span> {fmtDate(jobDetail.started_at)}</span>
+                    )}
+                    {jobDetail.finished_at && (
+                      <span><span style={{ fontWeight: 700, color: "var(--text-2)" }}>{t("exec.detail.ts.finished")}</span> {fmtDate(jobDetail.finished_at)}</span>
+                    )}
+                  </div>
+                  {/* Navigation to Runs */}
+                  {jobDetail.run_ids?.length > 0 && (
+                    <div style={{ marginBottom: 10 }}>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => navigate("/runs", { state: { tab: 1, run_id: jobDetail.run_ids[0] } })}
+                      >
+                        {t("exec.detail.open_runs")} ({jobDetail.run_ids.length})
+                      </button>
+                    </div>
+                  )}
                   {jobDetail.scheduling_notes && (
                     <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 10, lineHeight: 1.5 }}>
                       {jobDetail.scheduling_notes}
@@ -231,14 +328,26 @@ export default function ExecutionPage() {
                       <thead><tr>
                         <th>{t("exec.detail.col.test_case")}</th>
                         <th>{t("exec.detail.col.status")}</th>
-                        <th>{t("exec.detail.col.attempt")}</th>
+                        <th style={{ width: 55 }}>{t("exec.detail.col.attempt")}</th>
+                        <th style={{ width: 80 }}>{t("exec.detail.col.duration")}</th>
                       </tr></thead>
                       <tbody>
                         {jobDetail.results.map((r, i) => (
-                          <tr key={i}>
-                            <td style={{ fontFamily: "monospace" }}>{r.test_case_id || "—"}</td>
+                          <tr
+                            key={i}
+                            style={{ cursor: r.run_id ? "pointer" : "default" }}
+                            title={r.run_id ? t("exec.detail.open_run_tip") : undefined}
+                            onClick={() => r.run_id && navigate("/runs", { state: { tab: 1, run_id: r.run_id } })}
+                          >
+                            <td style={{ fontFamily: "monospace" }}>
+                              {r.test_case_id || "—"}
+                              {r.run_id && (
+                                <span style={{ marginLeft: 6, fontSize: 10, color: "var(--accent)", opacity: 0.7 }}>↗</span>
+                              )}
+                            </td>
                             <td><span className={`badge ${statusClass(r.status)}`}>{r.status}</span></td>
                             <td style={{ color: "var(--text-3)" }}>{r.attempt ?? 1}</td>
+                            <td style={{ color: "var(--text-3)" }}>{fmtMs(r.duration_ms)}</td>
                           </tr>
                         ))}
                       </tbody>
