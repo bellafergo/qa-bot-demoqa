@@ -814,20 +814,17 @@ function RunHistoryTab({ initialRunId }) {
                     <RiskBadge level={riskResult.risk_level} />
                     {riskResult.confidence && <span className="badge badge-gray">confidence: {riskResult.confidence}</span>}
                   </div>
-                  {riskResult.summary && (
-                    <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.6, marginBottom: 8 }}>{riskResult.summary}</div>
-                  )}
-                  {riskResult.impacted_business_areas?.length > 0 && (
-                    <div style={{ marginBottom: 8 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>{t("runs.risk.impact_areas")}</div>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                        {riskResult.impacted_business_areas.map(a => <span key={a} className="badge badge-orange">{a}</span>)}
-                      </div>
+                  {riskResult.affected_business_flow && riskResult.affected_business_flow !== "unknown" && (
+                    <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 6 }}>
+                      <span className="badge badge-orange">{riskResult.affected_business_flow}</span>
                     </div>
                   )}
-                  {riskResult.recommended_action && (
+                  {riskResult.impact_summary && (
+                    <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.6, marginBottom: 8 }}>{riskResult.impact_summary}</div>
+                  )}
+                  {riskResult.priority_recommendation && (
                     <div style={{ fontSize: 12, color: "var(--text-2)" }}>
-                      <strong>{t("runs.risk.recommended")}</strong> {riskResult.recommended_action}
+                      <strong>{t("runs.risk.recommended")}</strong> {riskResult.priority_recommendation}
                     </div>
                   )}
                 </>

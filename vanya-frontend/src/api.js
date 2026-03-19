@@ -215,6 +215,10 @@ export const getRegressions  = () => apiGet("/failure-intelligence/regressions")
 export const getClusters     = () => apiGet("/failure-intelligence/clusters");
 export const getRunClusters  = (limit = 50) => apiGet(`/failure-intelligence/run-clusters?limit=${limit}`);
 
+// ========= Risk-Based Test Selection =========
+export const selectTests    = (body) => apiPost("/risk-selection/select-tests",   body);
+export const selectAndRun   = (body) => apiPost("/risk-selection/select-and-run", body);
+
 // ========= Integrations =========
 export const listIntegrations         = ()          => apiGet(`/integrations`);
 export const getIntegration           = (id)        => apiGet(`/integrations/${id}`);

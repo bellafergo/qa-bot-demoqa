@@ -20,7 +20,8 @@ const NAV_SECTIONS_DEF = [
       { to: "/pr-analysis",   icon: "◎", labelKey: "nav.pr_analysis"  },
       { to: "/coverage",      icon: "◐", labelKey: "nav.coverage"     },
       { to: "/drafts",        icon: "⊕", labelKey: "nav.drafts"       },
-      { to: "/failure-intel", icon: "⚠", labelKey: "nav.failure_intel" },
+      { to: "/failure-intel",   icon: "⚠", labelKey: "nav.failure_intel"   },
+      { to: "/risk-selection", icon: "◈", labelKey: "nav.risk_selection" },
     ],
   },
   {

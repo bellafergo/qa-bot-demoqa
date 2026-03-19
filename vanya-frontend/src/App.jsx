@@ -18,6 +18,7 @@ import ApiTestingPage from "./pages/ApiTestingPage";
 import CoveragePage        from "./pages/CoveragePage";
 import IntegrationsPage         from "./pages/IntegrationsPage";
 import FailureIntelligencePage  from "./pages/FailureIntelligencePage";
+import RiskSelectionPage        from "./pages/RiskSelectionPage";
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -61,6 +62,7 @@ export default function App() {
           <Route path="coverage"          element={<CoveragePage />} />
           <Route path="drafts"            element={<DraftsPage />} />
           <Route path="failure-intel"     element={<FailureIntelligencePage />} />
+          <Route path="risk-selection"    element={<RiskSelectionPage />} />
 
           {/* Integrations */}
           <Route path="integrations" element={<IntegrationsPage />} />
