@@ -504,7 +504,25 @@ export default function CatalogPage() {
                       />
                     </td>
                     <td style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-2)" }}>{tc.test_case_id}</td>
-                    <td style={{ fontWeight: 600, fontSize: 13 }}>{tc.name}</td>
+                    <td style={{ fontWeight: 600, fontSize: 13 }}>
+                      <span>{tc.name}</span>
+                      {tc.version != null && (
+                        <span
+                          className="badge badge-gray"
+                          style={{ marginLeft: 7, fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", verticalAlign: "middle" }}
+                        >
+                          v{tc.version}
+                        </span>
+                      )}
+                      {tc.status && tc.status !== "active" && (
+                        <span
+                          className={`badge ${statusClass(tc.status)}`}
+                          style={{ marginLeft: 4, fontSize: 10, verticalAlign: "middle" }}
+                        >
+                          {tc.status}
+                        </span>
+                      )}
+                    </td>
                     <td><span className="badge badge-gray">{tc.module}</span></td>
                     <td><span className="badge badge-blue">{tc.type}</span></td>
                     <td><span className={`badge ${priorityClass(tc.priority)}`}>{tc.priority}</span></td>
