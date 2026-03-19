@@ -88,10 +88,18 @@ export const translations = {
     "risk.run.tests_label":     "tests",
     "risk.run.go_execution":    "→ Execution Center",
     "risk.run.not_enqueued":    "Tests selected but not enqueued — check backend logs.",
+    "risk.run.none_selected":   "Select at least one test to run",
     "risk.error.select":        "Failed to load recommended tests.",
     "risk.error.run":           "Failed to enqueue selected tests.",
 
     "risk.prefill.hint":        "Modules prefilled from PR Analysis",
+
+    "risk.selection.of":           "of",
+    "risk.selection.selected":     "tests selected",
+    "risk.selection.select_all":   "Select all",
+    "risk.selection.deselect_all": "Deselect all",
+    "risk.edit.tooltip":           "Edit in Catalog",
+    "risk.history.full_hint":      "Full diff & rollback available in Catalog",
 
     // ── Layout page headers ─────────────────────────────────────────────────
     "layout.chat.title":          "AI Chat",
@@ -1035,10 +1043,18 @@ export const translations = {
     "risk.run.tests_label":     "pruebas",
     "risk.run.go_execution":    "→ Centro de Ejecución",
     "risk.run.not_enqueued":    "Pruebas seleccionadas pero no encoladas — revisa los logs del backend.",
+    "risk.run.none_selected":   "Selecciona al menos una prueba para ejecutar",
     "risk.error.select":        "Error al cargar pruebas recomendadas.",
     "risk.error.run":           "Error al encolar las pruebas seleccionadas.",
 
     "risk.prefill.hint":        "Módulos prellenados desde PR Analysis",
+
+    "risk.selection.of":           "de",
+    "risk.selection.selected":     "pruebas seleccionadas",
+    "risk.selection.select_all":   "Seleccionar todo",
+    "risk.selection.deselect_all": "Deseleccionar todo",
+    "risk.edit.tooltip":           "Editar en Catálogo",
+    "risk.history.full_hint":      "Diff completo y rollback disponibles en Catálogo",
 
     // ── Layout page headers ─────────────────────────────────────────────────
     "layout.chat.title":          "Chat IA",
