@@ -284,6 +284,21 @@ def _contains_any(haystack: str, needles: List[str]) -> bool:
     return any(n in h for n in needles)
 
 
+def _best_changed_file_for_domain(domain: str, changed_files: List[str]) -> str:
+    """
+    Return a short filename from changed_files that is clearly related to domain.
+    Uses basename if the path is long. Returns "" if nothing matches.
+    """
+    import os
+    kws = _DOMAIN_KEYWORDS.get(domain, [domain])
+    for path in changed_files:
+        base = os.path.basename(path)
+        if any(k in _lower_tokens(base) for k in kws):
+            # Keep it short: just the basename
+            return base
+    return ""
+
+
 def _match_domain_keywords(text: str) -> Set[str]:
     """Return all domain names whose keywords appear in text."""
     h = _lower_tokens(text)
@@ -473,7 +488,8 @@ class PRAnalysisService:
 
         for tc in all_tests:
             score = 0
-            reason = ""
+            reason        = ""
+            domain_for_cf = modules[0]   # structural domain used for file lookup
             tc_module_lower = _lower_tokens(tc.module)
             tc_name_lower   = _lower_tokens(tc.name)
             tc_tags_lower   = {_lower_tokens(t) for t in tc.tags}
@@ -481,36 +497,39 @@ class PRAnalysisService:
             # Module match
             if any(kw in tc_module_lower for kw in domain_kws):
                 score += 4
-                hit_domain = next(
+                hit_domain    = next(
                     (d for d in modules
                      if d in tc_module_lower
                      or any(k in tc_module_lower for k in _DOMAIN_KEYWORDS.get(d, []))),
                     modules[0],
                 )
-                reason = f"covers {hit_domain} flow"
+                reason        = f"covers {hit_domain} flow"
+                domain_for_cf = hit_domain
 
             # Tag match
             if any(kw in tag for tag in tc_tags_lower for kw in domain_kws):
                 score += 3
                 if not reason:
-                    tag_domain = next(
+                    tag_domain    = next(
                         (d for d in modules
                          if any(kw in tag for tag in tc_tags_lower
                                 for kw in _DOMAIN_KEYWORDS.get(d, [d]))),
                         modules[0],
                     )
-                    reason = f"related to {tag_domain} flow"
+                    reason        = f"related to {tag_domain} flow"
+                    domain_for_cf = tag_domain
 
             # Name keyword match
             if any(kw in tc_name_lower for kw in domain_kws):
                 score += 2
                 if not reason:
-                    name_domain = next(
+                    name_domain   = next(
                         (d for d in modules
                          if any(kw in tc_name_lower for kw in _DOMAIN_KEYWORDS.get(d, [d]))),
                         modules[0],
                     )
-                    reason = f"related to {name_domain} functionality"
+                    reason        = f"related to {name_domain} functionality"
+                    domain_for_cf = name_domain
 
             # Coverage priority boost — only applied when there is already a match
             if score > 0:
@@ -520,6 +539,12 @@ class PRAnalysisService:
                     score += 1
 
             if score > 0:
+                # Enrich reason with the most relevant changed file, if any
+                if reason and req.changed_files:
+                    cf = _best_changed_file_for_domain(domain_for_cf, req.changed_files)
+                    if cf:
+                        reason = f"{reason} ({cf} changed)"
+
                 scored.append((score, tc.test_case_id))
                 reasons[tc.test_case_id] = reason or f"relevant to {modules[0]} and related functionality"
 
