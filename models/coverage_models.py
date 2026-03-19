@@ -14,6 +14,27 @@ class CoverageRequest(BaseModel):
     module: Optional[str] = None
 
 
+class CoverageModuleSummary(BaseModel):
+    """Per-module coverage entry in the aggregate summary response."""
+    module:          str
+    coverage_pct:    int            = 0
+    test_case_count: int            = 0
+    flows_covered:   int            = 0   # executed tests
+    gaps:            List[str]      = Field(default_factory=list)
+    notes:           Optional[str]  = None
+
+
+class CoverageSummaryResponse(BaseModel):
+    """Aggregate coverage response consumed by CoveragePage."""
+    overall_coverage_pct:        int                        = 0
+    total_test_cases:            int                        = 0
+    total_flows_discovered:      int                        = 0
+    uncovered_flows_count:       int                        = 0
+    modules:                     List[CoverageModuleSummary] = Field(default_factory=list)
+    discovered_pages:            List[str]                  = Field(default_factory=list)
+    uncovered_flow_suggestions:  List                       = Field(default_factory=list)
+
+
 class CoverageResult(BaseModel):
     """Coverage metrics and gap analysis for one module."""
     module:             str

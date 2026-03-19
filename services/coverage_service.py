@@ -132,6 +132,42 @@ def _compute_module_coverage(
 
 class CoverageService:
 
+    def get_summary_aggregate(self):
+        """
+        Return the aggregate coverage summary consumed by the frontend CoveragePage.
+        Transforms the per-module List[CoverageResult] into the shape the UI expects.
+        """
+        from models.coverage_models import CoverageModuleSummary, CoverageSummaryResponse
+
+        per_module = self.get_summary()
+
+        total_tests    = sum(r.total_tests    for r in per_module)
+        total_executed = sum(r.executed_tests for r in per_module)
+        overall_pct    = round(total_executed / total_tests * 100) if total_tests > 0 else 0
+        uncovered      = sum(1 for r in per_module if r.executed_tests == 0)
+
+        modules = [
+            CoverageModuleSummary(
+                module          = r.module,
+                coverage_pct    = round(r.coverage_score * 100),
+                test_case_count = r.total_tests,
+                flows_covered   = r.executed_tests,
+                gaps            = r.recommendations,
+                notes           = None,
+            )
+            for r in per_module
+        ]
+
+        return CoverageSummaryResponse(
+            overall_coverage_pct       = overall_pct,
+            total_test_cases           = total_tests,
+            total_flows_discovered     = total_executed,
+            uncovered_flows_count      = uncovered,
+            modules                    = modules,
+            discovered_pages           = [],
+            uncovered_flow_suggestions = [],
+        )
+
     def get_summary(self) -> List[CoverageResult]:
         """Return coverage metrics for every module in the catalog."""
         tc_by_module, tc_types, latest_status = self._load_data()

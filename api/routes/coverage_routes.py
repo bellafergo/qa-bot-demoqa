@@ -10,11 +10,9 @@ GET /coverage/health           — liveness check
 from __future__ import annotations
 
 import logging
-from typing import List
-
 from fastapi import APIRouter
 
-from models.coverage_models import CoverageResult
+from models.coverage_models import CoverageResult, CoverageSummaryResponse
 from services.coverage_service import coverage_service
 
 logger = logging.getLogger("vanya.coverage_routes")
@@ -27,15 +25,14 @@ def health():
     return {"status": "ok", "service": "coverage"}
 
 
-@router.get("/summary", response_model=List[CoverageResult])
+@router.get("/summary", response_model=CoverageSummaryResponse)
 def summary():
     """
-    Return coverage metrics for every module in the active test catalog.
+    Return aggregate coverage metrics for the active test catalog.
 
-    Each entry includes: total tests, executed tests, pass/fail counts,
-    coverage score (0–1), missing test types, and recommendations.
+    Includes overall coverage %, per-module breakdown, and gap recommendations.
     """
-    return coverage_service.get_summary()
+    return coverage_service.get_summary_aggregate()
 
 
 @router.get("/module/{module}", response_model=CoverageResult)
