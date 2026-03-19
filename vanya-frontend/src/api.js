@@ -170,8 +170,9 @@ export const createSavedDraft    = (body)            => apiPost("/drafts", body)
 export const updateSavedDraft    = (id, body)        => apiPut(`/drafts/${id}`, body);
 export const deleteSavedDraft    = (id)              => apiDelete(`/drafts/${id}`);
 export const approveSavedDraft   = (id)              => apiPost(`/drafts/${id}/approve`, {});
-export const aiSuggestDraft          = (id) => apiPost(`/drafts/${id}/ai-suggest`,           {});
-export const suggestDraftAssertions  = (id) => apiPost(`/drafts/${id}/suggest-assertions`,  {});
+export const aiSuggestDraft              = (id) => apiPost(`/drafts/${id}/ai-suggest`,                    {});
+export const suggestDraftAssertions      = (id) => apiPost(`/drafts/${id}/suggest-assertions`,            {});
+export const suggestDraftAssertionsFromDom = (id) => apiPost(`/drafts/${id}/suggest-assertions-from-dom`, {});
 
 // ========= App Map =========
 export const exploreApp = (url, maxPages = 5) =>

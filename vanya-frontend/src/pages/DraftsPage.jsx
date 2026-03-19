@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { generateTests, approveTests, generateDrafts, generateDraftsFromPages, approveDrafts, listTests, runSuite, exploreApp,
   listSavedDrafts, createSavedDraft, updateSavedDraft, deleteSavedDraft, approveSavedDraft, aiSuggestDraft,
-  batchSaveDrafts, suggestDraftAssertions,
+  batchSaveDrafts, suggestDraftAssertions, suggestDraftAssertionsFromDom,
 } from "../api";
 import { useLang } from "../i18n/LangContext";
 
@@ -174,8 +174,9 @@ function SavedDraftsPanel() {
   // per-draft state
   const [editing, setEditing]   = useState({});        // { [draft_id]: { name, rationale } }
   const [busy, setBusy]         = useState({});        // { [draft_id]: string | null }
-  const [suggest, setSuggest]   = useState({});        // { [draft_id]: AISuggestResponse }
+  const [suggest, setSuggest]       = useState({});    // { [draft_id]: AISuggestResponse }
   const [suggestAss, setSuggestAss] = useState({});    // { [draft_id]: SuggestAssertionsResponse }
+  const [suggestDom, setSuggestDom] = useState({});    // { [draft_id]: SuggestAssertionsResponse (from DOM) }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -349,6 +350,56 @@ function SavedDraftsPanel() {
     }
   }
 
+  async function handleDomSuggest(id) {
+    setBusy(prev => ({ ...prev, [id]: "suggesting-dom" }));
+    setSuggestDom(prev => { const n = { ...prev }; delete n[id]; return n; });
+    try {
+      const res = await suggestDraftAssertionsFromDom(id);
+      setSuggestDom(prev => ({ ...prev, [id]: res }));
+    } catch (e) {
+      setError(e?.message || t("drafts.saved.suggest_error"));
+    } finally {
+      setBusy(prev => ({ ...prev, [id]: null }));
+    }
+  }
+
+  function dismissDomSuggest(id) {
+    setSuggestDom(prev => { const n = { ...prev }; delete n[id]; return n; });
+  }
+
+  async function applyDomAssertions(id, mode) {
+    const suggestion = suggestDom[id];
+    if (!suggestion?.suggested_assertions?.length) return;
+    const draft = drafts.find(d => d.draft_id === id);
+    if (!draft) return;
+
+    let newAssertions;
+    if (mode === "merge") {
+      const existingKeys = new Set(
+        (draft.assertions || []).map(
+          a => `${a.action}:${a.selector ?? ""}:${a.value ?? ""}:${a.text ?? ""}`
+        )
+      );
+      const toAdd = suggestion.suggested_assertions.filter(
+        a => !existingKeys.has(`${a.action}:${a.selector ?? ""}:${a.value ?? ""}:${a.text ?? ""}`)
+      );
+      newAssertions = [...(draft.assertions || []), ...toAdd];
+    } else {
+      newAssertions = suggestion.suggested_assertions;
+    }
+
+    setBusy(prev => ({ ...prev, [id]: "applying-dom" }));
+    try {
+      const updated = await updateSavedDraft(id, { assertions: newAssertions });
+      setDrafts(prev => prev.map(d => d.draft_id === id ? updated : d));
+      dismissDomSuggest(id);
+    } catch (e) {
+      setError(e?.message || t("drafts.saved.save_error"));
+    } finally {
+      setBusy(prev => ({ ...prev, [id]: null }));
+    }
+  }
+
   const statusColor = s => s === "approved" ? "var(--green)" : s === "discarded" ? "var(--text-3)" : "var(--accent)";
 
   return (
@@ -384,8 +435,9 @@ function SavedDraftsPanel() {
           {drafts.map(d => {
             const isEditing       = !!editing[d.draft_id];
             const isBusy          = !!busy[d.draft_id];
-            const hasSuggest      = !!suggest[d.draft_id];
+            const hasSuggest       = !!suggest[d.draft_id];
             const hasAssertSuggest = !!suggestAss[d.draft_id];
+            const hasDomSuggest    = !!suggestDom[d.draft_id];
             const approved        = d.status === "approved";
 
             return (
@@ -623,6 +675,56 @@ function SavedDraftsPanel() {
                   </div>
                 )}
 
+                {/* DOM Suggestion panel */}
+                {hasDomSuggest && (
+                  <div style={{ background: "var(--accent-light)", border: "1px solid var(--border)", borderRadius: 6, padding: "10px 12px", marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", marginBottom: 6 }}>
+                      ⬡ {t("drafts.saved.dom_suggest_title")}
+                    </div>
+                    {suggestDom[d.draft_id].note && (
+                      <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 6 }}>{suggestDom[d.draft_id].note}</div>
+                    )}
+                    {suggestDom[d.draft_id].rationale && (
+                      <div style={{ fontSize: 11, color: "var(--text-2)", marginBottom: 6 }}>{suggestDom[d.draft_id].rationale}</div>
+                    )}
+                    {suggestDom[d.draft_id].suggested_assertions?.length > 0 ? (
+                      <>
+                        <ul style={{ margin: "0 0 8px 0", paddingLeft: 16, listStyleType: "disc" }}>
+                          {suggestDom[d.draft_id].suggested_assertions.map((a, i) => (
+                            <li key={i} style={{ fontSize: 12, color: "var(--text-1)", marginBottom: 3, lineHeight: 1.4 }}>
+                              <span style={{ fontFamily: "monospace", fontWeight: 600, color: "var(--accent)" }}>{a.action}</span>
+                              {a.selector && <span style={{ color: "var(--text-2)" }}> {a.selector}</span>}
+                              {a.value    && <span style={{ color: "var(--text-2)" }}> "{a.value}"</span>}
+                              {a.text     && <span style={{ color: "var(--text-2)" }}> "{a.text}"</span>}
+                            </li>
+                          ))}
+                        </ul>
+                        <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 6 }}>
+                          Based on the target page's initial DOM — not a validation of your full test flow. Review before applying.
+                        </div>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          <button className="btn btn-primary btn-sm" style={{ fontSize: 11 }} onClick={() => applyDomAssertions(d.draft_id, "merge")} disabled={isBusy}>
+                            {isBusy ? "…" : t("drafts.saved.dom_merge")}
+                          </button>
+                          <button className="btn btn-secondary btn-sm" style={{ fontSize: 11 }} onClick={() => applyDomAssertions(d.draft_id, "replace")} disabled={isBusy}>
+                            {isBusy ? "…" : t("drafts.saved.dom_replace")}
+                          </button>
+                          <button className="btn btn-secondary btn-sm" style={{ fontSize: 11 }} onClick={() => dismissDomSuggest(d.draft_id)}>
+                            {t("drafts.saved.dismiss")}
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 12, color: "var(--text-3)" }}>{t("drafts.saved.dom_suggest_empty")}</span>
+                        <button className="btn btn-secondary btn-sm" style={{ fontSize: 11 }} onClick={() => dismissDomSuggest(d.draft_id)}>
+                          {t("drafts.saved.dismiss")}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Action row */}
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                   {isEditing ? (
@@ -648,6 +750,16 @@ function SavedDraftsPanel() {
                             disabled={isBusy}
                           >
                             {busy[d.draft_id] === "suggesting-assertions" ? "…" : `◎ ${t("drafts.saved.suggest_ass")}`}
+                          </button>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => handleDomSuggest(d.draft_id)}
+                            disabled={isBusy}
+                            title="Suggest assertions from observed DOM (loads the page)"
+                          >
+                            {busy[d.draft_id] === "suggesting-dom"
+                              ? t("drafts.saved.dom_suggest_loading")
+                              : `⬡ ${t("drafts.saved.dom_suggest")}`}
                           </button>
                           <button
                             className="btn btn-primary btn-sm"

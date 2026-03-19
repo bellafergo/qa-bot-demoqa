@@ -12,8 +12,9 @@ GET  /drafts                      ?status=  -> List[Draft]
 POST /drafts                               -> Draft
 PUT  /drafts/{draft_id}                    -> Draft
 DELETE /drafts/{draft_id}                  -> { deleted: true }
-POST /drafts/{draft_id}/approve            -> DraftApproveResponse
-POST /drafts/{draft_id}/ai-suggest         -> AISuggestResponse
+POST /drafts/{draft_id}/approve                    -> DraftApproveResponse
+POST /drafts/{draft_id}/ai-suggest                 -> AISuggestResponse
+POST /drafts/{draft_id}/suggest-assertions-from-dom -> SuggestAssertionsResponse
 """
 from __future__ import annotations
 
@@ -354,4 +355,46 @@ def ai_suggest_draft(draft_id: str):
         return AISuggestResponse(
             draft_id = draft_id,
             note     = f"AI suggest unavailable: {type(exc).__name__}: {exc}",
+        )
+
+
+@router.post("/{draft_id}/suggest-assertions-from-dom", response_model=SuggestAssertionsResponse)
+def suggest_assertions_from_dom(draft_id: str):
+    """
+    Suggest QA assertions for a draft by observing the real DOM of the page
+    the draft navigates to.
+
+    Behaviour:
+      1. Reads the first goto URL from the draft's steps.
+      2. Launches a headless browser and navigates to that URL.
+      3. Captures the rendered DOM inventory (headings, inputs, buttons).
+      4. Derives up to 3 assertions from reliable, low-fragility signals:
+           - assert_url_contains  from the confirmed post-navigation URL
+           - assert_text_contains from the first h1/h2 heading on the page
+           - assert_visible       for elements with a data-testid attribute
+      5. Deduplicates against the draft's existing assertions.
+      6. Returns suggestions — NEVER modifies the draft.
+
+    The user must explicitly Merge, Replace, or Ignore the suggestions.
+    This endpoint is deterministic (no LLM).
+    """
+    draft = draft_repo.get_draft(draft_id)
+    if not draft:
+        raise HTTPException(status_code=404, detail=f"Draft {draft_id} not found")
+
+    try:
+        from services.dom_assertion_suggester import suggest_from_dom
+        result = suggest_from_dom(draft)
+        return SuggestAssertionsResponse(
+            draft_id             = draft_id,
+            suggested_assertions = result.get("suggested_assertions", []),
+            rationale            = result.get("rationale", ""),
+            confidence           = result.get("confidence", "low"),
+            note                 = result.get("note", ""),
+        )
+    except Exception as exc:
+        logger.warning("drafts: suggest-from-dom failed for %s — %s", draft_id, exc)
+        return SuggestAssertionsResponse(
+            draft_id = draft_id,
+            note     = f"DOM suggestion unavailable: {type(exc).__name__}: {exc}",
         )
