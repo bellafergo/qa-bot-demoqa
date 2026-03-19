@@ -605,6 +605,10 @@ export const translations = {
     "pr.result.go_drafts_prefix":     "Go to",
     "pr.result.go_drafts_link":       "Drafts",
     "pr.result.go_drafts_suffix":     "to generate and approve full test cases.",
+    "pr.save_drafts.btn":             "Save to Drafts",
+    "pr.save_drafts.saving":          "Saving…",
+    "pr.save_drafts.saved":           "drafts saved",
+    "pr.save_drafts.open":            "Open Drafts",
 
     // ── Coverage page ────────────────────────────────────────────────────────
     "cov.kpi.overall":        "Overall Coverage",
@@ -1404,6 +1408,10 @@ export const translations = {
     "pr.result.go_drafts_prefix":     "Ir a",
     "pr.result.go_drafts_link":       "Borradores",
     "pr.result.go_drafts_suffix":     "para generar y aprobar casos de prueba completos.",
+    "pr.save_drafts.btn":             "Guardar en Drafts",
+    "pr.save_drafts.saving":          "Guardando…",
+    "pr.save_drafts.saved":           "drafts guardados",
+    "pr.save_drafts.open":            "Ver Drafts",
 
     // ── Coverage page ────────────────────────────────────────────────────────
     "cov.kpi.overall":        "Cobertura General",

@@ -7,7 +7,7 @@
  */
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { analyzePR, runBatch, fetchGithubPR } from "../api";
+import { analyzePR, runBatch, fetchGithubPR, createSavedDraft } from "../api";
 import { useLang } from "../i18n/LangContext";
 
 function RiskBadge({ level }) {
@@ -34,6 +34,9 @@ export default function PRAnalysisPage() {
 
   const [enqueueing, setEnqueueing]       = useState(false);
   const [enqueueResult, setEnqueueResult] = useState(null);
+
+  const [savingDrafts, setSavingDrafts]   = useState(false);
+  const [saveDraftsResult, setSaveDraftsResult] = useState(null); // { count } | { error }
 
   // GitHub fetch
   const [prUrl, setPrUrl]           = useState("");
@@ -90,6 +93,36 @@ export default function PRAnalysisPage() {
     } finally {
       setAnalyzing(false);
     }
+  }
+
+  async function handleSaveDrafts() {
+    const tests = result?.suggested_new_tests || [];
+    if (!tests.length || savingDrafts) return;
+    setSavingDrafts(true);
+    setSaveDraftsResult(null);
+    let count = 0;
+    let lastError = null;
+    for (const d of tests) {
+      try {
+        await createSavedDraft({
+          name:        d.name,
+          module:      d.module,
+          rationale:   d.rationale || "",
+          confidence:  d.confidence || "medium",
+          source:      "pr_analysis",
+          steps:       d.suggested_steps      || [],
+          assertions:  d.suggested_assertions || [],
+        });
+        count++;
+      } catch (e) {
+        lastError = e?.message || "Save failed";
+      }
+    }
+    setSaveDraftsResult(lastError && count === 0
+      ? { error: lastError }
+      : { count, partial: lastError ? lastError : null }
+    );
+    setSavingDrafts(false);
   }
 
   async function handleEnqueue() {
@@ -334,9 +367,44 @@ export default function PRAnalysisPage() {
           {/* Draft suggestions */}
           {result.suggested_new_tests?.length > 0 && (
             <div className="card">
-              <div className="section-title" style={{ marginBottom: 12 }}>
-                {result.suggested_new_tests.length} {t("pr.result.draft_suggestions")}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+                <div className="section-title" style={{ margin: 0 }}>
+                  {result.suggested_new_tests.length} {t("pr.result.draft_suggestions")}
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  {!saveDraftsResult?.count && (
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={handleSaveDrafts}
+                      disabled={savingDrafts}
+                    >
+                      {savingDrafts ? t("pr.save_drafts.saving") : t("pr.save_drafts.btn")}
+                    </button>
+                  )}
+                  <button className="btn btn-secondary btn-sm" onClick={() => navigate("/drafts")}>
+                    {t("pr.save_drafts.open")}
+                  </button>
+                </div>
               </div>
+
+              {saveDraftsResult && (
+                <div
+                  className={`alert ${saveDraftsResult.error ? "alert-error" : "alert-success"}`}
+                  style={{ marginBottom: 12, fontSize: 12 }}
+                >
+                  {saveDraftsResult.error
+                    ? `✗ ${saveDraftsResult.error}`
+                    : (
+                      <span>
+                        ✓ {saveDraftsResult.count} {t("pr.save_drafts.saved")}
+                        {saveDraftsResult.partial && ` · ${saveDraftsResult.partial}`}
+                        {" "}<button className="btn btn-secondary btn-sm" style={{ fontSize: 11, marginLeft: 8 }} onClick={() => navigate("/drafts")}>{t("pr.save_drafts.open")}</button>
+                      </span>
+                    )
+                  }
+                </div>
+              )}
+
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {result.suggested_new_tests.map(d => (
                   <div key={d.draft_id} style={{ borderLeft: "3px solid var(--accent)", paddingLeft: 12 }}>
@@ -348,9 +416,6 @@ export default function PRAnalysisPage() {
                     <div style={{ fontSize: 12, color: "var(--text-2)" }}>{d.rationale}</div>
                   </div>
                 ))}
-              </div>
-              <div style={{ marginTop: 12, fontSize: 12, color: "var(--text-3)" }}>
-                {t("pr.result.go_drafts_prefix")} <a href="/drafts" style={{ color: "var(--accent)", fontWeight: 600 }}>{t("pr.result.go_drafts_link")}</a> {t("pr.result.go_drafts_suffix")}
               </div>
             </div>
           )}
