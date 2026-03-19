@@ -74,6 +74,9 @@ class PRAnalysisResult(BaseModel):
     # Orchestrator job (populated when auto_enqueue=True and matches exist)
     orchestrator_job_id:    Optional[str]  = None
 
+    # Per-test match explanations: { test_case_id: "reason string" }
+    test_match_reasons:     Dict[str, str] = Field(default_factory=dict)
+
     # Human-readable summary
     summary:                str            = ""
     confidence:             Literal["low", "medium", "high"] = "medium"

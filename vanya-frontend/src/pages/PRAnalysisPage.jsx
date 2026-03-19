@@ -299,11 +299,18 @@ export default function PRAnalysisPage() {
             )}
 
             {result.matched_test_case_ids?.length > 0 ? (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                 {result.matched_test_case_ids.map(id => (
-                  <span key={id} style={{ fontFamily: "monospace", fontSize: 11, background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 4, padding: "2px 8px", color: "var(--text-2)" }}>
-                    {id}
-                  </span>
+                  <div key={id} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    <span style={{ fontFamily: "monospace", fontSize: 11, background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 4, padding: "2px 8px", color: "var(--text-2)" }}>
+                      {id}
+                    </span>
+                    {result.test_match_reasons?.[id] && (
+                      <span style={{ fontSize: 11, color: "var(--text-3)", paddingLeft: 4, marginTop: 2 }}>
+                        {result.test_match_reasons[id]}
+                      </span>
+                    )}
+                  </div>
                 ))}
               </div>
             ) : (

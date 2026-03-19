@@ -300,7 +300,7 @@ class PRAnalysisService:
         """Full impact analysis: infer modules, score risk, match tests, optionally draft."""
         modules      = self._infer_modules(req)
         risk, reasons = self._score_risk(req, modules)
-        matched_ids   = self._match_tests(modules, req)
+        matched_ids, match_reasons = self._match_tests(modules, req)
         drafts: List[DraftTestSuggestion] = []
         if req.generate_draft_tests:
             drafts = self._generate_drafts(modules, req)
@@ -309,7 +309,7 @@ class PRAnalysisService:
         if req.auto_enqueue and matched_ids:
             job_id = self._enqueue(matched_ids, req)
 
-        return self._build_result(req, modules, risk, reasons, matched_ids, drafts, job_id)
+        return self._build_result(req, modules, risk, reasons, matched_ids, match_reasons, drafts, job_id)
 
     # ── Module inference ──────────────────────────────────────────────────────
 
@@ -442,7 +442,9 @@ class PRAnalysisService:
 
     # ── Test matching ─────────────────────────────────────────────────────────
 
-    def _match_tests(self, modules: List[str], req: PRAnalysisRequest) -> List[str]:
+    def _match_tests(
+        self, modules: List[str], req: PRAnalysisRequest,
+    ) -> Tuple[List[str], Dict[str, str]]:
         """
         Match active catalog test cases relevant to inferred modules.
 
@@ -452,13 +454,13 @@ class PRAnalysisService:
           +2  test name keyword match
           +1  type=smoke or priority=critical/high (boost for coverage priorities)
 
-        Returns test_case_ids sorted by descending score (highest relevance first).
+        Returns (test_case_ids sorted by descending score, per-id reason dict).
         """
         from services.test_catalog_service import catalog_service
 
         all_tests = catalog_service.list_test_cases(status="active", limit=500)
         if not all_tests or not modules:
-            return []
+            return [], {}
 
         # Build a flat set of all keywords associated with the inferred domains
         domain_kws: Set[str] = set()
@@ -466,10 +468,12 @@ class PRAnalysisService:
             domain_kws.update(_DOMAIN_KEYWORDS.get(d, [d]))   # fallback: use domain itself
             domain_kws.add(d)
 
-        scored: List[Tuple[int, str]] = []
+        scored:  List[Tuple[int, str]] = []
+        reasons: Dict[str, str]        = {}
 
         for tc in all_tests:
             score = 0
+            reason = ""
             tc_module_lower = _lower_tokens(tc.module)
             tc_name_lower   = _lower_tokens(tc.name)
             tc_tags_lower   = {_lower_tokens(t) for t in tc.tags}
@@ -477,14 +481,30 @@ class PRAnalysisService:
             # Module match
             if any(kw in tc_module_lower for kw in domain_kws):
                 score += 4
+                hit_domain = next(
+                    (d for d in modules
+                     if d in tc_module_lower
+                     or any(k in tc_module_lower for k in _DOMAIN_KEYWORDS.get(d, []))),
+                    modules[0],
+                )
+                reason = f"module '{tc.module}' covers {hit_domain}"
 
             # Tag match
             if any(kw in tag for tag in tc_tags_lower for kw in domain_kws):
                 score += 3
+                if not reason:
+                    hit_tag = next(
+                        (tag for tag in tc_tags_lower for kw in domain_kws if kw in tag),
+                        "",
+                    )
+                    reason = f"tag '{hit_tag}' matches {'/'.join(modules[:2])}"
 
             # Name keyword match
             if any(kw in tc_name_lower for kw in domain_kws):
                 score += 2
+                if not reason:
+                    hit_kw = next((kw for kw in domain_kws if kw in tc_name_lower), "")
+                    reason = f"name contains '{hit_kw}'"
 
             # Coverage priority boost — only applied when there is already a match
             if score > 0:
@@ -495,9 +515,10 @@ class PRAnalysisService:
 
             if score > 0:
                 scored.append((score, tc.test_case_id))
+                reasons[tc.test_case_id] = reason or f"matches {'/'.join(modules[:2])}"
 
         scored.sort(key=lambda x: -x[0])
-        return [tc_id for _, tc_id in scored]
+        return [tc_id for _, tc_id in scored], reasons
 
     # ── Draft generation ──────────────────────────────────────────────────────
 
@@ -561,13 +582,14 @@ class PRAnalysisService:
 
     def _build_result(
         self,
-        req:        PRAnalysisRequest,
-        modules:    List[str],
-        risk:       str,
-        reasons:    List[str],
-        matched_ids: List[str],
-        drafts:     List[DraftTestSuggestion],
-        job_id:     Optional[str],
+        req:           PRAnalysisRequest,
+        modules:       List[str],
+        risk:          str,
+        reasons:       List[str],
+        matched_ids:   List[str],
+        match_reasons: Dict[str, str],
+        drafts:        List[DraftTestSuggestion],
+        job_id:        Optional[str],
     ) -> PRAnalysisResult:
         n = len(matched_ids)
 
@@ -602,6 +624,7 @@ class PRAnalysisService:
             risk_reasons        = reasons,
             matched_test_case_ids = matched_ids,
             matched_tests_count = n,
+            test_match_reasons  = match_reasons,
             suggested_new_tests = drafts,
             orchestrator_job_id = job_id,
             summary             = summary,
