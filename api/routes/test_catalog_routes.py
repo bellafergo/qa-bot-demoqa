@@ -65,12 +65,13 @@ class RunSuiteRequest(BaseModel):
 
 @router.get("", response_model=List[TestCaseSummary])
 def list_test_cases(
-    module:   Optional[str] = Query(None),
-    type:     Optional[str] = Query(None, alias="type"),
-    priority: Optional[str] = Query(None),
-    status:   Optional[str] = Query("active"),
-    tags:     Optional[List[str]] = Query(None),
-    limit:    int = Query(200, ge=1, le=1000),
+    module:    Optional[str] = Query(None),
+    type:      Optional[str] = Query(None, alias="type"),
+    priority:  Optional[str] = Query(None),
+    status:    Optional[str] = Query("active"),
+    test_type: Optional[str] = Query(None),
+    tags:      Optional[List[str]] = Query(None),
+    limit:     int = Query(200, ge=1, le=1000),
 ):
     """
     Return all test cases matching the optional filters.
@@ -83,6 +84,7 @@ def list_test_cases(
         type_=type,
         priority=priority,
         status=status or None,   # empty string → no filter
+        test_type=test_type or None,
         tags=tags,
         limit=limit,
     )

@@ -385,6 +385,7 @@ export default function CatalogPage() {
               placeholder={t("catalog.filter.module_placeholder")}
               value={filters.module}
               onChange={e => setFilters(f => ({ ...f, module: e.target.value }))}
+              onKeyDown={e => { if (e.key === "Enter") load(); }}
               style={{ width: 140 }}
             />
           </div>

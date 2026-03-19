@@ -120,7 +120,7 @@ class CatalogRepository:
         with get_session() as s:
             q = s.query(TestCaseRow)
             if module:
-                q = q.filter(TestCaseRow.module.ilike(module))
+                q = q.filter(TestCaseRow.module.ilike(f"%{module}%"))
             if type_:
                 q = q.filter(TestCaseRow.type == type_)
             if priority:
