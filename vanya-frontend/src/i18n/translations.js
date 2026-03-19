@@ -352,6 +352,9 @@ export const translations = {
     "runs.lookup.loading":     "Loading…",
     "runs.lookup.fetch":       "Fetch Run",
 
+    "runs.trigger.label":      "Triggered by",
+    "runs.trigger.tests_label": "tests selected",
+
     "runs.detail.title":           "Run Details",
     "runs.detail.duration":        "Duration",
     "runs.detail.total_steps":     "Total Steps",
@@ -1306,6 +1309,9 @@ export const translations = {
     "runs.lookup.placeholder": "ID de Evidencia (ej. EV-abc123…)",
     "runs.lookup.loading":     "Cargando…",
     "runs.lookup.fetch":       "Buscar Ejecución",
+
+    "runs.trigger.label":       "Disparado desde",
+    "runs.trigger.tests_label": "tests seleccionados",
 
     "runs.detail.title":           "Detalles de Ejecución",
     "runs.detail.duration":        "Duración",

@@ -318,6 +318,43 @@ export default function ExecutionPage() {
                       </button>
                     </div>
                   )}
+                  {/* Trigger context — shown when job originated from Risk Selection or PR Analysis */}
+                  {(() => {
+                    if (!jobDetail.context_json) return null;
+                    try {
+                      const ctx = JSON.parse(jobDetail.context_json);
+                      if (!ctx?.source) return null;
+                      const sourceLabel = ctx.source === "pr_analysis"
+                        ? "◎ PR Analysis"
+                        : ctx.source === "risk_selection"
+                          ? "◈ Risk Selection"
+                          : ctx.source;
+                      return (
+                        <div style={{ marginBottom: 10, padding: "10px 14px", background: "var(--accent-light)", borderRadius: "var(--r-sm)", border: "1px solid var(--accent-border)" }}>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                            <span className="badge badge-blue" style={{ fontSize: 11 }}>{sourceLabel}</span>
+                            {ctx.selection_type && (
+                              <span className="badge badge-gray" style={{ fontSize: 10 }}>{ctx.selection_type}</span>
+                            )}
+                            {ctx.pr_title && (
+                              <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text)" }}>{ctx.pr_title}</span>
+                            )}
+                            {ctx.pr_branch && (
+                              <span className="badge badge-gray" style={{ fontSize: 10 }}>⎇ {ctx.pr_branch}</span>
+                            )}
+                            {ctx.selected_modules?.map(m => (
+                              <span key={m} className="badge badge-gray" style={{ fontSize: 10 }}>{m}</span>
+                            ))}
+                            {ctx.selected_test_ids?.length > 0 && (
+                              <span style={{ fontSize: 11, color: "var(--text-3)" }}>
+                                {ctx.selected_test_ids.length} tests
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    } catch { return null; }
+                  })()}
                   {jobDetail.scheduling_notes && (
                     <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 10, lineHeight: 1.5 }}>
                       {jobDetail.scheduling_notes}

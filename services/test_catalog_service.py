@@ -554,6 +554,7 @@ class TestCatalogService:
         base_url: Optional[str] = None,
         headless: bool = True,
         timeout_s: Optional[int] = None,
+        extra_meta: Optional[Dict[str, Any]] = None,
     ) -> TestRun:
         tc = self.get_test_case(test_case_id)
         if tc is None:
@@ -562,7 +563,7 @@ class TestCatalogService:
             raise ValueError(f"Test case '{test_case_id}' is inactive.")
 
         return self._execute(tc, environment=environment, base_url=base_url,
-                             headless=headless, timeout_s=timeout_s)
+                             headless=headless, timeout_s=timeout_s, extra_meta=extra_meta)
 
     def run_suite(
         self,
@@ -656,6 +657,7 @@ class TestCatalogService:
         headless: bool,
         timeout_s: Optional[int],
         auth_config: Optional[Dict[str, Any]] = None,
+        extra_meta: Optional[Dict[str, Any]] = None,
     ) -> TestRun:
         """Build steps, run via appropriate runner (UI or API), persist result."""
         t0 = time.time()
@@ -733,6 +735,7 @@ class TestCatalogService:
                     "tc_version":     tc.version,
                     "evidence":       result.get("evidence"),
                     "screenshot_b64": result.get("screenshot_b64"),
+                    **(extra_meta or {}),
                 },
             )
 
@@ -744,6 +747,7 @@ class TestCatalogService:
                 duration_ms=int((time.time() - t0) * 1000),
                 evidence_id=evidence_id,
                 logs=[f"Runner error: {type(e).__name__}: {e}"],
+                meta=extra_meta or {},
             )
 
         self._save_run(run)

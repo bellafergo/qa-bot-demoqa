@@ -60,6 +60,11 @@ class OrchestratorJob(BaseModel):
     skipped_count:    int = 0
     scheduling_notes: Optional[str] = None
 
+    # Trigger context — JSON-encoded dict set by caller, never overwritten by scheduler
+    # Keys: source, selection_type, pr_title, pr_branch, inferred_modules,
+    #       selected_modules, selected_test_ids
+    context_json:     Optional[str] = None
+
     # Timestamps
     created_at:       datetime = Field(default_factory=_now_utc)
     started_at:       Optional[datetime] = None

@@ -164,7 +164,15 @@ export default function PRAnalysisPage() {
     setEnqueueing(true);
     setEnqueueResult(null);
     try {
-      const r = await runBatch({ test_case_ids: ids });
+      const context = {
+        source:           "pr_analysis",
+        selection_type:   "pr_matched",
+        selected_test_ids: ids,
+        selected_modules: result?.inferred_modules || [],
+        ...(form.title  && { pr_title:  form.title }),
+        ...(form.branch && { pr_branch: form.branch }),
+      };
+      const r = await runBatch({ test_case_ids: ids, context });
       setEnqueueResult({ ok: true, ...r });
     } catch (e) {
       setEnqueueResult({ ok: false, error: e?.message || "Enqueue failed" });

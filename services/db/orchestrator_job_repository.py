@@ -40,6 +40,8 @@ class OrchestratorJobRow(Base):
     retry_count        = Column(Integer, default=0)
     skipped_count      = Column(Integer, default=0)
     scheduling_notes   = Column(String)
+    # Trigger context — set at enqueue time, never overwritten
+    context_json       = Column(Text)
 
 
 # ── Conversion helpers ────────────────────────────────────────────────────────
@@ -79,6 +81,7 @@ def _row_to_model(row: OrchestratorJobRow):
         retry_count      = row.retry_count    or 0,
         skipped_count    = row.skipped_count  or 0,
         scheduling_notes = row.scheduling_notes,
+        context_json     = row.context_json,
     )
 
 
@@ -108,6 +111,7 @@ class OrchestratorJobRepository:
             retry_count        = getattr(job, "retry_count", 0) or 0,
             skipped_count      = getattr(job, "skipped_count", 0) or 0,
             scheduling_notes   = getattr(job, "scheduling_notes", None),
+            context_json       = getattr(job, "context_json", None),
         )
         with get_session() as s:
             s.add(row)
@@ -135,6 +139,7 @@ class OrchestratorJobRepository:
             retry_count        = getattr(job, "retry_count", 0) or 0,
             skipped_count      = getattr(job, "skipped_count", 0) or 0,
             scheduling_notes   = getattr(job, "scheduling_notes", None),
+            context_json       = getattr(job, "context_json", None),
         )
         with get_session() as s:
             s.merge(row)

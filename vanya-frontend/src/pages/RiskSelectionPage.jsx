@@ -164,9 +164,19 @@ export default function RiskSelectionPage() {
     setRunResult(null);
     try {
       const ids = [...selectedIds];
+      // Build trigger context so Execution Center and Runs can show origin
+      const context = {
+        source:           "risk_selection",
+        selection_type:   "risk_based",
+        selected_modules: modules.split(/[,\n]/).map(s => s.trim()).filter(Boolean),
+        selected_test_ids: ids,
+        ...(navState.prTitle  && { pr_title:         navState.prTitle }),
+        ...(navState.prBranch && { pr_branch:         navState.prBranch }),
+        ...(Array.isArray(navState.modules) && navState.modules.length && { inferred_modules: navState.modules }),
+      };
       // Always run the exact manual selection via runBatch.
       // Default (all pre-selected) → equivalent to the previous auto behaviour.
-      const data = await runBatch({ test_case_ids: ids });
+      const data = await runBatch({ test_case_ids: ids, context });
       setRunResult({ ok: true, job_id: data.job_id, count: data.total_count ?? ids.length });
     } catch (e) {
       setRunError(e?.message || t("risk.error.run"));

@@ -10,6 +10,7 @@ POST /execution/retry-failed   — retry failed tests from a previous job
 """
 from __future__ import annotations
 
+import json
 import logging
 
 from fastapi import APIRouter, HTTPException
@@ -68,6 +69,7 @@ def run_batch(req: BatchExecutionRequest):
         job = orchestrator_service.enqueue_suite(
             test_case_ids=req.test_case_ids,
             environment=req.environment,
+            context_json=json.dumps(req.context) if req.context else None,
         )
     except Exception as exc:
         logger.exception("execution/run-batch failed")

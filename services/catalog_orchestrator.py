@@ -291,7 +291,15 @@ def _run_single_test(
                 _STATS["running_api"] += 1
 
         try:
-            run = catalog_service.run_test_case(tc_id, environment=job.environment)
+            # Propagate trigger context into each run's meta for RunsPage visibility
+            _extra_meta: Optional[Dict[str, Any]] = None
+            if getattr(job, "context_json", None):
+                try:
+                    import json as _json
+                    _extra_meta = {"trigger_context": _json.loads(job.context_json)}
+                except Exception:
+                    pass
+            run = catalog_service.run_test_case(tc_id, environment=job.environment, extra_meta=_extra_meta)
             last_result = {
                 "test_case_id": tc_id,
                 "run_id":       run.run_id,
@@ -611,6 +619,7 @@ class CatalogOrchestratorService:
         tags: Optional[List[str]] = None,
         environment: str = "default",
         limit: int = 50,
+        context_json: Optional[str] = None,
     ) -> OrchestratorJob:
         """
         Create and enqueue a suite job.
@@ -646,6 +655,7 @@ class CatalogOrchestratorService:
             test_case_ids=resolved,
             total_count=len(resolved),
             environment=environment,
+            context_json=context_json,
         )
 
         if not resolved:

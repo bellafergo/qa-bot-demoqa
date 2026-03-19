@@ -4,7 +4,7 @@ Request / response models for the execution scheduler and worker-pool routes.
 """
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -31,6 +31,7 @@ class BatchExecutionRequest(BaseModel):
     test_case_ids:   List[str]
     environment:     str            = "default"
     scheduling_mode: Optional[str]  = None   # "priority" (default) | "fifo" (no-op v1)
+    context:         Optional[Dict[str, Any]] = None   # trigger context (source, pr_title, modules…)
 
 
 class BatchExecutionResponse(BaseModel):

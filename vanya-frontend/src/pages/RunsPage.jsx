@@ -394,6 +394,43 @@ function EvidenceLookupTab() {
             )}
           </div>
 
+          {/* Trigger context — present when run originated from Risk Selection or PR Analysis */}
+          {run.meta?.trigger_context && (() => {
+            const ctx = run.meta.trigger_context;
+            const sourceLabel = ctx.source === "pr_analysis"
+              ? "◎ PR Analysis"
+              : ctx.source === "risk_selection"
+                ? "◈ Risk Selection"
+                : ctx.source;
+            return (
+              <div className="card" style={{ marginBottom: 16, padding: "10px 16px" }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em", marginRight: 4 }}>
+                    {t("runs.trigger.label")}
+                  </span>
+                  <span className="badge badge-blue" style={{ fontSize: 11 }}>{sourceLabel}</span>
+                  {ctx.selection_type && (
+                    <span className="badge badge-gray" style={{ fontSize: 10 }}>{ctx.selection_type}</span>
+                  )}
+                  {ctx.pr_title && (
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text)" }}>{ctx.pr_title}</span>
+                  )}
+                  {ctx.pr_branch && (
+                    <span className="badge badge-gray" style={{ fontSize: 10 }}>⎇ {ctx.pr_branch}</span>
+                  )}
+                  {ctx.selected_modules?.map(m => (
+                    <span key={m} className="badge badge-gray" style={{ fontSize: 10 }}>{m}</span>
+                  ))}
+                  {ctx.selected_test_ids?.length > 0 && (
+                    <span style={{ fontSize: 11, color: "var(--text-3)" }}>
+                      {ctx.selected_test_ids.length} {t("runs.trigger.tests_label")}
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
           <div className="kpi-grid">
             {run.duration_ms != null && (
               <div className="kpi-card">
