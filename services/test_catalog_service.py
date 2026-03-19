@@ -374,6 +374,83 @@ class TestCatalogService:
         from services.db.test_version_repository import test_version_repo
         return test_version_repo.get_version(test_case_id, version_number)
 
+    def diff_versions(self, test_case_id: str, from_version: int, to_version: int):
+        """
+        Compare two version snapshots of a test case.
+
+        Returns a VersionDiff with:
+          - diff.steps      — added / removed step entries
+          - diff.assertions — added / removed assertion entries
+          - diff.fields     — changed scalar fields (name, module, priority, …)
+          - identical       — True when nothing changed
+
+        No external libraries used. Steps and assertions are compared by their
+        JSON-serialised canonical form (sort_keys=True), so order matters for
+        detecting changes but field-order within each object does not.
+        """
+        import json
+        from models.test_version_models import VersionDiff
+
+        from services.db.test_version_repository import test_version_repo
+
+        a = test_version_repo.get_version(test_case_id, from_version)
+        b = test_version_repo.get_version(test_case_id, to_version)
+
+        if a is None:
+            raise ValueError(f"Version {from_version} not found for '{test_case_id}'")
+        if b is None:
+            raise ValueError(f"Version {to_version} not found for '{test_case_id}'")
+
+        # ── Step / assertion diff ────────────────────────────────────────────
+        def _label_item(item: dict) -> str:
+            """Human-readable one-liner for a step or assertion dict."""
+            action = item.get("action") or item.get("type") or "?"
+            parts  = [action]
+            for key in ("url", "selector", "target", "text", "value"):
+                v = item.get(key)
+                if v and str(v) not in parts:
+                    parts.append(str(v))
+            return " ".join(parts)
+
+        def _list_diff(old: list, new: list) -> list:
+            """Return added/removed entries preserving order of appearance."""
+            old_keys = {json.dumps(x, sort_keys=True) for x in old}
+            new_keys = {json.dumps(x, sort_keys=True) for x in new}
+            result   = []
+            for x in old:
+                if json.dumps(x, sort_keys=True) not in new_keys:
+                    result.append({"type": "removed", "value": _label_item(x)})
+            for x in new:
+                if json.dumps(x, sort_keys=True) not in old_keys:
+                    result.append({"type": "added", "value": _label_item(x)})
+            return result
+
+        steps_diff      = _list_diff(a.steps      or [], b.steps      or [])
+        assertions_diff = _list_diff(a.assertions or [], b.assertions or [])
+
+        # ── Scalar field diff ────────────────────────────────────────────────
+        TRACKED = ("name", "module", "priority", "status", "test_type", "base_url")
+        fields_diff: dict = {}
+        for field in TRACKED:
+            va = str(getattr(a, field) or "")
+            vb = str(getattr(b, field) or "")
+            if va != vb:
+                fields_diff[field] = {"from": va, "to": vb}
+
+        identical = not steps_diff and not assertions_diff and not fields_diff
+
+        return VersionDiff(
+            test_case_id = test_case_id,
+            from_version = from_version,
+            to_version   = to_version,
+            identical    = identical,
+            diff         = {
+                "steps":      steps_diff,
+                "assertions": assertions_diff,
+                "fields":     fields_diff,
+            },
+        )
+
     def rollback_test_case(
         self,
         test_case_id: str,

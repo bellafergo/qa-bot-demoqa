@@ -38,6 +38,29 @@ class TestVersionDetail(TestVersionSummary):
     base_url:   Optional[str]        = None
 
 
+class DiffEntry(BaseModel):
+    """One line in a step or assertion diff."""
+    type:  str   # "added" | "removed"
+    value: str   # human-readable representation of the step/assertion
+
+
+class FieldChange(BaseModel):
+    """A single field that changed between two versions."""
+    from_value: str = ""   # serialized as "from" in JSON via alias
+    to_value:   str = ""   # serialized as "to"   in JSON via alias
+
+    model_config = {"populate_by_name": True}
+
+
+class VersionDiff(BaseModel):
+    """Result of comparing two version snapshots."""
+    test_case_id: str
+    from_version: int
+    to_version:   int
+    identical:    bool
+    diff: dict   # { "steps": List[DiffEntry], "assertions": List[DiffEntry], "fields": Dict[str, FieldChange] }
+
+
 class RollbackRequest(BaseModel):
     """Request body for POST /tests/{id}/rollback."""
     version: int

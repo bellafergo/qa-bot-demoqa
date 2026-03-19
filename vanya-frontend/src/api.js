@@ -134,6 +134,7 @@ export const runSuite     = (body)             => apiPost("/tests/run-suite", bo
 export const updateTest   = (tc_id, body = {}) => apiPut(`/tests/${tc_id}`, body);
 export const listVersions = (tc_id)            => apiGet(`/tests/${tc_id}/versions`);
 export const getVersion   = (tc_id, v)         => apiGet(`/tests/${tc_id}/versions/${v}`);
+export const diffVersions = (tc_id, from_, to) => apiGet(`/tests/${tc_id}/versions/${from_}/diff/${to}`);
 export const rollbackTest = (tc_id, body)       => apiPost(`/tests/${tc_id}/rollback`, body);
 
 // ========= Test Runs =========

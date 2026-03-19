@@ -26,7 +26,8 @@ from models.test_case import TestCase, TestCaseCreate, TestCaseSummary
 from models.test_run import TestRun, SuiteRunResult
 from models.run_contract import CanonicalRun, CanonicalSuiteResult
 from models.test_version_models import (
-    TestVersionSummary, TestVersionDetail, RollbackRequest, RollbackResponse,
+    TestVersionSummary, TestVersionDetail,
+    RollbackRequest, RollbackResponse, VersionDiff,
 )
 from services.run_mapper import run_from_catalog_testrun, suite_from_catalog_suite_result
 from services.run_history_service import run_history_service  # official run history source
@@ -172,6 +173,20 @@ def get_version(test_case_id: str, version: int):
             detail=f"Version {version} not found for '{test_case_id}'",
         )
     return v
+
+
+@router.get("/{test_case_id}/versions/{from_version}/diff/{to_version}", response_model=VersionDiff)
+def diff_versions(test_case_id: str, from_version: int, to_version: int):
+    """
+    Compare two version snapshots of a test case.
+
+    Returns added/removed steps, assertions, and changed scalar fields.
+    Both versions must exist. Order: from_version → to_version.
+    """
+    try:
+        return catalog_service.diff_versions(test_case_id, from_version, to_version)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.post("/{test_case_id}/rollback", response_model=RollbackResponse)

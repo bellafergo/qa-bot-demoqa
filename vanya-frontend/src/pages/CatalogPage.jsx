@@ -5,7 +5,7 @@
  */
 import React, { useState, useEffect, useCallback } from "react";
 import { useLocation } from "react-router-dom";
-import { listTests, runTest, runBatch, listVersions, rollbackTest } from "../api";
+import { listTests, runTest, runBatch, listVersions, rollbackTest, diffVersions } from "../api";
 import { useLang } from "../i18n/LangContext";
 
 const API_BASE = (import.meta?.env?.VITE_API_BASE || "https://qa-bot-demoqa.onrender.com").replace(/\/$/, "");
@@ -30,6 +30,76 @@ function priorityClass(p) {
 function fmtMs(ms) {
   if (ms == null) return "—";
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
+}
+
+// ── Diff display component ────────────────────────────────────────────────────
+
+function DiffPanel({ diff, t }) {
+  const { steps = [], assertions = [], fields = {} } = diff.diff || {};
+  const hasSteps      = steps.length > 0;
+  const hasAssertions = assertions.length > 0;
+  const hasFields     = Object.keys(fields).length > 0;
+
+  const lineStyle = added => ({
+    fontFamily:  "monospace",
+    fontSize:    12,
+    padding:     "2px 8px",
+    borderRadius: 3,
+    marginBottom: 2,
+    background:   added ? "rgba(34,197,94,0.10)" : "rgba(239,68,68,0.10)",
+    color:        added ? "var(--green)"          : "var(--red)",
+  });
+
+  if (diff.identical) {
+    return (
+      <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 10, fontStyle: "italic" }}>
+        {t("catalog.versions.identical")}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginBottom: 12, border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden" }}>
+      <div style={{ background: "var(--surface-2)", padding: "6px 12px", fontSize: 11, fontWeight: 700, color: "var(--text-2)", borderBottom: "1px solid var(--border)" }}>
+        v{diff.from_version} → v{diff.to_version}
+      </div>
+      <div style={{ padding: "10px 12px" }}>
+        {hasFields && (
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", marginBottom: 4 }}>{t("catalog.versions.diff_fields")}</div>
+            {Object.entries(fields).map(([field, change]) => (
+              <div key={field} style={{ fontFamily: "monospace", fontSize: 12, marginBottom: 2 }}>
+                <span style={{ color: "var(--text-2)", fontWeight: 600 }}>{field}:</span>{" "}
+                <span style={{ color: "var(--red)", textDecoration: "line-through" }}>{change.from}</span>
+                {" → "}
+                <span style={{ color: "var(--green)" }}>{change.to}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {hasSteps && (
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", marginBottom: 4 }}>{t("catalog.versions.diff_steps")}</div>
+            {steps.map((entry, i) => (
+              <div key={i} style={lineStyle(entry.type === "added")}>
+                {entry.type === "added" ? "+ " : "- "}{entry.value}
+              </div>
+            ))}
+          </div>
+        )}
+        {hasAssertions && (
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", marginBottom: 4 }}>{t("catalog.versions.diff_assertions")}</div>
+            {assertions.map((entry, i) => (
+              <div key={i} style={lineStyle(entry.type === "added")}>
+                {entry.type === "added" ? "+ " : "- "}{entry.value}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export default function CatalogPage() {
@@ -57,6 +127,11 @@ export default function CatalogPage() {
   const [versionsError,   setVersionsError]   = useState("");
   const [rollingBack,     setRollingBack]      = useState(null);   // version_number being rolled back
   const [rollbackMsg,     setRollbackMsg]      = useState("");     // success / error message
+  const [compareFrom,     setCompareFrom]      = useState("");
+  const [compareTo,       setCompareTo]        = useState("");
+  const [diffResult,      setDiffResult]       = useState(null);
+  const [diffLoading,     setDiffLoading]      = useState(false);
+  const [diffError,       setDiffError]        = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -130,20 +205,48 @@ export default function CatalogPage() {
       setVersionsOpen(null);
       setVersions([]);
       setRollbackMsg("");
+      setDiffResult(null);
+      setDiffError("");
       return;
     }
     setVersionsOpen(tc_id);
     setVersions([]);
     setVersionsError("");
     setRollbackMsg("");
+    setDiffResult(null);
+    setDiffError("");
+    setCompareFrom("");
+    setCompareTo("");
     setVersionsLoading(true);
     try {
       const data = await listVersions(tc_id);
-      setVersions(Array.isArray(data) ? data : []);
+      const arr = Array.isArray(data) ? data : [];
+      setVersions(arr);
+      // Pre-fill compare selectors: oldest → newest
+      if (arr.length >= 2) {
+        const nums = arr.map(v => v.version_number).sort((a, b) => a - b);
+        setCompareFrom(String(nums[nums.length - 2]));
+        setCompareTo(String(nums[nums.length - 1]));
+      }
     } catch (e) {
       setVersionsError(e?.message || t("catalog.versions.loading"));
     } finally {
       setVersionsLoading(false);
+    }
+  }
+
+  async function handleCompare(tc_id) {
+    if (!compareFrom || !compareTo) return;
+    setDiffLoading(true);
+    setDiffResult(null);
+    setDiffError("");
+    try {
+      const res = await diffVersions(tc_id, compareFrom, compareTo);
+      setDiffResult(res);
+    } catch (e) {
+      setDiffError(e?.message || "Diff failed");
+    } finally {
+      setDiffLoading(false);
     }
   }
 
@@ -364,6 +467,48 @@ export default function CatalogPage() {
                         )}
                         {!versionsLoading && versions.length === 0 && !versionsError && (
                           <div style={{ fontSize: 12, color: "var(--text-3)" }}>{t("catalog.versions.empty")}</div>
+                        )}
+                        {versions.length >= 2 && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-2)" }}>
+                              {t("catalog.versions.compare_title")}:
+                            </span>
+                            <select
+                              className="input"
+                              style={{ width: 80, fontSize: 12, padding: "2px 6px" }}
+                              value={compareFrom}
+                              onChange={e => { setCompareFrom(e.target.value); setDiffResult(null); }}
+                            >
+                              {[...versions].sort((a, b) => a.version_number - b.version_number).map(v => (
+                                <option key={v.version_number} value={String(v.version_number)}>v{v.version_number}</option>
+                              ))}
+                            </select>
+                            <span style={{ fontSize: 12, color: "var(--text-3)" }}>→</span>
+                            <select
+                              className="input"
+                              style={{ width: 80, fontSize: 12, padding: "2px 6px" }}
+                              value={compareTo}
+                              onChange={e => { setCompareTo(e.target.value); setDiffResult(null); }}
+                            >
+                              {[...versions].sort((a, b) => a.version_number - b.version_number).map(v => (
+                                <option key={v.version_number} value={String(v.version_number)}>v{v.version_number}</option>
+                              ))}
+                            </select>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              style={{ fontSize: 11 }}
+                              onClick={() => handleCompare(tc.test_case_id)}
+                              disabled={diffLoading || !compareFrom || !compareTo || compareFrom === compareTo}
+                            >
+                              {diffLoading ? t("catalog.versions.diff_loading") : t("catalog.versions.compare_btn")}
+                            </button>
+                          </div>
+                        )}
+                        {diffError && (
+                          <div style={{ fontSize: 12, color: "var(--red)", marginBottom: 8 }}>✗ {diffError}</div>
+                        )}
+                        {diffResult && (
+                          <DiffPanel diff={diffResult} t={t} />
                         )}
                         {versions.length > 0 && (
                           <table className="data-table" style={{ fontSize: 12 }}>
