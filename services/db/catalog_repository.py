@@ -149,6 +149,42 @@ class CatalogRepository:
         logger.debug("catalog_repo: inserted %s", tc.test_case_id)
         return tc
 
+    def update_test_case(self, test_case_id: str, data: dict):
+        """
+        Overwrite mutable fields of an existing test case row.
+
+        *data* keys accepted: name, module, type, priority, status, test_type,
+        steps, assertions, tags, base_url, version.
+
+        Returns the updated TestCase, or None if not found.
+        """
+        import json as _json
+        from datetime import datetime, timezone
+
+        with get_session() as s:
+            row = s.query(TestCaseRow).filter_by(test_case_id=test_case_id).first()
+            if row is None:
+                return None
+
+            if "name"      in data and data["name"]      is not None: row.name      = data["name"]
+            if "module"    in data and data["module"]    is not None: row.module    = data["module"]
+            if "type"      in data and data["type"]      is not None: row.type      = data["type"]
+            if "priority"  in data and data["priority"]  is not None: row.priority  = data["priority"]
+            if "status"    in data and data["status"]    is not None: row.status    = data["status"]
+            if "test_type" in data and data["test_type"] is not None: row.test_type = data["test_type"]
+            if "base_url"  in data:                                   row.base_url  = data["base_url"]
+            if "version"   in data and data["version"]   is not None: row.version   = data["version"]
+            if "steps"      in data and data["steps"]      is not None:
+                row.steps_json      = _json.dumps(data["steps"])
+            if "assertions" in data and data["assertions"] is not None:
+                row.assertions_json = _json.dumps(data["assertions"])
+            if "tags"       in data and data["tags"]       is not None:
+                row.tags_json = _json.dumps(data["tags"])
+
+            row.updated_at = datetime.now(timezone.utc).isoformat()
+            s.flush()
+            return _row_to_model(row)
+
     def delete_test_case(self, test_case_id: str) -> bool:
         with get_session() as s:
             row = s.query(TestCaseRow).filter_by(test_case_id=test_case_id).first()

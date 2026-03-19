@@ -5,7 +5,7 @@
  */
 import React, { useState, useEffect, useCallback } from "react";
 import { useLocation } from "react-router-dom";
-import { listTests, runTest, runBatch } from "../api";
+import { listTests, runTest, runBatch, listVersions, rollbackTest } from "../api";
 import { useLang } from "../i18n/LangContext";
 
 const API_BASE = (import.meta?.env?.VITE_API_BASE || "https://qa-bot-demoqa.onrender.com").replace(/\/$/, "");
@@ -49,6 +49,14 @@ export default function CatalogPage() {
   const [batchLoading, setBatchLoading] = useState(false);
 
   const [expanded, setExpanded] = useState(null);   // tc_id of expanded row
+
+  // ── Version history state ─────────────────────────────────────────────────
+  const [versionsOpen,    setVersionsOpen]    = useState(null);   // tc_id whose history is open
+  const [versions,        setVersions]        = useState([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
+  const [versionsError,   setVersionsError]   = useState("");
+  const [rollingBack,     setRollingBack]      = useState(null);   // version_number being rolled back
+  const [rollbackMsg,     setRollbackMsg]      = useState("");     // success / error message
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -114,6 +122,49 @@ export default function CatalogPage() {
       setBatchResult({ error: e?.message || t("catalog.error.batch_failed") });
     } finally {
       setBatchLoading(false);
+    }
+  }
+
+  async function handleOpenVersions(tc_id) {
+    if (versionsOpen === tc_id) {
+      setVersionsOpen(null);
+      setVersions([]);
+      setRollbackMsg("");
+      return;
+    }
+    setVersionsOpen(tc_id);
+    setVersions([]);
+    setVersionsError("");
+    setRollbackMsg("");
+    setVersionsLoading(true);
+    try {
+      const data = await listVersions(tc_id);
+      setVersions(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setVersionsError(e?.message || t("catalog.versions.loading"));
+    } finally {
+      setVersionsLoading(false);
+    }
+  }
+
+  async function handleRollback(tc_id, version_number, currentVersion) {
+    const confirmMsg = t("catalog.versions.rollback_confirm").replace("{v}", version_number);
+    if (!window.confirm(confirmMsg)) return;
+    setRollingBack(version_number);
+    setRollbackMsg("");
+    try {
+      const res = await rollbackTest(tc_id, { version: version_number, reason: `Rollback to v${version_number}` });
+      const msg = t("catalog.versions.rollback_ok").replace("{v}", res.new_version);
+      setRollbackMsg(msg);
+      // Refresh test list to show updated version number
+      await load();
+      // Refresh version history
+      const data = await listVersions(tc_id);
+      setVersions(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setRollbackMsg(`✗ ${t("catalog.versions.rollback_err")}: ${e?.message || ""}`);
+    } finally {
+      setRollingBack(null);
     }
   }
 
@@ -254,13 +305,21 @@ export default function CatalogPage() {
                     <td><span className={`badge ${priorityClass(tc.priority)}`}>{tc.priority}</span></td>
                     <td><span className="badge badge-gray">{tc.test_type || "ui"}</span></td>
                     <td style={{ fontSize: 12, color: "var(--text-2)" }}>{tc.steps_count}</td>
-                    <td onClick={e => e.stopPropagation()}>
+                    <td onClick={e => e.stopPropagation()} style={{ whiteSpace: "nowrap" }}>
                       <button
                         className="btn btn-primary btn-sm"
                         disabled={runningId === tc.test_case_id}
                         onClick={() => handleRunSingle(tc.test_case_id)}
+                        style={{ marginRight: 4 }}
                       >
                         {runningId === tc.test_case_id ? "…" : t("catalog.table.run")}
+                      </button>
+                      <button
+                        className={`btn btn-sm ${versionsOpen === tc.test_case_id ? "btn-primary" : "btn-secondary"}`}
+                        onClick={() => handleOpenVersions(tc.test_case_id)}
+                        title={t("catalog.versions.title")}
+                      >
+                        ⏱ {t("catalog.versions.btn")}
                       </button>
                     </td>
                   </tr>
@@ -275,6 +334,86 @@ export default function CatalogPage() {
                           <span><b>{t("catalog.row.steps")}</b> {tc.steps_count}</span>
                           <span><b>{t("catalog.row.updated")}</b> {tc.updated_at ? new Date(tc.updated_at).toLocaleDateString() : "—"}</span>
                         </div>
+                      </td>
+                    </tr>
+                  )}
+                  {versionsOpen === tc.test_case_id && (
+                    <tr>
+                      <td colSpan={9} style={{ background: "var(--accent-light)", borderTop: "1px solid var(--border)", padding: "14px 20px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                          <span style={{ fontWeight: 700, fontSize: 13, color: "var(--accent)" }}>
+                            ⏱ {t("catalog.versions.title")} — {tc.test_case_id}
+                          </span>
+                          <span style={{ fontSize: 11, color: "var(--text-3)" }}>
+                            Rollback creates a new version — history is preserved.
+                          </span>
+                          <button className="btn btn-secondary btn-sm" style={{ marginLeft: "auto", fontSize: 11 }} onClick={() => setVersionsOpen(null)}>
+                            {t("catalog.versions.close")}
+                          </button>
+                        </div>
+                        {rollbackMsg && (
+                          <div className={`alert ${rollbackMsg.startsWith("✗") ? "alert-error" : "alert-success"}`} style={{ marginBottom: 10, fontSize: 12 }}>
+                            {rollbackMsg}
+                          </div>
+                        )}
+                        {versionsLoading && (
+                          <div style={{ fontSize: 12, color: "var(--text-3)" }}>{t("catalog.versions.loading")}</div>
+                        )}
+                        {versionsError && (
+                          <div style={{ fontSize: 12, color: "var(--red)" }}>{versionsError}</div>
+                        )}
+                        {!versionsLoading && versions.length === 0 && !versionsError && (
+                          <div style={{ fontSize: 12, color: "var(--text-3)" }}>{t("catalog.versions.empty")}</div>
+                        )}
+                        {versions.length > 0 && (
+                          <table className="data-table" style={{ fontSize: 12 }}>
+                            <thead><tr>
+                              <th style={{ width: 60 }}>{t("catalog.versions.col.v")}</th>
+                              <th>{t("catalog.versions.col.date")}</th>
+                              <th>{t("catalog.versions.col.source")}</th>
+                              <th>{t("catalog.versions.col.note")}</th>
+                              <th style={{ width: 100 }}></th>
+                            </tr></thead>
+                            <tbody>
+                              {versions.map(v => {
+                                const isCurrent = v.version_number === tc.version;
+                                return (
+                                  <tr key={v.version_number} style={isCurrent ? { background: "var(--accent-light)", fontWeight: 600 } : {}}>
+                                    <td>
+                                      v{v.version_number}
+                                      {isCurrent && (
+                                        <span className="badge badge-green" style={{ marginLeft: 4, fontSize: 10 }}>
+                                          {t("catalog.versions.current")}
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td style={{ color: "var(--text-2)" }}>
+                                      {v.created_at ? new Date(v.created_at).toLocaleString() : "—"}
+                                    </td>
+                                    <td>
+                                      <span className="badge badge-gray" style={{ fontSize: 10 }}>{v.source || "manual"}</span>
+                                    </td>
+                                    <td style={{ color: "var(--text-2)", maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                      {v.change_note || "—"}
+                                    </td>
+                                    <td>
+                                      {!isCurrent && (
+                                        <button
+                                          className="btn btn-secondary btn-sm"
+                                          style={{ fontSize: 11 }}
+                                          disabled={!!rollingBack}
+                                          onClick={() => handleRollback(tc.test_case_id, v.version_number, tc.version)}
+                                        >
+                                          {rollingBack === v.version_number ? "…" : t("catalog.versions.rollback_btn")}
+                                        </button>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        )}
                       </td>
                     </tr>
                   )}

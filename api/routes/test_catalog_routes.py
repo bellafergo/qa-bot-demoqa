@@ -25,6 +25,9 @@ from pydantic import BaseModel, Field
 from models.test_case import TestCase, TestCaseCreate, TestCaseSummary
 from models.test_run import TestRun, SuiteRunResult
 from models.run_contract import CanonicalRun, CanonicalSuiteResult
+from models.test_version_models import (
+    TestVersionSummary, TestVersionDetail, RollbackRequest, RollbackResponse,
+)
 from services.run_mapper import run_from_catalog_testrun, suite_from_catalog_suite_result
 from services.run_history_service import run_history_service  # official run history source
 from services.test_catalog_service import catalog_service
@@ -124,6 +127,74 @@ def get_test_case(test_case_id: str):
     if tc is None:
         raise HTTPException(status_code=404, detail=f"Test case '{test_case_id}' not found")
     return tc
+
+
+@router.put("/{test_case_id}", response_model=TestCase)
+def update_test_case(test_case_id: str, payload: dict):
+    """
+    Update mutable fields of an existing test case (name, module, steps, etc.).
+    Creates a new version snapshot automatically.
+    """
+    tc = catalog_service.get_test_case(test_case_id)
+    if tc is None:
+        raise HTTPException(status_code=404, detail=f"Test case '{test_case_id}' not found")
+    source      = payload.pop("_source",      "manual")
+    change_note = payload.pop("_change_note", "")
+    updated = catalog_service.update_test_case(test_case_id, payload, source=source, change_note=change_note)
+    if updated is None:
+        raise HTTPException(status_code=404, detail=f"Test case '{test_case_id}' not found")
+    return updated
+
+
+# ── Version history ───────────────────────────────────────────────────────────
+
+@router.get("/{test_case_id}/versions", response_model=List[TestVersionSummary])
+def list_versions(test_case_id: str):
+    """
+    Return the complete version history for a test case, newest first.
+
+    Each entry is a snapshot created at create/edit/rollback time.
+    History is append-only — no version is ever deleted.
+    """
+    tc = catalog_service.get_test_case(test_case_id)
+    if tc is None:
+        raise HTTPException(status_code=404, detail=f"Test case '{test_case_id}' not found")
+    return catalog_service.list_versions(test_case_id)
+
+
+@router.get("/{test_case_id}/versions/{version}", response_model=TestVersionDetail)
+def get_version(test_case_id: str, version: int):
+    """Return the full snapshot for a specific version number."""
+    v = catalog_service.get_version(test_case_id, version)
+    if v is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Version {version} not found for '{test_case_id}'",
+        )
+    return v
+
+
+@router.post("/{test_case_id}/rollback", response_model=RollbackResponse)
+def rollback_test_case(test_case_id: str, body: RollbackRequest):
+    """
+    Restore a test case to the content of a previous version.
+
+    Rollback CREATES a new version — it never deletes or overwrites history.
+
+    Example: TC-100 at v3. Rollback to v1 → creates v4 with v1's content.
+    Current version becomes v4.
+    """
+    try:
+        return catalog_service.rollback_test_case(
+            test_case_id,
+            body.version,
+            reason=body.reason,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.exception("rollback failed for %s", test_case_id)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/{test_case_id}", status_code=204)

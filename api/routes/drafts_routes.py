@@ -289,7 +289,11 @@ def approve_persistent_draft(draft_id: str):
             steps        = draft.steps,
             assertions   = draft.assertions,
         )
-        catalog_service.create_test_case(payload)
+        catalog_service.create_test_case(
+            payload,
+            source      = "draft",
+            change_note = f"Approved from draft {draft_id}",
+        )
     except Exception as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 

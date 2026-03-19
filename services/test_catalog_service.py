@@ -273,7 +273,13 @@ class TestCatalogService:
     def get_test_case(self, test_case_id: str) -> Optional[TestCase]:
         return catalog_repo.get_test_case(test_case_id)
 
-    def create_test_case(self, payload: TestCaseCreate) -> TestCase:
+    def create_test_case(
+        self,
+        payload: TestCaseCreate,
+        *,
+        source:      str = "manual",
+        change_note: str = "Initial version",
+    ) -> TestCase:
         if catalog_repo.get_test_case(payload.test_case_id) is not None:
             raise ValueError(
                 f"test_case_id '{payload.test_case_id}' already exists. "
@@ -294,8 +300,152 @@ class TestCatalogService:
             assertions   = [TestAssertion(**a) for a in payload.assertions],
         )
         catalog_repo.create_test_case(tc)
+        # Always snapshot v1 on creation
+        try:
+            from services.db.test_version_repository import test_version_repo
+            pass  # source / change_note come from the keyword arguments above
+            test_version_repo.snapshot(tc, version_number=1, source=source, change_note=change_note)
+        except Exception:
+            logger.warning("test_catalog: failed to snapshot v1 for %s (non-fatal)", tc.test_case_id)
         logger.info("test_catalog: created %s — %s", tc.test_case_id, tc.name)
         return tc
+
+    def update_test_case(
+        self,
+        test_case_id: str,
+        data: dict,
+        *,
+        source:      str = "manual",
+        change_note: str = "",
+    ) -> Optional[TestCase]:
+        """
+        Update mutable fields of an existing test case and create a new version snapshot.
+
+        *data* keys: name, module, type, priority, status, test_type,
+                     steps, assertions, tags, base_url.
+
+        Returns the updated TestCase, or None if not found.
+        The version counter in test_cases is incremented automatically.
+        """
+        current = catalog_repo.get_test_case(test_case_id)
+        if current is None:
+            return None
+
+        new_version_number = current.version + 1
+        data["version"] = new_version_number
+
+        # Coerce steps/assertions to plain dicts for storage
+        if "steps" in data and data["steps"] is not None:
+            data["steps"] = [
+                s.model_dump() if hasattr(s, "model_dump") else dict(s)
+                for s in data["steps"]
+            ]
+        if "assertions" in data and data["assertions"] is not None:
+            data["assertions"] = [
+                a.model_dump() if hasattr(a, "model_dump") else dict(a)
+                for a in data["assertions"]
+            ]
+
+        updated = catalog_repo.update_test_case(test_case_id, data)
+        if updated is None:
+            return None
+
+        try:
+            from services.db.test_version_repository import test_version_repo
+            test_version_repo.snapshot(
+                updated,
+                version_number = new_version_number,
+                source         = source,
+                change_note    = change_note or f"Updated to v{new_version_number}",
+            )
+        except Exception:
+            logger.warning("test_catalog: failed to snapshot v%s for %s (non-fatal)", new_version_number, test_case_id)
+
+        logger.info("test_catalog: updated %s → v%s", test_case_id, new_version_number)
+        return updated
+
+    def list_versions(self, test_case_id: str):
+        """Return all version snapshots for a test, newest first."""
+        from services.db.test_version_repository import test_version_repo
+        return test_version_repo.list_versions(test_case_id)
+
+    def get_version(self, test_case_id: str, version_number: int):
+        """Return a single version snapshot, or None."""
+        from services.db.test_version_repository import test_version_repo
+        return test_version_repo.get_version(test_case_id, version_number)
+
+    def rollback_test_case(
+        self,
+        test_case_id: str,
+        version_number: int,
+        reason: str = "",
+    ):
+        """
+        Restore a test case to the content of *version_number*.
+
+        Mechanics:
+          1. Fetch the target version snapshot.
+          2. Fetch the current HEAD test case.
+          3. Update HEAD with the snapshot's content, incrementing version counter.
+          4. Write a new snapshot with source="rollback" — history is preserved.
+
+        Returns RollbackResponse.
+        Raises ValueError if test or version not found.
+        """
+        from models.test_version_models import RollbackResponse
+        from services.db.test_version_repository import test_version_repo
+
+        target = test_version_repo.get_version(test_case_id, version_number)
+        if target is None:
+            raise ValueError(f"Version {version_number} not found for '{test_case_id}'")
+
+        current = catalog_repo.get_test_case(test_case_id)
+        if current is None:
+            raise ValueError(f"Test case '{test_case_id}' not found")
+
+        new_vnum = current.version + 1
+        change_note = reason or f"Rollback to v{version_number}"
+
+        data = dict(
+            name        = target.name,
+            module      = target.module,
+            type        = target.type,
+            priority    = target.priority,
+            status      = target.status,
+            test_type   = target.test_type,
+            steps       = target.steps,
+            assertions  = target.assertions,
+            tags        = target.tags,
+            base_url    = target.base_url,
+            version     = new_vnum,
+        )
+
+        updated = catalog_repo.update_test_case(test_case_id, data)
+        if updated is None:
+            raise RuntimeError(f"Failed to update '{test_case_id}' during rollback")
+
+        try:
+            test_version_repo.snapshot(
+                updated,
+                version_number = new_vnum,
+                source         = "rollback",
+                change_note    = change_note,
+            )
+        except Exception:
+            logger.warning("test_catalog: rollback snapshot failed for %s (non-fatal)", test_case_id)
+
+        logger.info(
+            "test_catalog: rollback %s v%s → restored from v%s → new v%s",
+            test_case_id, current.version, version_number, new_vnum,
+        )
+
+        return RollbackResponse(
+            ok                       = True,
+            test_case_id             = test_case_id,
+            rolled_back_from_version = version_number,
+            new_version              = new_vnum,
+            message                  = f"Rolled back to v{version_number} content. New version is v{new_vnum}. History preserved.",
+        )
 
     def delete_test_case(self, test_case_id: str) -> bool:
         ok = catalog_repo.delete_test_case(test_case_id)
