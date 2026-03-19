@@ -140,6 +140,27 @@ export default function PRAnalysisPage() {
         )}
       </div>
 
+      {/* Diff indicator */}
+      {prDiff && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 8,
+          marginBottom: 20, padding: "8px 14px",
+          background: "var(--accent-light)", borderRadius: "var(--r-sm)",
+          border: "1px solid var(--border)", fontSize: 12,
+        }}>
+          <span style={{ color: "var(--accent)", fontWeight: 700 }}>◎</span>
+          <span style={{ color: "var(--text-2)" }}>{t("pr.diff.loaded")}</span>
+          <span className="badge badge-gray" style={{ fontSize: 10 }}>
+            {(prDiff.length / 1000).toFixed(1)}k chars
+          </span>
+          {prDiff.length >= 15000 && (
+            <span className="badge badge-orange" style={{ fontSize: 10 }}>
+              {t("pr.diff.truncated")}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Form */}
       <div className="card" style={{ marginBottom: 20 }}>
         <div className="section-title">{t("pr.form.title")}</div>
