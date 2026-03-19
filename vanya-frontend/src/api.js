@@ -200,6 +200,9 @@ export const generateApiTests = (body) => apiPost("/api-testing/generate-tests",
 export const approveApiTests  = (body) => apiPost("/api-testing/approve",        body);
 export const runApiTests      = (body) => apiPost("/api-testing/run",            body);
 
+// ========= Run Analytics =========
+export const getRunsAnalytics = () => apiGet("/analytics/runs/dashboard");
+
 // ========= Coverage =========
 export const getCoverageSummary    = () => apiGet("/coverage/summary");
 export const generateCoverageTests = (module) => apiPost("/coverage/generate-tests", { module });

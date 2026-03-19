@@ -41,6 +41,7 @@ from api.routes.integrations_routes import router as integrations_router
 from api.routes.app_explorer_routes import router as app_explorer_router
 from api.routes.drafts_routes import router as drafts_router
 from api.routes.github_routes import router as github_router
+from api.routes.analytics_routes import router as analytics_router
 
 logger = logging.getLogger("vanya")
 
@@ -349,3 +350,4 @@ app.include_router(integrations_router)          # GET|POST /integrations, /inte
 app.include_router(app_explorer_router)          # GET /app-explorer/health, POST /app-explorer/explore
 app.include_router(drafts_router)                # POST /drafts/generate, POST /drafts/approve
 app.include_router(github_router)               # POST /github/pr/fetch
+app.include_router(analytics_router)           # GET /analytics/runs/dashboard

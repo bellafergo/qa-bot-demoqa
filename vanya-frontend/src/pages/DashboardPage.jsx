@@ -11,6 +11,7 @@ import {
   getDashboardRecentRuns,
   getDashboardRecentJobs,
   getFailureIntel,
+  getRunsAnalytics,
 } from "../api";
 import { useLang } from "../i18n/LangContext";
 
@@ -491,6 +492,7 @@ export default function DashboardPage() {
   const [recentRuns, setRecentRuns]   = useState([]);
   const [recentJobs, setRecentJobs]   = useState([]);
   const [fi, setFi]                   = useState(null);
+  const [analytics, setAnalytics]     = useState(null);
   const [loading, setLoading]         = useState(true);
   const [lastRefresh, setLastRefresh] = useState(null);
 
@@ -507,8 +509,9 @@ export default function DashboardPage() {
       setRecentJobs(Array.isArray(jobs) ? jobs : []);
       setLastRefresh(new Date());
 
-      // Failure intel is non-critical — load separately
+      // Non-critical — load separately so they don't block the main render
       getFailureIntel().then(f => setFi(f)).catch(() => {});
+      getRunsAnalytics().then(a => setAnalytics(a)).catch(() => {});
     } catch {
       // partial load is fine
     } finally {
@@ -710,6 +713,132 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Run Analytics ────────────────────────────────────────────────── */}
+      <div style={{ marginTop: 24 }}>
+        <div className="card" style={{ padding: "16px 20px" }}>
+          <div style={{ marginBottom: 14, display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <div>
+              <div className="section-title" style={{ margin: 0 }}>{t("dash.analytics.title")}</div>
+              <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>{t("dash.analytics.subtitle")}</div>
+            </div>
+          </div>
+
+          {!analytics && (
+            <div style={{ fontSize: 13, color: "var(--text-3)" }}>
+              {loading ? t("dash.analytics.loading") : t("dash.analytics.empty")}
+            </div>
+          )}
+
+          {analytics && (
+            <>
+              {/* Summary mini-KPIs */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10, marginBottom: 20 }}>
+                {[
+                  { label: t("dash.analytics.runs_7d"),      value: analytics.summary.runs_last_7_days },
+                  { label: t("dash.analytics.runs_30d"),     value: analytics.summary.runs_last_30_days },
+                  { label: t("dash.analytics.pass_rate"),    value: `${analytics.summary.pass_rate}%`,
+                    accent: analytics.summary.pass_rate >= 80 ? "var(--green)" : "var(--orange)" },
+                  { label: t("dash.analytics.avg_duration"), value: fmtMs(analytics.summary.avg_duration_ms) },
+                ].map(({ label, value, accent }) => (
+                  <div key={label} style={{
+                    background: "var(--surface-2, var(--bg))",
+                    border: "1px solid var(--border)",
+                    borderRadius: 6,
+                    padding: "8px 12px",
+                    textAlign: "center",
+                  }}>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: accent || "var(--text)", lineHeight: 1.1, marginBottom: 4 }}>
+                      {value ?? "—"}
+                    </div>
+                    <div style={{ fontSize: 10, color: "var(--text-3)", lineHeight: 1.2 }}>{label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Two-column: top failures + 7-day trend */}
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(0,3fr) minmax(0,2fr)", gap: 20 }}>
+
+                {/* Top Failing Tests */}
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-2)", marginBottom: 8 }}>
+                    {t("dash.analytics.top_failures")}
+                  </div>
+                  {analytics.top_failures.length === 0 ? (
+                    <div style={{ fontSize: 12, color: "var(--text-3)", fontStyle: "italic" }}>
+                      {t("dash.analytics.no_failures")}
+                    </div>
+                  ) : (
+                    <table className="data-table" style={{ fontSize: 12 }}>
+                      <thead><tr>
+                        <th>{t("dash.analytics.col.test")}</th>
+                        <th style={{ width: 54, textAlign: "right" }}>{t("dash.analytics.col.runs")}</th>
+                        <th style={{ width: 64, textAlign: "right" }}>{t("dash.analytics.col.failures")}</th>
+                        <th style={{ width: 76, textAlign: "right" }}>{t("dash.analytics.col.pass_rate")}</th>
+                      </tr></thead>
+                      <tbody>
+                        {analytics.top_failures.slice(0, 7).map(tf => (
+                          <tr key={tf.test_case_id}>
+                            <td>
+                              <div style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-2)" }}>{tf.test_case_id}</div>
+                              {tf.test_name !== tf.test_case_id && (
+                                <div style={{ fontSize: 10, color: "var(--text-3)", marginTop: 1 }}>{tf.test_name}</div>
+                              )}
+                            </td>
+                            <td style={{ textAlign: "right" }}>{tf.total_runs}</td>
+                            <td style={{ textAlign: "right" }}>
+                              <span style={{ color: "var(--red)", fontWeight: 700 }}>{tf.failed_runs}</span>
+                            </td>
+                            <td style={{ textAlign: "right" }}>
+                              <span style={{ color: tf.pass_rate >= 80 ? "var(--green)" : "var(--orange)", fontWeight: 600 }}>
+                                {tf.pass_rate}%
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+
+                {/* 7-day daily trend */}
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-2)", marginBottom: 8 }}>
+                    {t("dash.analytics.trend_7d")}
+                  </div>
+                  <table className="data-table" style={{ fontSize: 12 }}>
+                    <thead><tr>
+                      <th>{t("dash.analytics.col.date")}</th>
+                      <th style={{ width: 48, textAlign: "right" }}>{t("dash.analytics.col.total")}</th>
+                      <th style={{ width: 76, textAlign: "right" }}>{t("dash.analytics.col.pass_rate")}</th>
+                    </tr></thead>
+                    <tbody>
+                      {[...analytics.trend].reverse().map(pt => (
+                        <tr key={pt.date}>
+                          <td style={{ fontFamily: "monospace", fontSize: 11 }}>{pt.date}</td>
+                          <td style={{ textAlign: "right" }}>{pt.total}</td>
+                          <td style={{ textAlign: "right" }}>
+                            {pt.pass_rate != null ? (
+                              <span style={{ color: pt.pass_rate >= 80 ? "var(--green)" : pt.total > 0 ? "var(--orange)" : "var(--text-3)", fontWeight: 600 }}>
+                                {pt.total > 0 ? `${pt.pass_rate}%` : "—"}
+                              </span>
+                            ) : (
+                              <span style={{ color: "var(--text-3)" }}>—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+    </div>
     </div>
   );
 }
