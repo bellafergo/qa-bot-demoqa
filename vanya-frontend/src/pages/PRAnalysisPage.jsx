@@ -315,7 +315,7 @@ export default function PRAnalysisPage() {
                         {id}
                       </span>
                       <span style={{ fontSize: 10, color: "var(--accent)", background: "var(--accent-light)", borderRadius: 3, padding: "1px 6px", whiteSpace: "nowrap" }}>
-                        matched
+                        {t("pr.test.suggested")}
                       </span>
                     </div>
                     {result.test_match_reasons?.[id] && (
