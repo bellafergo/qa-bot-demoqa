@@ -39,6 +39,7 @@ export default function PRAnalysisPage() {
   const [prUrl, setPrUrl]           = useState("");
   const [fetching, setFetching]     = useState(false);
   const [fetchError, setFetchError] = useState("");
+  const [prDiff, setPrDiff]         = useState("");
 
   function set(key, val) { setForm(f => ({ ...f, [key]: val })); }
 
@@ -56,6 +57,7 @@ export default function PRAnalysisPage() {
         pr_id:         pr.pr_id        || "",
         changed_files: (pr.changed_files || []).join("\n"),
       });
+      setPrDiff(pr.diff || "");
       setResult(null);
       setEnqueueResult(null);
     } catch (e) {
@@ -78,6 +80,7 @@ export default function PRAnalysisPage() {
         branch:         form.branch      || undefined,
         pr_id:          form.pr_id       || undefined,
         changed_files:  form.changed_files.split(/[\n,]+/).map(s => s.trim()).filter(Boolean),
+        diff_text:      prDiff           || undefined,
         generate_draft_tests: generateDrafts,
       };
       const r = await analyzePR(body);

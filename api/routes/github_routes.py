@@ -33,12 +33,15 @@ class PRFetchRequest(BaseModel):
     url: str
 
 
+_DIFF_MAX_CHARS = 15_000
+
 class PRFetchResult(BaseModel):
     title: str
     description: str
     branch: str
     pr_id: str
     changed_files: List[str]
+    diff: str = ""
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -111,6 +114,15 @@ def fetch_pr(body: PRFetchRequest):
                 )
             pr = pr_res.json()
 
+            # ── Diff (raw patch, truncated to _DIFF_MAX_CHARS) ───────────────
+            diff_text = ""
+            diff_res = client.get(
+                f"{_GITHUB_API}/repos/{owner}/{repo}/pulls/{number}",
+                headers={**headers, "Accept": "application/vnd.github.v3.diff"},
+            )
+            if diff_res.is_success:
+                diff_text = diff_res.text[:_DIFF_MAX_CHARS]
+
             # ── Changed files (paginated until exhausted, 100/page) ──────────
             changed_files: List[str] = []
             page = 1
@@ -147,4 +159,5 @@ def fetch_pr(body: PRFetchRequest):
         branch        = (pr.get("head") or {}).get("ref") or "",
         pr_id         = str(pr.get("number") or number),
         changed_files = changed_files,
+        diff          = diff_text,
     )
