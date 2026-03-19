@@ -211,6 +211,7 @@ export const saveCoverageDrafts    = (module, suggestions) => apiPost("/coverage
 // ========= Failure Intelligence =========
 export const getFailureIntel = () => apiGet("/failure-intelligence/summary");
 export const getFlakyTests   = () => apiGet("/failure-intelligence/flaky-tests");
+export const getRegressions  = () => apiGet("/failure-intelligence/regressions");
 export const getClusters     = () => apiGet("/failure-intelligence/clusters");
 export const getRunClusters  = (limit = 50) => apiGet(`/failure-intelligence/run-clusters?limit=${limit}`);
 
