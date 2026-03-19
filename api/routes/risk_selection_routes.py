@@ -16,6 +16,8 @@ from models.risk_selection_models import (
     RiskSelectionRequest,
     RiskSelectionResult,
     SelectAndRunResult,
+    SuggestModulesRequest,
+    SuggestModulesResult,
 )
 from services.risk_selection_service import risk_selection_service
 
@@ -36,6 +38,25 @@ def select_tests(req: RiskSelectionRequest):
     Returns up to max_tests ranked tests with selection scores and reasons.
     """
     return risk_selection_service.select(req)
+
+
+@router.post("/suggest-modules", response_model=SuggestModulesResult)
+def suggest_modules(req: SuggestModulesRequest):
+    """
+    Derive real catalog module names from PR signals.
+
+    Accepts:
+      - inferred_modules: domain-level names already extracted by PR Analysis
+        (e.g. ["auth", "checkout"])
+      - changed_files: raw file paths from the PR diff
+        (e.g. ["src/auth/login.py", "src/checkout/cart.py"])
+
+    Returns:
+      - suggested_modules: catalog module names that matched (e.g. ["HEROKUAPP-LOGIN"])
+      - matched_files:     [{file, matched_module}] — per-file breakdowns
+      - unmatched_files:   files with no catalog module match
+    """
+    return risk_selection_service.suggest_modules(req)
 
 
 @router.post("/select-and-run", response_model=SelectAndRunResult)

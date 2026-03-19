@@ -39,3 +39,24 @@ class SelectAndRunResult(BaseModel):
     selection:            RiskSelectionResult
     orchestrator_job_id:  Optional[str] = None
     enqueued:             bool          = False
+
+
+# ── Module suggestion models ───────────────────────────────────────────────────
+
+class SuggestModulesRequest(BaseModel):
+    """Request to derive catalog module names from PR signals."""
+    inferred_modules: List[str] = Field(default_factory=list)  # domain names from PR analysis
+    changed_files:    List[str] = Field(default_factory=list)  # raw file paths from the PR
+
+
+class ModuleMatch(BaseModel):
+    """A single file-to-catalog-module mapping."""
+    file:           str
+    matched_module: str
+
+
+class SuggestModulesResult(BaseModel):
+    """Result of mapping PR signals to real catalog module names."""
+    suggested_modules: List[str]         = Field(default_factory=list)
+    matched_files:     List[ModuleMatch] = Field(default_factory=list)
+    unmatched_files:   List[str]         = Field(default_factory=list)

@@ -5,7 +5,7 @@
  * POST /risk-selection/select-tests | POST /risk-selection/select-and-run
  */
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { selectTests, selectAndRun } from "../api";
 import { useLang } from "../i18n/LangContext";
 
@@ -41,24 +41,32 @@ function ScoreBar({ score, max = 25 }) {
 
 export default function RiskSelectionPage() {
   const { t } = useLang();
-  const navigate = useNavigate();
+  const navigate  = useNavigate();
+  const location  = useLocation();
 
-  // Form
-  const [modules, setModules]     = useState("");
-  const [maxTests, setMaxTests]   = useState(20);
-  const [priority, setPriority]   = useState("");
+  // Read prefill from navigation state (e.g. arriving from PR Analysis)
+  const navState      = location.state || {};
+  const prefillMods   = Array.isArray(navState.modules) && navState.modules.length
+    ? navState.modules.join(", ")
+    : "";
+  const fromPR        = !!navState.fromPR;
+
+  // Form — initialize with prefill if available
+  const [modules, setModules]   = useState(prefillMods);
+  const [maxTests, setMaxTests] = useState(20);
+  const [priority, setPriority] = useState("");
 
   // Results
-  const [result, setResult]           = useState(null);
-  const [loading, setLoading]         = useState(false);
-  const [error, setError]             = useState("");
+  const [result, setResult]         = useState(null);
+  const [loading, setLoading]       = useState(false);
+  const [error, setError]           = useState("");
 
   // Select & Run
-  const [runLoading, setRunLoading]   = useState(false);
-  const [runResult, setRunResult]     = useState(null);
-  const [runError, setRunError]       = useState("");
+  const [runLoading, setRunLoading] = useState(false);
+  const [runResult, setRunResult]   = useState(null);
+  const [runError, setRunError]     = useState("");
 
-  // Load default selection on mount (no filters)
+  // Auto-trigger on mount — if prefill present, will use those modules automatically
   useEffect(() => {
     handleSelect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -113,6 +121,20 @@ export default function RiskSelectionPage() {
       <div style={{ marginBottom: 24 }}>
         <h1 className="page-title">{t("risk.title")}</h1>
         <p className="page-subtitle">{t("risk.subtitle")}</p>
+        {fromPR && prefillMods && (
+          <div style={{
+            display: "inline-flex", alignItems: "center", gap: 8,
+            marginTop: 10, padding: "6px 12px",
+            background: "var(--accent-light)", borderRadius: "var(--r-sm)",
+            border: "1px solid var(--accent-border)", fontSize: 12,
+          }}>
+            <span style={{ color: "var(--accent)", fontWeight: 700 }}>◎</span>
+            <span style={{ color: "var(--text-2)" }}>{t("risk.prefill.hint")}</span>
+            {navState.prTitle && (
+              <span className="badge badge-gray" style={{ fontSize: 10 }}>{navState.prTitle}</span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Filter form */}

@@ -24,11 +24,16 @@ from __future__ import annotations
 import logging
 from typing import Dict, List, Optional, Set, Tuple
 
+import re
+
 from models.risk_selection_models import (
+    ModuleMatch,
     RiskSelectionRequest,
     RiskSelectionResult,
     SelectedTest,
     SelectAndRunResult,
+    SuggestModulesRequest,
+    SuggestModulesResult,
 )
 
 logger = logging.getLogger("vanya.risk_selection")
@@ -212,6 +217,63 @@ class RiskSelectionService:
         except Exception:
             logger.exception("risk_selection: enqueue_suite failed")
             return SelectAndRunResult(selection=selection, enqueued=False)
+
+
+    def suggest_modules(self, req: SuggestModulesRequest) -> SuggestModulesResult:
+        """
+        Map PR signals (inferred domain names + changed file paths) to real
+        catalog module names using case-insensitive substring matching.
+
+        Logic (deterministic, no ML):
+          1. For each catalog module, check if any inferred domain name is a
+             substring of the module name, or vice-versa.
+          2. For each changed file path, extract meaningful tokens (≥4 chars),
+             then check if any token appears in a catalog module name.
+        """
+        from services.db.catalog_repository import catalog_repo
+
+        # Unique catalog module names (de-duplicated, non-empty)
+        all_pairs = catalog_repo.all_modules()          # [(test_case_id, module), ...]
+        catalog_modules: List[str] = sorted({m for _, m in all_pairs if m and m.strip()})
+
+        suggested: set = set()
+
+        # 1. Match inferred domain names against catalog module names (bidirectional substring)
+        for domain in req.inferred_modules:
+            d = domain.strip().lower()
+            if not d:
+                continue
+            for cat_mod in catalog_modules:
+                cat_l = cat_mod.lower()
+                if d in cat_l or cat_l in d:
+                    suggested.add(cat_mod)
+
+        # 2. Match changed file path tokens against catalog module names
+        matched_files: List[ModuleMatch] = []
+        unmatched_files: List[str] = []
+
+        for f in req.changed_files:
+            # Extract tokens: split on path separators, dots, underscores, hyphens
+            tokens = [t.lower() for t in re.split(r"[/\\._ -]", f) if len(t) >= 4]
+            file_matched = False
+            for cat_mod in catalog_modules:
+                cat_l = cat_mod.lower()
+                for token in tokens:
+                    if token in cat_l or cat_l in token:
+                        suggested.add(cat_mod)
+                        matched_files.append(ModuleMatch(file=f, matched_module=cat_mod))
+                        file_matched = True
+                        break
+                if file_matched:
+                    break
+            if not file_matched:
+                unmatched_files.append(f)
+
+        return SuggestModulesResult(
+            suggested_modules=sorted(suggested),
+            matched_files=matched_files,
+            unmatched_files=unmatched_files,
+        )
 
 
 # ── Module-level singleton ────────────────────────────────────────────────────

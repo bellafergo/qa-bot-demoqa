@@ -91,6 +91,8 @@ export const translations = {
     "risk.error.select":        "Failed to load recommended tests.",
     "risk.error.run":           "Failed to enqueue selected tests.",
 
+    "risk.prefill.hint":        "Modules prefilled from PR Analysis",
+
     // ── Layout page headers ─────────────────────────────────────────────────
     "layout.chat.title":          "AI Chat",
     "layout.chat.subtitle":       "Intelligent QA assistant",
@@ -748,6 +750,9 @@ export const translations = {
     "pr.save_drafts.batch_failed":    "failed",
     "pr.save_drafts.open":            "Open Drafts",
 
+    "pr.send_risk.btn":               "→ Risk Selection",
+    "pr.send_risk.no_modules":        "No modules detected — analyze a PR first",
+
     // ── Coverage page ────────────────────────────────────────────────────────
     "cov.kpi.overall":        "Overall Coverage",
     "cov.kpi.modules":        "Modules Covered",
@@ -1032,6 +1037,8 @@ export const translations = {
     "risk.run.not_enqueued":    "Pruebas seleccionadas pero no encoladas — revisa los logs del backend.",
     "risk.error.select":        "Error al cargar pruebas recomendadas.",
     "risk.error.run":           "Error al encolar las pruebas seleccionadas.",
+
+    "risk.prefill.hint":        "Módulos prellenados desde PR Analysis",
 
     // ── Layout page headers ─────────────────────────────────────────────────
     "layout.chat.title":          "Chat IA",
@@ -1689,6 +1696,9 @@ export const translations = {
     "pr.save_drafts.saved":           "drafts guardados",
     "pr.save_drafts.batch_failed":    "fallidos",
     "pr.save_drafts.open":            "Ver Drafts",
+
+    "pr.send_risk.btn":               "→ Selección por Riesgo",
+    "pr.send_risk.no_modules":        "Sin módulos detectados — analiza un PR primero",
 
     // ── Coverage page ────────────────────────────────────────────────────────
     "cov.kpi.overall":        "Cobertura General",

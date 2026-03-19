@@ -7,7 +7,7 @@
  */
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { analyzePR, runBatch, fetchGithubPR, batchSaveDrafts } from "../api";
+import { analyzePR, runBatch, fetchGithubPR, batchSaveDrafts, suggestModules } from "../api";
 import { useLang } from "../i18n/LangContext";
 
 function RiskBadge({ level }) {
@@ -37,6 +37,9 @@ export default function PRAnalysisPage() {
 
   const [savingDrafts, setSavingDrafts]   = useState(false);
   const [saveDraftsResult, setSaveDraftsResult] = useState(null); // { count } | { error }
+
+  // Risk Selection bridge
+  const [sendingRisk, setSendingRisk] = useState(false);
 
   // GitHub fetch
   const [prUrl, setPrUrl]           = useState("");
@@ -116,6 +119,42 @@ export default function PRAnalysisPage() {
       setSaveDraftsResult({ error: e?.message || "Save failed" });
     } finally {
       setSavingDrafts(false);
+    }
+  }
+
+  async function handleSendToRisk() {
+    const inferredModules = result?.inferred_modules || [];
+    const changedFiles = form.changed_files.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+
+    setSendingRisk(true);
+    try {
+      // Resolve inferred domain names to real catalog module names
+      const suggestion = await suggestModules({
+        inferred_modules: inferredModules,
+        changed_files:    changedFiles,
+      });
+      const modules = suggestion.suggested_modules?.length
+        ? suggestion.suggested_modules
+        : inferredModules;   // fallback: pass domain names directly (substring matching will handle them)
+      navigate("/risk-selection", {
+        state: {
+          modules,
+          fromPR:     true,
+          prTitle:    form.title || undefined,
+          prBranch:   form.branch || undefined,
+        },
+      });
+    } catch {
+      // If suggest-modules fails, navigate with raw inferred modules as fallback
+      navigate("/risk-selection", {
+        state: {
+          modules:  result?.inferred_modules || [],
+          fromPR:   true,
+          prTitle:  form.title || undefined,
+        },
+      });
+    } finally {
+      setSendingRisk(false);
     }
   }
 
@@ -257,12 +296,26 @@ export default function PRAnalysisPage() {
                 <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
                   {t("pr.result.inferred_modules")}
                 </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
                   {result.inferred_modules?.length
                     ? result.inferred_modules.map(m => <span key={m} className="badge badge-blue">{m}</span>)
                     : <span style={{ color: "var(--text-3)", fontSize: 12 }}>{t("pr.result.none_detected")}</span>
                   }
                 </div>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={handleSendToRisk}
+                  disabled={sendingRisk || !result.inferred_modules?.length}
+                  title={result.inferred_modules?.length ? undefined : t("pr.send_risk.no_modules")}
+                  style={{ fontSize: 11 }}
+                >
+                  {sendingRisk ? "…" : t("pr.send_risk.btn")}
+                </button>
+                {!result.inferred_modules?.length && (
+                  <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 4, fontStyle: "italic" }}>
+                    {t("pr.send_risk.no_modules")}
+                  </div>
+                )}
               </div>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
