@@ -299,14 +299,27 @@ export default function PRAnalysisPage() {
             )}
 
             {result.matched_test_case_ids?.length > 0 ? (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
                 {result.matched_test_case_ids.map(id => (
-                  <div key={id} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                    <span style={{ fontFamily: "monospace", fontSize: 11, background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 4, padding: "2px 8px", color: "var(--text-2)" }}>
-                      {id}
-                    </span>
+                  <div key={id} style={{
+                    background: "var(--surface)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 6,
+                    padding: "10px 12px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 5,
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+                      <span style={{ fontFamily: "monospace", fontSize: 12, fontWeight: 600, color: "var(--text-1)" }}>
+                        {id}
+                      </span>
+                      <span style={{ fontSize: 10, color: "var(--accent)", background: "var(--accent-light)", borderRadius: 3, padding: "1px 6px", whiteSpace: "nowrap" }}>
+                        matched
+                      </span>
+                    </div>
                     {result.test_match_reasons?.[id] && (
-                      <span style={{ fontSize: 11, color: "var(--text-3)", paddingLeft: 4, marginTop: 2 }}>
+                      <span style={{ fontSize: 11, color: "var(--text-3)", lineHeight: 1.5 }}>
                         {result.test_match_reasons[id]}
                       </span>
                     )}
