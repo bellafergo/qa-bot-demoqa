@@ -683,36 +683,40 @@ def handle_execute_mode(
 
     # 2) LLM fallback para steps (más acotado)
     if not steps:
-        client = _client()
-        resp = client.chat.completions.create(
-            model=settings.OPENAI_MODEL,
-            messages=messages
-            + [
-                {
-                    "role": "user",
-                    "content": (
-                        f"Base URL: {base_url}\n"
-                        f"User request:\n{prompt}\n\n"
-                        "Generate Playwright steps using ONLY these actions:\n"
-                        "- goto(url)\n- click(selector)\n- fill(selector,value)\n- press(selector,key)\n"
-                        "- wait_ms(ms)\n- assert_visible(selector)\n- assert_not_visible(selector)\n"
-                        "- assert_url_contains(value)\n- assert_text_contains(selector,text)\n\n"
-                        "IMPORTANT selector rules:\n"
-                        "- For fill/click/press: use the element's visible label or placeholder text as selector, "
-                        "NOT invented CSS classes. Examples: 'username', 'password', 'Login', 'Email address'.\n"
-                        "- For assert_text_contains: use selector='body' and text='the expected text'.\n"
-                        "- Never invent CSS selectors like '.some-class' or '#made-up-id' that you cannot verify exist.\n"
-                        "- Only use CSS selectors like '#id' or '[name=x]' if you are certain they exist on the page.\n\n"
-                        'Return ONLY valid JSON: {"steps":[{"action":"goto","url":"..."}, ...]}\n'
-                        "No commentary."
-                    ),
-                }
-            ],
-            temperature=settings.EXEC_TEMPERATURE,
-            max_tokens=settings.EXEC_MAX_TOKENS,
-        )
-        raw = (resp.choices[0].message.content or "").strip()
-        steps = H.extract_steps_from_text(raw)
+        try:
+            client = _client()
+            resp = client.chat.completions.create(
+                model=settings.OPENAI_MODEL,
+                messages=messages
+                + [
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Base URL: {base_url}\n"
+                            f"User request:\n{prompt}\n\n"
+                            "Generate Playwright steps using ONLY these actions:\n"
+                            "- goto(url)\n- click(selector)\n- fill(selector,value)\n- press(selector,key)\n"
+                            "- wait_ms(ms)\n- assert_visible(selector)\n- assert_not_visible(selector)\n"
+                            "- assert_url_contains(value)\n- assert_text_contains(selector,text)\n\n"
+                            "IMPORTANT selector rules:\n"
+                            "- For fill/click/press: use the element's visible label or placeholder text as selector, "
+                            "NOT invented CSS classes. Examples: 'username', 'password', 'Login', 'Email address'.\n"
+                            "- For assert_text_contains: use selector='body' and text='the expected text'.\n"
+                            "- Never invent CSS selectors like '.some-class' or '#made-up-id' that you cannot verify exist.\n"
+                            "- Only use CSS selectors like '#id' or '[name=x]' if you are certain they exist on the page.\n\n"
+                            'Return ONLY valid JSON: {"steps":[{"action":"goto","url":"..."}, ...]}\n'
+                            "No commentary."
+                        ),
+                    }
+                ],
+                temperature=settings.EXEC_TEMPERATURE,
+                max_tokens=settings.EXEC_MAX_TOKENS,
+            )
+            raw = (resp.choices[0].message.content or "").strip()
+            steps = H.extract_steps_from_text(raw)
+        except Exception:
+            logger.exception("LLM fallback for steps failed — falling through to 'no steps' response")
+            steps = None
 
     if not steps:
         answer = "I couldn't generate executable steps. Tell me the exact element (selector) or expected text."
