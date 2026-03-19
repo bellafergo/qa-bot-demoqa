@@ -183,6 +183,73 @@ class CoverageService:
 
         return results
 
+    def generate_tests_for_gaps(self, module: str):
+        """
+        Generate draft test suggestions based on coverage gaps for a module.
+
+        Reuses _DRAFT_TEMPLATES from pr_analysis_service (keyed by domain/module).
+        Falls back to a generic smoke test when no template is found.
+        Never modifies the catalog.
+        """
+        from models.coverage_models import CoverageTestGenerationResponse
+        from models.pr_analysis_models import DraftTestSuggestion
+        from services.pr_analysis_service import _DRAFT_TEMPLATES
+
+        result   = self.get_module_coverage(module)
+        mod_key  = module.lower().strip()
+        templates = _DRAFT_TEMPLATES.get(mod_key, [])
+
+        # Derive a brief gap signal for source_signal
+        gap_signal = (
+            result.recommendations[0]
+            if result.recommendations
+            else f"coverage gap in {module}"
+        )
+
+        suggestions: List[DraftTestSuggestion] = []
+
+        for tmpl in templates:
+            suggestions.append(DraftTestSuggestion(
+                name                 = tmpl["name"],
+                module               = module,
+                rationale            = tmpl["rationale"],
+                suggested_steps      = list(tmpl.get("suggested_steps", [])),
+                suggested_assertions = list(tmpl.get("suggested_assertions", [])),
+                source_signal        = f"coverage gap: {gap_signal[:80]}",
+                confidence           = tmpl.get("confidence", "medium"),
+            ))
+
+        # Generic fallback when no domain template exists
+        if not suggestions:
+            suggestions.append(DraftTestSuggestion(
+                name                 = f"{module} — basic smoke test",
+                module               = module,
+                rationale            = (
+                    f"No templates found for module '{module}'. "
+                    "Add a smoke test to establish a baseline."
+                ),
+                suggested_steps      = [
+                    {"action": "goto",    "value": f"{{{{base_url}}}}/{mod_key}"},
+                    {"action": "wait_ms", "ms": 1000},
+                ],
+                suggested_assertions = [
+                    {"type": "url_contains", "value": f"/{mod_key}"},
+                ],
+                source_signal        = "coverage gap: no tests registered",
+                confidence           = "low",
+            ))
+
+        logger.info(
+            "coverage: generated %d draft suggestion(s) for module '%s' (score=%.0f%%)",
+            len(suggestions), module, result.coverage_score * 100,
+        )
+
+        return CoverageTestGenerationResponse(
+            module          = module,
+            gap_summary     = result.recommendations,
+            suggested_tests = [s.model_dump() for s in suggestions],
+        )
+
     def get_module_coverage(self, module: str) -> CoverageResult:
         """Return coverage metrics for a specific module."""
         tc_by_module, tc_types, latest_status = self._load_data(module=module)

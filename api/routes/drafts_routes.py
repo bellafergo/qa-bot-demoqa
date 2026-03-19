@@ -31,6 +31,7 @@ from models.draft_models import (
     DraftBatchResult,
     DraftCreate,
     DraftUpdate,
+    SuggestAssertionsResponse,
 )
 from services.db.draft_repository import draft_repo
 
@@ -135,6 +136,126 @@ def delete_draft(draft_id: str):
     if not draft_repo.delete_draft(draft_id):
         raise HTTPException(status_code=404, detail=f"Draft {draft_id} not found")
     return {"deleted": True, "draft_id": draft_id}
+
+
+def _template_assertion_to_runner(a: dict):
+    """
+    Convert a TestGenerationService template assertion (type/target/value)
+    to the runner format (action/selector/value/text).
+
+    Supported runner assertion types (generic_steps.py):
+      assert_url_contains  { action, value }
+      assert_visible       { action, selector }
+      assert_not_visible   { action, selector }
+      assert_text_contains { action, selector?, text }
+    """
+    t = (a.get("type") or "").lower()
+    if t == "url_contains":
+        v = a.get("value") or ""
+        return {"action": "assert_url_contains", "value": v} if v else None
+    if t in ("text_visible", "text_contains"):
+        v = a.get("value") or ""
+        return {"action": "assert_text_contains", "selector": "body", "text": v} if v else None
+    if t == "element_visible":
+        target = a.get("target") or a.get("selector") or ""
+        return {"action": "assert_visible", "selector": target} if target else None
+    if t == "element_not_visible":
+        target = a.get("target") or a.get("selector") or ""
+        return {"action": "assert_not_visible", "selector": target} if target else None
+    return None
+
+
+@router.post("/{draft_id}/suggest-assertions", response_model=SuggestAssertionsResponse)
+def suggest_draft_assertions(draft_id: str):
+    """
+    Suggest QA assertions for a draft using domain-pattern templates.
+
+    Approach:
+      1. Build a text signal from the draft's name, module, rationale, and steps.
+      2. Detect which QA domains (auth, checkout, forms, …) the signal matches.
+      3. Pull template assertions for those domains and convert to runner format.
+      4. Deduplicate against the draft's existing assertions.
+      5. Return at most 3 new assertions.
+
+    This endpoint is deterministic (no LLM call) — it is fast and token-free.
+    Confidence reflects how well the domain was detected.
+    """
+    draft = draft_repo.get_draft(draft_id)
+    if not draft:
+        raise HTTPException(status_code=404, detail=f"Draft {draft_id} not found")
+
+    try:
+        import json
+        from services.test_generation_service import (
+            _DOMAIN_PRIORITY,
+            _TEMPLATES,
+            _detect_domains,
+        )
+
+        # Build a composite signal from all draft text
+        step_text = " ".join(
+            " ".join(str(v) for v in s.values())
+            for s in (draft.steps or [])
+        )
+        signal = " ".join(filter(None, [
+            draft.name, draft.module, draft.rationale, step_text,
+        ]))
+
+        detected = _detect_domains(signal)
+        domains  = sorted(
+            detected,
+            key=lambda d: _DOMAIN_PRIORITY.index(d) if d in _DOMAIN_PRIORITY else 999,
+        )
+
+        # Collect raw template assertions (max 2 domains, deduplicated by JSON key)
+        raw: list = []
+        seen_raw: set = set()
+        for domain in (domains or ["_generic"])[:2]:
+            for tmpl in _TEMPLATES.get(domain, []):
+                for a in tmpl.get("assertions", []):
+                    k = json.dumps(a, sort_keys=True)
+                    if k not in seen_raw:
+                        seen_raw.add(k)
+                        raw.append(a)
+
+        if not raw:
+            for tmpl in _TEMPLATES["_generic"]:
+                for a in tmpl.get("assertions", []):
+                    k = json.dumps(a, sort_keys=True)
+                    if k not in seen_raw:
+                        seen_raw.add(k)
+                        raw.append(a)
+
+        # Convert to runner format
+        converted = [r for a in raw if (r := _template_assertion_to_runner(a))]
+
+        # Deduplicate against existing draft assertions
+        def _akey(a: dict) -> str:
+            return f"{a.get('action')}:{a.get('selector','')}:{a.get('value','')}:{a.get('text','')}"
+
+        existing_keys = {_akey(a) for a in (draft.assertions or [])}
+        new_assertions = [a for a in converted if _akey(a) not in existing_keys][:3]
+
+        confidence = "high" if len(domains) >= 1 else "low"
+        rationale  = (
+            f"Assertions based on {', '.join(domains[:2])} domain patterns."
+            if domains else
+            "No specific domain detected — using generic assertion patterns."
+        )
+
+        return SuggestAssertionsResponse(
+            draft_id             = draft_id,
+            suggested_assertions = new_assertions,
+            rationale            = rationale,
+            confidence           = confidence,
+        )
+
+    except Exception as exc:
+        logger.warning("suggest-assertions: failed for %s — %s", draft_id, exc)
+        return SuggestAssertionsResponse(
+            draft_id = draft_id,
+            note     = f"Suggestion unavailable: {type(exc).__name__}: {exc}",
+        )
 
 
 @router.post("/{draft_id}/approve", response_model=DraftApproveResponse)

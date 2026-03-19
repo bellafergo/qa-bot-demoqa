@@ -4,7 +4,7 @@ Pydantic models for the Coverage Intelligence layer.
 """
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -33,6 +33,18 @@ class CoverageSummaryResponse(BaseModel):
     modules:                     List[CoverageModuleSummary] = Field(default_factory=list)
     discovered_pages:            List[str]                  = Field(default_factory=list)
     uncovered_flow_suggestions:  List                       = Field(default_factory=list)
+
+
+class CoverageTestGenerationRequest(BaseModel):
+    """Input for POST /coverage/generate-tests."""
+    module: str
+
+
+class CoverageTestGenerationResponse(BaseModel):
+    """Draft test suggestions generated from coverage gaps for a module."""
+    module:         str
+    gap_summary:    List[str]      = Field(default_factory=list)   # from recommendations
+    suggested_tests: List[Any]     = Field(default_factory=list)   # List[DraftTestSuggestion]
 
 
 class CoverageResult(BaseModel):

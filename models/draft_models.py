@@ -64,6 +64,16 @@ class AISuggestResponse(BaseModel):
     note:                   str                      = ""
 
 
+# ── Suggest assertions ────────────────────────────────────────────────────────
+
+class SuggestAssertionsResponse(BaseModel):
+    draft_id:              str
+    suggested_assertions:  List[Dict[str, Any]] = Field(default_factory=list)
+    rationale:             str                  = ""
+    confidence:            str                  = "medium"
+    note:                  str                  = ""
+
+
 # ── Batch create ───────────────────────────────────────────────────────────────
 
 class DraftBatchCreate(BaseModel):

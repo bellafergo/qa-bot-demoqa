@@ -1,7 +1,9 @@
 // src/pages/DraftsPage.jsx
 import React, { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { generateTests, approveTests, generateDrafts, generateDraftsFromPages, approveDrafts, listTests, runSuite, exploreApp,
   listSavedDrafts, createSavedDraft, updateSavedDraft, deleteSavedDraft, approveSavedDraft, aiSuggestDraft,
+  batchSaveDrafts, suggestDraftAssertions,
 } from "../api";
 import { useLang } from "../i18n/LangContext";
 
@@ -30,6 +32,96 @@ function ReasonBadge({ r }) {
     links_detected:          t("drafts.reason.navigation"),
   };
   return <span className="badge badge-blue">{labels[r] || r}</span>;
+}
+
+// ── Explorer draft → DraftCreate mapping ─────────────────────────────────────
+
+const EXPLORER_REASON_LABELS = {
+  form_detected:           "Form submission flow detected",
+  required_field_detected: "Required field validation",
+  search_button_detected:  "Search functionality",
+  links_detected:          "Navigation smoke test",
+};
+
+function deriveModuleFromUrl(url) {
+  if (!url) return "explorer";
+  try {
+    const seg = new URL(url).pathname.split("/").filter(Boolean)[0];
+    return seg || "explorer";
+  } catch { return "explorer"; }
+}
+
+/**
+ * Derive minimal, deterministic assertions from Explorer-generated steps.
+ *
+ * Supported assertion types (per runners/generic_steps.py):
+ *   assert_url_contains  { action, value }
+ *   assert_visible       { action, selector }
+ *   assert_not_visible   { action, selector }
+ *   assert_text_contains { action, selector?, text }
+ *
+ * Rules:
+ *   1. If there is a goto step with a non-trivial path segment → assert_url_contains
+ *   2. For form/search flows that have a click → assert_visible(body)
+ *      (page didn't crash / redirect to error after submit)
+ *   3. For required_field flows → assert_visible on the last assert selector in steps
+ *      (elevate the field-error check from steps into assertions for clarity)
+ */
+function defaultAssertionsFromSteps(steps, reason) {
+  const assertions = [];
+
+  // Rule 1 — URL assertion from goto step
+  const gotoStep = (steps || []).find(s => s.action === "goto" && s.url);
+  if (gotoStep) {
+    try {
+      const seg = new URL(gotoStep.url).pathname
+        .split("/")
+        .filter(s => s.length > 1 && !/^\d+$/.test(s))  // skip IDs and single chars
+        .pop();
+      if (seg) {
+        assertions.push({ action: "assert_url_contains", value: seg });
+      }
+    } catch { /* ignore unparseable URL */ }
+  }
+
+  // Rule 2 — baseline visibility after interaction
+  if (reason === "form_detected" || reason === "search_button_detected") {
+    const hasClick = (steps || []).some(s => s.action === "click");
+    if (hasClick) {
+      assertions.push({ action: "assert_visible", selector: "body" });
+    }
+  }
+
+  // Rule 3 — required-field validation: surface the field-level check as an assertion
+  if (reason === "required_field_detected") {
+    const fieldAssert = [...(steps || [])]
+      .reverse()
+      .find(s => s.action === "assert_visible" && s.selector && s.selector !== "body");
+    if (fieldAssert) {
+      assertions.push({ action: "assert_visible", selector: fieldAssert.selector });
+    }
+  }
+
+  // Deduplicate by (action, selector|value)
+  const seen = new Set();
+  return assertions.filter(a => {
+    const key = `${a.action}:${a.selector ?? ""}:${a.value ?? ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function mapExplorerDraftToCreate(d) {
+  return {
+    name:       (d.test_name || "Untitled").replace(/_/g, " "),
+    module:     deriveModuleFromUrl(d.steps?.[0]?.url || ""),
+    rationale:  EXPLORER_REASON_LABELS[d.reason] || d.reason || "",
+    confidence: d.priority || "medium",
+    source:     "explorer",
+    steps:      d.steps || [],
+    assertions: defaultAssertionsFromSteps(d.steps, d.reason),
+  };
 }
 
 // ── Step / assertion label helpers ───────────────────────────────────────────
@@ -83,6 +175,7 @@ function SavedDraftsPanel() {
   const [editing, setEditing]   = useState({});        // { [draft_id]: { name, rationale } }
   const [busy, setBusy]         = useState({});        // { [draft_id]: string | null }
   const [suggest, setSuggest]   = useState({});        // { [draft_id]: AISuggestResponse }
+  const [suggestAss, setSuggestAss] = useState({});    // { [draft_id]: SuggestAssertionsResponse }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -205,6 +298,57 @@ function SavedDraftsPanel() {
     }
   }
 
+  async function handleSuggestAssertions(id) {
+    setBusy(prev => ({ ...prev, [id]: "suggesting-assertions" }));
+    setSuggestAss(prev => { const n = { ...prev }; delete n[id]; return n; });
+    try {
+      const res = await suggestDraftAssertions(id);
+      setSuggestAss(prev => ({ ...prev, [id]: res }));
+    } catch (e) {
+      setError(e?.message || t("drafts.saved.suggest_error"));
+    } finally {
+      setBusy(prev => ({ ...prev, [id]: null }));
+    }
+  }
+
+  function dismissSuggestAss(id) {
+    setSuggestAss(prev => { const n = { ...prev }; delete n[id]; return n; });
+  }
+
+  async function applyAssertions(id, mode) {
+    // mode: "replace" | "merge"
+    const suggestion = suggestAss[id];
+    if (!suggestion?.suggested_assertions?.length) return;
+    const draft = drafts.find(d => d.draft_id === id);
+    if (!draft) return;
+
+    let newAssertions;
+    if (mode === "merge") {
+      const existingKeys = new Set(
+        (draft.assertions || []).map(
+          a => `${a.action}:${a.selector ?? ""}:${a.value ?? ""}:${a.text ?? ""}`
+        )
+      );
+      const toAdd = suggestion.suggested_assertions.filter(
+        a => !existingKeys.has(`${a.action}:${a.selector ?? ""}:${a.value ?? ""}:${a.text ?? ""}`)
+      );
+      newAssertions = [...(draft.assertions || []), ...toAdd];
+    } else {
+      newAssertions = suggestion.suggested_assertions;
+    }
+
+    setBusy(prev => ({ ...prev, [id]: "applying-assertions" }));
+    try {
+      const updated = await updateSavedDraft(id, { assertions: newAssertions });
+      setDrafts(prev => prev.map(d => d.draft_id === id ? updated : d));
+      dismissSuggestAss(id);
+    } catch (e) {
+      setError(e?.message || t("drafts.saved.save_error"));
+    } finally {
+      setBusy(prev => ({ ...prev, [id]: null }));
+    }
+  }
+
   const statusColor = s => s === "approved" ? "var(--green)" : s === "discarded" ? "var(--text-3)" : "var(--accent)";
 
   return (
@@ -238,10 +382,11 @@ function SavedDraftsPanel() {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {drafts.map(d => {
-            const isEditing  = !!editing[d.draft_id];
-            const isBusy     = !!busy[d.draft_id];
-            const hasSuggest = !!suggest[d.draft_id];
-            const approved   = d.status === "approved";
+            const isEditing       = !!editing[d.draft_id];
+            const isBusy          = !!busy[d.draft_id];
+            const hasSuggest      = !!suggest[d.draft_id];
+            const hasAssertSuggest = !!suggestAss[d.draft_id];
+            const approved        = d.status === "approved";
 
             return (
               <div key={d.draft_id} className="card" style={{ padding: "14px 16px" }}>
@@ -431,6 +576,53 @@ function SavedDraftsPanel() {
                   </div>
                 )}
 
+                {/* Assertion suggestion panel */}
+                {hasAssertSuggest && (
+                  <div style={{ background: "var(--accent-light)", border: "1px solid var(--border)", borderRadius: 6, padding: "10px 12px", marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", marginBottom: 6 }}>
+                      ◎ {t("drafts.saved.ass_suggest_title")}
+                    </div>
+                    {suggestAss[d.draft_id].note && (
+                      <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 6 }}>{suggestAss[d.draft_id].note}</div>
+                    )}
+                    {suggestAss[d.draft_id].rationale && (
+                      <div style={{ fontSize: 11, color: "var(--text-2)", marginBottom: 6 }}>{suggestAss[d.draft_id].rationale}</div>
+                    )}
+                    {suggestAss[d.draft_id].suggested_assertions?.length > 0 ? (
+                      <>
+                        <ul style={{ margin: "0 0 8px 0", paddingLeft: 16, listStyleType: "disc" }}>
+                          {suggestAss[d.draft_id].suggested_assertions.map((a, i) => (
+                            <li key={i} style={{ fontSize: 12, color: "var(--text-1)", marginBottom: 3, lineHeight: 1.4 }}>
+                              <span style={{ fontFamily: "monospace", fontWeight: 600, color: "var(--accent)" }}>{a.action}</span>
+                              {a.selector && <span style={{ color: "var(--text-2)" }}> {a.selector}</span>}
+                              {a.value    && <span style={{ color: "var(--text-2)" }}> "{a.value}"</span>}
+                              {a.text     && <span style={{ color: "var(--text-2)" }}> "{a.text}"</span>}
+                            </li>
+                          ))}
+                        </ul>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          <button className="btn btn-primary btn-sm" style={{ fontSize: 11 }} onClick={() => applyAssertions(d.draft_id, "merge")} disabled={isBusy}>
+                            {isBusy ? "…" : t("drafts.saved.ass_merge")}
+                          </button>
+                          <button className="btn btn-secondary btn-sm" style={{ fontSize: 11 }} onClick={() => applyAssertions(d.draft_id, "replace")} disabled={isBusy}>
+                            {isBusy ? "…" : t("drafts.saved.ass_replace")}
+                          </button>
+                          <button className="btn btn-secondary btn-sm" style={{ fontSize: 11 }} onClick={() => dismissSuggestAss(d.draft_id)}>
+                            {t("drafts.saved.dismiss")}
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 12, color: "var(--text-3)" }}>{t("drafts.saved.ass_suggest_empty")}</span>
+                        <button className="btn btn-secondary btn-sm" style={{ fontSize: 11 }} onClick={() => dismissSuggestAss(d.draft_id)}>
+                          {t("drafts.saved.dismiss")}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Action row */}
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                   {isEditing ? (
@@ -449,6 +641,13 @@ function SavedDraftsPanel() {
                             disabled={isBusy}
                           >
                             {busy[d.draft_id] === "suggesting" ? "…" : `✦ ${t("drafts.saved.ai_suggest")}`}
+                          </button>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => handleSuggestAssertions(d.draft_id)}
+                            disabled={isBusy}
+                          >
+                            {busy[d.draft_id] === "suggesting-assertions" ? "…" : `◎ ${t("drafts.saved.suggest_ass")}`}
                           </button>
                           <button
                             className="btn btn-primary btn-sm"
@@ -486,6 +685,7 @@ function SavedDraftsPanel() {
 
 function ExplorerDraftsPanel({ onGoToCatalog, initialDrafts = [] }) {
   const { t } = useLang();
+  const navigate = useNavigate();
   const [url, setUrl]                 = useState("");
   const [loading, setLoading]         = useState(false);
   const [loadError, setLoadError]     = useState("");
@@ -494,6 +694,25 @@ function ExplorerDraftsPanel({ onGoToCatalog, initialDrafts = [] }) {
   const [expanded, setExpanded]       = useState(null);
   const fromAppMap                    = initialDrafts.length > 0;
   const [approving, setApproving]     = useState(false);
+
+  const [savingDrafts, setSavingDrafts]         = useState(false);
+  const [saveDraftsResult, setSaveDraftsResult] = useState(null);
+
+  async function handleSaveToDrafts() {
+    const toSave = drafts.filter(d => selected.has(d.test_name));
+    if (!toSave.length || savingDrafts) return;
+    setSavingDrafts(true);
+    setSaveDraftsResult(null);
+    try {
+      const payload = toSave.map(mapExplorerDraftToCreate);
+      const res = await batchSaveDrafts(payload);
+      setSaveDraftsResult(res);
+    } catch (e) {
+      setSaveDraftsResult({ error: e?.message || "Save failed" });
+    } finally {
+      setSavingDrafts(false);
+    }
+  }
 
   useEffect(() => {
     setDrafts(initialDrafts || []);
@@ -627,6 +846,33 @@ function ExplorerDraftsPanel({ onGoToCatalog, initialDrafts = [] }) {
             >
               {approving ? t("drafts.common.approving") : `${t("drafts.explorer.approve_selected")} (${selected.size})`}
             </button>
+          )}
+
+          {selected.size > 0 && !saveDraftsResult?.saved_count && !saveDraftsResult?.error && (
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={handleSaveToDrafts}
+              disabled={savingDrafts}
+            >
+              {savingDrafts ? t("explorer.save_drafts.saving") : `${t("explorer.save_drafts.btn")} (${selected.size})`}
+            </button>
+          )}
+
+          {saveDraftsResult && (
+            <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <div className={`alert ${saveDraftsResult.error ? "alert-error" : "alert-success"}`} style={{ margin: 0, fontSize: 12 }}>
+                {saveDraftsResult.error
+                  ? `✗ ${saveDraftsResult.error}`
+                  : `✓ ${saveDraftsResult.saved_count ?? 0} ${t("explorer.save_drafts.saved")}` +
+                    (saveDraftsResult.error_count > 0 ? ` · ${saveDraftsResult.error_count} ${t("explorer.save_drafts.batch_failed")}` : "")
+                }
+              </div>
+              {!saveDraftsResult.error && (
+                <button className="btn btn-secondary btn-sm" style={{ fontSize: 11 }} onClick={() => navigate("/drafts")}>
+                  {t("explorer.save_drafts.open")}
+                </button>
+              )}
+            </div>
           )}
 
           {approveResult && (
@@ -932,6 +1178,7 @@ function AppMapDraftCard({ draft }) {
 
 function AppMapPanel({ onGoToExplorer }) {
   const { t } = useLang();
+  const navigate = useNavigate();
   // ── Exploration state ──────────────────────────────────────────────────────
   const [url, setUrl]             = useState("");
   const [maxPages, setMax]        = useState(5);
@@ -946,6 +1193,25 @@ function AppMapPanel({ onGoToExplorer }) {
   const [generating, setGenerating]   = useState(false);
   const [genErr, setGenErr]           = useState("");
   const [generatedDrafts, setDrafts]  = useState([]);
+
+  // ── Save to persistent drafts ──────────────────────────────────────────────
+  const [savingDrafts, setSavingDrafts]         = useState(false);
+  const [saveDraftsResult, setSaveDraftsResult] = useState(null);
+
+  async function handleSaveToDrafts() {
+    if (!generatedDrafts.length || savingDrafts) return;
+    setSavingDrafts(true);
+    setSaveDraftsResult(null);
+    try {
+      const drafts = generatedDrafts.map(mapExplorerDraftToCreate);
+      const res = await batchSaveDrafts(drafts);
+      setSaveDraftsResult(res);
+    } catch (e) {
+      setSaveDraftsResult({ error: e?.message || "Save failed" });
+    } finally {
+      setSavingDrafts(false);
+    }
+  }
 
   async function handleExplore() {
     const trimmed = url.trim();
@@ -1161,7 +1427,7 @@ function AppMapPanel({ onGoToExplorer }) {
           {/* Generated Drafts */}
           {generatedDrafts.length > 0 && (
             <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-2)" }}>
                   {t("drafts.appmap.suggested_scenarios")} ({generatedDrafts.length})
                 </div>
@@ -1172,7 +1438,38 @@ function AppMapPanel({ onGoToExplorer }) {
                 >
                   {t("drafts.appmap.go_to_explorer")}
                 </button>
+                {!saveDraftsResult?.saved_count && !saveDraftsResult?.error && (
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={handleSaveToDrafts}
+                    disabled={savingDrafts}
+                  >
+                    {savingDrafts ? t("explorer.save_drafts.saving") : t("explorer.save_drafts.btn")}
+                  </button>
+                )}
+                <button className="btn btn-secondary btn-sm" onClick={() => navigate("/drafts?tab=saved")}>
+                  {t("explorer.save_drafts.open")}
+                </button>
               </div>
+
+              {saveDraftsResult && (
+                <div
+                  className={`alert ${saveDraftsResult.error ? "alert-error" : "alert-success"}`}
+                  style={{ marginBottom: 10, fontSize: 12 }}
+                >
+                  {saveDraftsResult.error
+                    ? `✗ ${saveDraftsResult.error}`
+                    : (
+                      <span>
+                        ✓ {saveDraftsResult.saved_count ?? 0} {t("explorer.save_drafts.saved")}
+                        {saveDraftsResult.error_count > 0 && ` · ${saveDraftsResult.error_count} ${t("explorer.save_drafts.batch_failed")}`}
+                        {" "}<button className="btn btn-secondary btn-sm" style={{ fontSize: 11, marginLeft: 8 }} onClick={() => navigate("/drafts")}>{t("explorer.save_drafts.open")}</button>
+                      </span>
+                    )
+                  }
+                </div>
+              )}
+
               {generatedDrafts.map(d => (
                 <AppMapDraftCard key={d.test_name} draft={d} />
               ))}
