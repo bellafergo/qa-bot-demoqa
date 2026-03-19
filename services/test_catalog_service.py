@@ -346,6 +346,18 @@ class TestCatalogService:
                 for a in data["assertions"]
             ]
 
+        # Auto-fix deterministic rules (no LLM)
+        from services.test_auto_fixer import auto_fix_test
+        fix_result = auto_fix_test(
+            data.get("steps",      []),
+            data.get("assertions", []),
+        )
+        data["steps"]      = fix_result["steps"]
+        data["assertions"] = fix_result["assertions"]
+        if fix_result["changes"]:
+            fix_summary = "; ".join(c["message"] for c in fix_result["changes"])
+            change_note = f"{change_note} [auto-fix: {fix_summary}]".strip() if change_note else f"[auto-fix: {fix_summary}]"
+
         updated = catalog_repo.update_test_case(test_case_id, data)
         if updated is None:
             return None
