@@ -5,7 +5,7 @@
  */
 import React, { useState, useEffect, useCallback } from "react";
 import { useLocation } from "react-router-dom";
-import { listTests, runTest, runBatch, listVersions, rollbackTest, diffVersions } from "../api";
+import { listTests, getTest, runTest, runBatch, updateTest, listVersions, rollbackTest, diffVersions } from "../api";
 import { useLang } from "../i18n/LangContext";
 
 const API_BASE = (import.meta?.env?.VITE_API_BASE || "https://qa-bot-demoqa.onrender.com").replace(/\/$/, "");
@@ -120,6 +120,12 @@ export default function CatalogPage() {
 
   const [expanded, setExpanded] = useState(null);   // tc_id of expanded row
 
+  // ── Edit state ────────────────────────────────────────────────────────────
+  const [editingId,  setEditingId]  = useState(null);
+  const [editForm,   setEditForm]   = useState(null);
+  const [editError,  setEditError]  = useState("");
+  const [saving,     setSaving]     = useState(false);
+
   // ── Version history state ─────────────────────────────────────────────────
   const [versionsOpen,    setVersionsOpen]    = useState(null);   // tc_id whose history is open
   const [versions,        setVersions]        = useState([]);
@@ -232,6 +238,64 @@ export default function CatalogPage() {
       setVersionsError(e?.message || t("catalog.versions.loading"));
     } finally {
       setVersionsLoading(false);
+    }
+  }
+
+  async function handleEdit(tc_id) {
+    setEditError("");
+    try {
+      const full = await getTest(tc_id);
+      setEditingId(tc_id);
+      setExpanded(tc_id);
+      setEditForm({
+        name:       full.name,
+        module:     full.module,
+        priority:   full.priority,
+        changeNote: "",
+        stepsJson:      JSON.stringify(
+          full.steps?.map(s => s.model_dump ? s.model_dump() : s) ?? [], null, 2
+        ),
+        assertionsJson: JSON.stringify(
+          full.assertions?.map(a => a.model_dump ? a.model_dump() : a) ?? [], null, 2
+        ),
+      });
+    } catch (e) {
+      setEditError(e?.message || "Failed to load test");
+    }
+  }
+
+  function handleCancelEdit() {
+    setEditingId(null);
+    setEditForm(null);
+    setEditError("");
+  }
+
+  async function handleSave(tc_id) {
+    let steps, assertions;
+    try {
+      steps      = JSON.parse(editForm.stepsJson);
+      assertions = JSON.parse(editForm.assertionsJson);
+    } catch {
+      setEditError("Invalid JSON in steps or assertions — please fix and retry.");
+      return;
+    }
+    setSaving(true);
+    setEditError("");
+    try {
+      await updateTest(tc_id, {
+        name:         editForm.name,
+        module:       editForm.module,
+        priority:     editForm.priority,
+        steps,
+        assertions,
+        _change_note: editForm.changeNote || "Edited from UI",
+      });
+      handleCancelEdit();
+      await load();
+    } catch (e) {
+      setEditError(e?.message || "Save failed");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -421,22 +485,82 @@ export default function CatalogPage() {
                         className={`btn btn-sm ${versionsOpen === tc.test_case_id ? "btn-primary" : "btn-secondary"}`}
                         onClick={() => handleOpenVersions(tc.test_case_id)}
                         title={t("catalog.versions.title")}
+                        style={{ marginRight: 4 }}
                       >
                         ⏱ {t("catalog.versions.btn")}
+                      </button>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => handleEdit(tc.test_case_id)}
+                        title="Edit test"
+                      >
+                        ✏ Edit
                       </button>
                     </td>
                   </tr>
                   {expanded === tc.test_case_id && (
                     <tr>
                       <td colSpan={9} style={{ background: "var(--surface-2)", padding: "12px 20px" }}>
-                        <div style={{ fontSize: 12, color: "var(--text-2)", display: "flex", gap: 24, flexWrap: "wrap" }}>
-                          <span><b>ID:</b> {tc.id}</span>
-                          <span><b>{t("catalog.row.status")}</b> <span className={`badge ${statusClass(tc.status)}`}>{tc.status}</span></span>
-                          <span><b>{t("catalog.row.version")}</b> {tc.version}</span>
-                          {tc.tags?.length > 0 && <span><b>{t("catalog.row.tags")}</b> {tc.tags.join(", ")}</span>}
-                          <span><b>{t("catalog.row.steps")}</b> {tc.steps_count}</span>
-                          <span><b>{t("catalog.row.updated")}</b> {tc.updated_at ? new Date(tc.updated_at).toLocaleDateString() : "—"}</span>
-                        </div>
+                        {editingId === tc.test_case_id && editForm ? (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 10, maxWidth: 680 }}>
+                            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 2 }}>✏ Edit {tc.test_case_id}</div>
+                            {editError && <div style={{ fontSize: 12, color: "var(--red)" }}>{editError}</div>}
+                            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                              <div style={{ flex: "1 1 200px" }}>
+                                <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 3 }}>Name</label>
+                                <input className="input" style={{ width: "100%" }} value={editForm.name}
+                                  onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} />
+                              </div>
+                              <div style={{ flex: "1 1 130px" }}>
+                                <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 3 }}>Module</label>
+                                <input className="input" style={{ width: "100%" }} value={editForm.module}
+                                  onChange={e => setEditForm(f => ({ ...f, module: e.target.value }))} />
+                              </div>
+                              <div style={{ flex: "0 0 110px" }}>
+                                <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 3 }}>Priority</label>
+                                <select className="input" style={{ width: "100%" }} value={editForm.priority}
+                                  onChange={e => setEditForm(f => ({ ...f, priority: e.target.value }))}>
+                                  {["critical","high","medium","low"].map(p => <option key={p} value={p}>{p}</option>)}
+                                </select>
+                              </div>
+                            </div>
+                            <div>
+                              <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 3 }}>Steps (JSON)</label>
+                              <textarea className="input" rows={6} style={{ width: "100%", fontFamily: "monospace", fontSize: 11 }}
+                                value={editForm.stepsJson}
+                                onChange={e => setEditForm(f => ({ ...f, stepsJson: e.target.value }))} />
+                            </div>
+                            <div>
+                              <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 3 }}>Assertions (JSON)</label>
+                              <textarea className="input" rows={4} style={{ width: "100%", fontFamily: "monospace", fontSize: 11 }}
+                                value={editForm.assertionsJson}
+                                onChange={e => setEditForm(f => ({ ...f, assertionsJson: e.target.value }))} />
+                            </div>
+                            <div>
+                              <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 3 }}>Change note (optional)</label>
+                              <input className="input" style={{ width: "100%" }} placeholder="Describe what changed…"
+                                value={editForm.changeNote}
+                                onChange={e => setEditForm(f => ({ ...f, changeNote: e.target.value }))} />
+                            </div>
+                            <div style={{ display: "flex", gap: 8 }}>
+                              <button className="btn btn-primary btn-sm" onClick={() => handleSave(tc.test_case_id)} disabled={saving}>
+                                {saving ? "Saving…" : "Save"}
+                              </button>
+                              <button className="btn btn-secondary btn-sm" onClick={handleCancelEdit} disabled={saving}>
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: 12, color: "var(--text-2)", display: "flex", gap: 24, flexWrap: "wrap" }}>
+                            <span><b>ID:</b> {tc.id}</span>
+                            <span><b>{t("catalog.row.status")}</b> <span className={`badge ${statusClass(tc.status)}`}>{tc.status}</span></span>
+                            <span><b>{t("catalog.row.version")}</b> {tc.version}</span>
+                            {tc.tags?.length > 0 && <span><b>{t("catalog.row.tags")}</b> {tc.tags.join(", ")}</span>}
+                            <span><b>{t("catalog.row.steps")}</b> {tc.steps_count}</span>
+                            <span><b>{t("catalog.row.updated")}</b> {tc.updated_at ? new Date(tc.updated_at).toLocaleDateString() : "—"}</span>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   )}
