@@ -72,6 +72,15 @@ class Settings:
     EXEC_MAX_TOKENS: int = int(os.getenv("EXEC_MAX_TOKENS", "700"))
 
     # ----------------------------
+    # GitHub
+    # ----------------------------
+    GITHUB_TOKEN: str = (os.getenv("GITHUB_TOKEN") or "").strip()
+
+    @property
+    def HAS_GITHUB(self) -> bool:
+        return bool(self.GITHUB_TOKEN)
+
+    # ----------------------------
     # Runner (si lo usas)
     # ----------------------------
     RUNNER_URL: str = (os.getenv("RUNNER_URL") or "").strip()

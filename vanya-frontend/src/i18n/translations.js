@@ -533,6 +533,12 @@ export const translations = {
     "settings.upcoming.item5":   "Team and workspace settings",
 
     // ── PR Analysis page ────────────────────────────────────────────────────
+    "pr.fetch.title":       "Fetch from GitHub",
+    "pr.fetch.desc":        "Paste a GitHub PR URL to auto-fill the form below.",
+    "pr.fetch.placeholder": "https://github.com/owner/repo/pull/123",
+    "pr.fetch.btn":         "Fetch PR",
+    "pr.fetch.fetching":    "Fetching…",
+    "pr.fetch.error":       "Failed to fetch PR. Check the URL and GITHUB_TOKEN.",
     "pr.form.title":                  "PR Impact Analysis",
     "pr.form.pr_title_label":         "PR Title",
     "pr.form.pr_title_placeholder":   "Fix checkout timeout",
@@ -1286,6 +1292,12 @@ export const translations = {
     "settings.upcoming.item5":   "Configuración de equipo y workspace",
 
     // ── PR Analysis page ────────────────────────────────────────────────────
+    "pr.fetch.title":       "Obtener desde GitHub",
+    "pr.fetch.desc":        "Pega una URL de PR de GitHub para autocompletar el formulario.",
+    "pr.fetch.placeholder": "https://github.com/owner/repo/pull/123",
+    "pr.fetch.btn":         "Obtener PR",
+    "pr.fetch.fetching":    "Obteniendo…",
+    "pr.fetch.error":       "Error al obtener el PR. Verifica la URL y GITHUB_TOKEN.",
     "pr.form.title":                  "Análisis de Impacto de PR",
     "pr.form.pr_title_label":         "Título del PR",
     "pr.form.pr_title_placeholder":   "Fix checkout timeout",

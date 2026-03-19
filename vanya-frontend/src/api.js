@@ -158,6 +158,9 @@ export const exploreApp = (url, maxPages = 5) =>
 export const analyzePR           = (body) => apiPost("/pr-analysis/analyze",             body);
 export const analyzePRAndEnqueue = (body) => apiPost("/pr-analysis/analyze-and-enqueue", body);
 
+// ========= GitHub =========
+export const fetchGithubPR = (url) => apiPost("/github/pr/fetch", { url });
+
 // ========= API Testing =========
 export const parseSpec        = (body) => apiPost("/api-testing/parse-spec",     body);
 export const generateApiTests = (body) => apiPost("/api-testing/generate-tests", body);

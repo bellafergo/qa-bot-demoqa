@@ -1,11 +1,13 @@
 // src/pages/PRAnalysisPage.jsx
 /**
- * PR Impact Analysis — analyze a PR and optionally enqueue matched tests.
- * POST /pr-analysis/analyze, POST /pr-analysis/analyze-and-enqueue
+ * PR Impact Analysis — fetch PR data from GitHub, analyze impact, enqueue tests.
+ * POST /github/pr/fetch          — fetch PR metadata + changed files from GitHub API
+ * POST /pr-analysis/analyze      — analyze impact and match catalog tests
+ * POST /execution/run-batch      — enqueue matched test IDs via Execution Center
  */
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { analyzePR, runBatch } from "../api";
+import { analyzePR, runBatch, fetchGithubPR } from "../api";
 import { useLang } from "../i18n/LangContext";
 
 function RiskBadge({ level }) {
@@ -33,7 +35,35 @@ export default function PRAnalysisPage() {
   const [enqueueing, setEnqueueing]       = useState(false);
   const [enqueueResult, setEnqueueResult] = useState(null);
 
+  // GitHub fetch
+  const [prUrl, setPrUrl]           = useState("");
+  const [fetching, setFetching]     = useState(false);
+  const [fetchError, setFetchError] = useState("");
+
   function set(key, val) { setForm(f => ({ ...f, [key]: val })); }
+
+  async function handleFetchPR() {
+    const url = prUrl.trim();
+    if (!url) return;
+    setFetching(true);
+    setFetchError("");
+    try {
+      const pr = await fetchGithubPR(url);
+      setForm({
+        title:         pr.title        || "",
+        description:   pr.description  || "",
+        branch:        pr.branch       || "",
+        pr_id:         pr.pr_id        || "",
+        changed_files: (pr.changed_files || []).join("\n"),
+      });
+      setResult(null);
+      setEnqueueResult(null);
+    } catch (e) {
+      setFetchError(e?.message || t("pr.fetch.error"));
+    } finally {
+      setFetching(false);
+    }
+  }
 
   async function handleAnalyze() {
     if (!form.title.trim() && !form.description.trim()) return;
@@ -76,6 +106,36 @@ export default function PRAnalysisPage() {
 
   return (
     <div className="page-wrap">
+
+      {/* GitHub PR fetch */}
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div className="section-title" style={{ marginBottom: 8 }}>{t("pr.fetch.title")}</div>
+        <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 10 }}>
+          {t("pr.fetch.desc")}
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <input
+            className="input"
+            style={{ flex: 1, fontFamily: "monospace", fontSize: 12 }}
+            placeholder={t("pr.fetch.placeholder")}
+            value={prUrl}
+            onChange={e => setPrUrl(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleFetchPR()}
+          />
+          <button
+            className="btn btn-secondary"
+            onClick={handleFetchPR}
+            disabled={fetching || !prUrl.trim()}
+          >
+            {fetching ? t("pr.fetch.fetching") : t("pr.fetch.btn")}
+          </button>
+        </div>
+        {fetchError && (
+          <div className="alert alert-error" style={{ marginTop: 10, fontSize: 12 }}>
+            {fetchError}
+          </div>
+        )}
+      </div>
 
       {/* Form */}
       <div className="card" style={{ marginBottom: 20 }}>
