@@ -4,6 +4,7 @@
  * GET /tests, POST /tests/{id}/run, POST /execution/run-batch
  */
 import React, { useState, useEffect, useCallback } from "react";
+import { useLocation } from "react-router-dom";
 import { listTests, runTest, runBatch } from "../api";
 import { useLang } from "../i18n/LangContext";
 
@@ -33,6 +34,8 @@ function fmtMs(ms) {
 
 export default function CatalogPage() {
   const { t } = useLang();
+  const location = useLocation();
+  const highlightModule = location.state?.highlightModule;
 
   const [filters, setFilters]   = useState({ module: "", type: "", priority: "", status: "active", test_type: "" });
   const [tests, setTests]       = useState([]);
@@ -231,7 +234,10 @@ export default function CatalogPage() {
               {tests.map(tc => (
                 <React.Fragment key={tc.test_case_id}>
                   <tr
-                    style={{ cursor: "pointer" }}
+                    style={{
+                      cursor: "pointer",
+                      ...(tc.module === highlightModule && { border: "2px solid var(--accent)" }),
+                    }}
                     onClick={() => setExpanded(expanded === tc.test_case_id ? null : tc.test_case_id)}
                   >
                     <td onClick={e => e.stopPropagation()}>

@@ -66,6 +66,8 @@ export default function CoveragePage() {
     try {
       const result = await saveCoverageDrafts(suggestions.module, suggestions.suggested_tests);
       setSaveResult(result);
+      await load();
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
       setSaveResult({ error: err?.message || "Save failed" });
     } finally {
@@ -228,7 +230,7 @@ export default function CoveragePage() {
                   {saving ? t("cov.suggestions.saving") : t("cov.suggestions.save_all")}
                 </button>
               )}
-              <button className="btn btn-secondary btn-sm" onClick={() => navigate("/catalog")}>
+              <button className="btn btn-secondary btn-sm" onClick={() => navigate("/catalog", { state: { highlightModule: suggestions.module } })}>
                 {t("cov.suggestions.open_catalog")}
               </button>
               <button className="btn btn-secondary btn-sm" onClick={() => { setSuggestions(null); setSaveResult(null); }}>✕</button>
@@ -246,7 +248,7 @@ export default function CoveragePage() {
                   <span>
                     ✓ {saveResult.saved?.length ?? 0} {t("cov.suggestions.saved_count")}
                     {saveResult.skipped?.length > 0 && ` · ${saveResult.skipped.length} ${t("cov.suggestions.skipped")}`}
-                    {" "}<button className="btn btn-secondary btn-sm" style={{ fontSize: 11, marginLeft: 8 }} onClick={() => navigate("/catalog")}>{t("cov.suggestions.open_catalog")}</button>
+                    {" "}<button className="btn btn-secondary btn-sm" style={{ fontSize: 11, marginLeft: 8 }} onClick={() => navigate("/catalog", { state: { highlightModule: suggestions.module } })}>{t("cov.suggestions.open_catalog")}</button>
                   </span>
                 )
               }
