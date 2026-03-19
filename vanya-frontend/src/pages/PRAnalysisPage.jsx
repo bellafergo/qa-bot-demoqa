@@ -4,7 +4,8 @@
  * POST /pr-analysis/analyze, POST /pr-analysis/analyze-and-enqueue
  */
 import React, { useState } from "react";
-import { analyzePR, analyzePRAndEnqueue } from "../api";
+import { useNavigate } from "react-router-dom";
+import { analyzePR, runBatch } from "../api";
 import { useLang } from "../i18n/LangContext";
 
 function RiskBadge({ level }) {
@@ -16,6 +17,7 @@ function RiskBadge({ level }) {
 
 export default function PRAnalysisPage() {
   const { t } = useLang();
+  const navigate = useNavigate();
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -58,21 +60,15 @@ export default function PRAnalysisPage() {
   }
 
   async function handleEnqueue() {
-    if (!result?.matched_test_case_ids?.length) return;
+    const ids = [...new Set(result?.matched_test_case_ids || [])];
+    if (!ids.length) return;
     setEnqueueing(true);
     setEnqueueResult(null);
     try {
-      const body = {
-        title:         form.title       || undefined,
-        description:   form.description || undefined,
-        branch:        form.branch      || undefined,
-        pr_id:         form.pr_id       || undefined,
-        changed_files: form.changed_files.split(/[\n,]+/).map(s => s.trim()).filter(Boolean),
-      };
-      const r = await analyzePRAndEnqueue(body);
-      setEnqueueResult(r);
+      const r = await runBatch({ test_case_ids: ids });
+      setEnqueueResult({ ok: true, ...r });
     } catch (e) {
-      setEnqueueResult({ error: e?.message });
+      setEnqueueResult({ ok: false, error: e?.message || "Enqueue failed" });
     } finally {
       setEnqueueing(false);
     }
@@ -177,7 +173,7 @@ export default function PRAnalysisPage() {
               <div className="section-title" style={{ margin: 0 }}>
                 {result.matched_tests_count} {result.matched_tests_count !== 1 ? t("pr.result.matched_plural") : t("pr.result.matched_single")}
               </div>
-              {result.matched_test_case_ids?.length > 0 && !result.orchestrator_job_id && (
+                {result.matched_test_case_ids?.length > 0 && !enqueueResult?.ok && (
                 <button
                   className="btn btn-primary btn-sm"
                   onClick={handleEnqueue}
@@ -186,7 +182,7 @@ export default function PRAnalysisPage() {
                   {enqueueing ? t("pr.result.enqueueing") : `${t("pr.result.enqueue_prefix")} ${result.matched_tests_count} ${t("pr.result.enqueue_tests")}`}
                 </button>
               )}
-              {result.orchestrator_job_id && (
+              {result.orchestrator_job_id && !enqueueResult?.ok && (
                 <span style={{ fontSize: 12, color: "var(--green)", fontWeight: 600 }}>
                   {t("pr.result.enqueued_prefix")} {result.orchestrator_job_id?.slice(0, 14)}…
                 </span>
@@ -194,10 +190,26 @@ export default function PRAnalysisPage() {
             </div>
 
             {enqueueResult && (
-              <div className={`alert ${enqueueResult.error ? "alert-error" : "alert-success"}`} style={{ marginBottom: 12 }}>
-                {enqueueResult.error
+              <div
+                className={`alert ${!enqueueResult.ok ? "alert-error" : "alert-success"}`}
+                style={{ marginBottom: 12 }}
+              >
+                {!enqueueResult.ok
                   ? `✗ ${enqueueResult.error}`
-                  : `${t("pr.result.enqueued_manual_prefix")} ${enqueueResult.orchestrator_job_id?.slice(0, 14)}… ${t("pr.result.enqueued_manual_suffix")}`
+                  : (
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                      <span>
+                        {t("pr.result.enqueued_manual_prefix")} {enqueueResult.job_id?.slice(0, 14)}… {t("pr.result.enqueued_manual_suffix")} — {enqueueResult.total_count} {t("pr.result.enqueue_tests")}
+                      </span>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        style={{ fontSize: 11 }}
+                        onClick={() => navigate("/execution")}
+                      >
+                        {t("pr.result.go_execution")}
+                      </button>
+                    </div>
+                  )
                 }
               </div>
             )}
