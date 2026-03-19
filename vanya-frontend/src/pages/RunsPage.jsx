@@ -4,7 +4,7 @@
  * GET /runs/{id} | GET /test-runs | POST /rca/analyze | POST /business-risk/analyze
  */
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { listTestRuns, getTestRun, analyzeRCA, analyzeRisk, getRunClusters } from "../api";
 import { useLang } from "../i18n/LangContext";
 
@@ -544,7 +544,8 @@ function RunHistoryTab({ initialRunId }) {
   const [selected, setSelected]     = useState(null); // run_id
   const [detail, setDetail]         = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  const autoOpenedRef = useRef(false);
+  const autoOpenedRef    = useRef(false);
+  const selectedRowRef   = useRef(null);
 
   // RCA / risk panels
   const [rcaResult, setRcaResult]   = useState(null);
@@ -591,6 +592,13 @@ function RunHistoryTab({ initialRunId }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialRunId]);
+
+  // Scroll selected row into view once runs are loaded and a row is selected
+  useEffect(() => {
+    if (selected && selectedRowRef.current) {
+      selectedRowRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, [selected, runs]);
 
   async function openDetail(run_id) {
     setSelected(run_id);
@@ -668,7 +676,12 @@ function RunHistoryTab({ initialRunId }) {
                 {runs.map((r, i) => (
                   <tr
                     key={r.run_id || i}
-                    style={{ cursor: "pointer", background: selected === r.run_id ? "var(--accent-light)" : undefined }}
+                    ref={r.run_id === selected ? selectedRowRef : null}
+                    style={{
+                      cursor: "pointer",
+                      background: selected === r.run_id ? "var(--accent-light)" : undefined,
+                      borderLeft: selected === r.run_id ? "3px solid var(--accent)" : "3px solid transparent",
+                    }}
                     onClick={() => openDetail(r.run_id)}
                   >
                     <td style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-2)" }}>
@@ -697,7 +710,18 @@ function RunHistoryTab({ initialRunId }) {
 
           {/* Run summary */}
           <div className="card">
-            <div className="section-title" style={{ marginBottom: 10 }}>{t("runs.history.run_detail")}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+              <div className="section-title" style={{ margin: 0 }}>{t("runs.history.run_detail")}</div>
+              {initialRunId && selected === initialRunId && (
+                <span
+                  className="badge badge-gray"
+                  style={{ fontSize: 10, letterSpacing: "0.04em", opacity: 0.75 }}
+                  title={t("runs.from_execution_tip")}
+                >
+                  {t("runs.from_execution")}
+                </span>
+              )}
+            </div>
             {detailLoading ? (
               <div style={{ fontSize: 13, color: "var(--text-3)" }}>{t("runs.history.loading")}</div>
             ) : detail?.error ? (
@@ -822,9 +846,18 @@ function RunHistoryTab({ initialRunId }) {
 export default function RunsPage() {
   const { t } = useLang();
   const location = useLocation();
-  const navState = location.state || {};
+  const navigate  = useNavigate();
+  const navState  = location.state || {};
   const [activeTab, setActiveTab] = useState(navState.tab === 1 ? 1 : 0);
   const [initialRunId] = useState(navState.run_id || null);
+
+  // Clear navigation state from history so back/forward doesn't re-trigger auto-open
+  useEffect(() => {
+    if (navState.run_id || navState.tab != null) {
+      navigate(location.pathname, { replace: true, state: null });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="page-wrap">

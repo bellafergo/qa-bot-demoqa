@@ -493,6 +493,8 @@ export const translations = {
     "exec.detail.ts.finished":    "Finished:",
     "exec.detail.open_runs":      "→ Open in Runs",
     "exec.detail.open_run_tip":   "Open run detail",
+    "runs.from_execution":        "← Execution Center",
+    "runs.from_execution_tip":    "This run was opened from Execution Center",
 
     // ── Chat page ───────────────────────────────────────────────────────────
     "chat.toolbar.hide_history": "Hide history",
@@ -1243,6 +1245,8 @@ export const translations = {
     "exec.detail.ts.finished":    "Finalizado:",
     "exec.detail.open_runs":      "→ Ver en Runs",
     "exec.detail.open_run_tip":   "Abrir detalle del run",
+    "runs.from_execution":        "← Execution Center",
+    "runs.from_execution_tip":    "Este run fue abierto desde Execution Center",
 
     // ── Chat page ───────────────────────────────────────────────────────────
     "chat.toolbar.hide_history": "Ocultar historial",
