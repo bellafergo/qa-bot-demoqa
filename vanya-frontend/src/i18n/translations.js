@@ -50,6 +50,16 @@ export const translations = {
     "fi.col.summary":          "Summary",
     "fi.flaky.badge.suspected":"Suspected flaky",
     "fi.flaky.badge.watch":    "Watch",
+    "fi.tab.clusters":         "Failure Clusters",
+    "fi.clusters.hint":        "Failed runs grouped by error type, layer and module.",
+    "fi.clusters.empty":       "No failure clusters found in recent history.",
+    "fi.col.cluster_id":       "Cluster",
+    "fi.col.category":         "Category",
+    "fi.col.layer":            "Layer",
+    "fi.col.occurrences":      "Occurrences",
+    "fi.col.confidence":       "Confidence",
+    "fi.col.rep_test":         "Representative test",
+    "fi.col.probable_cause":   "Probable cause",
 
     // ── Layout page headers ─────────────────────────────────────────────────
     "layout.chat.title":          "AI Chat",
@@ -926,7 +936,7 @@ export const translations = {
     "nav.planner":      "Planificador",
     "nav.documents":    "Documentos",
     "nav.integrations":  "Integraciones",
-    "nav.failure_intel": "Fallos Intel",
+    "nav.failure_intel": "Inteligencia de Fallos",
     "nav.settings":      "Configuración",
 
     // ── Failure Intelligence page ────────────────────────────────────────────
@@ -952,6 +962,16 @@ export const translations = {
     "fi.col.summary":          "Resumen",
     "fi.flaky.badge.suspected":"Posible inestable",
     "fi.flaky.badge.watch":    "Vigilar",
+    "fi.tab.clusters":         "Clusters de Fallos",
+    "fi.clusters.hint":        "Runs fallidos agrupados por tipo de error, capa y módulo.",
+    "fi.clusters.empty":       "No se encontraron clusters de fallos en el historial reciente.",
+    "fi.col.cluster_id":       "Cluster",
+    "fi.col.category":         "Categoría",
+    "fi.col.layer":            "Capa",
+    "fi.col.occurrences":      "Ocurrencias",
+    "fi.col.confidence":       "Confianza",
+    "fi.col.rep_test":         "Test representativo",
+    "fi.col.probable_cause":   "Causa probable",
 
     // ── Layout page headers ─────────────────────────────────────────────────
     "layout.chat.title":          "Chat IA",

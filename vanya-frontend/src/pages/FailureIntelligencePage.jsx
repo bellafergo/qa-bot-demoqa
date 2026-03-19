@@ -9,7 +9,7 @@
  * No AI. All metrics are deterministic heuristics computed over run history.
  */
 import React, { useState, useEffect, useCallback } from "react";
-import { getFlakyTests, getRegressions } from "../api";
+import { getFlakyTests, getRegressions, getClusters } from "../api";
 import { useLang } from "../i18n/LangContext";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -217,6 +217,87 @@ function RegressionsTab({ data, loading, error, t }) {
   );
 }
 
+// ── Clusters tab ─────────────────────────────────────────────────────────────
+
+function confidenceBadge(confidence) {
+  const c = String(confidence || "").toLowerCase();
+  if (c === "high")   return "badge-green";
+  if (c === "medium") return "badge-blue";
+  return "badge-gray";
+}
+
+function categoryLabel(cat) {
+  return String(cat || "unknown").replace(/_/g, " ");
+}
+
+function ClustersTab({ data, loading, error, t }) {
+  if (loading) return <div style={{ padding: 24, color: "var(--text-3)", fontSize: 13 }}>{t("fi.loading")}</div>;
+  if (error)   return <div style={{ padding: 16 }} className="alert alert-error">{error}</div>;
+  if (!data || data.length === 0) return (
+    <div>
+      <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 14, fontStyle: "italic" }}>{t("fi.clusters.hint")}</div>
+      <div style={{ color: "var(--text-3)", fontSize: 13 }}>{t("fi.clusters.empty")}</div>
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 14, fontStyle: "italic" }}>{t("fi.clusters.hint")}</div>
+      <table className="data-table">
+        <thead><tr>
+          <th style={{ width: 90 }}>{t("fi.col.cluster_id")}</th>
+          <th style={{ width: 140 }}>{t("fi.col.category")}</th>
+          <th style={{ width: 100 }}>{t("fi.col.layer")}</th>
+          <th style={{ width: 80 }}>{t("fi.col.module")}</th>
+          <th style={{ width: 80, textAlign: "right" }}>{t("fi.col.occurrences")}</th>
+          <th style={{ width: 82, textAlign: "center" }}>{t("fi.col.confidence")}</th>
+          <th style={{ width: 160 }}>{t("fi.col.rep_test")}</th>
+          <th>{t("fi.col.probable_cause")}</th>
+        </tr></thead>
+        <tbody>
+          {data.map(cl => (
+            <tr key={cl.cluster_id}>
+              <td style={{ fontFamily: "monospace", fontSize: 10, color: "var(--text-3)" }}>
+                {cl.cluster_id}
+              </td>
+              <td>
+                <span className="badge badge-red" style={{ fontSize: 10 }}>
+                  {categoryLabel(cl.root_cause_category)}
+                </span>
+              </td>
+              <td>
+                <span className="badge badge-gray" style={{ fontSize: 10 }}>
+                  {cl.impacted_layer || "—"}
+                </span>
+              </td>
+              <td>
+                <span className="badge badge-gray" style={{ fontSize: 10 }}>
+                  {cl.module || "—"}
+                </span>
+              </td>
+              <td style={{ textAlign: "right", fontWeight: 700, color: "var(--red)" }}>
+                {cl.total_failures}
+              </td>
+              <td style={{ textAlign: "center" }}>
+                <span className={`badge ${confidenceBadge(cl.confidence)}`} style={{ fontSize: 10 }}>
+                  {cl.confidence || "—"}
+                </span>
+              </td>
+              <td style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-2)" }}>
+                {cl.representative_test_case_id || "—"}
+              </td>
+              <td style={{ fontSize: 11, color: "var(--text-3)", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  title={cl.probable_cause}>
+                {cl.probable_cause || cl.summary || "—"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function FailureIntelligencePage() {
@@ -225,10 +306,13 @@ export default function FailureIntelligencePage() {
   const [tab, setTab]               = useState("flaky");
   const [flaky, setFlaky]           = useState(null);
   const [regressions, setRegressions] = useState(null);
+  const [clusters, setClusters]     = useState(null);
   const [loadingFlaky, setLoadingFlaky]     = useState(false);
   const [loadingReg,   setLoadingReg]       = useState(false);
+  const [loadingClusters, setLoadingClusters] = useState(false);
   const [errorFlaky, setErrorFlaky]         = useState("");
   const [errorReg,   setErrorReg]           = useState("");
+  const [errorClusters, setErrorClusters]   = useState("");
 
   const loadFlaky = useCallback(async () => {
     setLoadingFlaky(true);
@@ -256,13 +340,28 @@ export default function FailureIntelligencePage() {
     }
   }, []);
 
+  const loadClusters = useCallback(async () => {
+    setLoadingClusters(true);
+    setErrorClusters("");
+    try {
+      const data = await getClusters();
+      setClusters(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setErrorClusters(e?.message || "Failed to load clusters");
+    } finally {
+      setLoadingClusters(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadFlaky();
     loadReg();
-  }, [loadFlaky, loadReg]);
+    loadClusters();
+  }, [loadFlaky, loadReg, loadClusters]);
 
   const suspectedCount   = (flaky || []).filter(f => f.suspected_flaky).length;
   const regressionCount  = (regressions || []).length;
+  const clusterCount     = (clusters || []).length;
 
   return (
     <div className="page-wrap">
@@ -280,9 +379,10 @@ export default function FailureIntelligencePage() {
       {/* Tabs */}
       <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: "1px solid var(--border)" }}>
         {[
-          { key: "flaky",       label: t("fi.tab.flaky"),       count: suspectedCount  },
-          { key: "regressions", label: t("fi.tab.regressions"), count: regressionCount },
-        ].map(({ key, label, count }) => (
+          { key: "flaky",       label: t("fi.tab.flaky"),       count: suspectedCount,  badgeClass: "badge-red"    },
+          { key: "regressions", label: t("fi.tab.regressions"), count: regressionCount, badgeClass: "badge-orange" },
+          { key: "clusters",    label: t("fi.tab.clusters"),    count: clusterCount,    badgeClass: "badge-gray"   },
+        ].map(({ key, label, count, badgeClass }) => (
           <button
             key={key}
             onClick={() => setTab(key)}
@@ -297,9 +397,7 @@ export default function FailureIntelligencePage() {
           >
             {label}
             {count > 0 && (
-              <span className={`badge ${key === "flaky" ? "badge-red" : "badge-orange"}`} style={{ fontSize: 10 }}>
-                {count}
-              </span>
+              <span className={`badge ${badgeClass}`} style={{ fontSize: 10 }}>{count}</span>
             )}
           </button>
         ))}
@@ -308,10 +406,10 @@ export default function FailureIntelligencePage() {
         <button
           className="btn btn-secondary btn-sm"
           style={{ marginLeft: "auto", marginBottom: 4, alignSelf: "center" }}
-          onClick={() => { loadFlaky(); loadReg(); }}
-          disabled={loadingFlaky || loadingReg}
+          onClick={() => { loadFlaky(); loadReg(); loadClusters(); }}
+          disabled={loadingFlaky || loadingReg || loadingClusters}
         >
-          {loadingFlaky || loadingReg ? "…" : "↻ Refresh"}
+          {loadingFlaky || loadingReg || loadingClusters ? "…" : "↻ Refresh"}
         </button>
       </div>
 
@@ -322,6 +420,9 @@ export default function FailureIntelligencePage() {
         )}
         {tab === "regressions" && (
           <RegressionsTab data={regressions} loading={loadingReg} error={errorReg} t={t} />
+        )}
+        {tab === "clusters" && (
+          <ClustersTab data={clusters} loading={loadingClusters} error={errorClusters} t={t} />
         )}
       </div>
 
