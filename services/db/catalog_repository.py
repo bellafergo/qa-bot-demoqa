@@ -8,7 +8,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import Column, Integer, String, Text, Index
+from sqlalchemy import Column, Integer, String, Text, Index, or_
 from sqlalchemy.orm import Session
 
 from services.db.sqlite_db import Base, get_session
@@ -114,6 +114,7 @@ class CatalogRepository:
         priority: Optional[str] = None,
         status: Optional[str] = "active",
         test_type: Optional[str] = None,
+        search: Optional[str] = None,
         tags: Optional[List[str]] = None,
         limit: int = 200,
     ):
@@ -129,6 +130,15 @@ class CatalogRepository:
                 q = q.filter(TestCaseRow.status == status)
             if test_type:
                 q = q.filter(TestCaseRow.test_type == test_type)
+            if search and search.strip():
+                term = f"%{search.strip()}%"
+                q = q.filter(or_(
+                    TestCaseRow.test_case_id.ilike(term),
+                    TestCaseRow.name.ilike(term),
+                    TestCaseRow.module.ilike(term),
+                    TestCaseRow.type.ilike(term),
+                    TestCaseRow.test_type.ilike(term),
+                ))
             q = q.order_by(TestCaseRow.created_at.desc())
             rows = q.all()
 

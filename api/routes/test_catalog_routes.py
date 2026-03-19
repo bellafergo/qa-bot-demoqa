@@ -70,6 +70,7 @@ def list_test_cases(
     priority:  Optional[str] = Query(None),
     status:    Optional[str] = Query("active"),
     test_type: Optional[str] = Query(None),
+    search:    Optional[str] = Query(None),
     tags:      Optional[List[str]] = Query(None),
     limit:     int = Query(200, ge=1, le=1000),
 ):
@@ -85,6 +86,7 @@ def list_test_cases(
         priority=priority,
         status=status or None,   # empty string → no filter
         test_type=test_type or None,
+        search=search or None,
         tags=tags,
         limit=limit,
     )

@@ -263,12 +263,13 @@ class TestCatalogService:
         priority: Optional[str] = None,
         status: Optional[str] = "active",
         test_type: Optional[str] = None,
+        search: Optional[str] = None,
         tags: Optional[List[str]] = None,
         limit: int = 200,
     ) -> List[TestCase]:
         return catalog_repo.list_test_cases(
             module=module, type_=type_, priority=priority,
-            status=status, test_type=test_type, tags=tags, limit=limit,
+            status=status, test_type=test_type, search=search, tags=tags, limit=limit,
         )
 
     def get_test_case(self, test_case_id: str) -> Optional[TestCase]:

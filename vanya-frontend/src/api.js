@@ -126,6 +126,7 @@ export function listTests(params = {}) {
   if (params.priority) q.set("priority", params.priority);
   if (params.status !== undefined) q.set("status", params.status);
   if (params.test_type) q.set("test_type", params.test_type);
+  if (params.search)   q.set("search",   params.search);
   if (params.limit)    q.set("limit",    params.limit);
   const qs = q.toString();
   return apiGet(`/tests${qs ? "?" + qs : ""}`);

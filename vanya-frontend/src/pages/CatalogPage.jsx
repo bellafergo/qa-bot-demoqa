@@ -150,7 +150,7 @@ export default function CatalogPage() {
     setBatchResult(null);
     try {
       const params = {};
-      if (filters.module)    params.module    = filters.module;
+      if (filters.module?.trim()) params.search = filters.module.trim();
       if (filters.type)      params.type      = filters.type;
       if (filters.priority)  params.priority  = filters.priority;
       if (filters.status !== undefined) params.status = filters.status;
