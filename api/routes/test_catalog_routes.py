@@ -119,6 +119,25 @@ def create_test_case(payload: TestCaseCreate):
         raise HTTPException(status_code=409, detail=str(e))
 
 
+# ── Auto-fix preview (stateless) ─────────────────────────────────────────────
+
+class AutoFixPreviewRequest(BaseModel):
+    steps:      List[Dict[str, Any]] = Field(default_factory=list)
+    assertions: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+@router.post("/auto-fix-preview")
+def auto_fix_preview(body: AutoFixPreviewRequest):
+    """
+    Apply deterministic auto-fix rules to steps and assertions.
+
+    Stateless — nothing is persisted.  Returns fixed steps, fixed assertions,
+    and a human-readable list of changes made (type: "fix" | "warning").
+    """
+    from services.test_auto_fixer import auto_fix_test
+    return auto_fix_test(body.steps, body.assertions)
+
+
 # ── Single test case ──────────────────────────────────────────────────────────
 
 @router.get("/{test_case_id}", response_model=TestCase)

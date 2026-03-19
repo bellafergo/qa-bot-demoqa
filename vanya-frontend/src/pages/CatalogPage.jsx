@@ -5,7 +5,7 @@
  */
 import React, { useState, useEffect, useCallback } from "react";
 import { useLocation } from "react-router-dom";
-import { listTests, getTest, runTest, runBatch, updateTest, listVersions, rollbackTest, diffVersions } from "../api";
+import { listTests, getTest, runTest, runBatch, updateTest, listVersions, rollbackTest, diffVersions, previewAutoFix } from "../api";
 import { useLang } from "../i18n/LangContext";
 
 const API_BASE = (import.meta?.env?.VITE_API_BASE || "https://qa-bot-demoqa.onrender.com").replace(/\/$/, "");
@@ -125,6 +125,10 @@ export default function CatalogPage() {
   const [editForm,   setEditForm]   = useState(null);
   const [editError,  setEditError]  = useState("");
   const [saving,     setSaving]     = useState(false);
+
+  // ── Auto-fix preview state ────────────────────────────────────────────────
+  const [fixPreviewResult,  setFixPreviewResult]  = useState(null);
+  const [fixPreviewLoading, setFixPreviewLoading] = useState(false);
 
   // ── Version history state ─────────────────────────────────────────────────
   const [versionsOpen,    setVersionsOpen]    = useState(null);   // tc_id whose history is open
@@ -268,6 +272,39 @@ export default function CatalogPage() {
     setEditingId(null);
     setEditForm(null);
     setEditError("");
+    setFixPreviewResult(null);
+  }
+
+  async function handleAutoFix() {
+    let steps, assertions;
+    try {
+      steps      = JSON.parse(editForm.stepsJson);
+      assertions = JSON.parse(editForm.assertionsJson);
+    } catch {
+      setEditError(t("catalog.edit.autofix_invalid_json"));
+      return;
+    }
+    setEditError("");
+    setFixPreviewResult(null);
+    setFixPreviewLoading(true);
+    try {
+      const result = await previewAutoFix({ steps, assertions });
+      setFixPreviewResult(result);
+    } catch (e) {
+      setEditError(e?.message || "Auto-fix preview failed");
+    } finally {
+      setFixPreviewLoading(false);
+    }
+  }
+
+  function handleApplyFix() {
+    if (!fixPreviewResult) return;
+    setEditForm(f => ({
+      ...f,
+      stepsJson:      JSON.stringify(fixPreviewResult.steps,      null, 2),
+      assertionsJson: JSON.stringify(fixPreviewResult.assertions, null, 2),
+    }));
+    setFixPreviewResult(null);
   }
 
   async function handleSave(tc_id) {
@@ -542,14 +579,63 @@ export default function CatalogPage() {
                                 value={editForm.changeNote}
                                 onChange={e => setEditForm(f => ({ ...f, changeNote: e.target.value }))} />
                             </div>
-                            <div style={{ display: "flex", gap: 8 }}>
-                              <button className="btn btn-primary btn-sm" onClick={() => handleSave(tc.test_case_id)} disabled={saving}>
+                            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                              <button className="btn btn-primary btn-sm" onClick={() => handleSave(tc.test_case_id)} disabled={saving || fixPreviewLoading}>
                                 {saving ? "Saving…" : "Save"}
                               </button>
                               <button className="btn btn-secondary btn-sm" onClick={handleCancelEdit} disabled={saving}>
                                 Cancel
                               </button>
+                              <button
+                                className="btn btn-secondary btn-sm"
+                                onClick={handleAutoFix}
+                                disabled={saving || fixPreviewLoading}
+                                style={{ marginLeft: 4 }}
+                              >
+                                {fixPreviewLoading ? t("catalog.edit.autofix_loading") : `⚙ ${t("catalog.edit.autofix")}`}
+                              </button>
                             </div>
+
+                            {/* Auto-fix preview panel */}
+                            {fixPreviewResult && (
+                              <div style={{ marginTop: 10, border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden" }}>
+                                <div style={{ background: "var(--surface-2)", padding: "6px 12px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                                  <span style={{ fontWeight: 700, fontSize: 12, color: "var(--text-2)" }}>
+                                    ⚙ {t("catalog.edit.autofix_preview")}
+                                  </span>
+                                  <span style={{ fontSize: 11, color: "var(--text-3)" }}>
+                                    Steps: {JSON.parse(editForm.stepsJson || "[]").length} → {fixPreviewResult.steps.length}
+                                    {"  ·  "}
+                                    Assertions: {JSON.parse(editForm.assertionsJson || "[]").length} → {fixPreviewResult.assertions.length}
+                                  </span>
+                                </div>
+                                <div style={{ padding: "10px 12px" }}>
+                                  {fixPreviewResult.changes.length === 0 ? (
+                                    <div style={{ fontSize: 12, color: "var(--text-3)", fontStyle: "italic" }}>
+                                      {t("catalog.edit.autofix_none")}
+                                    </div>
+                                  ) : (
+                                    <ul style={{ margin: 0, padding: "0 0 0 16px", fontSize: 12, color: "var(--text-2)" }}>
+                                      {fixPreviewResult.changes.map((c, i) => (
+                                        <li key={i} style={{ marginBottom: 3, color: c.type === "warning" ? "var(--orange, #f59e0b)" : "var(--text-2)" }}>
+                                          {c.type === "warning" ? "⚠ " : "✓ "}{c.message}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                  <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                                    {fixPreviewResult.changes.length > 0 && (
+                                      <button className="btn btn-primary btn-sm" onClick={handleApplyFix}>
+                                        {t("catalog.edit.autofix_apply")}
+                                      </button>
+                                    )}
+                                    <button className="btn btn-secondary btn-sm" onClick={() => setFixPreviewResult(null)}>
+                                      {t("catalog.edit.autofix_dismiss")}
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         ) : (
                           <div style={{ fontSize: 12, color: "var(--text-2)", display: "flex", gap: 24, flexWrap: "wrap" }}>

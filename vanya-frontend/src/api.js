@@ -130,6 +130,7 @@ export function listTests(params = {}) {
   return apiGet(`/tests${qs ? "?" + qs : ""}`);
 }
 export const getTest      = (tc_id)            => apiGet(`/tests/${tc_id}`);
+export const previewAutoFix = (body)           => apiPost("/tests/auto-fix-preview", body);
 export const runTest      = (tc_id, body = {}) => apiPost(`/tests/${tc_id}/run`, body);
 export const runSuite     = (body)             => apiPost("/tests/run-suite", body);
 export const updateTest   = (tc_id, body = {}) => apiPut(`/tests/${tc_id}`, body);

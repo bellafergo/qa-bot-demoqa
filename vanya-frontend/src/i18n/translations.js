@@ -214,6 +214,14 @@ export const translations = {
     "catalog.versions.diff_fields":    "Fields",
     "catalog.versions.diff_loading":   "Loading diff…",
 
+    "catalog.edit.autofix":             "Auto-fix",
+    "catalog.edit.autofix_loading":     "Running auto-fix…",
+    "catalog.edit.autofix_preview":     "Auto-fix Preview",
+    "catalog.edit.autofix_apply":       "Apply fixes",
+    "catalog.edit.autofix_dismiss":     "Dismiss",
+    "catalog.edit.autofix_none":        "No automatic fixes suggested.",
+    "catalog.edit.autofix_invalid_json":"Invalid JSON in steps or assertions — fix it before auto-fix preview.",
+
     "catalog.error.load_failed":  "Failed to load tests",
     "catalog.error.run_failed":   "Run failed",
     "catalog.error.batch_failed": "Batch failed",
@@ -1064,6 +1072,14 @@ export const translations = {
     "catalog.versions.diff_assertions":"Assertions",
     "catalog.versions.diff_fields":    "Campos",
     "catalog.versions.diff_loading":   "Cargando diff…",
+
+    "catalog.edit.autofix":             "Auto-fix",
+    "catalog.edit.autofix_loading":     "Ejecutando auto-fix…",
+    "catalog.edit.autofix_preview":     "Vista previa Auto-fix",
+    "catalog.edit.autofix_apply":       "Aplicar correcciones",
+    "catalog.edit.autofix_dismiss":     "Descartar",
+    "catalog.edit.autofix_none":        "No se sugieren correcciones automáticas.",
+    "catalog.edit.autofix_invalid_json":"JSON inválido en steps o assertions — corrígelo antes de ejecutar auto-fix.",
 
     "catalog.error.load_failed":  "Error al cargar pruebas",
     "catalog.error.run_failed":   "Ejecución fallida",
