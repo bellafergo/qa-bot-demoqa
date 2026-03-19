@@ -5,7 +5,7 @@
  */
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { getCoverageSummary, generateCoverageTests } from "../api";
+import { getCoverageSummary, generateCoverageTests, saveCoverageDrafts } from "../api";
 import { useLang } from "../i18n/LangContext";
 
 function ScoreBar({ value, max = 100 }) {
@@ -39,6 +39,8 @@ export default function CoveragePage() {
   const [suggestions, setSuggestions]       = useState(null);  // { module, gap_summary, suggested_tests }
   const [suggestingFor, setSuggestingFor]   = useState(null);  // module currently loading
   const [suggestError, setSuggestError]     = useState("");
+  const [saving, setSaving]                 = useState(false);
+  const [saveResult, setSaveResult]         = useState(null);  // { saved, skipped } or null
   const navigate = useNavigate();
 
   async function handleGenerateTests(e, moduleName) {
@@ -46,6 +48,7 @@ export default function CoveragePage() {
     setSuggestingFor(moduleName);
     setSuggestError("");
     setSuggestions(null);
+    setSaveResult(null);
     try {
       const data = await generateCoverageTests(moduleName);
       setSuggestions(data);
@@ -53,6 +56,20 @@ export default function CoveragePage() {
       setSuggestError(err?.message || "Failed to generate suggestions");
     } finally {
       setSuggestingFor(null);
+    }
+  }
+
+  async function handleSaveDrafts() {
+    if (!suggestions?.suggested_tests?.length || saving) return;
+    setSaving(true);
+    setSaveResult(null);
+    try {
+      const result = await saveCoverageDrafts(suggestions.module, suggestions.suggested_tests);
+      setSaveResult(result);
+    } catch (err) {
+      setSaveResult({ error: err?.message || "Save failed" });
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -201,13 +218,40 @@ export default function CoveragePage() {
             <div className="section-title" style={{ margin: 0 }}>
               {t("cov.suggestions.title")} — <span style={{ color: "var(--accent)" }}>{suggestions.module}</span>
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button className="btn btn-secondary btn-sm" onClick={() => navigate("/drafts")}>
-                {t("cov.suggestions.open_drafts")}
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {suggestions.suggested_tests?.length > 0 && !saveResult?.saved && (
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={handleSaveDrafts}
+                  disabled={saving}
+                >
+                  {saving ? t("cov.suggestions.saving") : t("cov.suggestions.save_all")}
+                </button>
+              )}
+              <button className="btn btn-secondary btn-sm" onClick={() => navigate("/catalog")}>
+                {t("cov.suggestions.open_catalog")}
               </button>
-              <button className="btn btn-secondary btn-sm" onClick={() => setSuggestions(null)}>✕</button>
+              <button className="btn btn-secondary btn-sm" onClick={() => { setSuggestions(null); setSaveResult(null); }}>✕</button>
             </div>
           </div>
+
+          {saveResult && (
+            <div
+              className={`alert ${saveResult.error ? "alert-error" : "alert-success"}`}
+              style={{ marginBottom: 12, fontSize: 12 }}
+            >
+              {saveResult.error
+                ? `✗ ${saveResult.error}`
+                : (
+                  <span>
+                    ✓ {saveResult.saved?.length ?? 0} {t("cov.suggestions.saved_count")}
+                    {saveResult.skipped?.length > 0 && ` · ${saveResult.skipped.length} ${t("cov.suggestions.skipped")}`}
+                    {" "}<button className="btn btn-secondary btn-sm" style={{ fontSize: 11, marginLeft: 8 }} onClick={() => navigate("/catalog")}>{t("cov.suggestions.open_catalog")}</button>
+                  </span>
+                )
+              }
+            </div>
+          )}
 
           {suggestions.gap_summary?.length > 0 && (
             <div style={{ marginBottom: 14, padding: "8px 12px", background: "var(--surface-2)", borderRadius: 6, fontSize: 12, color: "var(--text-2)", lineHeight: 1.6 }}>
