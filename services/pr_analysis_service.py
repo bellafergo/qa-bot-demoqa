@@ -487,24 +487,30 @@ class PRAnalysisService:
                      or any(k in tc_module_lower for k in _DOMAIN_KEYWORDS.get(d, []))),
                     modules[0],
                 )
-                reason = f"module '{tc.module}' covers {hit_domain}"
+                reason = f"covers {hit_domain} flow"
 
             # Tag match
             if any(kw in tag for tag in tc_tags_lower for kw in domain_kws):
                 score += 3
                 if not reason:
-                    hit_tag = next(
-                        (tag for tag in tc_tags_lower for kw in domain_kws if kw in tag),
-                        "",
+                    tag_domain = next(
+                        (d for d in modules
+                         if any(kw in tag for tag in tc_tags_lower
+                                for kw in _DOMAIN_KEYWORDS.get(d, [d]))),
+                        modules[0],
                     )
-                    reason = f"tag '{hit_tag}' matches {'/'.join(modules[:2])}"
+                    reason = f"related to {tag_domain} flow"
 
             # Name keyword match
             if any(kw in tc_name_lower for kw in domain_kws):
                 score += 2
                 if not reason:
-                    hit_kw = next((kw for kw in domain_kws if kw in tc_name_lower), "")
-                    reason = f"name contains '{hit_kw}'"
+                    name_domain = next(
+                        (d for d in modules
+                         if any(kw in tc_name_lower for kw in _DOMAIN_KEYWORDS.get(d, [d]))),
+                        modules[0],
+                    )
+                    reason = f"related to {name_domain} functionality"
 
             # Coverage priority boost — only applied when there is already a match
             if score > 0:
@@ -515,7 +521,7 @@ class PRAnalysisService:
 
             if score > 0:
                 scored.append((score, tc.test_case_id))
-                reasons[tc.test_case_id] = reason or f"matches {'/'.join(modules[:2])}"
+                reasons[tc.test_case_id] = reason or f"relevant to {modules[0]} and related functionality"
 
         scored.sort(key=lambda x: -x[0])
         return [tc_id for _, tc_id in scored], reasons
