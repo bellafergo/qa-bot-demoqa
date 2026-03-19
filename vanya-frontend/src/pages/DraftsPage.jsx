@@ -32,6 +32,32 @@ function ReasonBadge({ r }) {
   return <span className="badge badge-blue">{labels[r] || r}</span>;
 }
 
+// ── Step / assertion label helpers ───────────────────────────────────────────
+
+function labelStep(s) {
+  if (!s || typeof s !== "object") return String(s);
+  if (s.description) return s.description;
+  if (s.action) {
+    const parts = [s.action];
+    if (s.target) parts.push(`→ ${s.target}`);
+    if (s.value)  parts.push(`"${s.value}"`);
+    return parts.join(" ");
+  }
+  const first = Object.entries(s).find(([, v]) => typeof v === "string");
+  return first ? `${first[0]}: ${first[1]}` : JSON.stringify(s);
+}
+
+function labelAssertion(a) {
+  if (!a || typeof a !== "object") return String(a);
+  if (a.description) return a.description;
+  if (a.type && a.expected !== undefined) return `${a.type} → "${a.expected}"`;
+  if (a.assertion) return a.assertion;
+  const first = Object.entries(a).find(([, v]) => typeof v === "string");
+  return first ? `${first[0]}: ${first[1]}` : JSON.stringify(a);
+}
+
+const PREVIEW_LIMIT = 3;
+
 // ── Tab bar ───────────────────────────────────────────────────────────────────
 
 const TAB_DEFS = [
@@ -249,7 +275,7 @@ function SavedDraftsPanel() {
                   </div>
                 </div>
 
-                {/* Rationale */}
+                {/* Rationale + steps/assertions */}
                 {isEditing ? (
                   <>
                     <textarea
@@ -266,29 +292,77 @@ function SavedDraftsPanel() {
                     <textarea
                       className="input"
                       rows={4}
-                      style={{ width: "100%", fontSize: 11, fontFamily: "monospace", resize: "vertical", marginBottom: 8 }}
+                      style={{ width: "100%", fontSize: 11, fontFamily: "monospace", resize: "vertical", marginBottom: 2 }}
                       value={editing[d.draft_id].stepsJson}
                       onChange={e => setEditing(prev => ({ ...prev, [d.draft_id]: { ...prev[d.draft_id], stepsJson: e.target.value, jsonError: null } }))}
-                      placeholder="[]"
+                      placeholder='[{"action": "click", "target": "Submit"}, ...]'
                     />
+                    <div style={{ fontSize: 10, color: "var(--text-3)", marginBottom: 8 }}>
+                      {t("drafts.saved.json_helper_steps")}
+                    </div>
                     <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>
                       {t("drafts.saved.assertions_json_label")}
                     </div>
                     <textarea
                       className="input"
                       rows={3}
-                      style={{ width: "100%", fontSize: 11, fontFamily: "monospace", resize: "vertical", marginBottom: 8 }}
+                      style={{ width: "100%", fontSize: 11, fontFamily: "monospace", resize: "vertical", marginBottom: 2 }}
                       value={editing[d.draft_id].assertionsJson}
                       onChange={e => setEditing(prev => ({ ...prev, [d.draft_id]: { ...prev[d.draft_id], assertionsJson: e.target.value, jsonError: null } }))}
-                      placeholder="[]"
+                      placeholder='[{"type": "text", "expected": "Success"}, ...]'
                     />
+                    <div style={{ fontSize: 10, color: "var(--text-3)", marginBottom: 8 }}>
+                      {t("drafts.saved.json_helper_assertions")}
+                    </div>
                     {editing[d.draft_id].jsonError && (
                       <div style={{ fontSize: 11, color: "var(--red)", marginBottom: 8 }}>✗ {editing[d.draft_id].jsonError}</div>
                     )}
                   </>
-                ) : d.rationale ? (
-                  <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.5, marginBottom: 8 }}>{d.rationale}</div>
-                ) : null}
+                ) : (
+                  <>
+                    {d.rationale && (
+                      <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.5, marginBottom: 8 }}>{d.rationale}</div>
+                    )}
+                    {d.steps?.length > 0 && (
+                      <div style={{ marginBottom: 8 }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>
+                          {t("drafts.saved.steps_section")}
+                        </div>
+                        <ol style={{ margin: 0, paddingLeft: 18 }}>
+                          {d.steps.slice(0, PREVIEW_LIMIT).map((s, i) => (
+                            <li key={i} style={{ fontSize: 12, color: "var(--text-2)", marginBottom: 2, lineHeight: 1.4 }}>
+                              {labelStep(s)}
+                            </li>
+                          ))}
+                        </ol>
+                        {d.steps.length > PREVIEW_LIMIT && (
+                          <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>
+                            +{d.steps.length - PREVIEW_LIMIT} {t("drafts.saved.steps_more")}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {d.assertions?.length > 0 && (
+                      <div style={{ marginBottom: 8 }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>
+                          {t("drafts.saved.assertions_section")}
+                        </div>
+                        <ul style={{ margin: 0, paddingLeft: 16, listStyleType: "disc" }}>
+                          {d.assertions.slice(0, PREVIEW_LIMIT).map((a, i) => (
+                            <li key={i} style={{ fontSize: 12, color: "var(--text-2)", marginBottom: 2, lineHeight: 1.4 }}>
+                              {labelAssertion(a)}
+                            </li>
+                          ))}
+                        </ul>
+                        {d.assertions.length > PREVIEW_LIMIT && (
+                          <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>
+                            +{d.assertions.length - PREVIEW_LIMIT} {t("drafts.saved.assertions_more")}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
 
                 {/* Source */}
                 <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 8 }}>
@@ -314,9 +388,38 @@ function SavedDraftsPanel() {
                         {suggest[d.draft_id].rationale_improvements}
                       </div>
                     )}
-                    <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 6 }}>
-                      {suggest[d.draft_id].suggested_steps?.length ?? 0} steps · {suggest[d.draft_id].suggested_assertions?.length ?? 0} assertions · confidence: {suggest[d.draft_id].confidence}
-                    </div>
+                    {suggest[d.draft_id].suggested_steps?.length > 0 && (
+                      <div style={{ marginBottom: 6 }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>
+                          {t("drafts.saved.steps_section")} ({suggest[d.draft_id].suggested_steps.length})
+                        </div>
+                        <ol style={{ margin: 0, paddingLeft: 18 }}>
+                          {suggest[d.draft_id].suggested_steps.slice(0, PREVIEW_LIMIT).map((s, i) => (
+                            <li key={i} style={{ fontSize: 11, color: "var(--text-2)", marginBottom: 2 }}>{labelStep(s)}</li>
+                          ))}
+                        </ol>
+                        {suggest[d.draft_id].suggested_steps.length > PREVIEW_LIMIT && (
+                          <div style={{ fontSize: 10, color: "var(--text-3)" }}>+{suggest[d.draft_id].suggested_steps.length - PREVIEW_LIMIT} more</div>
+                        )}
+                      </div>
+                    )}
+                    {suggest[d.draft_id].suggested_assertions?.length > 0 && (
+                      <div style={{ marginBottom: 6 }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>
+                          {t("drafts.saved.assertions_section")} ({suggest[d.draft_id].suggested_assertions.length})
+                        </div>
+                        <ul style={{ margin: 0, paddingLeft: 16, listStyleType: "disc" }}>
+                          {suggest[d.draft_id].suggested_assertions.slice(0, PREVIEW_LIMIT).map((a, i) => (
+                            <li key={i} style={{ fontSize: 11, color: "var(--text-2)", marginBottom: 2 }}>{labelAssertion(a)}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {!suggest[d.draft_id].suggested_steps?.length && !suggest[d.draft_id].suggested_assertions?.length && (
+                      <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 6 }}>
+                        confidence: {suggest[d.draft_id].confidence}
+                      </div>
+                    )}
                     <div style={{ display: "flex", gap: 6 }}>
                       <button className="btn btn-primary btn-sm" style={{ fontSize: 11 }} onClick={() => applyAISuggest(d.draft_id)} disabled={isBusy}>
                         {isBusy ? "…" : t("drafts.saved.ai_apply")}

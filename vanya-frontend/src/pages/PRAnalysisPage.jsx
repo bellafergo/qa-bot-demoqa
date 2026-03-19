@@ -7,7 +7,7 @@
  */
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { analyzePR, runBatch, fetchGithubPR, createSavedDraft } from "../api";
+import { analyzePR, runBatch, fetchGithubPR, batchSaveDrafts } from "../api";
 import { useLang } from "../i18n/LangContext";
 
 function RiskBadge({ level }) {
@@ -100,29 +100,23 @@ export default function PRAnalysisPage() {
     if (!tests.length || savingDrafts) return;
     setSavingDrafts(true);
     setSaveDraftsResult(null);
-    let count = 0;
-    let lastError = null;
-    for (const d of tests) {
-      try {
-        await createSavedDraft({
-          name:        d.name,
-          module:      d.module,
-          rationale:   d.rationale || "",
-          confidence:  d.confidence || "medium",
-          source:      "pr_analysis",
-          steps:       d.suggested_steps      || [],
-          assertions:  d.suggested_assertions || [],
-        });
-        count++;
-      } catch (e) {
-        lastError = e?.message || "Save failed";
-      }
+    try {
+      const drafts = tests.map(d => ({
+        name:        d.name,
+        module:      d.module,
+        rationale:   d.rationale || "",
+        confidence:  d.confidence || "medium",
+        source:      "pr_analysis",
+        steps:       d.suggested_steps      || [],
+        assertions:  d.suggested_assertions || [],
+      }));
+      const res = await batchSaveDrafts(drafts);
+      setSaveDraftsResult(res);
+    } catch (e) {
+      setSaveDraftsResult({ error: e?.message || "Save failed" });
+    } finally {
+      setSavingDrafts(false);
     }
-    setSaveDraftsResult(lastError && count === 0
-      ? { error: lastError }
-      : { count, partial: lastError ? lastError : null }
-    );
-    setSavingDrafts(false);
   }
 
   async function handleEnqueue() {
@@ -372,7 +366,7 @@ export default function PRAnalysisPage() {
                   {result.suggested_new_tests.length} {t("pr.result.draft_suggestions")}
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  {!saveDraftsResult?.count && (
+                  {!saveDraftsResult?.saved_count && !saveDraftsResult?.error && (
                     <button
                       className="btn btn-primary btn-sm"
                       onClick={handleSaveDrafts}
@@ -396,8 +390,8 @@ export default function PRAnalysisPage() {
                     ? `✗ ${saveDraftsResult.error}`
                     : (
                       <span>
-                        ✓ {saveDraftsResult.count} {t("pr.save_drafts.saved")}
-                        {saveDraftsResult.partial && ` · ${saveDraftsResult.partial}`}
+                        ✓ {saveDraftsResult.saved_count ?? 0} {t("pr.save_drafts.saved")}
+                        {saveDraftsResult.error_count > 0 && ` · ${saveDraftsResult.error_count} ${t("pr.save_drafts.batch_failed")}`}
                         {" "}<button className="btn btn-secondary btn-sm" style={{ fontSize: 11, marginLeft: 8 }} onClick={() => navigate("/drafts")}>{t("pr.save_drafts.open")}</button>
                       </span>
                     )

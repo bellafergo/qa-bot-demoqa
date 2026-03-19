@@ -5,7 +5,7 @@
  */
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { getCoverageSummary, generateCoverageTests, createSavedDraft } from "../api";
+import { getCoverageSummary, generateCoverageTests, batchSaveDrafts } from "../api";
 import { useLang } from "../i18n/LangContext";
 
 function ScoreBar({ value, max = 100 }) {
@@ -64,20 +64,17 @@ export default function CoveragePage() {
     setSaving(true);
     setSaveResult(null);
     try {
-      let count = 0;
-      for (const s of suggestions.suggested_tests) {
-        await createSavedDraft({
-          name:       s.name,
-          module:     suggestions.module,
-          rationale:  s.rationale || s.rationale_improvements || "",
-          confidence: s.confidence || "medium",
-          source:     "coverage_gap",
-          steps:      s.suggested_steps      || [],
-          assertions: s.suggested_assertions || [],
-        });
-        count++;
-      }
-      setSaveResult({ count });
+      const drafts = suggestions.suggested_tests.map(s => ({
+        name:       s.name,
+        module:     suggestions.module,
+        rationale:  s.rationale || s.rationale_improvements || "",
+        confidence: s.confidence || "medium",
+        source:     "coverage_gap",
+        steps:      s.suggested_steps      || [],
+        assertions: s.suggested_assertions || [],
+      }));
+      const result = await batchSaveDrafts(drafts);
+      setSaveResult(result);
       await load();
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
@@ -233,7 +230,7 @@ export default function CoveragePage() {
               {t("cov.suggestions.title")} — <span style={{ color: "var(--accent)" }}>{suggestions.module}</span>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              {suggestions.suggested_tests?.length > 0 && !saveResult?.count && (
+              {suggestions.suggested_tests?.length > 0 && !saveResult?.saved_count && !saveResult?.error && (
                 <button
                   className="btn btn-primary btn-sm"
                   onClick={handleSaveDrafts}
@@ -258,7 +255,8 @@ export default function CoveragePage() {
                 ? `✗ ${saveResult.error}`
                 : (
                   <span>
-                    ✓ {saveResult.count ?? 0} {t("cov.suggestions.saved_count")}
+                    ✓ {saveResult.saved_count ?? 0} {t("cov.suggestions.saved_count")}
+                    {saveResult.error_count > 0 && ` · ${saveResult.error_count} ${t("cov.suggestions.batch_failed")}`}
                     {" "}<button className="btn btn-secondary btn-sm" style={{ fontSize: 11, marginLeft: 8 }} onClick={() => navigate("/drafts")}>{t("cov.suggestions.open_drafts")}</button>
                   </span>
                 )

@@ -77,6 +77,19 @@ export async function apiDelete(path) {
   return res.json();
 }
 
+export async function apiPut(path, body) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {}),
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(txt || res.statusText);
+  }
+  return res.json();
+}
+
 export async function apiPost(path, body) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
@@ -145,10 +158,19 @@ export const analyzeRisk     = (body) => apiPost("/business-risk/analyze", body)
 export const generateTests   = (body) => apiPost("/test-generation/generate", body);
 export const approveTests    = (body) => apiPost("/test-generation/approve",  body);
 
-// ========= Explorer Drafts =========
+// ========= Explorer Drafts (legacy) =========
 export const generateDrafts          = (url)    => apiPost("/drafts/generate",            { url });
 export const generateDraftsFromPages = (pages)  => apiPost("/drafts/generate-from-pages", { pages });
 export const approveDrafts           = (drafts) => apiPost("/drafts/approve",             { drafts });
+
+// ========= Persistent Drafts =========
+export const listSavedDrafts     = (status)         => apiGet(`/drafts${status ? `?status=${status}` : ""}`);
+export const batchSaveDrafts     = (drafts)         => apiPost("/drafts/batch", { drafts });
+export const createSavedDraft    = (body)            => apiPost("/drafts", body);
+export const updateSavedDraft    = (id, body)        => apiPut(`/drafts/${id}`, body);
+export const deleteSavedDraft    = (id)              => apiDelete(`/drafts/${id}`);
+export const approveSavedDraft   = (id)              => apiPost(`/drafts/${id}/approve`, {});
+export const aiSuggestDraft      = (id)              => apiPost(`/drafts/${id}/ai-suggest`, {});
 
 // ========= App Map =========
 export const exploreApp = (url, maxPages = 5) =>
@@ -170,6 +192,7 @@ export const runApiTests      = (body) => apiPost("/api-testing/run",           
 // ========= Coverage =========
 export const getCoverageSummary    = () => apiGet("/coverage/summary");
 export const generateCoverageTests = (module) => apiPost("/coverage/generate-tests", { module });
+export const saveCoverageDrafts    = (module, suggestions) => apiPost("/coverage/save-drafts", { module, suggestions });
 
 // ========= Failure Intelligence =========
 export const getFailureIntel = () => apiGet("/failure-intelligence/summary");
