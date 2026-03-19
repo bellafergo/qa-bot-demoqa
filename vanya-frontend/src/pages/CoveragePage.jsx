@@ -4,7 +4,8 @@
  * GET /coverage/summary
  */
 import React, { useState, useEffect, useCallback } from "react";
-import { getCoverageSummary } from "../api";
+import { useNavigate } from "react-router-dom";
+import { getCoverageSummary, generateCoverageTests } from "../api";
 import { useLang } from "../i18n/LangContext";
 
 function ScoreBar({ value, max = 100 }) {
@@ -35,6 +36,25 @@ export default function CoveragePage() {
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState("");
   const [expanded, setExpanded] = useState(null); // module name
+  const [suggestions, setSuggestions]       = useState(null);  // { module, gap_summary, suggested_tests }
+  const [suggestingFor, setSuggestingFor]   = useState(null);  // module currently loading
+  const [suggestError, setSuggestError]     = useState("");
+  const navigate = useNavigate();
+
+  async function handleGenerateTests(e, moduleName) {
+    e.stopPropagation();
+    setSuggestingFor(moduleName);
+    setSuggestError("");
+    setSuggestions(null);
+    try {
+      const data = await generateCoverageTests(moduleName);
+      setSuggestions(data);
+    } catch (err) {
+      setSuggestError(err?.message || "Failed to generate suggestions");
+    } finally {
+      setSuggestingFor(null);
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -120,7 +140,19 @@ export default function CoveragePage() {
                       <td style={{ fontSize: 12, color: "var(--text-2)" }}>{m.flows_covered ?? "—"}</td>
                       <td>
                         {(m.gaps?.length ?? 0) > 0
-                          ? <span className="badge badge-orange">{m.gaps.length} {m.gaps.length !== 1 ? t("cov.table.gap_plural") : t("cov.table.gap_single")}</span>
+                          ? (
+                            <span
+                              className="badge badge-orange"
+                              style={{ cursor: "pointer" }}
+                              title={t("cov.table.gaps_generate_tip")}
+                              onClick={(e) => handleGenerateTests(e, m.module)}
+                            >
+                              {suggestingFor === m.module
+                                ? "…"
+                                : `${m.gaps.length} ${m.gaps.length !== 1 ? t("cov.table.gap_plural") : t("cov.table.gap_single")} ↗`
+                              }
+                            </span>
+                          )
                           : <span className="badge badge-green">{t("cov.table.gaps_none")}</span>
                         }
                       </td>
@@ -158,6 +190,53 @@ export default function CoveragePage() {
           </>
         )}
       </div>
+
+      {/* Suggestions panel */}
+      {suggestError && (
+        <div className="alert alert-error" style={{ marginBottom: 16 }}>{suggestError}</div>
+      )}
+      {suggestions && (
+        <div className="card" style={{ marginBottom: 24 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+            <div className="section-title" style={{ margin: 0 }}>
+              {t("cov.suggestions.title")} — <span style={{ color: "var(--accent)" }}>{suggestions.module}</span>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn btn-secondary btn-sm" onClick={() => navigate("/drafts")}>
+                {t("cov.suggestions.open_drafts")}
+              </button>
+              <button className="btn btn-secondary btn-sm" onClick={() => setSuggestions(null)}>✕</button>
+            </div>
+          </div>
+
+          {suggestions.gap_summary?.length > 0 && (
+            <div style={{ marginBottom: 14, padding: "8px 12px", background: "var(--surface-2)", borderRadius: 6, fontSize: 12, color: "var(--text-2)", lineHeight: 1.6 }}>
+              {suggestions.gap_summary.map((g, i) => <div key={i}>• {g}</div>)}
+            </div>
+          )}
+
+          {suggestions.suggested_tests?.length === 0 ? (
+            <div style={{ fontSize: 13, color: "var(--text-3)" }}>{t("cov.suggestions.empty")}</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {suggestions.suggested_tests.map((s, i) => (
+                <div key={i} style={{ borderLeft: "3px solid var(--accent)", paddingLeft: 12, paddingTop: 4, paddingBottom: 4 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                    <span style={{ fontWeight: 600, fontSize: 13 }}>{s.name}</span>
+                    <span className="badge badge-gray" style={{ fontSize: 10 }}>{s.confidence}</span>
+                    <span className="badge badge-gray" style={{ fontSize: 10 }}>
+                      {s.suggested_steps?.length ?? 0} {t("cov.suggestions.steps")}
+                    </span>
+                  </div>
+                  {s.rationale && (
+                    <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.5 }}>{s.rationale}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 24, alignItems: "start" }}>
 

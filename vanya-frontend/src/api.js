@@ -168,7 +168,8 @@ export const approveApiTests  = (body) => apiPost("/api-testing/approve",       
 export const runApiTests      = (body) => apiPost("/api-testing/run",            body);
 
 // ========= Coverage =========
-export const getCoverageSummary = () => apiGet("/coverage/summary");
+export const getCoverageSummary    = () => apiGet("/coverage/summary");
+export const generateCoverageTests = (module) => apiPost("/coverage/generate-tests", { module });
 
 // ========= Failure Intelligence =========
 export const getFailureIntel = () => apiGet("/failure-intelligence/summary");
