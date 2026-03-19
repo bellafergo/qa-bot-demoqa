@@ -1,6 +1,8 @@
 // src/pages/DraftsPage.jsx
 import React, { useState, useEffect, useCallback } from "react";
-import { generateTests, approveTests, generateDrafts, generateDraftsFromPages, approveDrafts, listTests, runSuite, exploreApp } from "../api";
+import { generateTests, approveTests, generateDrafts, generateDraftsFromPages, approveDrafts, listTests, runSuite, exploreApp,
+  listSavedDrafts, createSavedDraft, updateSavedDraft, deleteSavedDraft, approveSavedDraft, aiSuggestDraft,
+} from "../api";
 import { useLang } from "../i18n/LangContext";
 
 // ── Shared badge helpers ──────────────────────────────────────────────────────
@@ -33,11 +35,346 @@ function ReasonBadge({ r }) {
 // ── Tab bar ───────────────────────────────────────────────────────────────────
 
 const TAB_DEFS = [
+  { id: "saved",    labelKey: "drafts.tab.saved"    },
   { id: "appmap",   labelKey: "drafts.tab.appmap"   },
   { id: "explorer", labelKey: "drafts.tab.explorer" },
   { id: "catalog",  labelKey: "drafts.tab.catalog"  },
   { id: "ai",       labelKey: "drafts.tab.ai"       },
 ];
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Saved Drafts Panel — persistent CRUD, approve, AI suggest
+// ══════════════════════════════════════════════════════════════════════════════
+
+function SavedDraftsPanel() {
+  const { t } = useLang();
+  const [drafts, setDrafts]     = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState("");
+  const [filter, setFilter]     = useState("draft");  // draft | approved | all
+
+  // per-draft state
+  const [editing, setEditing]   = useState({});        // { [draft_id]: { name, rationale } }
+  const [busy, setBusy]         = useState({});        // { [draft_id]: string | null }
+  const [suggest, setSuggest]   = useState({});        // { [draft_id]: AISuggestResponse }
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await listSavedDrafts(filter === "all" ? undefined : filter);
+      setDrafts(data);
+    } catch (e) {
+      setError(e?.message || t("drafts.saved.load_error"));
+    } finally {
+      setLoading(false);
+    }
+  }, [filter, t]);
+
+  useEffect(() => { load(); }, [load]);
+
+  function startEdit(d) {
+    setEditing(prev => ({
+      ...prev,
+      [d.draft_id]: {
+        name:           d.name,
+        rationale:      d.rationale,
+        stepsJson:      JSON.stringify(d.steps      || [], null, 2),
+        assertionsJson: JSON.stringify(d.assertions || [], null, 2),
+        jsonError:      null,
+      },
+    }));
+  }
+
+  function cancelEdit(id) {
+    setEditing(prev => { const n = { ...prev }; delete n[id]; return n; });
+  }
+
+  async function saveEdit(id) {
+    const patch = editing[id];
+    if (!patch) return;
+
+    // Validate JSON fields before sending
+    let steps, assertions;
+    try {
+      steps      = JSON.parse(patch.stepsJson      || "[]");
+      assertions = JSON.parse(patch.assertionsJson || "[]");
+    } catch {
+      setEditing(prev => ({ ...prev, [id]: { ...prev[id], jsonError: t("drafts.saved.json_error") } }));
+      return;
+    }
+
+    setBusy(prev => ({ ...prev, [id]: "saving" }));
+    try {
+      const updated = await updateSavedDraft(id, {
+        name:       patch.name,
+        rationale:  patch.rationale,
+        steps,
+        assertions,
+      });
+      setDrafts(prev => prev.map(d => d.draft_id === id ? updated : d));
+      cancelEdit(id);
+    } catch (e) {
+      setError(e?.message || t("drafts.saved.save_error"));
+    } finally {
+      setBusy(prev => ({ ...prev, [id]: null }));
+    }
+  }
+
+  async function handleDelete(id) {
+    setBusy(prev => ({ ...prev, [id]: "deleting" }));
+    try {
+      await deleteSavedDraft(id);
+      setDrafts(prev => prev.filter(d => d.draft_id !== id));
+    } catch (e) {
+      setError(e?.message || t("drafts.saved.delete_error"));
+    } finally {
+      setBusy(prev => ({ ...prev, [id]: null }));
+    }
+  }
+
+  async function handleApprove(id) {
+    setBusy(prev => ({ ...prev, [id]: "approving" }));
+    try {
+      const res = await approveSavedDraft(id);
+      setDrafts(prev => prev.map(d => d.draft_id === id ? { ...d, status: "approved" } : d));
+    } catch (e) {
+      setError(e?.message || t("drafts.saved.approve_error"));
+    } finally {
+      setBusy(prev => ({ ...prev, [id]: null }));
+    }
+  }
+
+  async function handleAISuggest(id) {
+    setBusy(prev => ({ ...prev, [id]: "suggesting" }));
+    setSuggest(prev => { const n = { ...prev }; delete n[id]; return n; });
+    try {
+      const res = await aiSuggestDraft(id);
+      setSuggest(prev => ({ ...prev, [id]: res }));
+    } catch (e) {
+      setError(e?.message || t("drafts.saved.suggest_error"));
+    } finally {
+      setBusy(prev => ({ ...prev, [id]: null }));
+    }
+  }
+
+  async function applyAISuggest(id) {
+    const s = suggest[id];
+    if (!s) return;
+    const patch = {};
+    if (s.suggested_name)       patch.name       = s.suggested_name;
+    if (s.suggested_steps?.length)      patch.steps      = s.suggested_steps;
+    if (s.suggested_assertions?.length) patch.assertions = s.suggested_assertions;
+    if (s.rationale_improvements)       patch.rationale  = s.rationale_improvements;
+    if (!Object.keys(patch).length) return;
+    setBusy(prev => ({ ...prev, [id]: "applying" }));
+    try {
+      const updated = await updateSavedDraft(id, patch);
+      setDrafts(prev => prev.map(d => d.draft_id === id ? updated : d));
+      setSuggest(prev => { const n = { ...prev }; delete n[id]; return n; });
+    } catch (e) {
+      setError(e?.message || t("drafts.saved.save_error"));
+    } finally {
+      setBusy(prev => ({ ...prev, [id]: null }));
+    }
+  }
+
+  const statusColor = s => s === "approved" ? "var(--green)" : s === "discarded" ? "var(--text-3)" : "var(--accent)";
+
+  return (
+    <div>
+      {/* Toolbar */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+        <div className="section-title" style={{ margin: 0 }}>{t("drafts.saved.title")}</div>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+          {["draft", "approved", "all"].map(f => (
+            <button
+              key={f}
+              className={`btn btn-sm ${filter === f ? "btn-primary" : "btn-secondary"}`}
+              onClick={() => setFilter(f)}
+            >
+              {t(`drafts.saved.filter.${f}`)}
+            </button>
+          ))}
+          <button className="btn btn-secondary btn-sm" onClick={load} disabled={loading}>↺</button>
+        </div>
+      </div>
+
+      {error && <div className="alert alert-error" style={{ marginBottom: 12, fontSize: 12 }}>{error}</div>}
+
+      {loading ? (
+        <div style={{ color: "var(--text-3)", fontSize: 13, padding: "24px 0" }}>{t("drafts.saved.loading")}</div>
+      ) : drafts.length === 0 ? (
+        <div className="card" style={{ textAlign: "center", padding: "32px 20px", color: "var(--text-3)" }}>
+          <div style={{ fontSize: 28, marginBottom: 8 }}>◎</div>
+          <div style={{ fontSize: 13 }}>{t("drafts.saved.empty")}</div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {drafts.map(d => {
+            const isEditing  = !!editing[d.draft_id];
+            const isBusy     = !!busy[d.draft_id];
+            const hasSuggest = !!suggest[d.draft_id];
+            const approved   = d.status === "approved";
+
+            return (
+              <div key={d.draft_id} className="card" style={{ padding: "14px 16px" }}>
+                {/* Header row */}
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    {isEditing ? (
+                      <input
+                        className="input"
+                        style={{ width: "100%", fontWeight: 600 }}
+                        value={editing[d.draft_id].name}
+                        onChange={e => setEditing(prev => ({ ...prev, [d.draft_id]: { ...prev[d.draft_id], name: e.target.value } }))}
+                        onKeyDown={e => e.key === "Enter" && saveEdit(d.draft_id)}
+                        autoFocus
+                      />
+                    ) : (
+                      <span
+                        style={{ fontWeight: 600, fontSize: 13, cursor: approved ? "default" : "pointer" }}
+                        title={approved ? "" : t("drafts.saved.click_to_edit")}
+                        onClick={() => !approved && startEdit(d)}
+                      >
+                        {d.name}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", gap: 5, alignItems: "center", flexShrink: 0 }}>
+                    <span className="badge badge-gray" style={{ fontSize: 10 }}>{d.module}</span>
+                    <ConfidenceBadge c={d.confidence} />
+                    <span style={{ fontSize: 10, color: statusColor(d.status), fontWeight: 600 }}>{d.status}</span>
+                    <span className="badge badge-gray" style={{ fontSize: 10 }}>{d.steps?.length ?? 0} steps</span>
+                  </div>
+                </div>
+
+                {/* Rationale */}
+                {isEditing ? (
+                  <>
+                    <textarea
+                      className="input"
+                      rows={2}
+                      style={{ width: "100%", fontSize: 12, resize: "vertical", marginBottom: 8 }}
+                      value={editing[d.draft_id].rationale}
+                      onChange={e => setEditing(prev => ({ ...prev, [d.draft_id]: { ...prev[d.draft_id], rationale: e.target.value } }))}
+                      placeholder={t("drafts.saved.rationale_placeholder")}
+                    />
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>
+                      {t("drafts.saved.steps_json_label")}
+                    </div>
+                    <textarea
+                      className="input"
+                      rows={4}
+                      style={{ width: "100%", fontSize: 11, fontFamily: "monospace", resize: "vertical", marginBottom: 8 }}
+                      value={editing[d.draft_id].stepsJson}
+                      onChange={e => setEditing(prev => ({ ...prev, [d.draft_id]: { ...prev[d.draft_id], stepsJson: e.target.value, jsonError: null } }))}
+                      placeholder="[]"
+                    />
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>
+                      {t("drafts.saved.assertions_json_label")}
+                    </div>
+                    <textarea
+                      className="input"
+                      rows={3}
+                      style={{ width: "100%", fontSize: 11, fontFamily: "monospace", resize: "vertical", marginBottom: 8 }}
+                      value={editing[d.draft_id].assertionsJson}
+                      onChange={e => setEditing(prev => ({ ...prev, [d.draft_id]: { ...prev[d.draft_id], assertionsJson: e.target.value, jsonError: null } }))}
+                      placeholder="[]"
+                    />
+                    {editing[d.draft_id].jsonError && (
+                      <div style={{ fontSize: 11, color: "var(--red)", marginBottom: 8 }}>✗ {editing[d.draft_id].jsonError}</div>
+                    )}
+                  </>
+                ) : d.rationale ? (
+                  <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.5, marginBottom: 8 }}>{d.rationale}</div>
+                ) : null}
+
+                {/* Source */}
+                <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 8 }}>
+                  {t("drafts.saved.source")}: {d.source} · {new Date(d.created_at).toLocaleDateString()}
+                </div>
+
+                {/* AI suggestion panel */}
+                {hasSuggest && (
+                  <div style={{ background: "var(--accent-light)", border: "1px solid var(--border)", borderRadius: 6, padding: "10px 12px", marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", marginBottom: 6 }}>
+                      ✦ {t("drafts.saved.ai_suggest_result")}
+                    </div>
+                    {suggest[d.draft_id].note && (
+                      <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 6 }}>{suggest[d.draft_id].note}</div>
+                    )}
+                    {suggest[d.draft_id].suggested_name && (
+                      <div style={{ fontSize: 12, marginBottom: 4 }}>
+                        <strong>{t("drafts.saved.ai_name")}:</strong> {suggest[d.draft_id].suggested_name}
+                      </div>
+                    )}
+                    {suggest[d.draft_id].rationale_improvements && (
+                      <div style={{ fontSize: 12, color: "var(--text-2)", marginBottom: 6 }}>
+                        {suggest[d.draft_id].rationale_improvements}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 6 }}>
+                      {suggest[d.draft_id].suggested_steps?.length ?? 0} steps · {suggest[d.draft_id].suggested_assertions?.length ?? 0} assertions · confidence: {suggest[d.draft_id].confidence}
+                    </div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button className="btn btn-primary btn-sm" style={{ fontSize: 11 }} onClick={() => applyAISuggest(d.draft_id)} disabled={isBusy}>
+                        {isBusy ? "…" : t("drafts.saved.ai_apply")}
+                      </button>
+                      <button className="btn btn-secondary btn-sm" style={{ fontSize: 11 }} onClick={() => setSuggest(prev => { const n = { ...prev }; delete n[d.draft_id]; return n; })}>
+                        {t("drafts.saved.dismiss")}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Action row */}
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {isEditing ? (
+                    <>
+                      <button className="btn btn-primary btn-sm" onClick={() => saveEdit(d.draft_id)} disabled={isBusy}>{isBusy ? "…" : t("drafts.saved.save")}</button>
+                      <button className="btn btn-secondary btn-sm" onClick={() => cancelEdit(d.draft_id)}>{t("drafts.saved.cancel")}</button>
+                    </>
+                  ) : (
+                    <>
+                      {!approved && (
+                        <>
+                          <button className="btn btn-secondary btn-sm" onClick={() => startEdit(d)}>{t("drafts.saved.edit")}</button>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => handleAISuggest(d.draft_id)}
+                            disabled={isBusy}
+                          >
+                            {busy[d.draft_id] === "suggesting" ? "…" : `✦ ${t("drafts.saved.ai_suggest")}`}
+                          </button>
+                          <button
+                            className="btn btn-primary btn-sm"
+                            onClick={() => handleApprove(d.draft_id)}
+                            disabled={isBusy}
+                          >
+                            {busy[d.draft_id] === "approving" ? "…" : t("drafts.saved.approve")}
+                          </button>
+                        </>
+                      )}
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        style={{ color: "var(--red)" }}
+                        onClick={() => handleDelete(d.draft_id)}
+                        disabled={isBusy}
+                      >
+                        {busy[d.draft_id] === "deleting" ? "…" : t("drafts.saved.delete")}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Explorer Drafts Panel
@@ -1368,7 +1705,7 @@ function KpiBar() {
 
 export default function DraftsPage() {
   const { t } = useLang();
-  const [tab, setTab] = useState("appmap");
+  const [tab, setTab] = useState("saved");
   // Shared drafts: AppMap generates them and passes them to Explorer on navigation
   const [sharedDrafts, setSharedDrafts] = useState([]);
 
@@ -1406,6 +1743,7 @@ export default function DraftsPage() {
         ))}
       </div>
 
+      {tab === "saved"    && <SavedDraftsPanel />}
       {tab === "explorer" && <ExplorerDraftsPanel onGoToCatalog={() => setTab("catalog")} initialDrafts={sharedDrafts} />}
       {tab === "catalog"  && <CatalogExecutionPanel />}
       {tab === "ai"       && <AIGenerationPanel />}
