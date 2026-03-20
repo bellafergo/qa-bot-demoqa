@@ -15,6 +15,7 @@ import html
 from core.settings import settings
 from db import init_db
 from services.run_store import get_run
+from services.run_history_service import run_history_service
 
 from api.routes.health import router as health_router
 from api.routes.meta import router as meta_router
@@ -205,7 +206,42 @@ def on_startup():
 # ============================================================
 @app.get("/runs/{evidence_id}", response_class=HTMLResponse)
 def get_run_evidence(evidence_id: str, request: Request, format: str = "html"):
+    # 1) short-term in-memory store (chat / execute / async runs)
     run = get_run(evidence_id)
+
+    # 2) fallback: official SQLite history (catalog / orchestrator runs)
+    if not run:
+        canonical = run_history_service.get_run(evidence_id)
+        if canonical:
+            # Adapt CanonicalRun → flat dict expected by the HTML renderer and
+            # run_from_legacy_store.  model_dump() converts nested Pydantic models
+            # (RunMeta, RunArtifacts) to plain dicts automatically.
+            d = canonical.model_dump()
+            arts: dict = d.pop("artifacts", None) or {}
+
+            # Flatten artifact URLs to top level (run_from_legacy_store reads here)
+            # and also into meta (HTML renderer reads meta.get("evidence_url")).
+            meta_d: dict = d.get("meta") or {}
+            for url_key in ("evidence_url", "report_url"):
+                val = arts.get(url_key)
+                if val:
+                    d[url_key] = val
+                    meta_d[url_key] = val
+            d["meta"] = meta_d
+
+            # Flatten screenshot_b64 to top level (HTML renderer + run_from_legacy_store)
+            if arts.get("screenshot_b64") and not d.get("screenshot_b64"):
+                d["screenshot_b64"] = arts["screenshot_b64"]
+
+            # Map error_summary → reason (HTML renderer reads run.get("reason"))
+            if not d.get("reason") and d.get("error_summary"):
+                d["reason"] = d["error_summary"]
+
+            # Ensure evidence_id alias is present
+            d.setdefault("evidence_id", d.get("run_id") or evidence_id)
+
+            run = d
+
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
 
