@@ -5,6 +5,10 @@ Step validation layer — validates step dicts BEFORE execution.
 validate_steps() accepts a list of raw step dicts (catalog or runner format)
 and returns a StepValidationResult with structured errors and warnings.
 
+Contrato canónico:
+  VALID_ACTIONS = RUNNER_ACTIONS de core.schemas (acciones que generic_steps ejecuta).
+  Acciones DSL alto (login, search, add_to_cart, etc.) deben compilarse antes de validar.
+
 Design principles
 -----------------
 - Pure function, no I/O, no Playwright dependency.
@@ -17,27 +21,10 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
 
+from core.schemas import RUNNER_ACTIONS
 
-# ── Valid action vocabulary ────────────────────────────────────────────────────
-
-VALID_ACTIONS: frozenset = frozenset({
-    "goto",
-    "fill",
-    "click",
-    "press",
-    "hover",
-    "select",
-    "check",
-    "uncheck",
-    "scroll",
-    "upload",
-    "screenshot",
-    "wait_ms",
-    "assert_visible",
-    "assert_not_visible",
-    "assert_url_contains",
-    "assert_text_contains",
-})
+# Contrato único: solo acciones que el runner ejecuta realmente
+VALID_ACTIONS: frozenset = RUNNER_ACTIONS
 
 # Actions that require a selector or target.primary
 _SELECTOR_REQUIRED: frozenset = frozenset({

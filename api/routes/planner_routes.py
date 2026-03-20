@@ -13,6 +13,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from core.step_compiler import compile_to_runner_steps, CompileError
 from core.step_validator import validate_steps
 
 logger = logging.getLogger("vanya.planner")
@@ -40,33 +41,7 @@ class ExecuteTextRequest(BaseModel):
     allow_risky: bool           = False
 
 
-# ── Step expansion ───────────────────────────────────────────────────────────
-
-def _expand_abstract_steps(steps: list[dict]) -> list[dict]:
-    """
-    Expand abstract planner steps into concrete runner-compatible steps.
-
-    Currently handles:
-      {"action": "login", "email": "...", "password": "..."}
-        → fill #user-name, fill #password, click #login-button  (SauceDemo / generic)
-
-    All other steps are passed through unchanged.
-    """
-    expanded: list[dict] = []
-    for step in steps:
-        if step.get("action") == "login" and not any(
-            k in step for k in ("selector", "target", "loc")
-        ):
-            email    = step.get("email")    or step.get("username") or "{EMAIL}"
-            password = step.get("password") or "{PASSWORD}"
-            expanded += [
-                {"action": "fill", "selector": "#user-name", "value": email},
-                {"action": "fill", "selector": "#password",  "value": password},
-                {"action": "click", "selector": "#login-button"},
-            ]
-        else:
-            expanded.append(step)
-    return expanded
+# Step expansion: use step_compiler (see core/step_compiler.py)
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -124,8 +99,29 @@ def execute_text_endpoint(req: ExecuteTextRequest) -> Dict[str, Any]:
     if not steps:
         return {"plan": plan, "run": None, "reason": "No executable steps generated"}
 
-    # Expand abstract steps (e.g. login → fill/click) before handing to runner
-    steps = _expand_abstract_steps(steps)
+    base_url = req.base_url or plan.get("base_url")
+
+    # Compile planner DSL → runner steps
+    try:
+        steps = compile_to_runner_steps(
+            plan_steps=steps,
+            base_url=base_url,
+            context={"base_url": base_url, "app_hint": req.app_hint},
+        )
+    except CompileError as e:
+        logger.warning("execute_text: compile failed — %s", e)
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "reason": "Step compilation failed",
+                "message": str(e),
+                "step_index": e.step_index,
+                "action": e.action,
+            },
+        )
+
+    if not steps:
+        return {"plan": plan, "run": None, "reason": "Compilation produced no steps"}
 
     validation = validate_steps(steps)
     if not validation.valid:
@@ -143,7 +139,7 @@ def execute_text_endpoint(req: ExecuteTextRequest) -> Dict[str, Any]:
     try:
         run = execute_test(
             steps    = steps,
-            base_url = req.base_url or plan.get("base_url"),
+            base_url = base_url,
             headless = req.headless,
         )
     except Exception as exc:

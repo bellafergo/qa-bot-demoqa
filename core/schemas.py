@@ -8,6 +8,25 @@ from pydantic import BaseModel, Field
 # ============================================================
 # Step / Target contract
 # ============================================================
+#
+# RUNNER_ACTIONS: subset real de acciones ejecutables por runners/generic_steps.py
+# El validator y el step_compiler deben alinearse con este contrato.
+#
+RUNNER_ACTIONS: frozenset = frozenset({
+    "goto",
+    "fill",
+    "click",
+    "press",
+    "wait_ms",
+    "assert_visible",
+    "assert_not_visible",
+    "assert_url_contains",
+    "assert_text_contains",
+})
+
+# DSL alto del planner (nl_test_planner) — requiere compilación a RUNNER_ACTIONS:
+# login, search, add_to_cart, wait_for_text, assert_text, assert_cart_count, screenshot
+
 
 class TargetFallback(BaseModel):
     """

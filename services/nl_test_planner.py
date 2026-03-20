@@ -5,9 +5,15 @@ Natural Language Test Planner
 Converts natural language test descriptions into executable step plans.
 Uses heuristic parsing (no LLM) with domain-specific fallbacks.
 
-ALLOWED ACTIONS:
-    goto, click, fill, login, search, add_to_cart,
-    wait_for_text, assert_text, assert_cart_count, screenshot
+PLANNER DSL ACTIONS (alto nivel — requieren compilación a runner steps):
+    goto, click, fill        — pasan directo (también son runner actions)
+    login                    — compilar a fill/click (SauceDemo u otro)
+    search                   — compilar a fill + press/search
+    add_to_cart              — compilar o error si no hay impl site-specific
+    wait_for_text            — compilar a assert_text_contains
+    assert_text              — compilar a assert_text_contains
+    assert_cart_count        — compilar o error (site-specific)
+    screenshot               — compilar a wait_ms (runner captura al final)
 
 SECURITY:
     - Payment/checkout requests set risk_flags=["payment"], requires_confirmation=True
