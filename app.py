@@ -205,7 +205,7 @@ def on_startup():
 # ============================================================
 @app.get("/runs/{evidence_id}", response_class=HTMLResponse)
 def get_run_evidence(evidence_id: str, request: Request, format: str = "html"):
-    run = run_store.get_run(evidence_id)
+    run = get_run(evidence_id)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
 
