@@ -686,7 +686,7 @@ function RunHistoryTab({ initialRunId }) {
     <div>
       <FailureClustersPanel clusters={clusters} loading={clustersLoading} />
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr)", gap: 24, alignItems: "start" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 20, width: "100%" }}>
 
       {/* Runs list */}
       <div>
