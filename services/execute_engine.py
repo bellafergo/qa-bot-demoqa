@@ -25,6 +25,120 @@ logger = logging.getLogger("vanya.execute_engine")
 
 
 # ============================================================
+# Conversational helpers (UX execute mode)
+# ============================================================
+def _is_probably_spanish(text: str) -> bool:
+    s = (text or "").lower()
+    # Heurística: basta con detectar términos comunes en español
+    return any(k in s for k in ("quiero", "valida", "validar", "historia", "login", "credencial", "credenciales", "mensaje", "error", "acceso", "no permite", "agregar", "carrito", "buscar"))
+
+
+def _infer_flow_summary(prompt: str) -> str:
+    p = (prompt or "").lower()
+    neg_login = (
+        ("login" in p or "iniciar sesión" in p or "iniciar sesion" in p or "sign in" in p or "sesión" in p)
+        and any(k in p for k in (
+            "invalid", "incorrect", "wrong", "failing",
+            "credencial", "credenciales",
+            "no permite", "no acceso", "no autoriza", "acceso deneg", "error",
+        ))
+    )
+    if neg_login:
+        return "validar un login fallido con credenciales inválidas (y confirmar que se muestra un mensaje de error y no se otorga acceso)"
+
+    if any(k in p for k in ("buscar", "search", "encuentra", "búsqueda")):
+        return "buscar un producto y validar que los resultados sean los esperados"
+
+    if any(k in p for k in ("agregar al carrito", "add to cart", "carrito", "cart")):
+        return "agregar un producto al carrito y validar el cambio"
+
+    return "ejecutar el flujo que describiste y validar el resultado"
+
+
+def _infer_missing_near_base_url(prompt: str) -> dict:
+    """
+    When base_url is missing, we only ask for what blocks execution:
+    - Always: base_url
+    - Optionally: expected exact text (only if user seems to care about exact message)
+    - Credentials are never requested as secrets; we only mention placeholders when relevant.
+    """
+    p = (prompt or "").lower()
+    wants_exact_text = any(k in p for k in ("texto exacto", "mensaje exacto", "expected text", "exacto", "preciso", "que diga", "que muestre"))
+    mentions_credentials = any(k in p for k in ("credencial", "credenciales", "invalid", "incorrect", "wrong", "contrasena", "password"))
+    return {
+        "wants_exact_text": wants_exact_text,
+        "mentions_credentials": mentions_credentials,
+    }
+
+
+def _has_flow_intent(prompt: str) -> bool:
+    """
+    Detecta si el prompt ya trae pistas de un flujo (login/busqueda/carrito)
+    o un objetivo verificable (error/mensaje/acceso).
+    """
+    p = (prompt or "").lower()
+    return any(k in p for k in (
+        "login", "iniciar sesión", "iniciar sesion", "sign in",
+        "credencial", "credenciales", "invalid", "incorrect", "wrong",
+        "buscar", "search", "producto", "productos", "resultados",
+        "carrito", "add to cart", "cart", "checkout", "comprar", "pago",
+        "mensaje", "error", "acceso", "no permite", "no acceso", "deneg",
+        "validar", "validación", "validacion", "confirmar", "quiere", "quiero", "objetivo",
+    ))
+
+
+def _build_guided_missing_base_url_answer(prompt: str, *, persona: str) -> str:
+    """
+    Conversational alternative to a rigid checklist.
+    We always request base_url, but we do NOT request "what to validate" or "credentials"
+    when the prompt already contains enough intent for a guided assumption.
+    """
+    is_es = _is_probably_spanish(prompt)
+    summary = _infer_flow_summary(prompt)
+    missing = _infer_missing_near_base_url(prompt)
+
+    if is_es:
+        opt = ""
+        if missing["wants_exact_text"]:
+            opt = " Si tienes el texto exacto que esperas del error, pégalo aquí; si no, validaré que el mensaje de error sea visible."
+        else:
+            opt = " Si quieres precisión máxima, también puedes pegar el texto exacto del error esperado; si no, validaré que el mensaje de error sea visible."
+
+        cred_opt = ""
+        if missing["mentions_credentials"] or "login" in (prompt or "").lower():
+            cred_opt = " Para esta prueba negativa usaré credenciales inválidas de ejemplo (placeholders), sin inventar secretos reales."
+
+        flow_hint = ""
+        if not _has_flow_intent(prompt):
+            flow_hint = (
+                " Para que la ejecución sea útil, dime qué resultado quieres validar "
+                "(por ejemplo: que aparezca un mensaje, que un botón cambie, o que el acceso no se otorgue)."
+            )
+
+        return (
+            f"Entendí que {summary}.\n\n"
+            f"Para prepararlo, solo necesito la URL de tu sistema (o indica \"same\" si ya tienes un `base_url` en tu sesión)."
+            f"{cred_opt}{opt}{flow_hint}"
+        )
+
+    # Fallback EN (if prompt is mostly English)
+    opt = ""
+    if missing["wants_exact_text"]:
+        opt = " If you have the exact expected error text, paste it - otherwise I will validate that an error message is visible."
+    else:
+        opt = " For best results, paste the exact expected error text (optional). Otherwise I will validate the error is visible."
+    cred_opt = ""
+    if missing["mentions_credentials"] or "login" in (prompt or "").lower():
+        cred_opt = " For the negative test, I'll use invalid example credentials (placeholders), without using real secrets."
+
+    return (
+        f"I understood you want {summary}.\n\n"
+        f"To prepare the run, I only need the system URL (or tell me \"same\" if a base_url is already available in your session)."
+        f"{cred_opt}{opt}"
+    )
+
+
+# ============================================================
 # Confidence helper (UI-friendly, para EXECUTE)
 # ============================================================
 def _confidence(mode: str, prompt: str, base_url: Optional[str]) -> Dict[str, Any]:
@@ -152,13 +266,8 @@ def handle_execute_mode(
     try:
         base_url = H.pick_base_url(req, session, prompt)
     except Exception:
-        logger.exception("pick_base_url raised unexpectedly — treating as no base_url")
-        answer = (
-            "To execute I need:\n"
-            '- URL (or say "same")\n'
-            "- What to validate (button / field / expected text)\n"
-            "- Credentials (if applicable)"
-        )
+        logger.exception("pick_base_url raised unexpectedly - treating as no base_url")
+        answer = _build_guided_missing_base_url_answer(prompt, persona=persona)
         store.add_message(thread_id, "assistant", answer, meta={"mode": "execute", "persona": persona})
         return {
             "mode": "execute",
@@ -175,12 +284,7 @@ def handle_execute_mode(
     # Base URL es obligatorio para el engine genérico
     # ---------------------------------------------------------
     if not base_url:
-        answer = (
-            "To execute I need:\n"
-            "- URL (or say “same”)\n"
-            "- What to validate (button / field / expected text)\n"
-            "- Credentials (if applicable)"
-        )
+        answer = _build_guided_missing_base_url_answer(prompt, persona=persona)
         store.add_message(thread_id, "assistant", answer, meta={"mode": "execute", "persona": persona})
         return {
             "mode": "execute",
@@ -205,7 +309,16 @@ def handle_execute_mode(
             logger.info("Step LLM generator produced fallback steps")
 
     if not steps:
-        answer = "I couldn't generate executable steps. Tell me the exact element (selector) or expected text."
+        # Conversational guidance instead of a rigid "tell me selector" checklist.
+        answer = (
+            "Entendí tu intención, pero no pude identificar con suficiente precisión "
+            "el elemento o criterio exacto para validarlo.\n\n"
+            "Para continuar, dime solo una de estas dos cosas (la que te sea más fácil):\n"
+            "1) qué elemento validar (selector o el texto visible del elemento), o\n"
+            "2) el texto exacto esperado del mensaje de error (si lo tienes).\n\n"
+            "Si no tienes el texto exacto, también puedo validar un criterio genérico como "
+            "\"el mensaje de error se ve\" o \"el acceso es denegado\", según tu descripción."
+        )
         store.add_message(thread_id, "assistant", answer, meta={"mode": "execute", "persona": persona, "base_url": base_url})
         return {
             "mode": "execute",
@@ -223,13 +336,20 @@ def handle_execute_mode(
 
     validation = validate_steps(steps)
     if not validation.valid:
-        err_msgs = [f"Step {e.step_index}: {e.message}" for e in validation.errors]
-        answer = (
-            "I couldn't execute: some steps are invalid.\n"
-            + "\n".join(f"· {m}" for m in err_msgs[:5])
-        )
-        if len(validation.errors) > 5:
-            answer += f"\n... and {len(validation.errors) - 5} more."
+        first = validation.errors[0] if validation.errors else None
+        if first:
+            # Use structured fields when available (error_type/hint) to guide the user.
+            hint = getattr(first, "hint", None) or None
+            error_type = getattr(first, "error_type", None) or "invalid_step"
+            answer = (
+                "Pude preparar la ejecución, pero un paso no cumple el formato esperado.\n\n"
+                f"Paso #{first.step_index + 1}: {first.action or 'unknown'} - {first.message}\n"
+                f"Tipo de error: {error_type}\n"
+                + (f"Pista: {hint}\n" if hint else "")
+                + "Si me confirmas el selector/texto correcto para ese paso, lo preparo y reintento."
+            )
+        else:
+            answer = "Pude inferir la ejecución, pero la validación de pasos falló. Intenta de nuevo con más detalle."
         store.add_message(
             thread_id, "assistant", answer,
             meta={"mode": "execute", "persona": persona, "base_url": base_url, "validation_errors": [e.model_dump() for e in validation.errors]},
@@ -270,12 +390,11 @@ def handle_execute_mode(
     except Exception as e:
         logger.exception("Runner execution failed")
         answer = (
-            "I couldn't run the test.\n"
-            "Check:\n"
-            "- URL accessible\n"
-            "- Credentials (if any)\n"
-            "- What exactly to validate (text/button/element)\n"
-            "Then retry."
+            "No pude ejecutar la prueba en este momento.\n\n"
+            "Para reintentar con éxito, confirma solo esto:\n"
+            "1) que la URL es accesible desde el entorno, y\n"
+            "2) que el flujo/elemento que querías validar existe como en tu descripción.\n\n"
+            "Si tienes el texto exacto esperado del mensaje de error, pégalo y lo haré más preciso."
         )
         store.add_message(
             thread_id,
