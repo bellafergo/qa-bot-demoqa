@@ -5,7 +5,7 @@
  */
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { listTestRuns, getTestRun, analyzeRCA, analyzeRisk, getRunClusters } from "../api";
+import { listTestRuns, getTestRun, analyzeRCA, analyzeRisk, getRunClusters, enqueueSingle } from "../api";
 import { useLang } from "../i18n/LangContext";
 
 const API_BASE = (
@@ -175,6 +175,62 @@ function DebugAccordion({ detail }) {
             )}
           </div>
         </details>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmModal({
+  open,
+  title,
+  description,
+  confirmLabel = "Confirm",
+  cancelLabel = "Cancel",
+  busy = false,
+  error = "",
+  onConfirm,
+  onCancel,
+}) {
+  if (!open) return null;
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.45)",
+        zIndex: 9999,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+      }}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div className="card" style={{ width: "min(680px, 100%)", padding: 0, overflow: "hidden" }}>
+        <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)" }}>
+          <div style={{ fontSize: 15, fontWeight: 900, color: "var(--text-1)", marginBottom: 6 }}>{title}</div>
+          <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.6 }}>{description}</div>
+        </div>
+        <div style={{ padding: "14px 20px" }}>
+          {error && (
+            <div className="alert alert-error" style={{ marginBottom: 12, fontSize: 12 }}>
+              {error}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={onCancel}
+              disabled={busy}
+            >
+              {cancelLabel}
+            </button>
+            <button className="btn btn-primary btn-sm" onClick={onConfirm} disabled={busy}>
+              {busy ? "Working…" : confirmLabel}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -749,6 +805,12 @@ function RunHistoryTab({ initialRunId }) {
   const [clusters, setClusters]           = useState([]);
   const [clustersLoading, setClustersLoading] = useState(true);
 
+  // Human confirmation for operational actions
+  const [confirmRetryOpen, setConfirmRetryOpen] = useState(false);
+  const [retryBusy, setRetryBusy] = useState(false);
+  const [retryError, setRetryError] = useState("");
+  const [lastEnqueuedJobId, setLastEnqueuedJobId] = useState(null);
+
   const loadClusters = useCallback(async () => {
     setClustersLoading(true);
     try {
@@ -1025,6 +1087,110 @@ function RunHistoryTab({ initialRunId }) {
                 )}
 
                 <DebugAccordion detail={detail} />
+
+                {/* Action Panel: recommended next steps with explicit confirmation for operations */}
+                {detail && (() => {
+                  const meta = detail.meta || {};
+                  const statusNorm = String(detail.status || "").toLowerCase();
+                  const quarantineRecommended = meta.quarantine_recommended === true;
+                  const retryPolicyApplied = meta.retry_policy_applied === true;
+                  const flakySignalPresent = !!meta.flaky_signal;
+                  const failedOrError = statusNorm === "failed" || statusNorm === "error";
+
+                  const shouldShowPanel = quarantineRecommended || retryPolicyApplied || flakySignalPresent || failedOrError;
+                  if (!shouldShowPanel) return null;
+
+                  const testCaseId = detail.test_id || detail.test_case_id;
+                  const correlationId = detail.correlation_id || meta.correlation_id;
+                  const evidenceUrl = detail.evidence_url || detail.artifacts?.evidence_url;
+                  const reportUrl = detail.report_url || detail.artifacts?.report_url;
+
+                  const canRetry =
+                    !!testCaseId &&
+                    failedOrError &&
+                    (retryPolicyApplied || quarantineRecommended || flakySignalPresent);
+
+                  return (
+                    <div style={{ marginTop: 14 }}>
+                      <div className="section-title" style={{ marginBottom: 10 }}>
+                        Recommended actions{" "}
+                        <span style={{ color: "var(--text-3)", fontWeight: 500, fontSize: 12 }}>(Requires confirmation for operations)</span>
+                      </div>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {evidenceUrl && (
+                          <a className="btn btn-secondary btn-sm" href={evidenceUrl} target="_blank" rel="noreferrer">
+                            Open evidence
+                          </a>
+                        )}
+                        {reportUrl && (
+                          <a className="btn btn-secondary btn-sm" href={reportUrl} target="_blank" rel="noreferrer">
+                            Open report
+                          </a>
+                        )}
+                        {correlationId && (
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(String(correlationId));
+                              } catch {
+                                // No-op: clipboard may be unavailable; avoids side effects.
+                              }
+                            }}
+                            title="Copy correlation ID"
+                          >
+                            Copy correlation ID
+                          </button>
+                        )}
+
+                        {canRetry && (
+                          <button
+                            className="btn btn-primary btn-sm"
+                            onClick={() => {
+                              setRetryError("");
+                              setConfirmRetryOpen(true);
+                            }}
+                            disabled={retryBusy}
+                          >
+                            Retry test case
+                          </button>
+                        )}
+
+                        {quarantineRecommended && (
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            disabled
+                            title="Quarantine recommendation is informational in this UI (no backend action configured here)."
+                          >
+                            Recommend quarantine
+                          </button>
+                        )}
+
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          disabled
+                          title="Ticket creation is not wired in this UI build."
+                        >
+                          Create ticket
+                        </button>
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          disabled
+                          title="Assign owner is not wired in this UI build."
+                        >
+                          Assign owner
+                        </button>
+                      </div>
+
+                      {lastEnqueuedJobId && (
+                        <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-2)" }}>
+                          Retry job enqueued: <span style={{ fontFamily: "monospace" }}>{lastEnqueuedJobId}</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {detail.steps?.length > 0 && (
                   <div style={{ fontSize: 12, color: "var(--text-3)" }}>
                     {detail.steps.length} {t("runs.history.steps_label")} — {detail.steps.filter(s => String(s.status || "").toLowerCase().includes("pass")).length} {t("runs.history.passed_label")}
@@ -1128,6 +1294,42 @@ function RunHistoryTab({ initialRunId }) {
           )}
         </div>
       )}
+      <ConfirmModal
+        open={confirmRetryOpen}
+        busy={retryBusy}
+        error={retryError}
+        title="Retry test case (requires confirmation)"
+        cancelLabel="Cancel"
+        confirmLabel="Confirm retry"
+        description={`This will enqueue a new retry job for test case ${
+          detail && (detail.test_id || detail.test_case_id) ? `"${detail.test_id || detail.test_case_id}"` : "(unknown)"
+        }. This action requires explicit approval.`}
+        onCancel={() => {
+          setConfirmRetryOpen(false);
+          setRetryError("");
+        }}
+        onConfirm={async () => {
+          if (!detail) return;
+          const meta = detail.meta || {};
+          const testCaseId = detail.test_id || detail.test_case_id;
+          if (!testCaseId) {
+            setRetryError("Missing test_case_id/test_id, cannot enqueue a retry.");
+            return;
+          }
+          setRetryBusy(true);
+          setRetryError("");
+          try {
+            const env = meta.environment || detail.environment || "default";
+            const job = await enqueueSingle({ test_case_id: testCaseId, environment: env });
+            setLastEnqueuedJobId(job?.job_id || job?.id || null);
+            setConfirmRetryOpen(false);
+          } catch (e) {
+            setRetryError(e?.message || "Failed to enqueue retry job.");
+          } finally {
+            setRetryBusy(false);
+          }
+        }}
+      />
       </div>
     </div>
   );

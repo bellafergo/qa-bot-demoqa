@@ -8,7 +8,7 @@
  */
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { listEvidences } from "../api";
+import { listEvidences, enqueueSingle } from "../api";
 import { useLang } from "../i18n/LangContext";
 
 const API_BASE = (
@@ -65,6 +65,58 @@ function fmtMs(ms) {
 function truncate(str, n = 80) {
   if (!str) return null;
   return str.length > n ? str.slice(0, n) + "…" : str;
+}
+
+function ConfirmModal({
+  open,
+  title,
+  description,
+  confirmLabel = "Confirm",
+  cancelLabel = "Cancel",
+  busy = false,
+  error = "",
+  onConfirm,
+  onCancel,
+}) {
+  if (!open) return null;
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.45)",
+        zIndex: 9999,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+      }}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div className="card" style={{ width: "min(680px, 100%)", padding: 0, overflow: "hidden" }}>
+        <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)" }}>
+          <div style={{ fontSize: 15, fontWeight: 900, color: "var(--text-1)", marginBottom: 6 }}>{title}</div>
+          <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.6 }}>{description}</div>
+        </div>
+        <div style={{ padding: "14px 20px" }}>
+          {error && (
+            <div className="alert alert-error" style={{ marginBottom: 12, fontSize: 12 }}>
+              {error}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>
+            <button className="btn btn-secondary btn-sm" onClick={onCancel} disabled={busy}>
+              {cancelLabel}
+            </button>
+            <button className="btn btn-primary btn-sm" onClick={onConfirm} disabled={busy}>
+              {busy ? "Working…" : confirmLabel}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function getStepsCount(row) {
@@ -306,8 +358,26 @@ function EvidenceRow({ row, t, navigate }) {
   const flakyScore = meta.flaky_score ?? null;
   const flipRate = meta.flip_rate ?? null;
 
+  // Human confirmation for operational actions (retry). No side effects without explicit approval.
+  const [confirmRetryOpen, setConfirmRetryOpen] = useState(false);
+  const [retryBusy, setRetryBusy] = useState(false);
+  const [retryError, setRetryError] = useState("");
+  const [lastEnqueuedJobId, setLastEnqueuedJobId] = useState(null);
+
+  const statusNorm = String(row.status || "").toLowerCase();
+  const failedOrError = statusNorm === "failed" || statusNorm === "error";
+
+  const shouldShowActionPanel =
+    failedOrError &&
+    (quarantineRecommended === true || retryPolicyApplied === true || !!flakySignal) &&
+    (row.test_id || row.test_case_id);
+
+  const testCaseId = row.test_id || row.test_case_id;
+  const environment = meta.environment || row.environment || "default";
+
   return (
-    <tr>
+    <>
+      <tr>
       {/* Date */}
       <td style={{ fontSize: 12, color: "var(--text-3)", whiteSpace: "nowrap" }}>
         {fmtDate(row.started_at)}
@@ -479,11 +549,105 @@ function EvidenceRow({ row, t, navigate }) {
                     </pre>
                   </div>
                 )}
+
+                {shouldShowActionPanel && (
+                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border)" }}>
+                    <div style={{ fontSize: 12, color: "var(--text-2)", marginBottom: 8, fontWeight: 800 }}>
+                      Suggested next steps <span style={{ fontWeight: 600, color: "var(--text-3)" }}>(Requires confirmation for operations)</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {evidenceUrl && (
+                        <a className="btn btn-secondary btn-sm" href={evidenceUrl} target="_blank" rel="noreferrer">
+                          Open evidence
+                        </a>
+                      )}
+                      {reportUrl && (
+                        <a className="btn btn-primary btn-sm" href={reportUrl} target="_blank" rel="noreferrer">
+                          Open report
+                        </a>
+                      )}
+                      {correlationId && (
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(String(correlationId));
+                            } catch {
+                              // no-op
+                            }
+                          }}
+                          title="Copy correlation ID"
+                        >
+                          Copy correlation ID
+                        </button>
+                      )}
+
+                      <button
+                        className="btn btn-primary btn-sm"
+                        disabled={retryBusy}
+                        onClick={() => {
+                          setRetryError("");
+                          setConfirmRetryOpen(true);
+                        }}
+                      >
+                        Retry test case
+                      </button>
+
+                      <button className="btn btn-secondary btn-sm" disabled title="Quarantine recommendation is informational (no backend action wired here).">
+                        Recommend quarantine
+                      </button>
+
+                      <button className="btn btn-secondary btn-sm" disabled title="Ticket creation not configured in backend for this UI build.">
+                        Create ticket
+                      </button>
+                      <button className="btn btn-secondary btn-sm" disabled title="Assign owner not configured in backend for this UI build.">
+                        Assign owner
+                      </button>
+                    </div>
+
+                    {lastEnqueuedJobId && (
+                      <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-2)" }}>
+                        Retry job enqueued: <span style={{ fontFamily: "monospace" }}>{lastEnqueuedJobId}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </details>
           </div>
         )}
       </td>
     </tr>
+      <ConfirmModal
+        open={confirmRetryOpen}
+        busy={retryBusy}
+        error={retryError}
+        title="Retry test case (requires confirmation)"
+        cancelLabel="Cancel"
+        confirmLabel="Confirm retry"
+        description={`This will enqueue a new retry job for test case "${testCaseId}". This action requires explicit approval.`}
+        onCancel={() => {
+          setConfirmRetryOpen(false);
+          setRetryError("");
+        }}
+        onConfirm={async () => {
+          if (!testCaseId) {
+            setRetryError("Missing test_case_id/test_id, cannot enqueue a retry.");
+            return;
+          }
+          setRetryBusy(true);
+          setRetryError("");
+          try {
+            const job = await enqueueSingle({ test_case_id: testCaseId, environment });
+            setLastEnqueuedJobId(job?.job_id || job?.id || null);
+            setConfirmRetryOpen(false);
+          } catch (e) {
+            setRetryError(e?.message || "Failed to enqueue retry job.");
+          } finally {
+            setRetryBusy(false);
+          }
+        }}
+      />
+    </>
   );
 }
