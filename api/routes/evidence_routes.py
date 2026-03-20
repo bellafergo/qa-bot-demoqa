@@ -41,6 +41,7 @@ class EvidenceSummary(BaseModel):
     error_summary: Optional[str] = None
     evidence_url:  Optional[str] = None
     report_url:    Optional[str] = None
+    meta:          Optional[dict] = None  # flaky/retry/quarantine metadata for Action Panel
 
 
 @router.get("", response_model=List[EvidenceSummary])
@@ -71,6 +72,7 @@ def list_evidences(
     result: List[EvidenceSummary] = []
     for r in runs:
         arts = r.artifacts or None
+        meta_dict = r.meta.model_dump(exclude_none=True) if r.meta else None
         result.append(EvidenceSummary(
             run_id=r.run_id,
             test_id=r.test_id,
@@ -82,6 +84,7 @@ def list_evidences(
             error_summary=r.error_summary,
             evidence_url=arts.evidence_url if arts else None,
             report_url=arts.report_url    if arts else None,
+            meta=meta_dict,
         ))
 
     return result
