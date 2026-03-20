@@ -719,6 +719,7 @@ def execute_test(
             "base_url": base_url,
             "timeout_ms": timeout_ms_global,
             "viewport": {"width": vw, "height": vh},
+            **({"correlation_id": correlation_id} if correlation_id else {}),
         },
         # Observability extensions — all optional, never break existing consumers
         "resolution_log": resolution_log,

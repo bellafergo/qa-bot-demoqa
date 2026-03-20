@@ -299,7 +299,12 @@ def _run_single_test(
                     _extra_meta = {"trigger_context": _json.loads(job.context_json)}
                 except Exception:
                     pass
-            run = catalog_service.run_test_case(tc_id, environment=job.environment, extra_meta=_extra_meta)
+            run = catalog_service.run_test_case(
+                tc_id,
+                environment=job.environment,
+                extra_meta=_extra_meta,
+                correlation_id=str(job.job_id),
+            )
             last_result = {
                 "test_case_id": tc_id,
                 "run_id":       run.run_id,

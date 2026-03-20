@@ -106,12 +106,14 @@ def validate_steps(steps: List[Dict[str, Any]]) -> StepValidationResult:
 
         # ── 2. Unknown action ──────────────────────────────────────────────
         if action not in VALID_ACTIONS:
+            valid_sorted = sorted(VALID_ACTIONS)
+            sample = valid_sorted[:12]
             errors.append(StepValidationError(
                 step_index=i, action=action,
                 error_type="invalid_action",
                 message=(
                     f"Unknown action '{action}'. "
-                    f"Valid actions: {sorted(VALID_ACTIONS)}"
+                    f"Valid actions sample: {sample}. Total valid actions: {len(valid_sorted)}."
                 ),
                 field="action",
             ))
@@ -123,13 +125,14 @@ def validate_steps(steps: List[Dict[str, Any]]) -> StepValidationResult:
                 errors.append(StepValidationError(
                     step_index=i, action=action,
                     error_type="missing_required_field",
-                    message=f"Action '{action}' requires 'url' or 'value'.",
+                    message=f"Action '{action}' requires 'url' or 'value' (got none).",
                     field="url",
                 ))
 
         # ── 4. Selector / target required ─────────────────────────────────
         if action in _SELECTOR_REQUIRED:
-            has_selector = bool(step.get("selector"))
+            selector_raw = step.get("selector")
+            has_selector = bool(selector_raw)
             target = step.get("target")
             has_target = (
                 isinstance(target, dict) and bool(target.get("primary"))

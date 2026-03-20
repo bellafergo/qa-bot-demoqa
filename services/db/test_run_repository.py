@@ -14,6 +14,18 @@ from services.db.sqlite_db import Base, get_session
 
 logger = logging.getLogger("vanya.db.test_run")
 
+# ============================================================
+# Future maintenance hook (SQLite TTL / cleanup)
+# ============================================================
+# Today we rely on run_store.py for in-memory TTL.
+# The SQLite "test_runs" table is not automatically purged.
+#
+# For a future TTL/cleanup job, the safest minimal insertion point is inside
+# this repository (e.g. at the start of list_runs/get_run) because it is the
+# single source for read queries. Prefer a best-effort, non-blocking SQL
+# DELETE based on executed_at age, guarded by an env var (e.g. RUNS_SQLITE_TTL_S).
+# This avoids changing higher layers and keeps cleanup colocated with the data access.
+
 
 # ── ORM row model ─────────────────────────────────────────────────────────────
 
@@ -95,8 +107,14 @@ class TestRunRepository:
     ):
         with get_session() as s:
             q = s.query(TestRunRow)
+            # Async chat/execute runs are stored with test_case_id="_async".
+            # By default we exclude them from generic history listings so
+            # dashboards/recent runs reflect completed catalog executions.
+            # If a caller explicitly requests test_case_id="_async", we include them.
             if test_case_id:
                 q = q.filter(TestRunRow.test_case_id == test_case_id)
+            else:
+                q = q.filter(TestRunRow.test_case_id != "_async")
             q = q.order_by(TestRunRow.executed_at.desc()).limit(limit)
             rows = q.all()
         return [_row_to_model(r) for r in rows]
@@ -107,6 +125,7 @@ class TestRunRepository:
         with get_session() as s:
             rows = (
                 s.query(TestRunRow.status, func.count(TestRunRow.run_id))
+                .filter(TestRunRow.test_case_id != "_async")
                 .group_by(TestRunRow.status)
                 .all()
             )
@@ -116,7 +135,12 @@ class TestRunRepository:
         """Return the most recent executed_at ISO string, or None."""
         from sqlalchemy import func
         with get_session() as s:
-            result = s.query(func.max(TestRunRow.executed_at)).scalar()
+            # Exclude async/intermediate runs from "last executed" marker.
+            result = (
+                s.query(func.max(TestRunRow.executed_at))
+                .filter(TestRunRow.test_case_id != "_async")
+                .scalar()
+            )
         return result
 
     def count_runs_by_test_case(self) -> dict:
@@ -129,6 +153,7 @@ class TestRunRepository:
                     TestRunRow.status,
                     func.count(TestRunRow.run_id),
                 )
+                .filter(TestRunRow.test_case_id != "_async")
                 .group_by(TestRunRow.test_case_id, TestRunRow.status)
                 .all()
             )

@@ -24,10 +24,28 @@ from core.semantic_intent_extractor import (
 class CompileError(Exception):
     """Error al compilar un step del planner a runner steps."""
 
-    def __init__(self, message: str, step_index: int = -1, action: Optional[str] = None):
+    def __init__(
+        self,
+        message: str,
+        step_index: int = -1,
+        action: Optional[str] = None,
+        error_type: str = "compile_error",
+        details: Optional[Dict[str, Any]] = None,
+    ):
         self.step_index = step_index
         self.action = action
+        self.error_type = error_type
+        self.details = details or {}
         super().__init__(message)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "reason": self.error_type,
+            "message": str(self),
+            "step_index": self.step_index,
+            "action": self.action,
+            "details": self.details,
+        }
 
 
 # Acciones que pasan directo (ya son runner steps)
@@ -82,6 +100,8 @@ def _compile_login(
         f"Got base_url={base_url!r}",
         step_index=step_index,
         action="login",
+        error_type="unsupported_action",
+        details={"supported_site": "saucedemo.com", "got_base_url": base_url},
     )
 
 
@@ -96,7 +116,13 @@ def _compile_search(
     """
     value = step.get("value") or step.get("query") or ""
     if not str(value).strip():
-        raise CompileError("search requires 'value' or 'query'", step_index=step_index, action="search")
+        raise CompileError(
+            "search requires 'value' or 'query'",
+            step_index=step_index,
+            action="search",
+            error_type="missing_required_field",
+            details={"required_fields": ["value", "query"]},
+        )
 
     # Selectores genéricos para búsqueda (muchos sitios usan estos)
     search_sel = "input[type='search'], input[name='q'], input[name='search'], input[placeholder*='search' i], input[placeholder*='buscar' i], input[aria-label*='search' i]"
@@ -119,10 +145,18 @@ def _compile_add_to_cart(
             "Currently supported: HEB (base_url with 'heb'). Use heb_checkout runner for full HEB flow.",
             step_index=step_index,
             action="add_to_cart",
+            error_type="unsupported_action",
+            details={"supported_base_url_contains": ["heb"], "got_base_url": base_url},
         )
     product = step.get("product") or step.get("value") or ""
     if not str(product).strip():
-        raise CompileError("add_to_cart requires 'product' or 'value'", step_index=step_index, action="add_to_cart")
+        raise CompileError(
+            "add_to_cart requires 'product' or 'value'",
+            step_index=step_index,
+            action="add_to_cart",
+            error_type="missing_required_field",
+            details={"required_fields": ["product", "value"]},
+        )
     # HEB: selector best-effort; para flujo completo usar runners/heb_checkout
     return [
         {"action": "wait_ms", "ms": 600},
@@ -148,7 +182,13 @@ def _compile_wait_for_text(
     """wait_for_text → assert_text_contains en body."""
     text = step.get("text") or step.get("value") or ""
     if not str(text).strip():
-        raise CompileError("wait_for_text requires 'text' or 'value'", step_index=step_index, action="wait_for_text")
+        raise CompileError(
+            "wait_for_text requires 'text' or 'value'",
+            step_index=step_index,
+            action="wait_for_text",
+            error_type="missing_required_field",
+            details={"required_fields": ["text", "value"]},
+        )
     return [{"action": "assert_text_contains", "selector": "body", "text": str(text).strip()}]
 
 
@@ -160,7 +200,13 @@ def _compile_assert_text(
     """assert_text → assert_text_contains."""
     text = step.get("text") or step.get("value") or step.get("expected") or ""
     if not str(text).strip():
-        raise CompileError("assert_text requires 'text', 'value' or 'expected'", step_index=step_index, action="assert_text")
+        raise CompileError(
+            "assert_text requires 'text', 'value' or 'expected'",
+            step_index=step_index,
+            action="assert_text",
+            error_type="missing_required_field",
+            details={"required_fields": ["text", "value", "expected"]},
+        )
     sel = step.get("selector") or "body"
     return [{"action": "assert_text_contains", "selector": sel, "text": str(text).strip()}]
 
@@ -175,6 +221,8 @@ def _compile_assert_cart_count(
         "assert_cart_count requires site-specific implementation (DOM structure). Not yet supported.",
         step_index=step_index,
         action="assert_cart_count",
+        error_type="unsupported_action",
+        details={"supported": False},
     )
 
 
@@ -207,11 +255,21 @@ def compile_to_runner_steps(
 
     for i, step in enumerate(plan_steps):
         if not isinstance(step, dict):
-            raise CompileError(f"Step at index {i} is not a dict", step_index=i)
+            raise CompileError(
+                f"Step at index {i} is not a dict (got {type(step).__name__})",
+                step_index=i,
+                error_type="malformed_step",
+                details={"got_type": type(step).__name__},
+            )
 
         action = str(step.get("action") or "").strip().lower()
         if not action:
-            raise CompileError("Step has no 'action'", step_index=i)
+            raise CompileError(
+                "Step has no 'action'",
+                step_index=i,
+                error_type="missing_required_field",
+                details={"required_fields": ["action"]},
+            )
 
         # Resolver {base_url} en goto
         if action == "goto":
@@ -238,15 +296,24 @@ def compile_to_runner_steps(
                 compiled = fn(step, i, resolved_base or None)
                 result.extend(compiled)
             else:
-                raise CompileError(f"No compiler for DSL action '{action}'", step_index=i, action=action)
+                raise CompileError(
+                    f"No compiler for DSL action '{action}'",
+                    step_index=i,
+                    action=action,
+                    error_type="unsupported_action",
+                    details={"dsl_action": action},
+                )
             continue
 
         raise CompileError(
             f"Unknown action '{action}'. "
-            f"Runner actions: {sorted(RUNNER_ACTIONS)}. "
-            f"DSL actions (require compilation): {sorted(_DSL_ACTIONS)}.",
+            f"Valid runner actions: {len(RUNNER_ACTIONS)}. "
+            f"Valid DSL actions: {len(_DSL_ACTIONS)}. "
+            f"To unblock, either compile DSL actions or use runner actions directly.",
             step_index=i,
             action=action,
+            error_type="invalid_action",
+            details={"action": action},
         )
 
     return result

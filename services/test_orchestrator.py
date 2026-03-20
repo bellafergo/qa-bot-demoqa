@@ -136,6 +136,7 @@ def _execute_with_retry(
                 viewport=env.viewport,
                 timeout_s=job.timeout_s or env.timeout_s or None,
                 expected=job.expected,
+                correlation_id=str(job.id),
             )
         except Exception as e:
             raw = {

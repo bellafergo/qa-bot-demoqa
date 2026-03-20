@@ -95,7 +95,12 @@ def _steps_for_tag(tag: str, *, base_url: Optional[str] = None) -> List[Dict[str
 # Runner adapter
 # ============================================================
 
-def _run_tag(tag: str, *, pr: Optional[PRContext] = None) -> Dict[str, Any]:
+def _run_tag(
+    tag: str,
+    *,
+    pr: Optional[PRContext] = None,
+    correlation_id: Optional[str] = None,
+) -> Dict[str, Any]:
     """
     Ejecuta una suite/tag usando tu runner existente.
     Corre dentro de un thread (no bloquea el webhook).
@@ -120,6 +125,7 @@ def _run_tag(tag: str, *, pr: Optional[PRContext] = None) -> Dict[str, Any]:
         headless=True,
         timeout_s=90,
         expected="pass",
+        correlation_id=correlation_id,
     )
 
 
@@ -213,7 +219,7 @@ def _execute_and_update(
     result = RunResult(evidence_id=evidence_id, run_id=run_id, tag=tag, status="running")
 
     try:
-        raw = _run_tag(tag, pr=ctx) or {}
+        raw = _run_tag(tag, pr=ctx, correlation_id=evidence_id) or {}
 
         # Normaliza resultado del runner
         status_raw = str(raw.get("status") or "").lower().strip()

@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from models.test_case import TestCase, TestCaseCreate, TestCaseSummary
@@ -246,7 +246,7 @@ def delete_test_case(test_case_id: str):
 # ── Execution endpoints ───────────────────────────────────────────────────────
 
 @router.post("/run-suite", response_model=CanonicalSuiteResult)
-def run_suite(body: RunSuiteRequest):
+def run_suite(body: RunSuiteRequest, request: Request):
     """
     Execute multiple test cases and return an aggregated CanonicalSuiteResult.
 
@@ -258,6 +258,7 @@ def run_suite(body: RunSuiteRequest):
     Execution is sequential; results are returned once all cases finish.
     """
     try:
+        correlation_id = getattr(request.state, "request_id", None)
         sr = catalog_service.run_suite(
             environment=body.environment,
             base_url=body.base_url,
@@ -269,6 +270,7 @@ def run_suite(body: RunSuiteRequest):
             tags=body.tags,
             test_case_ids=body.test_case_ids,
             limit=body.limit,
+            correlation_id=correlation_id,
         )
         return suite_from_catalog_suite_result(sr)
     except Exception as e:
@@ -277,19 +279,21 @@ def run_suite(body: RunSuiteRequest):
 
 
 @router.post("/{test_case_id}/run", response_model=CanonicalRun)
-def run_test_case(test_case_id: str, body: RunTestCaseRequest = RunTestCaseRequest()):
+def run_test_case(test_case_id: str, body: RunTestCaseRequest = RunTestCaseRequest(), request: Request):
     """
     Execute a single test case by its `test_case_id`.
 
     Returns a CanonicalRun with status, duration, steps, and artifacts.
     """
     try:
+        correlation_id = getattr(getattr(request, "state", None), "request_id", None)
         tr = catalog_service.run_test_case(
             test_case_id,
             environment=body.environment,
             base_url=body.base_url,
             headless=body.headless,
             timeout_s=body.timeout_s,
+            correlation_id=correlation_id,
         )
         return run_from_catalog_testrun(tr)
     except ValueError as e:

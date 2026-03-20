@@ -11,6 +11,7 @@ import logging
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException
+from fastapi import Request
 from pydantic import BaseModel
 
 from core.step_compiler import compile_to_runner_steps, CompileError
@@ -67,13 +68,15 @@ def plan_from_text_endpoint(req: PlanFromTextRequest) -> Dict[str, Any]:
 
 
 @router.post("/execute_text")
-def execute_text_endpoint(req: ExecuteTextRequest) -> Dict[str, Any]:
+def execute_text_endpoint(req: ExecuteTextRequest, request: Request) -> Dict[str, Any]:
     """
     Convert natural-language text to a plan and execute it immediately.
     Returns { plan, run } where run is the CanonicalRun-like result dict.
     """
     from services.nl_test_planner import plan_from_text
     from runner import execute_test
+
+    correlation_id = getattr(request.state, "request_id", None)
 
     # 1 — plan
     try:
@@ -110,6 +113,7 @@ def execute_text_endpoint(req: ExecuteTextRequest) -> Dict[str, Any]:
         )
     except CompileError as e:
         logger.warning("execute_text: compile failed — %s", e)
+        compile_dict = e.to_dict() if hasattr(e, "to_dict") else {}
         raise HTTPException(
             status_code=400,
             detail={
@@ -117,6 +121,9 @@ def execute_text_endpoint(req: ExecuteTextRequest) -> Dict[str, Any]:
                 "message": str(e),
                 "step_index": e.step_index,
                 "action": e.action,
+                "error_type": getattr(e, "error_type", None),
+                "details": getattr(e, "details", None) if getattr(e, "details", None) else compile_dict.get("details"),
+                "correlation_id": correlation_id,
             },
         )
 
@@ -125,13 +132,17 @@ def execute_text_endpoint(req: ExecuteTextRequest) -> Dict[str, Any]:
 
     validation = validate_steps(steps)
     if not validation.valid:
-        err_msgs = [f"Step {e.step_index}: {e.message}" for e in validation.errors]
+        err_msgs = [
+            f"{e.error_type} (step {e.step_index}{f', field={e.field}' if e.field else ''}): {e.message}"
+            for e in validation.errors
+        ]
         raise HTTPException(
             status_code=400,
             detail={
                 "reason": "Invalid steps",
                 "errors": [e.model_dump() for e in validation.errors],
                 "summary": "; ".join(err_msgs[:5]),
+                "correlation_id": correlation_id,
             },
         )
 
@@ -141,6 +152,7 @@ def execute_text_endpoint(req: ExecuteTextRequest) -> Dict[str, Any]:
             steps    = steps,
             base_url = base_url,
             headless = req.headless,
+            correlation_id=correlation_id,
         )
     except Exception as exc:
         logger.exception("execute_text: runner failed")

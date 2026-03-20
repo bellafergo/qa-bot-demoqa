@@ -555,6 +555,7 @@ class TestCatalogService:
         headless: bool = True,
         timeout_s: Optional[int] = None,
         extra_meta: Optional[Dict[str, Any]] = None,
+        correlation_id: Optional[str] = None,
     ) -> TestRun:
         tc = self.get_test_case(test_case_id)
         if tc is None:
@@ -562,8 +563,15 @@ class TestCatalogService:
         if tc.status == "inactive":
             raise ValueError(f"Test case '{test_case_id}' is inactive.")
 
-        return self._execute(tc, environment=environment, base_url=base_url,
-                             headless=headless, timeout_s=timeout_s, extra_meta=extra_meta)
+        return self._execute(
+            tc,
+            environment=environment,
+            base_url=base_url,
+            headless=headless,
+            timeout_s=timeout_s,
+            extra_meta=extra_meta,
+            correlation_id=correlation_id,
+        )
 
     def run_suite(
         self,
@@ -578,6 +586,7 @@ class TestCatalogService:
         tags: Optional[List[str]] = None,
         test_case_ids: Optional[List[str]] = None,
         limit: int = 50,
+        correlation_id: Optional[str] = None,
     ) -> SuiteRunResult:
         t0 = time.time()
 
@@ -603,7 +612,7 @@ class TestCatalogService:
         for tc in cases:
             try:
                 run = self._execute(tc, environment=environment, base_url=base_url,
-                                    headless=headless, timeout_s=timeout_s)
+                                    headless=headless, timeout_s=timeout_s, correlation_id=correlation_id)
                 runs.append(run)
                 if run.status == "pass":
                     passed += 1
@@ -658,11 +667,17 @@ class TestCatalogService:
         timeout_s: Optional[int],
         auth_config: Optional[Dict[str, Any]] = None,
         extra_meta: Optional[Dict[str, Any]] = None,
+        correlation_id: Optional[str] = None,
     ) -> TestRun:
         """Build steps, run via appropriate runner (UI or API), persist result."""
         t0 = time.time()
         run_id     = str(uuid.uuid4())
         evidence_id = f"TC-{uuid.uuid4().hex[:10].upper()}"
+
+        # Enrich meta for traceability across runner/logs/persistence
+        if correlation_id:
+            extra_meta = dict(extra_meta or {})
+            extra_meta.setdefault("correlation_id", correlation_id)
 
         logger.info("test_catalog: executing %s (%s) — run_id=%s env=%s test_type=%s",
                     tc.test_case_id, tc.name, run_id, environment,
@@ -699,6 +714,7 @@ class TestCatalogService:
                     base_url=base_url or tc.base_url,
                     headless=headless,
                     timeout_s=timeout_s,
+                    correlation_id=correlation_id,
                 )
             if not isinstance(result, dict):
                 result = {}
