@@ -19,12 +19,30 @@ const API_BASE = (
 
 function statusBadgeClass(status) {
   const s = String(status || "").toLowerCase();
-  if (s === "passed" || s === "pass")      return "badge badge-green";
-  if (s === "failed" || s === "fail")      return "badge badge-red";
-  if (s === "error")                       return "badge badge-red";
-  if (s === "running")                     return "badge badge-blue";
-  if (s === "queued")                      return "badge badge-orange";
+  if (s === "passed" || s === "pass" || s === "completed") return "badge badge-green";
+  if (s === "failed" || s === "fail")                        return "badge badge-red";
+  if (s === "error")                                         return "badge badge-orange";
+  if (s === "running")                                      return "badge badge-blue";
+  if (s === "queued")                                       return "badge badge-orange";
+  if (s === "planning" || s === "compiled")                 return "badge badge-orange";
+  if (s === "canceled" || s === "cancelled")                return "badge badge-gray";
   return "badge badge-gray";
+}
+
+function statusIcon(status) {
+  const s = String(status || "").toLowerCase();
+  if (s === "passed" || s === "pass" || s === "completed") return "✓";
+  if (s === "failed" || s === "fail") return "✕";
+  if (s === "error") return "⚠";
+  if (s === "running") return "⏱";
+  if (s === "queued" || s === "planning" || s === "compiled") return "⏳";
+  if (s === "canceled" || s === "cancelled") return "⦸";
+  return "•";
+}
+
+function statusBadgeText(status) {
+  const label = status || "—";
+  return `${statusIcon(status)} ${label}`;
 }
 
 function fmtDate(iso) {
@@ -47,6 +65,38 @@ function fmtMs(ms) {
 function truncate(str, n = 80) {
   if (!str) return null;
   return str.length > n ? str.slice(0, n) + "…" : str;
+}
+
+function getStepsCount(row) {
+  if (!row) return 0;
+  const n =
+    row.steps_count ??
+    (Array.isArray(row.steps) ? row.steps.length : null) ??
+    (Array.isArray(row.steps_result) ? row.steps_result.length : null) ??
+    0;
+  const nn = Number(n);
+  return Number.isFinite(nn) ? nn : 0;
+}
+
+function getCorrelationId(row) {
+  if (!row) return null;
+  return row.correlation_id || row.meta?.correlation_id || null;
+}
+
+function getCanonicalEvidenceUrls(row) {
+  if (!row) return { evidenceUrl: null, reportUrl: null };
+  const artifacts = row.artifacts || {};
+  const evidenceUrl =
+    row.evidence_url ||
+    artifacts.evidence_url ||
+    row.meta?.evidence_url ||
+    null;
+  const reportUrl =
+    row.report_url ||
+    artifacts.report_url ||
+    row.meta?.report_url ||
+    null;
+  return { evidenceUrl, reportUrl };
 }
 
 // ── component ─────────────────────────────────────────────────────────────────
@@ -240,6 +290,14 @@ function EvidenceRow({ row, t, navigate }) {
     ? `${API_BASE}/runs/${row.run_id}`
     : null;
 
+  const { evidenceUrl, reportUrl } = getCanonicalEvidenceUrls(row);
+  const correlationId = getCorrelationId(row);
+  const stepsCount = getStepsCount(row);
+  const errorSummary = row.error_summary || row.reason || row.message || row.error_message || null;
+  const hint = row.hint || row.meta?.hint || null;
+  const errorType = row.error_type || row.meta?.error_type || null;
+  const stepIndex = row.step_index ?? row.meta?.step_index ?? null;
+
   return (
     <tr>
       {/* Date */}
@@ -264,7 +322,7 @@ function EvidenceRow({ row, t, navigate }) {
       {/* Status */}
       <td>
         <span className={statusBadgeClass(row.status)}>
-          {row.status || "unknown"}
+          {statusBadgeText(row.status || "unknown")}
         </span>
       </td>
 
@@ -275,9 +333,9 @@ function EvidenceRow({ row, t, navigate }) {
 
       {/* Error summary */}
       <td style={{ fontSize: 12, color: "var(--red-text)", maxWidth: 260 }}>
-        {row.error_summary ? (
-          <span title={row.error_summary}>
-            {truncate(row.error_summary, 80)}
+        {errorSummary ? (
+          <span title={errorSummary}>
+            {truncate(errorSummary, 80)}
           </span>
         ) : (
           <span style={{ color: "var(--text-3)" }}>—</span>
@@ -299,14 +357,25 @@ function EvidenceRow({ row, t, navigate }) {
           ) : (
             <span style={{ fontSize: 12, color: "var(--text-3)" }}>{t("ev.no_link")}</span>
           )}
-          {row.report_url && (
+          {reportUrl && (
             <a
-              href={row.report_url}
+              href={reportUrl}
               target="_blank"
               rel="noreferrer"
               className="btn btn-primary btn-sm"
             >
               {t("ev.action.report")}
+            </a>
+          )}
+          {evidenceUrl && (
+            <a
+              href={evidenceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="btn btn-secondary btn-sm"
+              title="Evidence"
+            >
+              Evidence ↗
             </a>
           )}
           {row.run_id && navigate && (
@@ -319,6 +388,59 @@ function EvidenceRow({ row, t, navigate }) {
             </button>
           )}
         </div>
+
+        {/* Lightweight debug panel (per row) */}
+        {(errorType || stepIndex != null || hint || errorSummary || correlationId) && (
+          <div style={{ marginTop: 10 }}>
+            <details>
+              <summary style={{ cursor: "pointer", fontSize: 12, color: "var(--text-2)" }}>
+                Debug
+              </summary>
+              <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+                {(row.duration_ms != null || stepsCount > 0 || row.started_at || row.created_at) && (
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {row.duration_ms != null && (
+                      <span className="badge badge-gray">{fmtMs(row.duration_ms)}</span>
+                    )}
+                    {stepsCount > 0 && (
+                      <span className="badge badge-gray">{stepsCount} steps</span>
+                    )}
+                    {(row.started_at || row.created_at) && (
+                      <span className="badge badge-gray">{fmtDate(row.started_at || row.created_at)}</span>
+                    )}
+                  </div>
+                )}
+                {correlationId && (
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <span className="badge badge-gray" style={{ fontSize: 10 }}>correlation</span>
+                    <code style={{ fontSize: 11, color: "var(--text-2)" }}>{correlationId}</code>
+                  </div>
+                )}
+                {errorType && <span className="badge badge-orange">error_type: {errorType}</span>}
+                {stepIndex != null && (
+                  <div>
+                    <span style={{ fontSize: 11, fontWeight: 800, color: "var(--text-3)", textTransform: "uppercase" }}>step_index</span>{" "}
+                    <code style={{ fontSize: 12, color: "var(--text-2)" }}>{String(stepIndex)}</code>
+                  </div>
+                )}
+                {hint && (
+                  <div>
+                    <span style={{ fontSize: 11, fontWeight: 800, color: "var(--text-3)", textTransform: "uppercase" }}>hint</span>
+                    <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.6, marginTop: 4 }}>{hint}</div>
+                  </div>
+                )}
+                {errorSummary && (
+                  <div>
+                    <span style={{ fontSize: 11, fontWeight: 800, color: "var(--text-3)", textTransform: "uppercase" }}>raw</span>
+                    <pre className="code-block" style={{ marginTop: 6, maxHeight: 140, overflow: "auto" }}>
+                      {errorSummary}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            </details>
+          </div>
+        )}
       </td>
     </tr>
   );
