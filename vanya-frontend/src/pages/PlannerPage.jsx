@@ -10,7 +10,7 @@ const API_BASE = (
   import.meta?.env?.VITE_API_BASE || "https://qa-bot-demoqa.onrender.com"
 ).replace(/\/$/, "");
 
-export default function PlannerPage() {
+export default function PlannerPage({ embedded = false }) {
   const { t } = useLang();
   const [text, setText]       = useState("");
   const [baseUrl, setBaseUrl] = useState("");
@@ -65,10 +65,12 @@ export default function PlannerPage() {
   return (
     <div className="page-wrap" style={{ maxWidth: 900 }}>
       {/* ── Page header ────────────────────────────────── */}
-      <div className="page-header">
-        <h1 className="page-title">{t("planner.title")}</h1>
-        <p className="page-subtitle">{t("planner.subtitle")}</p>
-      </div>
+      {!embedded && (
+        <div className="page-header">
+          <h1 className="page-title">{t("planner.title")}</h1>
+          <p className="page-subtitle">{t("planner.subtitle")}</p>
+        </div>
+      )}
 
       {/* ── Input card ─────────────────────────────────── */}
       <div className="card" style={{ marginBottom: 20 }}>
