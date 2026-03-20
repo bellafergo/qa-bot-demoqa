@@ -9,6 +9,7 @@
  * No AI. All metrics are deterministic heuristics computed over run history.
  */
 import React, { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { getFlakyTests, getRegressions, getClusters } from "../api";
 import { useLang } from "../i18n/LangContext";
 
@@ -50,7 +51,7 @@ function statusPattern(pass_count, fail_count, error_count) {
 
 // ── Flaky Tests tab ───────────────────────────────────────────────────────────
 
-function FlakyTab({ data, loading, error, t }) {
+function FlakyTab({ data, loading, error, t, navigate }) {
   const suspected = (data || []).filter(f => f.suspected_flaky);
   const watching  = (data || []).filter(f => !f.suspected_flaky && f.flip_rate > 0);
 
@@ -64,7 +65,14 @@ function FlakyTab({ data, loading, error, t }) {
       </div>
 
       {suspected.length === 0 && watching.length === 0 && (
-        <div style={{ padding: "20px 0", color: "var(--text-3)", fontSize: 13 }}>{t("fi.flaky.empty")}</div>
+        <div style={{ padding: "32px 0", textAlign: "center" }}>
+          <div style={{ fontSize: 32, marginBottom: 10 }}>✓</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)", marginBottom: 6 }}>{t("fi.flaky.empty")}</div>
+          <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 16, lineHeight: 1.7 }}>{t("fi.empty_cta_desc")}</div>
+          <button className="btn btn-secondary btn-sm" onClick={() => navigate("/catalog")}>
+            {t("fi.flaky.empty_cta")}
+          </button>
+        </div>
       )}
 
       {suspected.length > 0 && (
@@ -157,9 +165,10 @@ function RegressionsTab({ data, loading, error, t }) {
   if (loading) return <div style={{ padding: 24, color: "var(--text-3)", fontSize: 13 }}>{t("fi.loading")}</div>;
   if (error)   return <div style={{ padding: 16 }} className="alert alert-error">{error}</div>;
   if (!data || data.length === 0) return (
-    <div>
-      <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 14, fontStyle: "italic" }}>{t("fi.reg.hint")}</div>
-      <div style={{ color: "var(--text-3)", fontSize: 13 }}>{t("fi.reg.empty")}</div>
+    <div style={{ padding: "32px 0", textAlign: "center" }}>
+      <div style={{ fontSize: 32, marginBottom: 10 }}>✓</div>
+      <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)", marginBottom: 6 }}>{t("fi.reg.empty_title")}</div>
+      <div style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.7 }}>{t("fi.reg.empty_note")}</div>
     </div>
   );
 
@@ -234,9 +243,10 @@ function ClustersTab({ data, loading, error, t }) {
   if (loading) return <div style={{ padding: 24, color: "var(--text-3)", fontSize: 13 }}>{t("fi.loading")}</div>;
   if (error)   return <div style={{ padding: 16 }} className="alert alert-error">{error}</div>;
   if (!data || data.length === 0) return (
-    <div>
-      <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 14, fontStyle: "italic" }}>{t("fi.clusters.hint")}</div>
-      <div style={{ color: "var(--text-3)", fontSize: 13 }}>{t("fi.clusters.empty")}</div>
+    <div style={{ padding: "32px 0", textAlign: "center" }}>
+      <div style={{ fontSize: 32, marginBottom: 10 }}>◎</div>
+      <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)", marginBottom: 6 }}>{t("fi.clusters.empty_title")}</div>
+      <div style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.7 }}>{t("fi.clusters.empty_note")}</div>
     </div>
   );
 
@@ -302,6 +312,7 @@ function ClustersTab({ data, loading, error, t }) {
 
 export default function FailureIntelligencePage({ embedded = false }) {
   const { t } = useLang();
+  const navigate = useNavigate();
 
   const [tab, setTab]               = useState("flaky");
   const [flaky, setFlaky]           = useState(null);
@@ -411,14 +422,14 @@ export default function FailureIntelligencePage({ embedded = false }) {
           onClick={() => { loadFlaky(); loadReg(); loadClusters(); }}
           disabled={loadingFlaky || loadingReg || loadingClusters}
         >
-          {loadingFlaky || loadingReg || loadingClusters ? "…" : "↻ Refresh"}
+          {loadingFlaky || loadingReg || loadingClusters ? "…" : t("fi.refresh")}
         </button>
       </div>
 
       {/* Tab content */}
       <div className="card" style={{ padding: "16px 20px" }}>
         {tab === "flaky" && (
-          <FlakyTab data={flaky} loading={loadingFlaky} error={errorFlaky} t={t} />
+          <FlakyTab data={flaky} loading={loadingFlaky} error={errorFlaky} t={t} navigate={navigate} />
         )}
         {tab === "regressions" && (
           <RegressionsTab data={regressions} loading={loadingReg} error={errorReg} t={t} />

@@ -1,6 +1,6 @@
 // src/components/NavSidebar.jsx
 import React from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/LangContext";
 
 // Route → translation key for label
@@ -35,7 +35,7 @@ const NAV_SECTIONS_DEF = [
   {
     labelKey: "nav.platform",
     items: [
-      { to: "/integrations", icon: "⊕", labelKey: "nav.integrations" },
+      { to: "/integrations", icon: "◇", labelKey: "nav.integrations" },
       { to: "/documents",    icon: "⊟", labelKey: "nav.documents"    },
       { to: "/settings",     icon: "⊛", labelKey: "nav.settings"     },
     ],
@@ -98,6 +98,7 @@ function NavItem({ to, icon, label }) {
 
 export default function NavSidebar() {
   const { lang, setLang, t } = useLang();
+  const navigate = useNavigate();
 
   return (
     <nav style={{
@@ -127,6 +128,28 @@ export default function NavSidebar() {
           <div style={{ fontSize: 14, fontWeight: 800, color: "#fff", letterSpacing: "-0.02em", lineHeight: 1.2 }}>Vanya</div>
           <div style={{ fontSize: 10, color: "var(--nav-text)", lineHeight: 1.2, marginTop: 1 }}>QA Intelligence</div>
         </div>
+      </div>
+
+      {/* Quick action */}
+      <div style={{ padding: "10px 12px", borderBottom: "1px solid var(--nav-border)", flexShrink: 0 }}>
+        <button
+          onClick={() => navigate("/generate")}
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
+            width: "100%", padding: "9px 14px",
+            borderRadius: 8, border: "none", cursor: "pointer",
+            background: "var(--nav-accent)",
+            color: "#fff",
+            fontSize: 12, fontWeight: 700,
+            boxShadow: "0 2px 8px rgba(79,107,255,0.35)",
+            transition: "opacity 0.15s",
+          }}
+          onMouseEnter={e => { e.currentTarget.style.opacity = "0.85"; }}
+          onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}
+        >
+          <span style={{ fontSize: 14, lineHeight: 1 }}>⊕</span>
+          {t("nav.quick_generate")}
+        </button>
       </div>
 
       {/* Sections */}

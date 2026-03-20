@@ -4,7 +4,7 @@
  * GET /tests, POST /tests/{id}/run, POST /execution/run-batch
  */
 import React, { useState, useEffect, useCallback } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { listTests, getTest, runTest, runBatch, updateTest, listVersions, rollbackTest, diffVersions, previewAutoFix } from "../api";
 import { useLang } from "../i18n/LangContext";
 
@@ -105,6 +105,7 @@ function DiffPanel({ diff, t }) {
 export default function CatalogPage() {
   const { t } = useLang();
   const location = useLocation();
+  const navigate = useNavigate();
   const highlightModule = location.state?.highlightModule;
 
   const [filters, setFilters]   = useState({ module: "", type: "", priority: "", status: "active", test_type: "" });
@@ -375,6 +376,17 @@ export default function CatalogPage() {
   return (
     <div className="page-wrap">
 
+      {/* Page header */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
+        <div>
+          <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0, color: "var(--text-1)" }}>{t("catalog.page.title")}</h1>
+          <p style={{ fontSize: 13, color: "var(--text-3)", margin: "4px 0 0" }}>{t("catalog.page.subtitle")}</p>
+        </div>
+        <button className="btn btn-primary" onClick={() => navigate("/generate")}>
+          ⊕ {t("catalog.page.generate_btn")}
+        </button>
+      </div>
+
       {/* Filters */}
       <div className="card" style={{ marginBottom: 20 }}>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
@@ -470,8 +482,17 @@ export default function CatalogPage() {
         </div>
 
         {tests.length === 0 && !loading ? (
-          <div style={{ padding: "24px 20px", color: "var(--text-3)", fontSize: 13 }}>
-            {t("catalog.table.no_results")}
+          <div style={{ padding: "48px 32px", textAlign: "center" }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>☰</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)", marginBottom: 8 }}>
+              {t("catalog.empty.title")}
+            </div>
+            <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.7, maxWidth: 380, margin: "0 auto 20px" }}>
+              {t("catalog.empty.desc")}
+            </div>
+            <button className="btn btn-primary" onClick={() => navigate("/generate")}>
+              ⊕ {t("catalog.empty.cta")}
+            </button>
           </div>
         ) : (
           <table className="data-table">
@@ -548,9 +569,8 @@ export default function CatalogPage() {
                       <button
                         className="btn btn-secondary btn-sm"
                         onClick={() => handleEdit(tc.test_case_id)}
-                        title="Edit test"
                       >
-                        ✏ Edit
+                        ✏ {t("catalog.table.edit")}
                       </button>
                     </td>
                   </tr>
@@ -600,10 +620,10 @@ export default function CatalogPage() {
                             </div>
                             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                               <button className="btn btn-primary btn-sm" onClick={() => handleSave(tc.test_case_id)} disabled={saving || fixPreviewLoading}>
-                                {saving ? "Saving…" : "Save"}
+                                {saving ? t("catalog.edit.saving") : t("catalog.edit.save")}
                               </button>
                               <button className="btn btn-secondary btn-sm" onClick={handleCancelEdit} disabled={saving}>
-                                Cancel
+                                {t("catalog.edit.cancel")}
                               </button>
                               <button
                                 className="btn btn-secondary btn-sm"

@@ -424,8 +424,14 @@ export default function IntegrationsPage() {
 
       {/* Connector cards */}
       {!loading && !error && connectors.length === 0 && (
-        <div style={{ fontSize: 13, color: "var(--text-2)", padding: 24, textAlign: "center" }}>
-          {t("integrations.none")}
+        <div className="card" style={{ padding: "48px 32px", textAlign: "center" }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>◇</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)", marginBottom: 8 }}>
+            {t("integrations.empty.title")}
+          </div>
+          <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.7, maxWidth: 400, margin: "0 auto" }}>
+            {t("integrations.empty.desc")}
+          </div>
         </div>
       )}
 

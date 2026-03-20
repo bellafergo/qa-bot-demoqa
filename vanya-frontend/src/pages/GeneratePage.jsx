@@ -389,7 +389,7 @@ function FromUrlPanel() {
                     : `✓ ${saveResult.saved_count ?? 0} ${t("gen.url.saved_count")}`}
                 </div>
                 {!saveResult.error && (
-                  <button className="btn btn-secondary btn-sm" style={{ fontSize: 11 }} onClick={() => navigate("/drafts")}>
+                  <button className="btn btn-secondary btn-sm" style={{ fontSize: 11 }} onClick={() => navigate("/catalog")}>
                     {t("gen.url.open_drafts")}
                   </button>
                 )}
