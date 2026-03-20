@@ -900,6 +900,37 @@ function RunHistoryTab({ initialRunId }) {
                     <td>
                       <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                         <span className={statusBadgeClass(r.status)}>{statusBadgeText(r.status)}</span>
+                        {r.meta?.retry_policy_applied && (
+                          <span
+                            className="badge badge-blue"
+                            style={{ fontSize: 10 }}
+                            title="Auto retry applied"
+                          >
+                            Auto retry: {r.meta?.retry_count ?? 0}
+                          </span>
+                        )}
+                        {r.meta?.flaky_signal && (
+                          <span
+                            className="badge badge-gray"
+                            style={{ fontSize: 10 }}
+                            title={
+                              r.meta?.flaky_score != null
+                                ? `Historically unstable (score: ${Math.round(Number(r.meta?.flaky_score) * 100)}%)`
+                                : "Historically unstable"
+                            }
+                          >
+                            Flaky signal
+                          </span>
+                        )}
+                        {r.meta?.quarantine_recommended && (
+                          <span
+                            className="badge badge-orange"
+                            style={{ fontSize: 10 }}
+                            title="Quarantine recommended (inconsistent after retries)"
+                          >
+                            Quarantine
+                          </span>
+                        )}
                         {hasEvidenceForList(r) && (
                           <span className="badge badge-green" style={{ fontSize: 10 }} title="Evidence available">
                             E
@@ -957,6 +988,29 @@ function RunHistoryTab({ initialRunId }) {
                   <RunTypeBadge runType={inferRunType(detail)} />
                   <BackendBadge backend={inferBackend(detail)} />
                   <CorrelationIdChip value={detail.correlation_id || detail.meta?.correlation_id} />
+              {detail.meta?.retry_policy_applied && (
+                <span className="badge badge-blue" style={{ fontSize: 10 }} title="Auto retry applied">
+                  Auto retry: {detail.meta?.retry_count ?? 0}
+                </span>
+              )}
+              {detail.meta?.flaky_signal && (
+                <span
+                  className="badge badge-gray"
+                  style={{ fontSize: 10 }}
+                  title={
+                    detail.meta?.flaky_score != null
+                      ? `Historically unstable (score: ${Math.round(Number(detail.meta?.flaky_score) * 100)}%)`
+                      : "Historically unstable"
+                  }
+                >
+                  Flaky signal
+                </span>
+              )}
+              {detail.meta?.quarantine_recommended && (
+                <span className="badge badge-orange" style={{ fontSize: 10 }} title="Quarantine recommended (inconsistent after retries)">
+                  Quarantine recommended
+                </span>
+              )}
                 </div>
                 {(detail.error_summary || detail.reason || detail.message || detail.error_message) && (
                   <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.55, marginBottom: 8 }}>

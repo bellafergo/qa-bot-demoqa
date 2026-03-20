@@ -297,6 +297,14 @@ function EvidenceRow({ row, t, navigate }) {
   const hint = row.hint || row.meta?.hint || null;
   const errorType = row.error_type || row.meta?.error_type || null;
   const stepIndex = row.step_index ?? row.meta?.step_index ?? null;
+  const meta = row.meta || {};
+  const retryCount = meta.retry_count ?? null;
+  const retryPolicyApplied = meta.retry_policy_applied ?? null;
+  const quarantineRecommended = meta.quarantine_recommended ?? null;
+  const finalOutcomeReason = meta.final_outcome_reason ?? null;
+  const flakySignal = meta.flaky_signal ?? null;
+  const flakyScore = meta.flaky_score ?? null;
+  const flipRate = meta.flip_rate ?? null;
 
   return (
     <tr>
@@ -390,7 +398,7 @@ function EvidenceRow({ row, t, navigate }) {
         </div>
 
         {/* Lightweight debug panel (per row) */}
-        {(errorType || stepIndex != null || hint || errorSummary || correlationId) && (
+        {(errorType || stepIndex != null || hint || errorSummary || correlationId || retryCount != null || retryPolicyApplied || quarantineRecommended != null || finalOutcomeReason || flakySignal || flakyScore != null || flipRate != null) && (
           <div style={{ marginTop: 10 }}>
             <details>
               <summary style={{ cursor: "pointer", fontSize: 12, color: "var(--text-2)" }}>
@@ -421,6 +429,40 @@ function EvidenceRow({ row, t, navigate }) {
                   <div>
                     <span style={{ fontSize: 11, fontWeight: 800, color: "var(--text-3)", textTransform: "uppercase" }}>step_index</span>{" "}
                     <code style={{ fontSize: 12, color: "var(--text-2)" }}>{String(stepIndex)}</code>
+                  </div>
+                )}
+                {retryPolicyApplied && (
+                  <span className="badge badge-blue" style={{ fontSize: 10 }} title="Auto retry applied">
+                    Auto retry: {retryCount ?? 0}
+                  </span>
+                )}
+                {quarantineRecommended === true && (
+                  <span className="badge badge-orange" style={{ fontSize: 10 }} title="Quarantine recommended">
+                    Quarantine recommended
+                  </span>
+                )}
+                {flakySignal && (
+                  <span className="badge badge-gray" style={{ fontSize: 10 }} title="Flaky signal">
+                    Flaky signal
+                  </span>
+                )}
+                {(flakyScore != null || flipRate != null) && (
+                  <div style={{ fontSize: 12, color: "var(--text-3)" }}>
+                    {flakyScore != null && (
+                      <div style={{ marginBottom: 4 }}>
+                        Flaky score: <span style={{ fontFamily: "monospace", color: "var(--text-2)" }}>{Math.round(Number(flakyScore) * 100)}%</span>
+                      </div>
+                    )}
+                    {flipRate != null && (
+                      <div style={{ marginBottom: 4 }}>
+                        Flip rate: <span style={{ fontFamily: "monospace", color: "var(--text-2)" }}>{Number(flipRate).toFixed(2)}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {finalOutcomeReason && (
+                  <div style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5 }}>
+                    <strong>Final outcome reason:</strong> {finalOutcomeReason}
                   </div>
                 )}
                 {hint && (
