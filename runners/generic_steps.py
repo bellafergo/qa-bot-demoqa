@@ -76,6 +76,7 @@ def execute_test(
     timeout_s: Optional[int] = None,
     expected: Optional[str] = None,
     evidence_id: Optional[str] = None,
+    correlation_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Ejecuta steps Playwright.
@@ -98,6 +99,8 @@ def execute_test(
       - Si el healer usa fallback != primary, se guarda en memoria.
     """
     t0 = time.time()
+    if correlation_id:
+        logger.info("[RUNNER] execute_test rid=%s", correlation_id)
 
     screenshot_b64: Optional[str] = None
     report_steps: List[Dict[str, Any]] = []

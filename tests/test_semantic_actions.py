@@ -197,8 +197,8 @@ class TestExtractActionIntent:
 class TestSemanticActionIntegration:
 
     def _parse(self, prompt, url=_GENERIC_URL):
-        from services.execute_engine import _parse_steps_from_prompt
-        return _parse_steps_from_prompt(prompt, url) or []
+        from core.step_compiler import parse_steps_from_prompt
+        return parse_steps_from_prompt(prompt, url) or []
 
     # ── CLICK ─────────────────────────────────────────────────
 

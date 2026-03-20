@@ -15,7 +15,7 @@ from services.chat_service import (
     _detect_intent,
     _normalize_doc_json,
 )
-from services.execute_engine import _parse_steps_from_prompt
+from core.step_compiler import parse_steps_from_prompt
 from core.schemas import ChatRunResponse
 
 
@@ -91,7 +91,7 @@ def test_parse_steps_visible_username():
     prompt = "Valida en https://demoqa.com/text-box que el campo #userName aparece visible"
     base_url = "https://demoqa.com/text-box"
 
-    steps = _parse_steps_from_prompt(prompt, base_url)
+    steps = parse_steps_from_prompt(prompt, base_url)
     assert steps is not None
     assert isinstance(steps, list)
     # Debe incluir un goto a la URL

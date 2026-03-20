@@ -8,36 +8,20 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import HTTPException
-from openai import OpenAI
-
 from core.settings import settings
 from core import chat_helpers as H
 from services import store
 from runner import execute_test
 
-from core.login_intent_resolver import build_login_steps
 from core.redaction import redact_secrets, redact_steps
+from core.step_compiler import compile_steps_from_prompt, ensure_has_assert
 from core.step_validator import validate_steps
 from core.step_normalizer import normalize_steps_to_target as _normalize_steps_to_target
-from core.semantic_step_builder import build_semantic_target
-from core.semantic_intent_extractor import (
-    extract_intent as _extract_semantic_intent,
-    extract_action_intent as _extract_semantic_action,
-)
 
 from services.evidence_pipeline import process_evidence
+from services.step_llm_generator import generate_steps_llm
 
 logger = logging.getLogger("vanya.execute_engine")
-
-
-# ============================================================
-# OpenAI client (solo EXECUTE fallback)
-# ============================================================
-def _client() -> OpenAI:
-    if not settings.OPENAI_API_KEY:
-        raise HTTPException(status_code=500, detail="Missing OPENAI_API_KEY")
-    return OpenAI(api_key=settings.OPENAI_API_KEY)
 
 
 # ============================================================
@@ -124,396 +108,8 @@ def _normalize_runner_meta(meta: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 # ============================================================
-# Helpers EXECUTE
+# Helpers EXECUTE (step compilation delegated to core.step_compiler)
 # ============================================================
-def _looks_like_saucedemo(url: str) -> bool:
-    return "saucedemo.com" in (url or "").lower()
-
-
-def _strip_quotes(s: str) -> str:
-    ss = (s or "").strip()
-    if len(ss) >= 2 and ((ss[0] == ss[-1] == '"') or (ss[0] == ss[-1] == "'")):
-        return ss[1:-1]
-    return ss
-
-
-def _ensure_has_assert(steps: List[Dict[str, Any]], base_url: str) -> List[Dict[str, Any]]:
-    if not steps:
-        return steps
-
-    # si ya hay asserts, no tocar
-    if any(str(s.get("action", "")).startswith("assert_") for s in steps):
-        return steps
-
-    # Detecta si el flujo intenta "login" (por pasos)
-    did_fill_user = any(
-        s.get("action") == "fill"
-        and str(s.get("selector") or "") in ("#user-name", "input[name='user-name']")
-        for s in steps
-    )
-    did_fill_pass = any(
-        s.get("action") == "fill"
-        and str(s.get("selector") or "") in ("#password", "input[name='password']")
-        for s in steps
-    )
-    did_click_login = any(
-        s.get("action") == "click"
-        and str(s.get("selector") or "") in ("#login-button", "button[type='submit']")
-        for s in steps
-    )
-    looks_like_login_flow = (did_fill_user or did_fill_pass) and did_click_login
-
-    if _looks_like_saucedemo(base_url):
-        if looks_like_login_flow:
-            steps.append({"action": "wait_ms", "ms": 450})
-            steps.append({"action": "assert_not_visible", "selector": "[data-test='error']"})
-            steps.append({"action": "assert_url_contains", "value": "inventory.html"})
-            return steps
-
-        steps.append({"action": "assert_visible", "selector": "#user-name"})
-        return steps
-
-    steps.append({"action": "assert_visible", "selector": "body"})
-    return steps
-
-
-def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[str, Any]]]:
-    p = (prompt or "").strip()
-    low = p.lower()
-    if not p:
-        return None
-
-    # -----------------------------------------
-    # 0) Login intent resolver (SauceDemo)
-    # -----------------------------------------
-    _only_visibility_check = (
-        ("visible" in low or "visibles" in low)
-        and not any(
-            k in low
-            for k in ["inicia", "iniciar", "fill", "llena", "escribe", "ingresa", "teclea"]
-        )
-    )
-    if _looks_like_saucedemo(base_url) and not _only_visibility_check and any(
-        k in low
-        for k in [
-            "login",
-            "inicia sesión",
-            "iniciar sesion",
-            "usuario",
-            "username",
-            "password",
-            "contraseña",
-            "contrasena",
-        ]
-    ):
-        negative = any(
-            k in low
-            for k in [
-                "no existe",
-                "invalido",
-                "inválido",
-                "incorrecto",
-                "debe fallar",
-                "should fail",
-                "invalid",
-                "wrong",
-            ]
-        )
-
-        u = None
-        pw = None
-
-        m_u = re.search(
-            r'(?:username|usuario)\s*[:=]?\s*(".*?"|\'.*?\'|\S+)', p, flags=re.IGNORECASE
-        )
-        if m_u:
-            u = _strip_quotes(m_u.group(1))
-
-        m_p = re.search(
-            r'(?:password|pass|contraseñ?a)\s*[:=]?\s*(".*?"|\'.*?\'|\S+)',
-            p,
-            flags=re.IGNORECASE,
-        )
-        if m_p:
-            pw = _strip_quotes(m_p.group(1))
-
-        steps: List[Dict[str, Any]] = [
-            {"action": "goto", "url": base_url},
-            {"action": "wait_ms", "ms": 250},
-            {"action": "assert_visible", "selector": "#user-name"},
-            {"action": "assert_visible", "selector": "#password"},
-            {"action": "assert_visible", "selector": "#login-button"},
-        ]
-
-        if u is not None:
-            steps.append({
-                "action": "fill",
-                "selector": "#user-name",
-                "target": build_semantic_target("input", "username", base_url),
-                "value": u,
-            })
-        if pw is not None:
-            steps.append({
-                "action": "fill",
-                "selector": "#password",
-                "target": build_semantic_target("input", "password", base_url),
-                "value": pw,
-            })
-
-        if (u is not None) or (pw is not None) or any(
-            k in low for k in ["haz click", "da click", "click", "submit", "entrar", "login"]
-        ):
-            steps.append({
-                "action": "click",
-                "selector": "#login-button",
-                "target": build_semantic_target("button", "login", base_url),
-            })
-            steps.append({"action": "wait_ms", "ms": 450})
-
-            if negative:
-                # Apply expected="fail" on first valid step (never insert step without action)
-                for s in steps:
-                    if s.get("action"):
-                        s["expected"] = "fail"
-                        break
-                steps.append({"action": "assert_visible", "selector": "[data-test='error']"})
-            else:
-                steps.append({"action": "assert_not_visible", "selector": "[data-test='error']"})
-                steps.append({"action": "assert_url_contains", "value": "inventory.html"})
-
-        return steps
-
-    # -----------------------------------------
-    # Base steps
-    # -----------------------------------------
-    steps: List[Dict[str, Any]] = [
-        {"action": "goto", "url": base_url},
-        {"action": "wait_ms", "ms": 250},
-    ]
-
-    # -----------------------------------------
-    # Helpers para detectar selectores
-    # -----------------------------------------
-    def _extract_selectors_anywhere(text: str) -> List[str]:
-        out: List[str] = []
-
-        for _, sel in re.findall(r'(["\']?)(#[-\w]+|\.[-\w]+|\[[^\]]+\])\1', text):
-            if sel and sel not in out:
-                out.append(sel)
-
-        for m in re.finditer(r'(["\'])([a-zA-Z][a-zA-Z0-9_-]*)\1', text):
-            sel = m.group(2)
-            if sel and sel not in out:
-                out.append(sel)
-
-        m = re.search(
-            r'(?:selector|elemento|element|tag)\s+([a-zA-Z][a-zA-Z0-9_-]*)',
-            text,
-            flags=re.IGNORECASE,
-        )
-        if m:
-            sel = m.group(1)
-            if sel and sel not in out:
-                out.append(sel)
-
-        return out
-
-    # visibles — only take this early-return path when there are NO fill/click
-    # actions in the same prompt.  If fill/click are present, fall through so
-    # those patterns are processed first and the text assertion is appended by
-    # the standard section at the bottom (which handles the same pattern).
-    _has_form_actions = bool(
-        re.search(r'\b(fill|type|llena|escribe|ingresa|teclea|click)\b', low)
-    )
-    if ("visibles" in low or "visible" in low) and not _has_form_actions:
-        # "Verify that 'X' is visible" → text assertion, NOT selector assertion.
-        # Must be checked before _extract_selectors_anywhere() to avoid greedily
-        # picking up URL fragments (e.g. ".herokuapp") as selectors.
-        _tv = re.search(
-            r'(?:verify|verifica|check|assert)\s+(?:that\s+)?["\']([^"\']+)["\']\s+(?:is\s+)?(?:visible|present|displayed)',
-            p,
-            flags=re.IGNORECASE,
-        )
-        if _tv:
-            found_text = _tv.group(1).strip()
-            if _looks_like_saucedemo(base_url):
-                _login_texts_tv = {"accepted usernames", "password", "login"}
-                if not any(t in found_text.lower() for t in _login_texts_tv):
-                    _has_login_tv = (
-                        any(s.get("action") == "fill" and s.get("selector") == "#user-name" for s in steps)
-                        and any(s.get("action") == "fill" and s.get("selector") == "#password" for s in steps)
-                        and any(s.get("action") == "click" and s.get("selector") == "#login-button" for s in steps)
-                    )
-                    if not _has_login_tv:
-                        steps.extend([
-                            {"action": "fill",  "selector": "#user-name",    "target": build_semantic_target("input",  "username", base_url), "value": "standard_user"},
-                            {"action": "fill",  "selector": "#password",     "target": build_semantic_target("input",  "password", base_url), "value": "secret_sauce"},
-                            {"action": "click", "selector": "#login-button", "target": build_semantic_target("button", "login",    base_url)},
-                        ])
-            steps.append({"action": "wait_ms", "ms": 300})
-            steps.append({"action": "assert_text_contains", "selector": "body", "text": found_text})
-            return steps
-
-        # Semantic intent extraction: try to produce a target-enriched
-        # assert_visible before falling back to raw selector extraction.
-        _si = _extract_semantic_intent(p)
-        if _si:
-            _st = build_semantic_target(_si["kind"], _si["name"], base_url)
-            steps.append({
-                "action": "assert_visible",
-                "selector": _st["primary"],  # backward compat
-                "target": _st,
-            })
-            return _ensure_has_assert(steps, base_url)
-
-        seen = _extract_selectors_anywhere(p)
-        if _looks_like_saucedemo(base_url):
-            if "username" in low or "user name" in low or "user-name" in low:
-                seen = ["#user-name"]
-            elif not seen:
-                seen = ["#user-name", "#password", "#login-button"]
-        for sel in seen:
-            steps.append({"action": "assert_visible", "selector": sel})
-        return _ensure_has_assert(steps, base_url)
-
-    # -----------------------------------------
-    # 1a) Semantic action extractor
-    #     Fast path for natural-language click/fill/assert_text prompts.
-    #     Only fires when there are no CSS selector characters so that
-    #     CSS-based prompts still fall through to the regex patterns below.
-    # -----------------------------------------
-    if not any(c in p for c in '#.[]()"'):
-        _ai = _extract_semantic_action(p)
-        if _ai:
-            _a = _ai["action"]
-            if _a == "click":
-                _st = build_semantic_target(_ai["target"]["kind"], _ai["target"]["name"], base_url)
-                steps.append({"action": "assert_visible", "selector": _st["primary"]})
-                steps.append({"action": "click", "selector": _st["primary"], "target": _st})
-            elif _a == "fill":
-                _st = build_semantic_target(_ai["target"]["kind"], _ai["target"]["name"], base_url)
-                steps.append({
-                    "action": "fill",
-                    "selector": _st["primary"],
-                    "target": _st,
-                    "value": _ai["value"],
-                })
-            elif _a == "assert_text_contains":
-                steps.append({"action": "wait_ms", "ms": 300})
-                steps.append({"action": "assert_text_contains", "selector": "body", "text": _ai["text"]})
-            return _ensure_has_assert(steps, base_url)
-
-    # Characters that distinguish a real CSS selector from plain English.
-    # Used below to decide whether a pre-click/pre-fill assert_visible is safe.
-    _CSS_CHARS = set("#.[]:>+~=\"'()")
-
-    # fill — multi-word field descriptions ("Fill username field with tomsmith")
-    fill_patterns = [
-        # CSS/quoted selector first (precise, backward-compat)
-        r'(?:llena|escribe|ingresa|teclea|fill|type)\s+(".*?"|\'.*?\'|#[-\w]+|\.[-\w]+|\[[^\]]+\])\s+(?:con|with)\s+(".*?"|\'.*?\'|\S+)',
-        # Natural-language field description (any words before "with"/"con")
-        r'(?:llena|escribe|ingresa|teclea|fill|type)\s+([\w][\w\s]*?)\s+(?:con|with)\s+(".*?"|\'.*?\'|\S+)',
-    ]
-    seen_fill_sels: set = set()
-    for pat in fill_patterns:
-        for m in re.finditer(pat, p, flags=re.IGNORECASE | re.MULTILINE):
-            sel = _strip_quotes(m.group(1)).strip()
-            val = _strip_quotes(m.group(2)).strip()
-            if sel and val and sel not in seen_fill_sels:
-                seen_fill_sels.add(sel)
-                # Same guard as click: skip assert_visible for natural-language
-                # selectors — the fill block already calls wait_for(visible).
-                if any(c in sel for c in _CSS_CHARS):
-                    steps.append({"action": "assert_visible", "selector": sel})
-                steps.append({"action": "fill", "selector": sel, "value": val})
-
-    # click — multi-word element descriptions ("Click login button")
-    click_patterns = [
-        # CSS/quoted selector first (precise, backward-compat)
-        r'(?:haz\s+click\s+en|haz\s+clic\s+en|da\s+click\s+en|click\s+on|click)\s+(".*?"|\'.*?\'|#[-\w]+|\.[-\w]+|\[[^\]]+\])',
-        # Natural-language element description (words until end-of-line)
-        r'(?:haz\s+click\s+en|haz\s+clic\s+en|da\s+click\s+en|click\s+on|click)\s+([\w][\w\s]*?)(?:\s*$)',
-    ]
-    seen_click_sels: set = set()
-    for pat in click_patterns:
-        for m in re.finditer(pat, p, flags=re.IGNORECASE | re.MULTILINE):
-            sel = _strip_quotes(m.group(1)).strip()
-            if sel and sel not in seen_click_sels:
-                seen_click_sels.add(sel)
-                # Only pre-check visibility for real CSS selectors.
-                # Natural-language selectors (e.g. "login button") have no CSS
-                # syntax chars and fall back to page.locator(sel) which is an
-                # invalid CSS descendant rule — the assert_visible would fail and
-                # abort before the click ever runs.  The click block itself calls
-                # locator.wait_for(state="visible") so the pre-check is redundant.
-                if any(c in sel for c in _CSS_CHARS):
-                    steps.append({"action": "assert_visible", "selector": sel})
-                steps.append({"action": "click", "selector": sel})
-
-    # press enter
-    if re.search(r"\b(enter|intro|presiona\s+enter|presiona\s+intro)\b", low):
-        last_sel = None
-        for s in reversed(steps):
-            if s.get("action") == "fill" and s.get("selector"):
-                last_sel = s.get("selector")
-                break
-        if last_sel:
-            steps.append({"action": "press", "selector": last_sel, "key": "Enter"})
-
-    # assert text contains — extended to catch "Verify that X is visible/present"
-    text_patterns = [
-        # explicit text assertion
-        r'(?:valida|validar|verify|assert)\s+.*?(?:texto|text).*?(".*?"|\'.*?\')',
-        r'(?:assert_text_contains)\s+(".*?"|\'.*?\')',
-        # "Verify that 'X' is visible/present" (quoted)
-        r'(?:verify|verifica|check|assert)\s+(?:that\s+)?["\']([^"\']+)["\']\s+(?:is\s+)?(?:visible|present|displayed)',
-        # "Verify that X is visible" (unquoted phrase before "is visible")
-        r'(?:verify|verifica|check|assert)\s+(?:that\s+)?([\w][^\n"\']*?)\s+is\s+(?:visible|present|displayed)\b',
-    ]
-    found_text = None
-    for pat in text_patterns:
-        mm = re.search(pat, p, flags=re.IGNORECASE)
-        if mm:
-            found_text = _strip_quotes(mm.group(1)).strip()
-            if found_text:
-                break
-    if found_text:
-        if _looks_like_saucedemo(base_url):
-            _login_texts = {"accepted usernames", "password", "login"}
-            _is_login_text = any(t in found_text.lower() for t in _login_texts)
-            if not _is_login_text:
-                _has_login = (
-                    any(s.get("action") == "fill" and s.get("selector") == "#user-name" for s in steps)
-                    and any(s.get("action") == "fill" and s.get("selector") == "#password" for s in steps)
-                    and any(s.get("action") == "click" and s.get("selector") == "#login-button" for s in steps)
-                )
-                if not _has_login:
-                    logger.warning(
-                        "[ENGINE] assert_text_contains en SauceDemo sin login previo — "
-                        "el texto '%s' puede requerir autenticación previa. Agregando login automático.",
-                        found_text,
-                    )
-                    steps.extend([
-                        {"action": "fill",  "selector": "#user-name",    "target": build_semantic_target("input",  "username", base_url), "value": "standard_user"},
-                        {"action": "fill",  "selector": "#password",     "target": build_semantic_target("input",  "password", base_url), "value": "secret_sauce"},
-                        {"action": "click", "selector": "#login-button", "target": build_semantic_target("button", "login",    base_url)},
-                    ])
-        steps.append({"action": "wait_ms", "ms": 300})
-        steps.append({"action": "assert_text_contains", "selector": "body", "text": found_text})
-
-    # assert selector exists
-    if re.search(r"(?:valida|validar|verify|assert).*(?:selector|elemento|element)", low):
-        sels = _extract_selectors_anywhere(p)
-        for sel in sels[:3]:
-            steps.append({"action": "assert_visible", "selector": sel})
-
-    useful = [s for s in steps if s.get("action") not in ("goto", "wait_ms")]
-    if not useful:
-        return None
-
-    return _ensure_has_assert(steps, base_url)
-
-
 def _render_execute_answer(
     status: str,
     msg: str,
@@ -546,6 +142,7 @@ def handle_execute_mode(
     thread_id: str,
     persona: str,
     messages: List[Dict[str, str]],
+    correlation_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     t0 = time.time()
     session_id = session.get("id")
@@ -590,55 +187,16 @@ def handle_execute_mode(
             **_confidence("execute", prompt, None),
         }
 
-    # 0) Login Intent Resolver (determinístico)
-    steps = None
-    try:
-        steps = build_login_steps(base_url=base_url, prompt=prompt)
+    # 1) Compilación determinística (login resolver + parser)
+    steps = compile_steps_from_prompt(prompt, base_url)
+    if steps:
+        logger.info("Step compiler produced deterministic steps")
+
+    # 2) LLM fallback cuando la compilación no produce steps
+    if not steps:
+        steps = generate_steps_llm(prompt, base_url, messages)
         if steps:
-            logger.info("Login intent resolver applied (deterministic steps)")
-    except Exception:
-        logger.exception("build_login_steps failed (continuing with normal parser)")
-
-    # 1) Parser determinístico
-    if not steps:
-        steps = _parse_steps_from_prompt(prompt, base_url)
-
-    # 2) LLM fallback para steps (más acotado)
-    if not steps:
-        try:
-            client = _client()
-            resp = client.chat.completions.create(
-                model=settings.OPENAI_MODEL,
-                messages=messages
-                + [
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Base URL: {base_url}\n"
-                            f"User request:\n{prompt}\n\n"
-                            "Generate Playwright steps using ONLY these actions:\n"
-                            "- goto(url)\n- click(selector)\n- fill(selector,value)\n- press(selector,key)\n"
-                            "- wait_ms(ms)\n- assert_visible(selector)\n- assert_not_visible(selector)\n"
-                            "- assert_url_contains(value)\n- assert_text_contains(selector,text)\n\n"
-                            "IMPORTANT selector rules:\n"
-                            "- For fill/click/press: use the element's visible label or placeholder text as selector, "
-                            "NOT invented CSS classes. Examples: 'username', 'password', 'Login', 'Email address'.\n"
-                            "- For assert_text_contains: use selector='body' and text='the expected text'.\n"
-                            "- Never invent CSS selectors like '.some-class' or '#made-up-id' that you cannot verify exist.\n"
-                            "- Only use CSS selectors like '#id' or '[name=x]' if you are certain they exist on the page.\n\n"
-                            'Return ONLY valid JSON: {"steps":[{"action":"goto","url":"..."}, ...]}\n'
-                            "No commentary."
-                        ),
-                    }
-                ],
-                temperature=settings.EXEC_TEMPERATURE,
-                max_tokens=settings.EXEC_MAX_TOKENS,
-            )
-            raw = (resp.choices[0].message.content or "").strip()
-            steps = H.extract_steps_from_text(raw)
-        except Exception:
-            logger.exception("LLM fallback for steps failed — falling through to 'no steps' response")
-            steps = None
+            logger.info("Step LLM generator produced fallback steps")
 
     if not steps:
         answer = "I couldn't generate executable steps. Tell me the exact element (selector) or expected text."
@@ -652,7 +210,7 @@ def handle_execute_mode(
             **_confidence("execute", prompt, base_url),
         }
 
-    steps = _ensure_has_assert(steps, base_url)
+    steps = ensure_has_assert(steps, base_url)
     steps = _normalize_steps_to_target(steps)
 
     validation = validate_steps(steps)
@@ -680,8 +238,9 @@ def handle_execute_mode(
 
     # Log the final step list so any drop is visible in the run report
     logger.info(
-        "[ENGINE] executing %d steps: %s",
+        "[ENGINE] executing %d steps%s: %s",
         len(steps),
+        f" [rid={correlation_id}]" if correlation_id else "",
         [{"i": i, "action": s.get("action"), "sel": s.get("selector")} for i, s in enumerate(steps)],
     )
 
@@ -695,6 +254,7 @@ def handle_execute_mode(
             steps=steps,
             headless=bool(getattr(req, "headless", True)),
             timeout_s=settings.RUNNER_TIMEOUT_S,
+            correlation_id=correlation_id,
         )
         runner = runner_any if isinstance(runner_any, dict) else {}
     except Exception as e:
@@ -754,6 +314,13 @@ def handle_execute_mode(
     status_label = "PASSED" if status == "passed" else "FAILED" if status == "failed" else "UNKNOWN"
 
     # 4) Evidence (pipeline centraliza PDF, upload, fallbacks)
+    evidence_meta: Dict[str, Any] = {
+        "thread_id": thread_id,
+        "session_id": session_id,
+        "headless": getattr(req, "headless", True),
+    }
+    if correlation_id:
+        evidence_meta["correlation_id"] = correlation_id
     evidence_result = process_evidence(
         runner=runner,
         prompt=prompt,
@@ -762,11 +329,7 @@ def handle_execute_mode(
         evidence_id=None,
         status=status,
         duration_ms=duration_ms,
-        meta={
-            "thread_id": thread_id,
-            "session_id": session_id,
-            "headless": getattr(req, "headless", True),
-        },
+        meta=evidence_meta,
     )
     evidence_id = evidence_result["evidence_id"]
     evidence_url = evidence_result["evidence_url"]
@@ -778,24 +341,27 @@ def handle_execute_mode(
     try:
         from services.run_store import save_run
 
-        save_run(
-            {
-                **(runner if isinstance(runner, dict) else {}),
-                "evidence_id": evidence_id,
-                "base_url": base_url,
-                "prompt": redact_secrets(prompt),
-                "steps": redact_steps(steps),
-                "evidence_url": evidence_url,
-                "report_url": report_url,
-                "pdf_error": pdf_error,
-                "duration_ms": duration_ms,
-                "thread_id": thread_id,
-                "session_id": session_id,
-                "mode": "execute",
-                "status": status,
-                "status_label": status_label,
-            }
-        )
+        run_payload: Dict[str, Any] = {
+            **(runner if isinstance(runner, dict) else {}),
+            "evidence_id": evidence_id,
+            "base_url": base_url,
+            "prompt": redact_secrets(prompt),
+            "steps": redact_steps(steps),
+            "evidence_url": evidence_url,
+            "report_url": report_url,
+            "pdf_error": pdf_error,
+            "duration_ms": duration_ms,
+            "thread_id": thread_id,
+            "session_id": session_id,
+            "mode": "execute",
+            "status": status,
+            "status_label": status_label,
+        }
+        if correlation_id:
+            run_payload.setdefault("meta", {})
+            run_payload["meta"] = dict(run_payload.get("meta") or {})
+            run_payload["meta"]["correlation_id"] = correlation_id
+        save_run(run_payload)
     except Exception:
         logger.exception("save_run failed (continuing)")
 

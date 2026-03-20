@@ -145,8 +145,8 @@ class TestExtractIntent:
 class TestParseStepsVisibleWithSemanticTarget:
 
     def _parse(self, prompt, url="https://www.saucedemo.com"):
-        from services.execute_engine import _parse_steps_from_prompt
-        return _parse_steps_from_prompt(prompt, url) or []
+        from core.step_compiler import parse_steps_from_prompt
+        return parse_steps_from_prompt(prompt, url) or []
 
     def _assert_visible_steps(self, steps):
         return [s for s in steps if s.get("action") == "assert_visible"]

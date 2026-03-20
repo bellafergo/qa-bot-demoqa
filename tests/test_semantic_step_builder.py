@@ -148,8 +148,8 @@ class TestBuildSemanticTarget:
 class TestParseStepsWithSemanticTarget:
 
     def _parse(self, prompt: str, url: str):
-        from services.execute_engine import _parse_steps_from_prompt
-        return _parse_steps_from_prompt(prompt, url)
+        from core.step_compiler import compile_steps_from_prompt
+        return compile_steps_from_prompt(prompt, url)
 
     def _find_step(self, steps, action, selector):
         return next(

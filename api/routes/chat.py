@@ -2,7 +2,7 @@
 import logging
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from services.chat_service import handle_chat_run
@@ -53,14 +53,16 @@ def _post_process_result(result: Any) -> None:
 
 
 @router.post("/chat_run")
-def chat_run(req: ChatRunRequest) -> Dict[str, Any]:
+def chat_run(req: ChatRunRequest, request: Request) -> Dict[str, Any]:
     """
     Wrapper del service:
     - Garantiza screenshot_data_url
     - Nunca deja al frontend sin body usable
+    - Propaga correlation_id para trazabilidad
     """
+    correlation_id = getattr(request.state, "request_id", None)
     try:
-        result = handle_chat_run(req)
+        result = handle_chat_run(req, correlation_id=correlation_id)
         _post_process_result(result)
         return result
 

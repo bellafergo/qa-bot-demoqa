@@ -1,17 +1,24 @@
 # core/step_compiler.py
 """
-Compilador planner → runner steps.
+Compilador planner → runner steps + deducción desde prompt.
 
-Traduce pasos de alto nivel del planner (DSL) a pasos ejecutables por
-runners/generic_steps.py (RUNNER_ACTIONS).
+Dos flujos:
+- compile_to_runner_steps: planner DSL → runner steps (login, search, etc.)
+- compile_steps_from_prompt: prompt natural → steps (parseo determinístico para chat/execute)
 
 Si una acción no puede compilarse de forma segura, levanta CompileError.
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional
 
 from core.schemas import RUNNER_ACTIONS
+from core.semantic_step_builder import build_semantic_target
+from core.semantic_intent_extractor import (
+    extract_intent as _extract_semantic_intent,
+    extract_action_intent as _extract_semantic_action,
+)
 
 
 class CompileError(Exception):
@@ -243,3 +250,309 @@ def compile_to_runner_steps(
         )
 
     return result
+
+
+# ── Deducción desde prompt natural (chat/execute) ─────────────────────────────
+
+def _strip_quotes(s: str) -> str:
+    ss = (s or "").strip()
+    if len(ss) >= 2 and ((ss[0] == ss[-1] == '"') or (ss[0] == ss[-1] == "'")):
+        return ss[1:-1]
+    return ss
+
+
+def ensure_has_assert(steps: List[Dict[str, Any]], base_url: str) -> List[Dict[str, Any]]:
+    """Añade assert si el flujo no tiene ninguno."""
+    if not steps:
+        return steps
+    if any(str(s.get("action", "")).startswith("assert_") for s in steps):
+        return steps
+
+    did_fill_user = any(
+        s.get("action") == "fill"
+        and str(s.get("selector") or "") in ("#user-name", "input[name='user-name']")
+        for s in steps
+    )
+    did_fill_pass = any(
+        s.get("action") == "fill"
+        and str(s.get("selector") or "") in ("#password", "input[name='password']")
+        for s in steps
+    )
+    did_click_login = any(
+        s.get("action") == "click"
+        and str(s.get("selector") or "") in ("#login-button", "button[type='submit']")
+        for s in steps
+    )
+    looks_like_login_flow = (did_fill_user or did_fill_pass) and did_click_login
+
+    if _is_saucedemo(base_url):
+        if looks_like_login_flow:
+            steps.append({"action": "wait_ms", "ms": 450})
+            steps.append({"action": "assert_not_visible", "selector": "[data-test='error']"})
+            steps.append({"action": "assert_url_contains", "value": "inventory.html"})
+            return steps
+        steps.append({"action": "assert_visible", "selector": "#user-name"})
+        return steps
+
+    steps.append({"action": "assert_visible", "selector": "body"})
+    return steps
+
+
+def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[str, Any]]]:
+    """Parseo determinístico de prompt natural a steps. Usado por chat/execute."""
+    p = (prompt or "").strip()
+    low = p.lower()
+    if not p:
+        return None
+
+    def _extract_selectors_anywhere(text: str) -> List[str]:
+        out: List[str] = []
+        for _, sel in re.findall(r'(["\']?)(#[-\w]+|\.[-\w]+|\[[^\]]+\])\1', text):
+            if sel and sel not in out:
+                out.append(sel)
+        for m in re.finditer(r'(["\'])([a-zA-Z][a-zA-Z0-9_-]*)\1', text):
+            sel = m.group(2)
+            if sel and sel not in out:
+                out.append(sel)
+        m = re.search(
+            r'(?:selector|elemento|element|tag)\s+([a-zA-Z][a-zA-Z0-9_-]*)',
+            text, flags=re.IGNORECASE,
+        )
+        if m:
+            sel = m.group(1)
+            if sel and sel not in out:
+                out.append(sel)
+        return out
+
+    _only_visibility_check = (
+        ("visible" in low or "visibles" in low)
+        and not any(k in low for k in ["inicia", "iniciar", "fill", "llena", "escribe", "ingresa", "teclea"])
+    )
+    if _is_saucedemo(base_url) and not _only_visibility_check and any(
+        k in low for k in [
+            "login", "inicia sesión", "iniciar sesion", "usuario", "username",
+            "password", "contraseña", "contrasena",
+        ]
+    ):
+        negative = any(
+            k in low for k in [
+                "no existe", "invalido", "inválido", "incorrecto",
+                "debe fallar", "should fail", "invalid", "wrong",
+            ]
+        )
+        u = None
+        pw = None
+        m_u = re.search(r'(?:username|usuario)\s*[:=]?\s*(".*?"|\'.*?\'|\S+)', p, flags=re.IGNORECASE)
+        if m_u:
+            u = _strip_quotes(m_u.group(1))
+        m_p = re.search(
+            r'(?:password|pass|contraseñ?a)\s*[:=]?\s*(".*?"|\'.*?\'|\S+)', p, flags=re.IGNORECASE
+        )
+        if m_p:
+            pw = _strip_quotes(m_p.group(1))
+
+        steps: List[Dict[str, Any]] = [
+            {"action": "goto", "url": base_url},
+            {"action": "wait_ms", "ms": 250},
+            {"action": "assert_visible", "selector": "#user-name"},
+            {"action": "assert_visible", "selector": "#password"},
+            {"action": "assert_visible", "selector": "#login-button"},
+        ]
+        if u is not None:
+            steps.append({
+                "action": "fill",
+                "selector": "#user-name",
+                "target": build_semantic_target("input", "username", base_url),
+                "value": u,
+            })
+        if pw is not None:
+            steps.append({
+                "action": "fill",
+                "selector": "#password",
+                "target": build_semantic_target("input", "password", base_url),
+                "value": pw,
+            })
+        if (u is not None) or (pw is not None) or any(
+            k in low for k in ["haz click", "da click", "click", "submit", "entrar", "login"]
+        ):
+            steps.append({
+                "action": "click",
+                "selector": "#login-button",
+                "target": build_semantic_target("button", "login", base_url),
+            })
+            steps.append({"action": "wait_ms", "ms": 450})
+            if negative:
+                for s in steps:
+                    if s.get("action"):
+                        s["expected"] = "fail"
+                        break
+                steps.append({"action": "assert_visible", "selector": "[data-test='error']"})
+            else:
+                steps.append({"action": "assert_not_visible", "selector": "[data-test='error']"})
+                steps.append({"action": "assert_url_contains", "value": "inventory.html"})
+        return steps
+
+    steps = [
+        {"action": "goto", "url": base_url},
+        {"action": "wait_ms", "ms": 250},
+    ]
+
+    _has_form_actions = bool(re.search(r'\b(fill|type|llena|escribe|ingresa|teclea|click)\b', low))
+    if ("visibles" in low or "visible" in low) and not _has_form_actions:
+        _tv = re.search(
+            r'(?:verify|verifica|check|assert)\s+(?:that\s+)?["\']([^"\']+)["\']\s+(?:is\s+)?(?:visible|present|displayed)',
+            p, flags=re.IGNORECASE,
+        )
+        if _tv:
+            found_text = _tv.group(1).strip()
+            if _is_saucedemo(base_url):
+                _login_texts_tv = {"accepted usernames", "password", "login"}
+                if not any(t in found_text.lower() for t in _login_texts_tv):
+                    _has_login_tv = (
+                        any(s.get("action") == "fill" and s.get("selector") == "#user-name" for s in steps)
+                        and any(s.get("action") == "fill" and s.get("selector") == "#password" for s in steps)
+                        and any(s.get("action") == "click" and s.get("selector") == "#login-button" for s in steps)
+                    )
+                    if not _has_login_tv:
+                        steps.extend([
+                            {"action": "fill", "selector": "#user-name", "target": build_semantic_target("input", "username", base_url), "value": "standard_user"},
+                            {"action": "fill", "selector": "#password", "target": build_semantic_target("input", "password", base_url), "value": "secret_sauce"},
+                            {"action": "click", "selector": "#login-button", "target": build_semantic_target("button", "login", base_url)},
+                        ])
+            steps.append({"action": "wait_ms", "ms": 300})
+            steps.append({"action": "assert_text_contains", "selector": "body", "text": found_text})
+            return steps
+
+        _si = _extract_semantic_intent(p)
+        if _si:
+            _st = build_semantic_target(_si["kind"], _si["name"], base_url)
+            steps.append({"action": "assert_visible", "selector": _st["primary"], "target": _st})
+            return ensure_has_assert(steps, base_url)
+
+        seen = _extract_selectors_anywhere(p)
+        if _is_saucedemo(base_url):
+            if "username" in low or "user name" in low or "user-name" in low:
+                seen = ["#user-name"]
+            elif not seen:
+                seen = ["#user-name", "#password", "#login-button"]
+        for sel in seen:
+            steps.append({"action": "assert_visible", "selector": sel})
+        return ensure_has_assert(steps, base_url)
+
+    if not any(c in p for c in '#.[]()"'):
+        _ai = _extract_semantic_action(p)
+        if _ai:
+            _a = _ai["action"]
+            if _a == "click":
+                _st = build_semantic_target(_ai["target"]["kind"], _ai["target"]["name"], base_url)
+                steps.append({"action": "assert_visible", "selector": _st["primary"]})
+                steps.append({"action": "click", "selector": _st["primary"], "target": _st})
+            elif _a == "fill":
+                _st = build_semantic_target(_ai["target"]["kind"], _ai["target"]["name"], base_url)
+                steps.append({"action": "fill", "selector": _st["primary"], "target": _st, "value": _ai["value"]})
+            elif _a == "assert_text_contains":
+                steps.append({"action": "wait_ms", "ms": 300})
+                steps.append({"action": "assert_text_contains", "selector": "body", "text": _ai["text"]})
+            return ensure_has_assert(steps, base_url)
+
+    _CSS_CHARS = set("#.[]:>+~=\"'()")
+    fill_patterns = [
+        r'(?:llena|escribe|ingresa|teclea|fill|type)\s+(".*?"|\'.*?\'|#[-\w]+|\.[-\w]+|\[[^\]]+\])\s+(?:con|with)\s+(".*?"|\'.*?\'|\S+)',
+        r'(?:llena|escribe|ingresa|teclea|fill|type)\s+([\w][\w\s]*?)\s+(?:con|with)\s+(".*?"|\'.*?\'|\S+)',
+    ]
+    seen_fill_sels: set = set()
+    for pat in fill_patterns:
+        for m in re.finditer(pat, p, flags=re.IGNORECASE | re.MULTILINE):
+            sel = _strip_quotes(m.group(1)).strip()
+            val = _strip_quotes(m.group(2)).strip()
+            if sel and val and sel not in seen_fill_sels:
+                seen_fill_sels.add(sel)
+                if any(c in sel for c in _CSS_CHARS):
+                    steps.append({"action": "assert_visible", "selector": sel})
+                steps.append({"action": "fill", "selector": sel, "value": val})
+
+    click_patterns = [
+        r'(?:haz\s+click\s+en|haz\s+clic\s+en|da\s+click\s+en|click\s+on|click)\s+(".*?"|\'.*?\'|#[-\w]+|\.[-\w]+|\[[^\]]+\])',
+        r'(?:haz\s+click\s+en|haz\s+clic\s+en|da\s+click\s+en|click\s+on|click)\s+([\w][\w\s]*?)(?:\s*$)',
+    ]
+    seen_click_sels: set = set()
+    for pat in click_patterns:
+        for m in re.finditer(pat, p, flags=re.IGNORECASE | re.MULTILINE):
+            sel = _strip_quotes(m.group(1)).strip()
+            if sel and sel not in seen_click_sels:
+                seen_click_sels.add(sel)
+                if any(c in sel for c in _CSS_CHARS):
+                    steps.append({"action": "assert_visible", "selector": sel})
+                steps.append({"action": "click", "selector": sel})
+
+    if re.search(r"\b(enter|intro|presiona\s+enter|presiona\s+intro)\b", low):
+        last_sel = None
+        for s in reversed(steps):
+            if s.get("action") == "fill" and s.get("selector"):
+                last_sel = s.get("selector")
+                break
+        if last_sel:
+            steps.append({"action": "press", "selector": last_sel, "key": "Enter"})
+
+    text_patterns = [
+        r'(?:valida|validar|verify|assert)\s+.*?(?:texto|text).*?(".*?"|\'.*?\')',
+        r'(?:assert_text_contains)\s+(".*?"|\'.*?\')',
+        r'(?:verify|verifica|check|assert)\s+(?:that\s+)?["\']([^"\']+)["\']\s+(?:is\s+)?(?:visible|present|displayed)',
+        r'(?:verify|verifica|check|assert)\s+(?:that\s+)?([\w][^\n"\']*?)\s+is\s+(?:visible|present|displayed)\b',
+    ]
+    found_text = None
+    for pat in text_patterns:
+        mm = re.search(pat, p, flags=re.IGNORECASE)
+        if mm:
+            found_text = _strip_quotes(mm.group(1)).strip()
+            if found_text:
+                break
+    if found_text:
+        if _is_saucedemo(base_url):
+            _login_texts = {"accepted usernames", "password", "login"}
+            _is_login_text = any(t in found_text.lower() for t in _login_texts)
+            if not _is_login_text:
+                _has_login = (
+                    any(s.get("action") == "fill" and s.get("selector") == "#user-name" for s in steps)
+                    and any(s.get("action") == "fill" and s.get("selector") == "#password" for s in steps)
+                    and any(s.get("action") == "click" and s.get("selector") == "#login-button" for s in steps)
+                )
+                if not _has_login:
+                    steps.extend([
+                        {"action": "fill", "selector": "#user-name", "target": build_semantic_target("input", "username", base_url), "value": "standard_user"},
+                        {"action": "fill", "selector": "#password", "target": build_semantic_target("input", "password", base_url), "value": "secret_sauce"},
+                        {"action": "click", "selector": "#login-button", "target": build_semantic_target("button", "login", base_url)},
+                    ])
+        steps.append({"action": "wait_ms", "ms": 300})
+        steps.append({"action": "assert_text_contains", "selector": "body", "text": found_text})
+
+    if re.search(r"(?:valida|validar|verify|assert).*(?:selector|elemento|element)", low):
+        sels = _extract_selectors_anywhere(p)
+        for sel in sels[:3]:
+            steps.append({"action": "assert_visible", "selector": sel})
+
+    useful = [s for s in steps if s.get("action") not in ("goto", "wait_ms")]
+    if not useful:
+        return None
+
+    return ensure_has_assert(steps, base_url)
+
+
+def compile_steps_from_prompt(
+    prompt: str,
+    base_url: str,
+) -> Optional[List[Dict[str, Any]]]:
+    """
+    Deduce steps desde prompt natural (chat/execute).
+    Intenta: login_intent_resolver → parse determinístico.
+    Retorna None si no puede deducir steps suficientes.
+    """
+    from core.login_intent_resolver import build_login_steps
+    steps = build_login_steps(base_url=base_url, prompt=prompt)
+    if steps:
+        return steps
+    return _parse_steps_from_prompt(prompt, base_url)
+
+
+# Alias público para tests que necesitan el parser directo (sin login resolver)
+parse_steps_from_prompt = _parse_steps_from_prompt

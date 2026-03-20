@@ -77,6 +77,9 @@ def _merge_meta(run: Dict[str, Any], meta: Optional[Dict[str, Any]]) -> Dict[str
 # ============================================================
 def run_execute_steps_job(evidence_id: str, payload: Dict[str, Any], meta: Dict[str, Any]) -> Dict[str, Any]:
     t0 = time.time()
+    cid = (meta or {}).get("correlation_id")
+    if cid:
+        logger.info("[JOBS] run_execute_steps_job evidence_id=%s rid=%s", evidence_id, cid)
     save_run({
         "evidence_id": evidence_id,
         "status": "running",
@@ -85,9 +88,11 @@ def run_execute_steps_job(evidence_id: str, payload: Dict[str, Any], meta: Dict[
         "meta": meta or {},
     })
 
-    # Pass evidence_id so runner uses it (artifacts, trace, EvidenceCapture run_id)
+    # Pass evidence_id and correlation_id so runner uses them (trazabilidad)
     payload_with_evid = dict(payload)
     payload_with_evid["evidence_id"] = evidence_id
+    if cid:
+        payload_with_evid["correlation_id"] = cid
 
     try:
         run = _run_with_retry(payload_with_evid)

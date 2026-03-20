@@ -1,10 +1,10 @@
 # tests/test_execute_engine_parser.py
 """
-Unit tests for the _parse_steps_from_prompt() parser inside services/execute_engine.py.
+Unit tests for the parse_steps_from_prompt() parser (now in core.step_compiler).
 No browser, no OpenAI, no Redis — pure regex/logic coverage.
 """
 import pytest
-from services.execute_engine import _parse_steps_from_prompt
+from core.step_compiler import parse_steps_from_prompt as _parse_steps_from_prompt
 
 BASE = "https://the-internet.herokuapp.com/login"
 SAUCE = "https://www.saucedemo.com"

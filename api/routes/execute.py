@@ -7,7 +7,7 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, field_validator
 
 from services.run_store import save_run, get_run
@@ -95,7 +95,7 @@ def _enqueue(kind: str, fn, payload: Dict[str, Any], meta: Optional[Dict[str, An
 
 
 @router.post("/execute_steps")
-def execute_steps(req: ExecuteStepsRequest) -> Dict[str, Any]:
+def execute_steps(req: ExecuteStepsRequest, request: Request) -> Dict[str, Any]:
     payload = {
         "steps": req.steps,
         "base_url": req.base_url,
@@ -104,7 +104,11 @@ def execute_steps(req: ExecuteStepsRequest) -> Dict[str, Any]:
         "timeout_s": req.timeout_s,
         "expected": req.expected,
     }
-    return _enqueue("steps", run_execute_steps_job, payload, req.meta)
+    meta = dict(req.meta or {})
+    correlation_id = getattr(request.state, "request_id", None)
+    if correlation_id:
+        meta["correlation_id"] = correlation_id
+    return _enqueue("steps", run_execute_steps_job, payload, meta)
 
 
 class ExecuteSuiteRequest(BaseModel):
@@ -119,6 +123,10 @@ class ExecuteSuiteRequest(BaseModel):
 
 
 @router.post("/execute_suite")
-def execute_suite(req: ExecuteSuiteRequest) -> Dict[str, Any]:
+def execute_suite(req: ExecuteSuiteRequest, request: Request) -> Dict[str, Any]:
     payload = {"suite": req.suite, "env": req.env}
-    return _enqueue("suite", run_suite_job, payload, req.meta)
+    meta = dict(req.meta or {})
+    correlation_id = getattr(request.state, "request_id", None)
+    if correlation_id:
+        meta["correlation_id"] = correlation_id
+    return _enqueue("suite", run_suite_job, payload, meta)
