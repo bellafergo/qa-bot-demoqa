@@ -79,7 +79,7 @@ export default function DocumentsPage() {
   }, [query, queryThreadId]);
 
   return (
-    <div className="page-wrap" style={{ maxWidth: 860 }}>
+    <div className="page-wrap">
       {/* ── Page header ─────────────────────────────────── */}
       <div className="page-header">
         <h1 className="page-title">{t("docs.title")}</h1>
