@@ -420,6 +420,65 @@ def _generate_search_steps(
 # MAIN FUNCTION
 # =============================================================================
 
+def _infer_test_type(intent: str, risk_flags: list[str], text: str) -> str:
+    """Classify test type from intent and text content."""
+    if intent == "checkout" or ("payment" in risk_flags and intent != "login"):
+        return "regression"
+    if intent in ("login_and_cart", "login_and_search"):
+        return "regression"
+    if intent == "login":
+        return "smoke"
+    negative_kw = (
+        "invalid", "wrong", "incorrect", "error", "fail", "bad",
+        "inválido", "incorrecto", "error", "falla", "negativo", "negative",
+    )
+    if any(kw in text.lower() for kw in negative_kw):
+        return "negative"
+    if intent in ("add_to_cart", "search"):
+        return "smoke"
+    return "exploratory"
+
+
+def _infer_risk_level(intent: str, risk_flags: list[str]) -> str:
+    """Classify risk level based on intent and flags."""
+    if "payment" in risk_flags or intent == "checkout":
+        return "high"
+    if intent in ("login", "login_and_cart", "login_and_search"):
+        return "high"
+    if intent == "add_to_cart":
+        return "medium"
+    return "low"
+
+
+def _build_warnings(
+    risk_flags: list[str],
+    intent: str,
+    base_url: str | None,
+    language: str,
+) -> list[str]:
+    """Build human-readable warnings from risk flags and plan context."""
+    warnings: list[str] = []
+    if "payment" in risk_flags:
+        warnings.append(
+            "This flow involves payments — execution will stop before real transactions."
+            if language == "en"
+            else "Este flujo involucra pagos — se detendrá antes de ejecutar transacciones reales."
+        )
+    if not base_url:
+        warnings.append(
+            "No base_url provided — steps will use a placeholder URL."
+            if language == "en"
+            else "No se proporcionó base_url — los steps usarán un placeholder de URL."
+        )
+    if intent in ("login", "login_and_cart", "login_and_search"):
+        warnings.append(
+            "Credentials will be read from environment variables."
+            if language == "en"
+            else "Las credenciales se leerán desde variables de entorno."
+        )
+    return warnings
+
+
 def plan_from_text(
     text: str,
     base_url: str | None = None,
@@ -444,9 +503,13 @@ def plan_from_text(
             "requires_confirmation": False,
             "summary": "",
             "steps": [],
+            "assertions": [],
             "risk_flags": [],
             "assumptions": [],
             "errors": ["Input text is required"],
+            "test_type": "exploratory",
+            "risk_level": "low",
+            "warnings": [],
         }
 
     text = text.strip()
@@ -459,9 +522,13 @@ def plan_from_text(
             "requires_confirmation": False,
             "summary": "",
             "steps": [],
+            "assertions": [],
             "risk_flags": [],
             "assumptions": [],
             "errors": ["Input text is empty"],
+            "test_type": "exploratory",
+            "risk_level": "low",
+            "warnings": [],
         }
 
     # Detect language and intent
@@ -568,7 +635,12 @@ def plan_from_text(
         "requires_confirmation": requires_confirmation,
         "summary": summary,
         "steps": steps,
+        "assertions": [],
         "risk_flags": risk_flags,
         "assumptions": assumptions,
         "errors": errors,
+        # ── enriched fields ───────────────────────────────────────────────────
+        "test_type":  _infer_test_type(intent, risk_flags, text),
+        "risk_level": _infer_risk_level(intent, risk_flags),
+        "warnings":   _build_warnings(risk_flags, intent, effective_url, language),
     }
