@@ -461,10 +461,68 @@ export default function CatalogPage() {
       {/* Run result */}
       {runResult && (
         <div className={`alert ${runResult.error ? "alert-error" : "alert-success"}`} style={{ marginBottom: 16 }}>
-          {runResult.error
-            ? `✗ ${runResult.tc_id}: ${runResult.error}`
-            : `✓ ${runResult.tc_id} → ${runResult.run?.status} (${fmtMs(runResult.run?.duration_ms)})`
-          }
+          {runResult.error ? (
+            <div>
+              {`✗ ${runResult.tc_id}: ${runResult.error}`}
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div>
+                {`✓ ${runResult.tc_id} → ${runResult.run?.status} (${fmtMs(runResult.run?.duration_ms)})`}
+              </div>
+              {(runResult.run?.correlation_id || runResult.run?.meta?.correlation_id) ? (
+                <div style={{ fontSize: 12, color: "var(--text-3)" }}>
+                  Correlation:{" "}
+                  <code style={{ fontFamily: "monospace" }}>
+                    {runResult.run?.correlation_id || runResult.run?.meta?.correlation_id}
+                  </code>
+                </div>
+              ) : null}
+              {runResult.run?.steps_count != null ? (
+                <div style={{ fontSize: 12, color: "var(--text-3)" }}>
+                  Steps:{" "}
+                  <strong style={{ fontWeight: 700 }}>{runResult.run?.steps_count}</strong>
+                </div>
+              ) : null}
+              {(
+                runResult.run?.evidence_url ||
+                runResult.run?.report_url ||
+                runResult.run?.artifacts?.evidence_url ||
+                runResult.run?.artifacts?.report_url
+              ) ? (
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 2 }}>
+                  {(
+                    runResult.run?.evidence_url ||
+                    runResult.run?.artifacts?.evidence_url
+                  ) ? (
+                    <a
+                      href={runResult.run?.evidence_url || runResult.run?.artifacts?.evidence_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="btn btn-secondary btn-sm"
+                      style={{ textDecoration: "none" }}
+                    >
+                      View Evidence ↗
+                    </a>
+                  ) : null}
+                  {(
+                    runResult.run?.report_url ||
+                    runResult.run?.artifacts?.report_url
+                  ) ? (
+                    <a
+                      href={runResult.run?.report_url || runResult.run?.artifacts?.report_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="btn btn-secondary btn-sm"
+                      style={{ textDecoration: "none" }}
+                    >
+                      Download Report ↗
+                    </a>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          )}
         </div>
       )}
 

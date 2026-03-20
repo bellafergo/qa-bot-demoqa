@@ -290,8 +290,8 @@ export default function ExecutionPage() {
               <div className="section-title" style={{ marginBottom: 10 }}>{t("exec.detail.title")}</div>
               {detailLoading ? (
                 <div style={{ fontSize: 13, color: "var(--text-3)" }}>{t("exec.detail.loading")}</div>
-              ) : jobDetail?.error ? (
-                <div className="alert alert-error">{jobDetail.error}</div>
+              ) : jobDetail?.error_message || jobDetail?.error ? (
+                <div className="alert alert-error">{jobDetail?.error_message || jobDetail?.error}</div>
               ) : jobDetail ? (
                 <div>
                   <div style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-3)", marginBottom: 8, wordBreak: "break-all" }}>

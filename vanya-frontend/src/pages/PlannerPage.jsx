@@ -49,11 +49,40 @@ export default function PlannerPage({ embedded = false }) {
         body: JSON.stringify({ text: text.trim(), base_url: baseUrl.trim() || null, app_hint: appHint.trim() || null, max_steps: 25, confirm, headless: true }),
       });
       const data = await res.json();
-      if (!res.ok) { setError(data?.detail || `HTTP ${res.status}`); }
+      const toStringSafe = (v) => {
+        if (v == null) return "";
+        if (typeof v === "string") return v;
+        if (Array.isArray(v)) return v.filter(Boolean).map(String).join(" · ");
+        try { return JSON.stringify(v); } catch { return String(v); }
+      };
+
+      const enrichReason = (reason, payload) => {
+        const base = toStringSafe(reason) || "Execution error";
+        const corr = payload?.correlation_id;
+        const errType = payload?.error_type;
+        const errSummary = payload?.error_summary;
+        const parts = [];
+        if (corr) parts.push(`correlation_id: ${corr}`);
+        if (errType) parts.push(`error_type: ${errType}`);
+        if (errSummary) parts.push(`error_summary: ${errSummary}`);
+        return parts.length ? `${base} (${parts.join(" · ")})` : base;
+      };
+
+      if (!res.ok) {
+        const detail = data?.detail ?? data;
+        if (typeof detail === "string") {
+          setError(detail);
+        } else if (detail && typeof detail === "object") {
+          const base = detail?.reason || detail?.message || "Execution error";
+          setError(enrichReason(base, detail));
+        } else {
+          setError(`HTTP ${res.status}`);
+        }
+      }
       else {
         setPlan(data?.plan || null);
         setRun(data?.run || data);
-        if (data?.reason) setError(data.reason);
+        if (data?.reason) setError(enrichReason(data.reason, data));
       }
     } catch (e) { setError(e?.message || "Network error"); }
     finally { setLoading(false); }
@@ -241,20 +270,62 @@ export default function PlannerPage({ embedded = false }) {
                 <strong>{run.status}</strong>
               </div>
             )}
+            {run.error_summary || run.meta?.error_summary ? (
+              <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+                <span style={{ color: "var(--text-3)", width: 100 }}>Error</span>
+                <strong style={{ color: "var(--red-text)" }}>{run.error_summary || run.meta?.error_summary}</strong>
+              </div>
+            ) : null}
+            {(run.correlation_id || run.meta?.correlation_id) ? (
+              <div style={{ display: "flex", gap: 8 }}>
+                <span style={{ color: "var(--text-3)", width: 100 }}>Correlation</span>
+                <code style={{ fontSize: 12 }}>{run.correlation_id || run.meta?.correlation_id}</code>
+              </div>
+            ) : null}
+            {run.steps_count != null ? (
+              <div style={{ display: "flex", gap: 8 }}>
+                <span style={{ color: "var(--text-3)", width: 100 }}>Steps</span>
+                <span>{run.steps_count}</span>
+              </div>
+            ) : null}
+            {(run.meta?.hint || run.hint) ? (
+              <div style={{ display: "flex", gap: 8 }}>
+                <span style={{ color: "var(--text-3)", width: 100 }}>Hint</span>
+                <span>{run.meta?.hint || run.hint}</span>
+              </div>
+            ) : null}
             {run.evidence_id && (
               <div style={{ display: "flex", gap: 8 }}>
                 <span style={{ color: "var(--text-3)", width: 100 }}>{t("planner.run.evidence_id")}</span>
                 <code style={{ fontSize: 12 }}>{run.evidence_id}</code>
               </div>
             )}
-            {run.evidence_url && (
+            {(run.evidence_url || run.artifacts?.evidence_url) && (
               <div style={{ display: "flex", gap: 8 }}>
                 <span style={{ color: "var(--text-3)", width: 100 }}>{t("planner.run.evidence")}</span>
-                <a href={run.evidence_url} target="_blank" rel="noreferrer" style={{ color: "var(--accent)", fontSize: 13 }}>
+                <a
+                  href={run.evidence_url || run.artifacts?.evidence_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ color: "var(--accent)", fontSize: 13 }}
+                >
                   {t("planner.run.view")}
                 </a>
               </div>
             )}
+            {(run.report_url || run.artifacts?.report_url) ? (
+              <div style={{ display: "flex", gap: 8 }}>
+                <span style={{ color: "var(--text-3)", width: 100 }}>Report</span>
+                <a
+                  href={run.report_url || run.artifacts?.report_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ color: "var(--accent)", fontSize: 13 }}
+                >
+                  Download ↗
+                </a>
+              </div>
+            ) : null}
             {run.duration_ms && (
               <div style={{ display: "flex", gap: 8 }}>
                 <span style={{ color: "var(--text-3)", width: 100 }}>{t("planner.run.duration")}</span>
