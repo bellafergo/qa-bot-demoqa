@@ -71,13 +71,14 @@ function ConfirmModal({
   open,
   title,
   description,
-  confirmLabel = "Confirm",
-  cancelLabel = "Cancel",
   busy = false,
   error = "",
+  confirmLabel,
+  cancelLabel,
   onConfirm,
   onCancel,
 }) {
+  const { t } = useLang();
   if (!open) return null;
   return (
     <div
@@ -107,10 +108,10 @@ function ConfirmModal({
           )}
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>
             <button className="btn btn-secondary btn-sm" onClick={onCancel} disabled={busy}>
-              {cancelLabel}
+              {cancelLabel || t("common.cancel")}
             </button>
             <button className="btn btn-primary btn-sm" onClick={onConfirm} disabled={busy}>
-              {busy ? "Working…" : confirmLabel}
+              {busy ? t("common.working") : confirmLabel || t("common.confirm")}
             </button>
           </div>
         </div>
@@ -162,6 +163,8 @@ export default function EvidencePage() {
   const [error, setError]       = useState(null);
   const [search, setSearch]     = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [flakyFilter, setFlakyFilter] = useState("");
+  const [quarantineFilter, setQuarantineFilter] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -184,6 +187,11 @@ export default function EvidencePage() {
 
   const filtered = rows.filter(r => {
     if (statusFilter && r.status !== statusFilter) return false;
+
+    const meta = r.meta || {};
+    if (flakyFilter === "only" && !meta.flaky_signal) return false;
+    if (quarantineFilter === "only" && meta.quarantine_recommended !== true) return false;
+
     if (search) {
       const q = search.toLowerCase();
       const matchId   = (r.test_id   || "").toLowerCase().includes(q);
@@ -194,11 +202,13 @@ export default function EvidencePage() {
     return true;
   });
 
-  const hasActiveFilter = search || statusFilter;
+  const hasActiveFilter = search || statusFilter || flakyFilter || quarantineFilter;
 
   const clearFilters = () => {
     setSearch("");
     setStatusFilter("");
+    setFlakyFilter("");
+    setQuarantineFilter("");
   };
 
   // ── render ────────────────────────────────────────────────────────────────
@@ -239,6 +249,28 @@ export default function EvidencePage() {
             {statuses.map(s => (
               <option key={s} value={s}>{s}</option>
             ))}
+          </select>
+
+          {/* Flaky dropdown */}
+          <select
+            className="input"
+            value={flakyFilter}
+            onChange={e => setFlakyFilter(e.target.value)}
+            style={{ flex: "0 0 auto", minWidth: 140 }}
+          >
+            <option value="">{t("ev.filter.flaky_all")}</option>
+            <option value="only">{t("ev.filter.flaky_only")}</option>
+          </select>
+
+          {/* Quarantine dropdown */}
+          <select
+            className="input"
+            value={quarantineFilter}
+            onChange={e => setQuarantineFilter(e.target.value)}
+            style={{ flex: "0 0 auto", minWidth: 190 }}
+          >
+            <option value="">{t("ev.filter.quarantine_all")}</option>
+            <option value="only">{t("ev.filter.quarantine_only")}</option>
           </select>
 
           {/* Clear */}
@@ -283,10 +315,10 @@ export default function EvidencePage() {
         <div className="card" style={{ padding: "48px 32px", textAlign: "center" }}>
           <div style={{ fontSize: 32, marginBottom: 12 }}>⊟</div>
           <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)", marginBottom: 6 }}>
-            {rows.length === 0 ? t("ev.empty_state.title") : t("ev.empty")}
+            {rows.length === 0 ? t("ev.empty_state.title") : t("ev.filter.no_results")}
           </div>
           <div style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.7, marginBottom: 16, maxWidth: 340, margin: "0 auto 16px" }}>
-            {rows.length === 0 ? t("ev.empty_state.desc") : t("ev.empty")}
+            {rows.length === 0 ? t("ev.empty_state.desc") : t("ev.filter.no_results")}
           </div>
           {rows.length === 0 && (
             <button className="btn btn-primary btn-sm" onClick={() => navigate("/runs")}>
@@ -553,17 +585,20 @@ function EvidenceRow({ row, t, navigate }) {
                 {shouldShowActionPanel && (
                   <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border)" }}>
                     <div style={{ fontSize: 12, color: "var(--text-2)", marginBottom: 8, fontWeight: 800 }}>
-                      Suggested next steps <span style={{ fontWeight: 600, color: "var(--text-3)" }}>(Requires confirmation for operations)</span>
+                      {t("runs.action_panel.suggested_next_steps")}{" "}
+                      <span style={{ fontWeight: 600, color: "var(--text-3)" }}>
+                        {t("runs.action_panel.requires_confirmation_for_operations")}
+                      </span>
                     </div>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                       {evidenceUrl && (
                         <a className="btn btn-secondary btn-sm" href={evidenceUrl} target="_blank" rel="noreferrer">
-                          Open evidence
+                          {t("runs.action_panel.open_evidence")}
                         </a>
                       )}
                       {reportUrl && (
                         <a className="btn btn-primary btn-sm" href={reportUrl} target="_blank" rel="noreferrer">
-                          Open report
+                          {t("runs.action_panel.open_report")}
                         </a>
                       )}
                       {correlationId && (
@@ -576,9 +611,9 @@ function EvidenceRow({ row, t, navigate }) {
                               // no-op
                             }
                           }}
-                          title="Copy correlation ID"
+                          title={t("runs.action_panel.copy_correlation_id")}
                         >
-                          Copy correlation ID
+                          {t("runs.action_panel.copy_correlation_id")}
                         </button>
                       )}
 
@@ -590,24 +625,36 @@ function EvidenceRow({ row, t, navigate }) {
                           setConfirmRetryOpen(true);
                         }}
                       >
-                        Retry test case
+                        {t("runs.action_panel.retry_test_case")}
                       </button>
 
-                      <button className="btn btn-secondary btn-sm" disabled title="Quarantine recommendation is informational (no backend action wired here).">
-                        Recommend quarantine
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        disabled
+                        title={t("runs.action_panel.quarantine_recommend_disabled_title")}
+                      >
+                        {t("runs.action_panel.quarantine_recommend")}
                       </button>
 
-                      <button className="btn btn-secondary btn-sm" disabled title="Ticket creation not configured in backend for this UI build.">
-                        Create ticket
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        disabled
+                        title={t("runs.action_panel.create_ticket_disabled_title")}
+                      >
+                        {t("runs.action_panel.create_ticket")}
                       </button>
-                      <button className="btn btn-secondary btn-sm" disabled title="Assign owner not configured in backend for this UI build.">
-                        Assign owner
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        disabled
+                        title={t("runs.action_panel.assign_owner_disabled_title")}
+                      >
+                        {t("runs.action_panel.assign_owner")}
                       </button>
                     </div>
 
                     {lastEnqueuedJobId && (
                       <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-2)" }}>
-                        Retry job enqueued: <span style={{ fontFamily: "monospace" }}>{lastEnqueuedJobId}</span>
+                        {t("runs.action_panel.retry_job_enqueued_prefix")} <span style={{ fontFamily: "monospace" }}>{lastEnqueuedJobId}</span>
                       </div>
                     )}
                   </div>
@@ -622,17 +669,19 @@ function EvidenceRow({ row, t, navigate }) {
         open={confirmRetryOpen}
         busy={retryBusy}
         error={retryError}
-        title="Retry test case (requires confirmation)"
-        cancelLabel="Cancel"
-        confirmLabel="Confirm retry"
-        description={`This will enqueue a new retry job for test case "${testCaseId}". This action requires explicit approval.`}
+        title={t("runs.action_panel.retry_confirmation_title")}
+        cancelLabel={t("common.cancel")}
+        confirmLabel={t("runs.action_panel.retry_confirmation_confirm")}
+        description={`${t("runs.action_panel.retry_confirmation_desc_prefix")} ${
+          testCaseId ? `"${testCaseId}"` : t("common.unknown")
+        }${t("runs.action_panel.retry_confirmation_desc_suffix")}`}
         onCancel={() => {
           setConfirmRetryOpen(false);
           setRetryError("");
         }}
         onConfirm={async () => {
           if (!testCaseId) {
-            setRetryError("Missing test_case_id/test_id, cannot enqueue a retry.");
+            setRetryError(t("runs.action_panel.retry_error_missing_id"));
             return;
           }
           setRetryBusy(true);
@@ -642,7 +691,7 @@ function EvidenceRow({ row, t, navigate }) {
             setLastEnqueuedJobId(job?.job_id || job?.id || null);
             setConfirmRetryOpen(false);
           } catch (e) {
-            setRetryError(e?.message || "Failed to enqueue retry job.");
+            setRetryError(e?.message || t("runs.action_panel.retry_error_enqueue_failed"));
           } finally {
             setRetryBusy(false);
           }

@@ -184,13 +184,14 @@ function ConfirmModal({
   open,
   title,
   description,
-  confirmLabel = "Confirm",
-  cancelLabel = "Cancel",
   busy = false,
   error = "",
+  confirmLabel,
+  cancelLabel,
   onConfirm,
   onCancel,
 }) {
+  const { t } = useLang();
   if (!open) return null;
   return (
     <div
@@ -224,10 +225,10 @@ function ConfirmModal({
               onClick={onCancel}
               disabled={busy}
             >
-              {cancelLabel}
+              {cancelLabel || t("common.cancel")}
             </button>
             <button className="btn btn-primary btn-sm" onClick={onConfirm} disabled={busy}>
-              {busy ? "Working…" : confirmLabel}
+              {busy ? t("common.working") : confirmLabel || t("common.confirm")}
             </button>
           </div>
         </div>
@@ -805,6 +806,12 @@ function RunHistoryTab({ initialRunId }) {
   const [clusters, setClusters]           = useState([]);
   const [clustersLoading, setClustersLoading] = useState(true);
 
+  // Operational filters (frontend-only; no backend changes)
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [flakyFilter, setFlakyFilter] = useState("all");
+  const [quarantineFilter, setQuarantineFilter] = useState("all");
+  const [retryFilter, setRetryFilter] = useState("all");
+
   // Human confirmation for operational actions
   const [confirmRetryOpen, setConfirmRetryOpen] = useState(false);
   const [retryBusy, setRetryBusy] = useState(false);
@@ -897,6 +904,25 @@ function RunHistoryTab({ initialRunId }) {
     }
   }
 
+  // Apply operational filters in the UI (frontend-only, no backend changes)
+  const filteredRuns = runs.filter(r => {
+    if (statusFilter !== "all" && r.status !== statusFilter) return false;
+
+    const meta = r.meta || {};
+    const flakyPresent = Boolean(meta.flaky_signal);
+    const quarantineRecommended = meta.quarantine_recommended === true;
+    const retryPolicyApplied = meta.retry_policy_applied === true;
+
+    if (flakyFilter !== "all" && !flakyPresent) return false;
+    if (quarantineFilter !== "all" && !quarantineRecommended) return false;
+    if (retryFilter !== "all" && !retryPolicyApplied) return false;
+
+    return true;
+  });
+
+  const filtersActive =
+    statusFilter !== "all" || flakyFilter !== "all" || quarantineFilter !== "all" || retryFilter !== "all";
+
   return (
     <div>
       <FailureClustersPanel clusters={clusters} loading={clustersLoading} />
@@ -909,12 +935,60 @@ function RunHistoryTab({ initialRunId }) {
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
           <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div className="section-title" style={{ margin: 0 }}>
-              {loading ? t("runs.history.loading") : `${runs.length} run${runs.length !== 1 ? "s" : ""}`}
+              {loading
+                ? t("runs.history.loading")
+                : `${filteredRuns.length} run${filteredRuns.length !== 1 ? "s" : ""}`}
             </div>
             <button className="btn btn-secondary btn-sm" onClick={load} disabled={loading}>{t("runs.history.refresh")}</button>
           </div>
 
-          {runs.length === 0 && !loading ? (
+          {/* Filters (compact, frontend-only) */}
+          <div style={{ padding: "12px 20px", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+            <select
+              className="input"
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value)}
+              style={{ minWidth: 160 }}
+            >
+              <option value="all">{t("runs.filter.status_all")}</option>
+              <option value="passed">{t("runs.filter.status_passed")}</option>
+              <option value="failed">{t("runs.filter.status_failed")}</option>
+              <option value="error">{t("runs.filter.status_error")}</option>
+              <option value="running">{t("runs.filter.status_running")}</option>
+            </select>
+
+            <select
+              className="input"
+              value={flakyFilter}
+              onChange={e => setFlakyFilter(e.target.value)}
+              style={{ minWidth: 140 }}
+            >
+              <option value="all">{t("runs.filter.flaky_all")}</option>
+              <option value="only">{t("runs.filter.flaky_only")}</option>
+            </select>
+
+            <select
+              className="input"
+              value={quarantineFilter}
+              onChange={e => setQuarantineFilter(e.target.value)}
+              style={{ minWidth: 160 }}
+            >
+              <option value="all">{t("runs.filter.quarantine_all")}</option>
+              <option value="only">{t("runs.filter.quarantine_only")}</option>
+            </select>
+
+            <select
+              className="input"
+              value={retryFilter}
+              onChange={e => setRetryFilter(e.target.value)}
+              style={{ minWidth: 150 }}
+            >
+              <option value="all">{t("runs.filter.retry_all")}</option>
+              <option value="only">{t("runs.filter.retry_only")}</option>
+            </select>
+          </div>
+
+          {!loading && runs.length === 0 ? (
             <div style={{ padding: "32px 24px", textAlign: "center" }}>
               <div style={{ fontSize: 28, marginBottom: 10 }}>◈</div>
               <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)", marginBottom: 6 }}>{t("runs.empty.title")}</div>
@@ -923,6 +997,17 @@ function RunHistoryTab({ initialRunId }) {
                 <button className="btn btn-primary btn-sm" onClick={() => navigate("/catalog")}>{t("runs.empty.cta_catalog")}</button>
                 <button className="btn btn-secondary btn-sm" onClick={() => navigate("/generate")}>{t("runs.empty.cta_generate")}</button>
               </div>
+            </div>
+          ) : !loading && filteredRuns.length === 0 ? (
+            <div style={{ padding: "32px 24px", textAlign: "center" }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)", marginBottom: 6 }}>
+                {filtersActive ? t("runs.filter.no_results") : t("runs.history.none")}
+              </div>
+              {filtersActive && (
+                <div style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.7, margin: "0 auto 16px", maxWidth: 320 }}>
+                  {t("runs.filter.adjust_desc")}
+                </div>
+              )}
             </div>
           ) : (
             <table className="data-table">
@@ -934,7 +1019,7 @@ function RunHistoryTab({ initialRunId }) {
                 <th>{t("runs.history.col.created")}</th>
               </tr></thead>
               <tbody>
-                {runs.map((r, i) => (
+                {filteredRuns.map((r, i) => (
                   <tr
                     key={r.run_id || i}
                     ref={r.run_id === selected ? selectedRowRef : null}
@@ -1113,18 +1198,20 @@ function RunHistoryTab({ initialRunId }) {
                   return (
                     <div style={{ marginTop: 14 }}>
                       <div className="section-title" style={{ marginBottom: 10 }}>
-                        Recommended actions{" "}
-                        <span style={{ color: "var(--text-3)", fontWeight: 500, fontSize: 12 }}>(Requires confirmation for operations)</span>
+                        {t("runs.action_panel.recommended_actions")}{" "}
+                        <span style={{ color: "var(--text-3)", fontWeight: 500, fontSize: 12 }}>
+                          {t("runs.action_panel.requires_confirmation")}
+                        </span>
                       </div>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         {evidenceUrl && (
                           <a className="btn btn-secondary btn-sm" href={evidenceUrl} target="_blank" rel="noreferrer">
-                            Open evidence
+                            {t("runs.action_panel.open_evidence")}
                           </a>
                         )}
                         {reportUrl && (
                           <a className="btn btn-secondary btn-sm" href={reportUrl} target="_blank" rel="noreferrer">
-                            Open report
+                            {t("runs.action_panel.open_report")}
                           </a>
                         )}
                         {correlationId && (
@@ -1137,9 +1224,9 @@ function RunHistoryTab({ initialRunId }) {
                                 // No-op: clipboard may be unavailable; avoids side effects.
                               }
                             }}
-                            title="Copy correlation ID"
+                            title={t("runs.action_panel.copy_correlation_id")}
                           >
-                            Copy correlation ID
+                            {t("runs.action_panel.copy_correlation_id")}
                           </button>
                         )}
 
@@ -1152,7 +1239,7 @@ function RunHistoryTab({ initialRunId }) {
                             }}
                             disabled={retryBusy}
                           >
-                            Retry test case
+                            {t("runs.action_panel.retry_test_case")}
                           </button>
                         )}
 
@@ -1160,31 +1247,31 @@ function RunHistoryTab({ initialRunId }) {
                           <button
                             className="btn btn-secondary btn-sm"
                             disabled
-                            title="Quarantine recommendation is informational in this UI (no backend action configured here)."
+                            title={t("runs.action_panel.quarantine_recommend_disabled_title")}
                           >
-                            Recommend quarantine
+                            {t("runs.action_panel.quarantine_recommend")}
                           </button>
                         )}
 
                         <button
                           className="btn btn-secondary btn-sm"
                           disabled
-                          title="Ticket creation is not wired in this UI build."
+                          title={t("runs.action_panel.create_ticket_disabled_title")}
                         >
-                          Create ticket
+                          {t("runs.action_panel.create_ticket")}
                         </button>
                         <button
                           className="btn btn-secondary btn-sm"
                           disabled
-                          title="Assign owner is not wired in this UI build."
+                          title={t("runs.action_panel.assign_owner_disabled_title")}
                         >
-                          Assign owner
+                          {t("runs.action_panel.assign_owner")}
                         </button>
                       </div>
 
                       {lastEnqueuedJobId && (
                         <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-2)" }}>
-                          Retry job enqueued: <span style={{ fontFamily: "monospace" }}>{lastEnqueuedJobId}</span>
+                          {t("runs.action_panel.retry_job_enqueued_prefix")} <span style={{ fontFamily: "monospace" }}>{lastEnqueuedJobId}</span>
                         </div>
                       )}
                     </div>
@@ -1298,12 +1385,14 @@ function RunHistoryTab({ initialRunId }) {
         open={confirmRetryOpen}
         busy={retryBusy}
         error={retryError}
-        title="Retry test case (requires confirmation)"
-        cancelLabel="Cancel"
-        confirmLabel="Confirm retry"
-        description={`This will enqueue a new retry job for test case ${
-          detail && (detail.test_id || detail.test_case_id) ? `"${detail.test_id || detail.test_case_id}"` : "(unknown)"
-        }. This action requires explicit approval.`}
+        title={t("runs.action_panel.retry_confirmation_title")}
+        cancelLabel={t("common.cancel")}
+        confirmLabel={t("runs.action_panel.retry_confirmation_confirm")}
+        description={`${t("runs.action_panel.retry_confirmation_desc_prefix")} ${
+          detail && (detail.test_id || detail.test_case_id)
+            ? `"${detail.test_id || detail.test_case_id}"`
+            : t("common.unknown")
+        }${t("runs.action_panel.retry_confirmation_desc_suffix")}`}
         onCancel={() => {
           setConfirmRetryOpen(false);
           setRetryError("");
@@ -1313,7 +1402,7 @@ function RunHistoryTab({ initialRunId }) {
           const meta = detail.meta || {};
           const testCaseId = detail.test_id || detail.test_case_id;
           if (!testCaseId) {
-            setRetryError("Missing test_case_id/test_id, cannot enqueue a retry.");
+            setRetryError(t("runs.action_panel.retry_error_missing_id"));
             return;
           }
           setRetryBusy(true);
@@ -1324,7 +1413,7 @@ function RunHistoryTab({ initialRunId }) {
             setLastEnqueuedJobId(job?.job_id || job?.id || null);
             setConfirmRetryOpen(false);
           } catch (e) {
-            setRetryError(e?.message || "Failed to enqueue retry job.");
+            setRetryError(e?.message || t("runs.action_panel.retry_error_enqueue_failed"));
           } finally {
             setRetryBusy(false);
           }
