@@ -13,6 +13,8 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from core.step_validator import validate_steps
+
 logger = logging.getLogger("vanya.planner")
 
 router = APIRouter(tags=["planner"])
@@ -124,6 +126,18 @@ def execute_text_endpoint(req: ExecuteTextRequest) -> Dict[str, Any]:
 
     # Expand abstract steps (e.g. login → fill/click) before handing to runner
     steps = _expand_abstract_steps(steps)
+
+    validation = validate_steps(steps)
+    if not validation.valid:
+        err_msgs = [f"Step {e.step_index}: {e.message}" for e in validation.errors]
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "reason": "Invalid steps",
+                "errors": [e.model_dump() for e in validation.errors],
+                "summary": "; ".join(err_msgs[:5]),
+            },
+        )
 
     # 2 — execute
     try:

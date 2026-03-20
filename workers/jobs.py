@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 import random
-import re
 import time
 import traceback
 from typing import Any, Dict, Optional
@@ -19,17 +18,7 @@ logger = logging.getLogger("vanya.worker")
 # Secret redaction — applied to all error messages before
 # they are stored in DB or emitted to logs.
 # ============================================================
-_SECRET_PATTERN = re.compile(
-    r"(password|passwd|token|api[_-]?key|secret|credential)"
-    r"([\"'\s:=]+)"
-    r"([\"']?)([^\s\"'&,\]}\)]{1,200})",
-    re.IGNORECASE,
-)
-
-
-def _redact(text: str) -> str:
-    """Replace secret values with ***REDACTED*** before logging or persisting."""
-    return _SECRET_PATTERN.sub(r"\1\2\3***REDACTED***", text)
+from core.redaction import redact_secrets as _redact
 
 
 # ============================================================

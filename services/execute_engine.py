@@ -22,6 +22,8 @@ from services import store
 from runner import execute_test
 
 from core.login_intent_resolver import build_login_steps
+from core.redaction import redact_secrets, redact_steps
+from core.step_validator import validate_steps
 from core.step_normalizer import normalize_steps_to_target as _normalize_steps_to_target
 from core.semantic_step_builder import build_semantic_target
 from core.semantic_intent_extractor import (
@@ -287,7 +289,11 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
             steps.append({"action": "wait_ms", "ms": 450})
 
             if negative:
-                steps.insert(0, {"expected": "fail"})
+                # Apply expected="fail" on first valid step (never insert step without action)
+                for s in steps:
+                    if s.get("action"):
+                        s["expected"] = "fail"
+                        break
                 steps.append({"action": "assert_visible", "selector": "[data-test='error']"})
             else:
                 steps.append({"action": "assert_not_visible", "selector": "[data-test='error']"})
@@ -733,6 +739,29 @@ def handle_execute_mode(
     steps = _ensure_has_assert(steps, base_url)
     steps = _normalize_steps_to_target(steps)
 
+    validation = validate_steps(steps)
+    if not validation.valid:
+        err_msgs = [f"Step {e.step_index}: {e.message}" for e in validation.errors]
+        answer = (
+            "I couldn't execute: some steps are invalid.\n"
+            + "\n".join(f"· {m}" for m in err_msgs[:5])
+        )
+        if len(validation.errors) > 5:
+            answer += f"\n... and {len(validation.errors) - 5} more."
+        store.add_message(
+            thread_id, "assistant", answer,
+            meta={"mode": "execute", "persona": persona, "base_url": base_url, "validation_errors": [e.model_dump() for e in validation.errors]},
+        )
+        return {
+            "mode": "execute",
+            "persona": persona,
+            "session_id": session_id,
+            "thread_id": thread_id,
+            "answer": answer,
+            "validation_errors": [e.model_dump() for e in validation.errors],
+            **_confidence("execute", prompt, base_url),
+        }
+
     # Log the final step list so any drop is visible in the run report
     logger.info(
         "[ENGINE] executing %d steps: %s",
@@ -769,9 +798,9 @@ def handle_execute_mode(
             meta={
                 "mode": "execute",
                 "persona": persona,
-                "error": f"{type(e).__name__}: {e}",
+                "error": redact_secrets(f"{type(e).__name__}: {e}"),
                 "base_url": base_url,
-                "steps": steps,
+                "steps": redact_steps(steps),
             },
         )
         return {
@@ -845,10 +874,10 @@ def handle_execute_mode(
 
     try:
         rep = generate_pdf_report(
-            prompt=prompt,
+            prompt=redact_secrets(prompt),
             base_url=base_url,
             runner={**runner, "screenshot_data_url": screenshot_data_url} if screenshot_data_url else runner,
-            steps=steps,
+            steps=redact_steps(steps),
             evidence_id=evidence_id,
             meta={
                 "thread_id": thread_id,
@@ -869,13 +898,13 @@ def handle_execute_mode(
     if not pdf_bytes:
         try:
             pdf_bytes = _build_fallback_pdf_bytes(
-                prompt=prompt,
+                prompt=redact_secrets(prompt),
                 base_url=base_url,
                 status=status,
                 duration_ms=duration_ms,
                 evidence_id=(evidence_id or "EV-unknown"),
                 evidence_url=evidence_url,
-                steps=steps,
+                steps=redact_steps(steps),
                 runner=runner,
             )
         except Exception as e:
@@ -911,8 +940,8 @@ def handle_execute_mode(
                 **(runner if isinstance(runner, dict) else {}),
                 "evidence_id": evidence_id,
                 "base_url": base_url,
-                "prompt": prompt,
-                "steps": steps,
+                "prompt": redact_secrets(prompt),
+                "steps": redact_steps(steps),
                 "evidence_url": evidence_url,
                 "report_url": report_url,
                 "pdf_error": pdf_error,
@@ -947,7 +976,7 @@ def handle_execute_mode(
         "mode": "execute",
         "persona": persona,
         "base_url": base_url,
-        "steps": steps,
+        "steps": redact_steps(steps),
         "runner": {
             "status": status,
             "evidence_url": evidence_url,

@@ -12,7 +12,8 @@ def _b64_png(img_bytes: bytes) -> str:
 
 def take_screenshot_robust(page) -> Tuple[Optional[str], List[str]]:
     """
-    Screenshot optimizado en JPG con timeouts/reintentos propios.
+    Screenshot en PNG con timeouts/reintentos propios.
+    Formato PNG alineado con data URL y PDF (evita inconsistencia JPEG/PNG).
     No depende del timeout global del contexto.
     """
     logs: List[str] = []
@@ -35,18 +36,17 @@ def take_screenshot_robust(page) -> Tuple[Optional[str], List[str]]:
     last_err: Optional[Exception] = None
     for attempt in range(RETRIES + 1):
         try:
-            jpg = page.screenshot(
-                type="jpeg",
-                quality=60,
+            png_bytes = page.screenshot(
+                type="png",
                 full_page=False,
                 timeout=SHOT_TIMEOUT_MS,
             )
-            b64 = _b64_png(jpg)
-            logs.append(f"Screenshot JPG OK [attempt {attempt + 1}]")
+            b64 = _b64_png(png_bytes)
+            logs.append(f"Screenshot PNG OK [attempt {attempt + 1}]")
             return b64, logs
         except Exception as e:
             last_err = e
-            logs.append(f"Screenshot JPG failed [attempt {attempt + 1}]: {type(e).__name__}: {e}")
+            logs.append(f"Screenshot PNG failed [attempt {attempt + 1}]: {type(e).__name__}: {e}")
             try:
                 page.wait_for_timeout(500)
             except Exception:

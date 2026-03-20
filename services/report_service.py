@@ -6,6 +6,8 @@ import base64
 import datetime as dt
 from typing import Any, Dict, List, Optional
 
+from core.redaction import redact_secrets, redact_steps
+
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from reportlab.lib import colors
@@ -89,10 +91,11 @@ def generate_pdf_report(
     else:
         rows_src = []
 
-    # Normaliza: solo dicts
-    rows_src = [s for s in rows_src if isinstance(s, dict)]
+    # Normaliza: solo dicts; redact secrets antes de incluir en PDF
+    rows_src = redact_steps([s for s in rows_src if isinstance(s, dict)])
 
-    error_msg = runner.get("error")
+    _raw_error = runner.get("error")
+    error_msg = redact_secrets(str(_raw_error)) if _raw_error else None
     duration_ms = runner.get("duration_ms")
 
     filename = f"{evidence_id}.pdf"
@@ -126,7 +129,7 @@ def generate_pdf_report(
     # Prompt
     # =========================
     story.append(Paragraph("Solicitud", styles["Heading2"]))
-    story.append(Paragraph(str(prompt), styles["Normal"]))
+    story.append(Paragraph(redact_secrets(str(prompt)), styles["Normal"]))
     story.append(Spacer(1, 0.2 * inch))
 
     # =========================
@@ -144,6 +147,7 @@ def generate_pdf_report(
             st = str(s.get("status") or "").strip()
             dur = s.get("duration_ms")
             err = s.get("error")
+            err_safe = redact_secrets(str(err)) if err else ""
 
             table_data.append(
                 [
@@ -151,7 +155,7 @@ def generate_pdf_report(
                     action,
                     st,
                     str(dur) if dur is not None else "",
-                    str(err) if err else "",
+                    err_safe,
                 ]
             )
 
