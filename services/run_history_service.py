@@ -82,7 +82,21 @@ class RunHistoryService:
         """
         limit = max(1, min(int(limit), 500))
         runs = test_run_repo.list_runs(test_case_id=test_case_id, limit=limit)
-        return [run_from_catalog_testrun(r) for r in runs]
+        mapped = [run_from_catalog_testrun(r) for r in runs]
+        # Strip screenshot_b64 from list payloads — large base64 blobs are only
+        # needed for individual evidence views, not for history listings.
+        result = []
+        for r in mapped:
+            if r.artifacts is None:
+                result.append(r)
+                continue
+            try:
+                lean_artifacts = r.artifacts.model_copy(update={"screenshot_b64": None})
+                result.append(r.model_copy(update={"artifacts": lean_artifacts}))
+            except Exception:
+                # Old/incomplete run — return as-is rather than fail the listing
+                result.append(r)
+        return result
 
     def get_run(self, run_id: str) -> Optional[CanonicalRun]:
         """

@@ -139,7 +139,9 @@ def upload_pdf_bytes(
     if not pdf_bytes or len(pdf_bytes) < 800:
         raise ValueError("PDF vacío o inválido")
 
-    public_id = f"{folder}/{evidence_id}".replace("//", "/")
+    # Include .pdf extension so Cloudinary serves the file with the correct
+    # filename and Content-Type when downloaded (avoids extensionless files on macOS).
+    public_id = f"{folder}/{evidence_id}.pdf".replace("//", "/")
 
     b64 = base64.b64encode(pdf_bytes).decode("utf-8")
     data_url = f"data:application/pdf;base64,{b64}"

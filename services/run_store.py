@@ -45,6 +45,59 @@ def _now() -> float:
     return time.time()
 
 
+_HEAVY_TOP_KEYS = frozenset({"screenshot_b64", "page_context"})
+_HEAVY_STEP_KEYS = frozenset({"screenshot_b64"})
+_HEAVY_META_KEYS = frozenset({"screenshot_b64"})
+_HEAVY_EVIDENCE_KEYS = frozenset({"screenshots", "dom_snapshots", "network_events"})
+
+
+def _strip_b64(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Return a shallow copy of run data with heavy blobs removed.
+    Applied to all list() responses — full data remains in get_run().
+
+    Stripped fields (list responses only):
+      - screenshot_b64          top-level final screenshot
+      - page_context            DOM-context dict captured at failure
+      - steps[].screenshot_b64  per-step screenshots
+      - meta.screenshot_b64     screenshot moved there by run_bridge
+      - evidence.screenshots    Playwright step-screenshot timeline (b64 array)
+      - evidence.dom_snapshots  full DOM HTML snapshots (up to 512 KB each)
+      - evidence.network_events Playwright network recording
+
+    Kept in list responses (small / used by background services):
+      - logs          string array — used by failure_clustering
+      - resolution_log / healing_log — small dicts, used by RunsPage healed-selectors badge
+      - failure_context — small classification dict
+      - evidence.metadata / trace_path / video_path — lightweight references
+    """
+    out = dict(data)
+
+    # top-level heavy keys
+    for k in _HEAVY_TOP_KEYS:
+        out.pop(k, None)
+
+    # steps: strip screenshot_b64 from each step dict
+    if isinstance(out.get("steps"), list):
+        out["steps"] = [
+            {k: v for k, v in s.items() if k not in _HEAVY_STEP_KEYS} if isinstance(s, dict) else s
+            for s in out["steps"]
+        ]
+
+    # meta: strip screenshot_b64
+    if isinstance(out.get("meta"), dict):
+        out["meta"] = {k: v for k, v in out["meta"].items() if k not in _HEAVY_META_KEYS}
+
+    # evidence: keep the dict but gut the heavy arrays
+    if isinstance(out.get("evidence"), dict):
+        ev = dict(out["evidence"])
+        for k in _HEAVY_EVIDENCE_KEYS:
+            ev.pop(k, None)
+        out["evidence"] = ev
+
+    return out
+
+
 def _safe_str(x: Any) -> str:
     try:
         return (str(x) if x is not None else "").strip()
@@ -256,7 +309,7 @@ def list_runs(limit: int = 50) -> List[Dict[str, Any]]:
             data = it.get("data") if isinstance(it.get("data"), dict) else {}
             items.append((evid, ts, data))
         items.sort(key=lambda x: x[1], reverse=True)
-        return [x[2] for x in items[:limit]]
+        return [_strip_b64(x[2]) for x in items[:limit]]
 
 
 def list_runs_for_pr(owner: str, repo: str, pr_number: int, sha: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
@@ -288,7 +341,7 @@ def list_runs_for_pr(owner: str, repo: str, pr_number: int, sha: Optional[str] =
             data = it.get("data") if isinstance(it.get("data"), dict) else {}
             scored.append((ts, data))
         scored.sort(key=lambda x: x[0], reverse=True)
-        return [d for _, d in scored[:limit]]
+        return [_strip_b64(d) for _, d in scored[:limit]]
 
 
 def list_runs_for_tag(tag: str, limit: int = 50) -> List[Dict[str, Any]]:
@@ -312,4 +365,4 @@ def list_runs_for_tag(tag: str, limit: int = 50) -> List[Dict[str, Any]]:
             data = it.get("data") if isinstance(it.get("data"), dict) else {}
             scored.append((ts, data))
         scored.sort(key=lambda x: x[0], reverse=True)
-        return [d for _, d in scored[:limit]]
+        return [_strip_b64(d) for _, d in scored[:limit]]
