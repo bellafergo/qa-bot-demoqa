@@ -293,6 +293,54 @@ function FailureDistributionChart({ fi, loading, t }) {
   );
 }
 
+// ── Visual widget: Failure Intelligence mini panel ──────────────────────────
+function FailureIntelMiniPanel({ fi, t }) {
+  const top = fi?.top_failure_categories;
+  const notes = typeof fi?.notes === "string" ? fi.notes.trim() : "";
+
+  const topEntries = top && typeof top === "object"
+    ? Object.entries(top)
+        .filter(([_, v]) => v != null)
+        .sort((a, b) => Number(b[1]) - Number(a[1]))
+        .slice(0, 5)
+    : [];
+
+  const hasAny = topEntries.length > 0 || !!notes;
+  if (!hasAny) return null;
+
+  return (
+    <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+      {topEntries.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: notes ? 10 : 0 }}>
+          <div style={{
+            fontSize: 11,
+            fontWeight: 800,
+            textTransform: "uppercase",
+            letterSpacing: "0.08em",
+            color: "var(--text-3)",
+            marginBottom: 4,
+          }}>
+            {t("dash.analytics.top_failures")}
+          </div>
+          {topEntries.map(([cat, count]) => (
+            <div key={cat} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12, color: "var(--text-2)" }}>
+              <span style={{ fontWeight: 700 }}>{cat}</span>
+              <span style={{ color: "var(--text-3)", whiteSpace: "nowrap", fontFamily: "monospace" }}>{count}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!!notes && (
+        <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.6 }}>
+          <div style={{ fontWeight: 800, color: "var(--text-3)", marginBottom: 6 }}>{t("fi.col.notes")}</div>
+          <div style={{ whiteSpace: "pre-wrap" }}>{notes}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Visual widget: Risk Summary ───────────────────────────────────────────────
 
 function RiskSummaryCard({ summary, fi, loading, t }) {
@@ -581,6 +629,7 @@ export default function DashboardPage() {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 24 }}>
           <WidgetCard title={t("dash.failures.title")} subtitle={t("dash.failures.subtitle")}>
             <FailureDistributionChart fi={fi} loading={loading} t={t} />
+            <FailureIntelMiniPanel fi={fi} t={t} />
           </WidgetCard>
           <WidgetCard title={t("dash.risk.title")} subtitle={t("dash.risk.subtitle")}>
             <RiskSummaryCard summary={summary} fi={fi} loading={loading} t={t} />

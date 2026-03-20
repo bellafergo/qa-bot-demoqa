@@ -1,5 +1,5 @@
 // src/pages/SettingsPage.jsx
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useLang } from "../i18n/LangContext";
 
 function InfoRow({ label, value, mono = false, badge }) {
@@ -19,6 +19,63 @@ export default function SettingsPage() {
   const { t } = useLang();
   const apiBase = import.meta?.env?.VITE_API_BASE || "https://qa-bot-demoqa.onrender.com";
   const mode = import.meta?.env?.MODE || "production";
+
+  const [meta, setMeta] = useState(null);
+  const [metaLoading, setMetaLoading] = useState(false);
+  const [metaError, setMetaError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadMeta() {
+      setMetaLoading(true);
+      setMetaError("");
+      try {
+        const res = await fetch(`${apiBase.replace(/\/$/, "")}/meta`);
+        const txt = await res.text();
+        if (!res.ok) {
+          throw new Error(txt || `HTTP ${res.status}`);
+        }
+        let data;
+        try {
+          data = txt ? JSON.parse(txt) : null;
+        } catch {
+          data = null;
+        }
+        if (!cancelled) setMeta(data || {});
+      } catch (e) {
+        if (!cancelled) setMetaError(e?.message || "Failed to load platform diagnostics.");
+      } finally {
+        if (!cancelled) setMetaLoading(false);
+      }
+    }
+    loadMeta();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase]);
+
+  function StatusBadge({ variant, text }) {
+    return (
+      <span className={`badge badge-${variant}`} style={{ fontSize: 11 }}>
+        ● {text}
+      </span>
+    );
+  }
+
+  const m = meta || {};
+  const hasOpenAI = m.has_openai_key === true;
+  const hasDB = m.has_db === true;
+  const hasCloudinary = m.has_cloudinary === true;
+
+  const supabaseConfigured = m.supabase_configured === true;
+  const supabaseOk = m.supabase_ok === true;
+  const supabaseStrict = m.supabase_strict;
+
+  const supabaseBadge = !supabaseConfigured
+    ? { variant: "gray", text: "Disabled" }
+    : supabaseOk
+      ? { variant: "green", text: "OK" }
+      : { variant: "orange", text: "Configured" };
 
   return (
     <div className="page-wrap" style={{ maxWidth: 640 }}>
@@ -58,6 +115,88 @@ export default function SettingsPage() {
           <InfoRow label={t("settings.env.mode_label")}    value={mode === "production" ? t("settings.env.mode_value") : mode} />
           <InfoRow label={t("settings.env.version_label")} value={t("settings.env.version_value")} />
         </div>
+      </div>
+
+      {/* ── Platform health / diagnostics card ───────────────── */}
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div className="section-title">Platform Health</div>
+
+        {metaLoading ? (
+          <div style={{ fontSize: 12, color: "var(--text-3)", padding: "6px 0 10px" }}>Loading diagnostics…</div>
+        ) : metaError ? (
+          <div className="alert alert-error" style={{ marginTop: 12, marginBottom: 0, fontSize: 12 }}>
+            {metaError}
+          </div>
+        ) : (
+          <div>
+            <InfoRow
+              label="OpenAI"
+              badge={
+                <StatusBadge
+                  variant={hasOpenAI ? "green" : "red"}
+                  text={hasOpenAI ? "OK" : "Missing"}
+                />
+              }
+            />
+
+            <InfoRow
+              label="Session TTL"
+              value={m.session_ttl_s != null ? `${m.session_ttl_s}s` : "—"}
+              mono
+            />
+
+            <InfoRow
+              label="Database"
+              badge={<StatusBadge variant={hasDB ? "green" : "gray"} text={hasDB ? "Enabled" : "Disabled"} />}
+            />
+
+            <InfoRow
+              label="Cloudinary"
+              badge={<StatusBadge variant={hasCloudinary ? "green" : "gray"} text={hasCloudinary ? "Enabled" : "Disabled"} />}
+            />
+
+            <InfoRow
+              label="Supabase"
+              badge={<StatusBadge variant={supabaseBadge.variant} text={supabaseBadge.text} />}
+            />
+
+            <InfoRow
+              label="Supabase Strict"
+              badge={
+                supabaseStrict == null
+                  ? <StatusBadge variant="gray" text="Unknown" />
+                  : <StatusBadge variant={supabaseStrict ? "orange" : "gray"} text={supabaseStrict ? "Strict" : "Relaxed"} />
+              }
+            />
+
+            <InfoRow
+              label="Model"
+              value={m.model || "—"}
+            />
+
+            <InfoRow
+              label="Git Commit"
+              value={m.render_git_commit || "—"}
+              mono
+            />
+
+            {typeof m.sessions_in_memory === "number" && (
+              <InfoRow
+                label="Sessions (memory)"
+                value={m.sessions_in_memory}
+                mono
+              />
+            )}
+
+            {typeof m.doc_cache_items === "number" && (
+              <InfoRow
+                label="Doc cache"
+                value={m.doc_cache_items}
+                mono
+              />
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Roadmap card ─────────────────────────────────── */}
