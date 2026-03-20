@@ -63,7 +63,7 @@ export default function PlannerPage({ embedded = false }) {
   const planOk = plan?.ok;
 
   return (
-    <div className="page-wrap" style={{ maxWidth: 900 }}>
+    <div className="page-wrap" style={embedded ? {} : { maxWidth: 900 }}>
       {/* ── Page header ────────────────────────────────── */}
       {!embedded && (
         <div className="page-header">
