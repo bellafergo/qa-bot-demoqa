@@ -43,6 +43,7 @@ from api.routes.drafts_routes import router as drafts_router
 from api.routes.github_routes import router as github_router
 from api.routes.analytics_routes import router as analytics_router
 from api.routes.planner_routes import router as planner_router
+from api.routes.evidence_routes import router as evidence_router
 
 logger = logging.getLogger("vanya")
 
@@ -353,3 +354,4 @@ app.include_router(drafts_router)                # POST /drafts/generate, POST /
 app.include_router(github_router)               # POST /github/pr/fetch
 app.include_router(analytics_router)           # GET /analytics/runs/dashboard
 app.include_router(planner_router)             # POST /plan_from_text, POST /execute_text
+app.include_router(evidence_router)           # GET /evidences

@@ -151,6 +151,15 @@ export function listTestRuns(params = {}) {
 }
 export const getTestRun = (run_id) => apiGet(`/test-runs/${run_id}`);
 
+// ========= Evidence Library =========
+export function listEvidences(params = {}) {
+  const q = new URLSearchParams();
+  if (params.test_case_id) q.set("test_case_id", params.test_case_id);
+  if (params.limit)        q.set("limit",        params.limit);
+  const qs = q.toString();
+  return apiGet(`/evidences${qs ? "?" + qs : ""}`);
+}
+
 // ========= Orchestrator / Execution =========
 export const listJobs        = (limit = 100) => apiGet(`/orchestrator/jobs?limit=${limit}`);
 export const getJob          = (id)          => apiGet(`/orchestrator/jobs/${id}`);
