@@ -227,7 +227,7 @@ export default function EvidencePage() {
 
       {/* Filters */}
       <div className="card" style={{ marginBottom: 20, padding: "14px 20px" }}>
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
           {/* Search */}
           <input
             className="input"
@@ -239,39 +239,51 @@ export default function EvidencePage() {
           />
 
           {/* Status dropdown */}
-          <select
-            className="input"
-            value={statusFilter}
-            onChange={e => setStatusFilter(e.target.value)}
-            style={{ flex: "0 0 auto", minWidth: 160 }}
-          >
-            <option value="">{t("ev.filter.all")}</option>
-            {statuses.map(s => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", whiteSpace: "nowrap" }}>{t("ev.filter.status")}:</span>
+            <select
+              className="input"
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value)}
+              style={{ minWidth: 130 }}
+              aria-label={t("ev.filter.status")}
+            >
+              <option value="">{t("ev.filter.all")}</option>
+              {statuses.map(s => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
 
           {/* Flaky dropdown */}
-          <select
-            className="input"
-            value={flakyFilter}
-            onChange={e => setFlakyFilter(e.target.value)}
-            style={{ flex: "0 0 auto", minWidth: 140 }}
-          >
-            <option value="">{t("ev.filter.flaky_all")}</option>
-            <option value="only">{t("ev.filter.flaky_only")}</option>
-          </select>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", whiteSpace: "nowrap" }}>{t("ev.filter.flaky")}:</span>
+            <select
+              className="input"
+              value={flakyFilter}
+              onChange={e => setFlakyFilter(e.target.value)}
+              style={{ minWidth: 110 }}
+              aria-label={t("ev.filter.flaky")}
+            >
+              <option value="">{t("ev.filter.flaky_all")}</option>
+              <option value="only">{t("ev.filter.flaky_only")}</option>
+            </select>
+          </div>
 
           {/* Quarantine dropdown */}
-          <select
-            className="input"
-            value={quarantineFilter}
-            onChange={e => setQuarantineFilter(e.target.value)}
-            style={{ flex: "0 0 auto", minWidth: 190 }}
-          >
-            <option value="">{t("ev.filter.quarantine_all")}</option>
-            <option value="only">{t("ev.filter.quarantine_only")}</option>
-          </select>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", whiteSpace: "nowrap" }}>{t("ev.filter.quarantine")}:</span>
+            <select
+              className="input"
+              value={quarantineFilter}
+              onChange={e => setQuarantineFilter(e.target.value)}
+              style={{ minWidth: 130 }}
+              aria-label={t("ev.filter.quarantine")}
+            >
+              <option value="">{t("ev.filter.quarantine_all")}</option>
+              <option value="only">{t("ev.filter.quarantine_only")}</option>
+            </select>
+          </div>
 
           {/* Clear */}
           {hasActiveFilter && (
