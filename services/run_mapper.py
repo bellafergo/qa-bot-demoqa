@@ -42,12 +42,14 @@ _STATUS_MAP: Dict[str, str] = {
     "completed": "passed",    # orchestrator job completed (may still have partial failures)
     "fail":      "failed",
     "failed":    "failed",
-    "error":     "failed",    # runner errors collapse to "failed" for consistency
+    "error":     "error",     # preserve technical runner errors
     "partial":   "failed",    # orchestrator job with partial failures
     # lifecycle statuses
     "running":   "running",
     "queued":    "queued",
     "pending":   "queued",
+    "planning":  "planning",
+    "compiled":  "compiled",
     "canceled":  "canceled",
     "cancelled": "canceled",
     "aborted":   "canceled",
@@ -114,8 +116,12 @@ def run_from_catalog_testrun(tr: Any) -> CanonicalRun:
         environment=getattr(tr, "environment", None) or raw_meta.get("environment"),
         browser=raw_meta.get("browser"),
         base_url=raw_meta.get("base_url"),
+        correlation_id=raw_meta.get("correlation_id"),
+        client_id=raw_meta.get("client_id"),
+        workspace_id=raw_meta.get("workspace_id"),
     )
 
+    steps = list(getattr(tr, "steps_result", None) or [])
     return CanonicalRun(
         run_id=tr.run_id,
         job_id=raw_meta.get("job_id"),
@@ -124,9 +130,15 @@ def run_from_catalog_testrun(tr: Any) -> CanonicalRun:
         source=raw_meta.get("source", "catalog"),
         status=normalize_status(raw_status),
         started_at=_to_iso(getattr(tr, "executed_at", None)),
+        finished_at=_to_iso(getattr(tr, "executed_at", None)),
         duration_ms=int(getattr(tr, "duration_ms", None) or 0),
         error_summary=error_summary,
-        steps=list(getattr(tr, "steps_result", None) or []),
+        steps_count=len(steps),
+        evidence_id=getattr(tr, "evidence_id", None),
+        evidence_url=getattr(tr, "evidence_url", None),
+        report_url=getattr(tr, "report_url", None),
+        correlation_id=raw_meta.get("correlation_id"),
+        steps=steps,
         artifacts=artifacts,
         meta=meta,
     )
@@ -177,9 +189,12 @@ def run_from_orchestrator_job(job: Any) -> CanonicalRun:
         started_at=_to_iso(getattr(job, "started_at", None)),
         finished_at=_to_iso(getattr(job, "finished_at", None)),
         duration_ms=int(getattr(job, "duration_ms", 0) or 0),
+        steps_count=0,
         summary=summary,
         error_summary=getattr(job, "error_message", None),
-        meta=RunMeta(environment=getattr(job, "environment", None)),
+        meta=RunMeta(
+            environment=getattr(job, "environment", None),
+        ),
     )
 
 
@@ -216,10 +231,14 @@ def run_from_legacy_store(payload: Dict[str, Any]) -> CanonicalRun:
         environment=raw_meta.get("environment"),
         browser=raw_meta.get("browser"),
         base_url=payload.get("base_url") or raw_meta.get("base_url"),
+        correlation_id=raw_meta.get("correlation_id"),
+        client_id=raw_meta.get("client_id"),
+        workspace_id=raw_meta.get("workspace_id"),
     )
 
     run_id = payload.get("run_id") or payload.get("evidence_id") or "unknown"
 
+    steps = list(payload.get("steps") or payload.get("steps_result") or [])
     return CanonicalRun(
         run_id=run_id,
         job_id=payload.get("job_id"),
@@ -231,7 +250,12 @@ def run_from_legacy_store(payload: Dict[str, Any]) -> CanonicalRun:
         finished_at=_to_iso(payload.get("finished_at")),
         duration_ms=int(payload.get("duration_ms") or 0),
         error_summary=payload.get("error_message"),
-        steps=list(payload.get("steps") or payload.get("steps_result") or []),
+        steps_count=len(steps),
+        evidence_id=payload.get("evidence_id"),
+        evidence_url=evidence_url,
+        report_url=report_url,
+        correlation_id=raw_meta.get("correlation_id"),
+        steps=steps,
         artifacts=artifacts,
         meta=meta,
     )

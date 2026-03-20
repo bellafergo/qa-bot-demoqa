@@ -143,6 +143,8 @@ def handle_execute_mode(
     persona: str,
     messages: List[Dict[str, str]],
     correlation_id: Optional[str] = None,
+    client_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     t0 = time.time()
     session_id = session.get("id")
@@ -164,6 +166,8 @@ def handle_execute_mode(
             "session_id": session_id,
             "thread_id": thread_id,
             "answer": answer,
+            "correlation_id": correlation_id,
+            "steps_count": 0,
             **_confidence("execute", prompt, None),
         }
 
@@ -184,6 +188,8 @@ def handle_execute_mode(
             "session_id": session_id,
             "thread_id": thread_id,
             "answer": answer,
+            "correlation_id": correlation_id,
+            "steps_count": 0,
             **_confidence("execute", prompt, None),
         }
 
@@ -207,6 +213,8 @@ def handle_execute_mode(
             "session_id": session_id,
             "thread_id": thread_id,
             "answer": answer,
+            "correlation_id": correlation_id,
+            "steps_count": 0,
             **_confidence("execute", prompt, base_url),
         }
 
@@ -233,6 +241,8 @@ def handle_execute_mode(
             "thread_id": thread_id,
             "answer": answer,
             "validation_errors": [e.model_dump() for e in validation.errors],
+            "correlation_id": correlation_id,
+            "steps_count": len(steps),
             **_confidence("execute", prompt, base_url),
         }
 
@@ -286,6 +296,8 @@ def handle_execute_mode(
             "thread_id": thread_id,
             "answer": answer,
             "error": f"{type(e).__name__}: {e}",
+            "correlation_id": correlation_id,
+            "steps_count": len(steps) if isinstance(steps, list) else 0,
             **_confidence("execute", prompt, base_url),
         }
 
@@ -293,8 +305,8 @@ def handle_execute_mode(
     status = str(runner.get("status") or ("passed" if ok else "failed")).strip().lower()
     if status not in ("passed", "failed", "unknown", "error"):
         status = "passed" if ok else "failed"
-    if status == "error":
-        status = "failed"
+    # Preserve technical runner errors as "error" so UI/clients can
+    # differentiate between assertion failures and runtime issues.
 
     # Support for expected-fail steps: if runner returned "failed" but at least
     # one step has expected="fail", the test actually passed.
@@ -311,7 +323,15 @@ def handle_execute_mode(
     except Exception:
         duration_ms = int((time.time() - t0) * 1000)
 
-    status_label = "PASSED" if status == "passed" else "FAILED" if status == "failed" else "UNKNOWN"
+    status_label = (
+        "PASSED"
+        if status == "passed"
+        else "FAILED"
+        if status == "failed"
+        else "ERROR"
+        if status == "error"
+        else "UNKNOWN"
+    )
 
     # 4) Evidence (pipeline centraliza PDF, upload, fallbacks)
     evidence_meta: Dict[str, Any] = {
@@ -321,6 +341,10 @@ def handle_execute_mode(
     }
     if correlation_id:
         evidence_meta["correlation_id"] = correlation_id
+    if client_id:
+        evidence_meta["client_id"] = client_id
+    if workspace_id:
+        evidence_meta["workspace_id"] = workspace_id
     evidence_result = process_evidence(
         runner=runner,
         prompt=prompt,
@@ -357,10 +381,15 @@ def handle_execute_mode(
             "status": status,
             "status_label": status_label,
         }
-        if correlation_id:
+        if correlation_id or client_id or workspace_id:
             run_payload.setdefault("meta", {})
             run_payload["meta"] = dict(run_payload.get("meta") or {})
-            run_payload["meta"]["correlation_id"] = correlation_id
+            if correlation_id:
+                run_payload["meta"]["correlation_id"] = correlation_id
+            if client_id:
+                run_payload["meta"]["client_id"] = client_id
+            if workspace_id:
+                run_payload["meta"]["workspace_id"] = workspace_id
         save_run(run_payload)
     except Exception:
         logger.exception("save_run failed (continuing)")
@@ -414,8 +443,10 @@ def handle_execute_mode(
         "runner": meta["runner"],
         "status_label": status_label,
         "evidence_id": evidence_id,
+        "correlation_id": correlation_id,
         "evidence_url": meta["runner"].get("evidence_url"),
         "report_url": meta["runner"].get("report_url"),
         "duration_ms": meta["runner"].get("duration_ms"),
+        "steps_count": meta["runner"].get("steps_count") or len(steps),
         **_confidence("execute", prompt, base_url),
     }

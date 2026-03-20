@@ -69,8 +69,12 @@ class TestNormalizeStatus(unittest.TestCase):
             self.assertEqual(normalize_status(v), "passed", f"failed for {v!r}")
 
     def test_fail_variants(self):
-        for v in ("fail", "failed", "error", "partial", "FAIL", "ERROR"):
+        for v in ("fail", "failed", "partial", "FAIL"):
             self.assertEqual(normalize_status(v), "failed", f"failed for {v!r}")
+
+    def test_error_maps_to_error(self):
+        for v in ("error", "ERROR"):
+            self.assertEqual(normalize_status(v), "error", f"should map to error for {v!r}")
 
     def test_running(self):
         self.assertEqual(normalize_status("running"), "running")
@@ -114,9 +118,9 @@ class TestRunFromCatalogTestRun(unittest.TestCase):
         r = run_from_catalog_testrun(_make_test_run(status="fail"))
         self.assertEqual(r.status, "failed")
 
-    def test_status_error_maps_to_failed(self):
+    def test_status_error_maps_to_error(self):
         r = run_from_catalog_testrun(_make_test_run(status="error"))
-        self.assertEqual(r.status, "failed")
+        self.assertEqual(r.status, "error")
 
     def test_artifacts_screenshot_from_meta(self):
         tr = _make_test_run(meta={"screenshot_b64": "abc123"})
@@ -485,7 +489,7 @@ class TestContractInvariants(unittest.TestCase):
         self.assertIsInstance(r.steps, list)
         self.assertIsInstance(r.artifacts, RunArtifacts)
         self.assertIsInstance(r.meta, RunMeta)
-        self.assertIn(r.status, ("queued", "running", "passed", "failed", "canceled"))
+        self.assertIn(r.status, ("queued", "planning", "compiled", "running", "passed", "failed", "error", "canceled"))
         self.assertIn(r.source, ("chat", "catalog", "orchestrator", "api"))
 
     def test_catalog_run(self):

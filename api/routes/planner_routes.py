@@ -156,6 +156,12 @@ def execute_text_endpoint(req: ExecuteTextRequest, request: Request) -> Dict[str
         )
     except Exception as exc:
         logger.exception("execute_text: runner failed")
-        return {"plan": plan, "run": None, "reason": f"Runner error: {exc}"}
+        return {
+            "plan": plan,
+            "run": None,
+            "reason": f"Runner error: {type(exc).__name__}: {exc}",
+            "correlation_id": correlation_id,
+            "error_type": "runner_exception",
+        }
 
     return {"plan": plan, "run": run}

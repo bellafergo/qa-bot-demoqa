@@ -259,6 +259,8 @@ def run_suite(body: RunSuiteRequest, request: Request):
     """
     try:
         correlation_id = getattr(request.state, "request_id", None)
+        client_id = getattr(request.state, "client_id", None)
+        workspace_id = getattr(request.state, "workspace_id", None)
         sr = catalog_service.run_suite(
             environment=body.environment,
             base_url=body.base_url,
@@ -271,6 +273,8 @@ def run_suite(body: RunSuiteRequest, request: Request):
             test_case_ids=body.test_case_ids,
             limit=body.limit,
             correlation_id=correlation_id,
+            client_id=client_id,
+            workspace_id=workspace_id,
         )
         return suite_from_catalog_suite_result(sr)
     except Exception as e:
@@ -279,7 +283,7 @@ def run_suite(body: RunSuiteRequest, request: Request):
 
 
 @router.post("/{test_case_id}/run", response_model=CanonicalRun)
-def run_test_case(test_case_id: str, body: RunTestCaseRequest = RunTestCaseRequest(), request: Request):
+def run_test_case(test_case_id: str, request: Request, body: RunTestCaseRequest = RunTestCaseRequest()):
     """
     Execute a single test case by its `test_case_id`.
 
@@ -287,6 +291,8 @@ def run_test_case(test_case_id: str, body: RunTestCaseRequest = RunTestCaseReque
     """
     try:
         correlation_id = getattr(getattr(request, "state", None), "request_id", None)
+        client_id = getattr(getattr(request, "state", None), "client_id", None)
+        workspace_id = getattr(getattr(request, "state", None), "workspace_id", None)
         tr = catalog_service.run_test_case(
             test_case_id,
             environment=body.environment,
@@ -294,6 +300,8 @@ def run_test_case(test_case_id: str, body: RunTestCaseRequest = RunTestCaseReque
             headless=body.headless,
             timeout_s=body.timeout_s,
             correlation_id=correlation_id,
+            client_id=client_id,
+            workspace_id=workspace_id,
         )
         return run_from_catalog_testrun(tr)
     except ValueError as e:

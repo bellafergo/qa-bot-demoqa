@@ -139,6 +139,9 @@ app.add_middleware(
 async def request_id_middleware(request: Request, call_next):
     rid = request.headers.get("x-request-id") or uuid.uuid4().hex[:12]
     request.state.request_id = rid
+    # Optional multi-client partitioning metadata (no auth/RBAC yet).
+    request.state.client_id = request.headers.get("x-client-id")
+    request.state.workspace_id = request.headers.get("x-workspace-id")
     response = await call_next(request)
     response.headers["x-request-id"] = rid
     return response

@@ -67,6 +67,10 @@ _STATUS_MAP: Dict[str, str] = {
     "queued":    "queued",
     "running":   "running",
     "pending":   "queued",
+    "planning":  "planning",
+    "compiled":  "compiled",
+    "canceled":  "canceled",
+    "cancelled": "canceled",
 }
 
 

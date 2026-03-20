@@ -302,7 +302,7 @@ class TestArchitectureInvariants(unittest.TestCase):
                 self.assertIsInstance(result, CanonicalRun)
 
     def test_canonical_run_status_in_valid_set(self):
-        valid = {"queued", "running", "passed", "failed", "canceled"}
+        valid = {"queued", "planning", "compiled", "running", "passed", "failed", "error", "canceled"}
         for raw_status in ("pass", "fail", "error", "running"):
             with patch(
                 "services.run_history_service.test_run_repo.list_runs",

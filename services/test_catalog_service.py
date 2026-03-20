@@ -556,6 +556,8 @@ class TestCatalogService:
         timeout_s: Optional[int] = None,
         extra_meta: Optional[Dict[str, Any]] = None,
         correlation_id: Optional[str] = None,
+        client_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
     ) -> TestRun:
         tc = self.get_test_case(test_case_id)
         if tc is None:
@@ -571,6 +573,8 @@ class TestCatalogService:
             timeout_s=timeout_s,
             extra_meta=extra_meta,
             correlation_id=correlation_id,
+            client_id=client_id,
+            workspace_id=workspace_id,
         )
 
     def run_suite(
@@ -587,6 +591,8 @@ class TestCatalogService:
         test_case_ids: Optional[List[str]] = None,
         limit: int = 50,
         correlation_id: Optional[str] = None,
+        client_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
     ) -> SuiteRunResult:
         t0 = time.time()
 
@@ -612,7 +618,8 @@ class TestCatalogService:
         for tc in cases:
             try:
                 run = self._execute(tc, environment=environment, base_url=base_url,
-                                    headless=headless, timeout_s=timeout_s, correlation_id=correlation_id)
+                                    headless=headless, timeout_s=timeout_s, correlation_id=correlation_id,
+                                    client_id=client_id, workspace_id=workspace_id)
                 runs.append(run)
                 if run.status == "pass":
                     passed += 1
@@ -668,6 +675,8 @@ class TestCatalogService:
         auth_config: Optional[Dict[str, Any]] = None,
         extra_meta: Optional[Dict[str, Any]] = None,
         correlation_id: Optional[str] = None,
+        client_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
     ) -> TestRun:
         """Build steps, run via appropriate runner (UI or API), persist result."""
         t0 = time.time()
@@ -675,9 +684,13 @@ class TestCatalogService:
         evidence_id = f"TC-{uuid.uuid4().hex[:10].upper()}"
 
         # Enrich meta for traceability across runner/logs/persistence
-        if correlation_id:
+        if correlation_id or client_id or workspace_id:
             extra_meta = dict(extra_meta or {})
             extra_meta.setdefault("correlation_id", correlation_id)
+            if client_id:
+                extra_meta["client_id"] = client_id
+            if workspace_id:
+                extra_meta["workspace_id"] = workspace_id
 
         logger.info("test_catalog: executing %s (%s) — run_id=%s env=%s test_type=%s",
                     tc.test_case_id, tc.name, run_id, environment,

@@ -559,7 +559,12 @@ def _summarize_last_execute(history_msgs: List[Dict[str, Any]]) -> Optional[Dict
 # ============================================================
 # MAIN
 # ============================================================
-def handle_chat_run(req: Any, correlation_id: Optional[str] = None) -> Dict[str, Any]:
+def handle_chat_run(
+    req: Any,
+    correlation_id: Optional[str] = None,
+    client_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+) -> Dict[str, Any]:
     prompt = H.norm(getattr(req, "prompt", "") or "")
     if not prompt:
         raise HTTPException(status_code=400, detail="Empty prompt")
@@ -671,6 +676,8 @@ def handle_chat_run(req: Any, correlation_id: Optional[str] = None) -> Dict[str,
             persona=persona,
             messages=messages,
             correlation_id=correlation_id,
+            client_id=client_id,
+            workspace_id=workspace_id,
         )
 
     client = _client()

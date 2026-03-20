@@ -109,11 +109,12 @@ def run_execute_steps_job(evidence_id: str, payload: Dict[str, Any], meta: Dict[
 
         # Normaliza status si viene raro
         status = (run.get("status") or "").lower()
-        if status not in ("passed", "failed"):
-            run["status"] = "failed" if run.get("ok") is False else (run.get("status") or "failed")
+        # Preserve runner technical errors as "error"
+        if status not in ("passed", "failed", "error"):
+            run["status"] = "error" if run.get("ok") is False else (run.get("status") or "failed")
 
-        # Enrich failed runs with structured failure analysis
-        if run.get("status") == "failed":
+        # Enrich failed/error runs with structured failure analysis
+        if run.get("status") in ("failed", "error"):
             run["failure_analysis"] = _classify_failure(run)
 
         save_run(run)
@@ -125,7 +126,7 @@ def run_execute_steps_job(evidence_id: str, payload: Dict[str, Any], meta: Dict[
         err = _redact(raw_err)
         run = {
             "evidence_id": evidence_id,
-            "status": "failed",
+            "status": "error",
             "started_at": int(t0 * 1000),
             "finished_at": int(t1 * 1000),
             "duration_ms": int((t1 - t0) * 1000),

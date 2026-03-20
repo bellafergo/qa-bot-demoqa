@@ -28,7 +28,17 @@ class TestRun(BaseModel):
     test_name:    Optional[str] = None       # denormalized for convenience
     executed_at:  datetime = Field(default_factory=_now_utc)
     environment:  str = "default"            # staging | prod | local | …
-    status:       Literal["pass", "fail", "error", "running", "queued"]
+    # Execution lifecycle status (sqlite persisted)
+    status:       Literal[
+        "pass",
+        "fail",
+        "error",
+        "running",
+        "queued",
+        "planning",
+        "compiled",
+        "canceled",
+    ]
     duration_ms:  Optional[int] = None
     evidence_url: Optional[str] = None
     report_url:   Optional[str] = None

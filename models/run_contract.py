@@ -48,7 +48,16 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-RunStatus = Literal["queued", "running", "passed", "failed", "canceled"]
+RunStatus = Literal[
+    "queued",
+    "planning",
+    "compiled",
+    "running",
+    "passed",
+    "failed",
+    "error",
+    "canceled",
+]
 RunSource = Literal["chat", "catalog", "orchestrator", "api"]
 
 
@@ -69,6 +78,9 @@ class RunMeta(BaseModel):
     environment:    Optional[str] = None   # "default", "staging", "prod"
     browser:        Optional[str] = None   # "chromium", "firefox", "webkit"
     base_url:       Optional[str] = None   # root URL under test
+    correlation_id: Optional[str] = None  # x-request-id / trace id
+    client_id:      Optional[str] = None  # optional multi-client partition id
+    workspace_id:   Optional[str] = None  # optional multi-workspace partition id
 
 
 class CanonicalRun(BaseModel):
@@ -88,12 +100,19 @@ class CanonicalRun(BaseModel):
     started_at:    Optional[str] = None
     finished_at:   Optional[str] = None
     duration_ms:   int = 0
+    steps_count:   int = 0
+    correlation_id: Optional[str] = None
     summary:       Optional[str] = None
     error_summary: Optional[str] = None
     rca_summary:   Optional[str] = None
+    evidence_id:   Optional[str] = None
     steps:         List[Dict[str, Any]] = Field(default_factory=list)
     artifacts:     RunArtifacts = Field(default_factory=RunArtifacts)
     meta:          RunMeta      = Field(default_factory=RunMeta)
+
+    # Convenience aliases (some frontends read these fields directly)
+    evidence_url:  Optional[str] = None
+    report_url:    Optional[str] = None
 
 
 class CanonicalSuiteResult(BaseModel):

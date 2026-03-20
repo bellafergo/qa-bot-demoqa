@@ -159,8 +159,8 @@ def process_evidence(
     _status = status or str(runner.get("status") or "").strip().lower()
     if not _status:
         _status = "passed" if runner.get("ok", True) else "failed"
-    if _status == "error":
-        _status = "failed"
+    # Preserve technical runner errors as "error" so reports/UI can
+    # differentiate between assertion failures and runtime issues.
 
     _duration = duration_ms
     if _duration is None:

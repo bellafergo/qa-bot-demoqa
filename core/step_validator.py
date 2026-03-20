@@ -59,6 +59,7 @@ class StepValidationError(BaseModel):
     error_type:  str       # "missing_selector" | "invalid_action" | "malformed_target" | "missing_required_field"
     message:     str
     field:       Optional[str] = None
+    hint:        Optional[str] = None
 
 
 class StepValidationResult(BaseModel):
@@ -89,6 +90,7 @@ def validate_steps(steps: List[Dict[str, Any]]) -> StepValidationResult:
                 step_index=i, action=None,
                 error_type="malformed_target",
                 message=f"Step at index {i} is not a dict (got {type(step).__name__})",
+                hint="Provide each step as a dict with at least an 'action' key.",
             ))
             continue
 
@@ -101,6 +103,7 @@ def validate_steps(steps: List[Dict[str, Any]]) -> StepValidationResult:
                 error_type="missing_required_field",
                 message="Step has no 'action' field.",
                 field="action",
+                hint="Provide an 'action' key (e.g. goto/click/fill/assert_visible).",
             ))
             continue   # can't check further without knowing the action
 
@@ -116,6 +119,7 @@ def validate_steps(steps: List[Dict[str, Any]]) -> StepValidationResult:
                     f"Valid actions sample: {sample}. Total valid actions: {len(valid_sorted)}."
                 ),
                 field="action",
+                hint="Use a supported runner action from core.schemas.RUNNER_ACTIONS.",
             ))
             # still validate other fields so we surface all problems at once
 
@@ -127,6 +131,7 @@ def validate_steps(steps: List[Dict[str, Any]]) -> StepValidationResult:
                     error_type="missing_required_field",
                     message=f"Action '{action}' requires 'url' or 'value' (got none).",
                     field="url",
+                    hint="Set step['url'] (preferred) or step['value'] to a full http(s) URL.",
                 ))
 
         # ── 4. Selector / target required ─────────────────────────────────
@@ -146,6 +151,7 @@ def validate_steps(steps: List[Dict[str, Any]]) -> StepValidationResult:
                         f"a 'target' dict with 'primary'."
                     ),
                     field="selector",
+                    hint="Add 'selector' or set 'target': {'primary': '<selector>'}.",
                 ))
 
         # ── 5. Malformed target ────────────────────────────────────────────
@@ -157,6 +163,7 @@ def validate_steps(steps: List[Dict[str, Any]]) -> StepValidationResult:
                     error_type="malformed_target",
                     message="'target' must be a dict with a 'primary' key.",
                     field="target",
+                    hint="Set target as a dict like {'primary': '#login-button'}.",
                 ))
             elif action in _SELECTOR_REQUIRED and not target.get("primary"):
                 warnings.append(StepValidationError(
@@ -164,6 +171,7 @@ def validate_steps(steps: List[Dict[str, Any]]) -> StepValidationResult:
                     error_type="malformed_target",
                     message="'target' dict is present but has no 'primary' selector.",
                     field="target.primary",
+                    hint="Provide target.primary inside the 'target' dict.",
                 ))
 
         # ── 6. Key required ────────────────────────────────────────────────
@@ -173,6 +181,7 @@ def validate_steps(steps: List[Dict[str, Any]]) -> StepValidationResult:
                 error_type="missing_required_field",
                 message=f"Action '{action}' requires a 'key' field.",
                 field="key",
+                hint="For press steps, set step['key'] (e.g. 'Enter').",
             ))
 
         # ── 7. wait_ms advisory ────────────────────────────────────────────
@@ -182,6 +191,7 @@ def validate_steps(steps: List[Dict[str, Any]]) -> StepValidationResult:
                 error_type="missing_required_field",
                 message="Action 'wait_ms' should have an 'ms' field (will default to 0).",
                 field="ms",
+                hint="Add step['ms'] as an integer delay in milliseconds.",
             ))
 
     return StepValidationResult(

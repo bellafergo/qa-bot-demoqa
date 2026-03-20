@@ -61,8 +61,15 @@ def chat_run(req: ChatRunRequest, request: Request) -> Dict[str, Any]:
     - Propaga correlation_id para trazabilidad
     """
     correlation_id = getattr(request.state, "request_id", None)
+    client_id = getattr(request.state, "client_id", None)
+    workspace_id = getattr(request.state, "workspace_id", None)
     try:
-        result = handle_chat_run(req, correlation_id=correlation_id)
+        result = handle_chat_run(
+            req,
+            correlation_id=correlation_id,
+            client_id=client_id,
+            workspace_id=workspace_id,
+        )
         _post_process_result(result)
         return result
 

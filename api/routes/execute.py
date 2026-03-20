@@ -108,6 +108,12 @@ def execute_steps(req: ExecuteStepsRequest, request: Request) -> Dict[str, Any]:
     correlation_id = getattr(request.state, "request_id", None)
     if correlation_id:
         meta["correlation_id"] = correlation_id
+    client_id = getattr(request.state, "client_id", None)
+    workspace_id = getattr(request.state, "workspace_id", None)
+    if client_id:
+        meta["client_id"] = client_id
+    if workspace_id:
+        meta["workspace_id"] = workspace_id
     return _enqueue("steps", run_execute_steps_job, payload, meta)
 
 
@@ -129,4 +135,10 @@ def execute_suite(req: ExecuteSuiteRequest, request: Request) -> Dict[str, Any]:
     correlation_id = getattr(request.state, "request_id", None)
     if correlation_id:
         meta["correlation_id"] = correlation_id
+    client_id = getattr(request.state, "client_id", None)
+    workspace_id = getattr(request.state, "workspace_id", None)
+    if client_id:
+        meta["client_id"] = client_id
+    if workspace_id:
+        meta["workspace_id"] = workspace_id
     return _enqueue("suite", run_suite_job, payload, meta)
