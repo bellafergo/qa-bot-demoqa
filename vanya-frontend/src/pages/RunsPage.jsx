@@ -943,49 +943,62 @@ function RunHistoryTab({ initialRunId }) {
           </div>
 
           {/* Filters (compact, frontend-only) */}
-          <div style={{ padding: "12px 20px", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-            <select
-              className="input"
-              value={statusFilter}
-              onChange={e => setStatusFilter(e.target.value)}
-              style={{ minWidth: 160 }}
-            >
-              <option value="all">{t("runs.filter.status_all")}</option>
-              <option value="passed">{t("runs.filter.status_passed")}</option>
-              <option value="failed">{t("runs.filter.status_failed")}</option>
-              <option value="error">{t("runs.filter.status_error")}</option>
-              <option value="running">{t("runs.filter.status_running")}</option>
-            </select>
-
-            <select
-              className="input"
-              value={flakyFilter}
-              onChange={e => setFlakyFilter(e.target.value)}
-              style={{ minWidth: 140 }}
-            >
-              <option value="all">{t("runs.filter.flaky_all")}</option>
-              <option value="only">{t("runs.filter.flaky_only")}</option>
-            </select>
-
-            <select
-              className="input"
-              value={quarantineFilter}
-              onChange={e => setQuarantineFilter(e.target.value)}
-              style={{ minWidth: 160 }}
-            >
-              <option value="all">{t("runs.filter.quarantine_all")}</option>
-              <option value="only">{t("runs.filter.quarantine_only")}</option>
-            </select>
-
-            <select
-              className="input"
-              value={retryFilter}
-              onChange={e => setRetryFilter(e.target.value)}
-              style={{ minWidth: 150 }}
-            >
-              <option value="all">{t("runs.filter.retry_all")}</option>
-              <option value="only">{t("runs.filter.retry_only")}</option>
-            </select>
+          <div style={{ padding: "12px 20px", display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", whiteSpace: "nowrap" }}>{t("runs.filter.status")}:</span>
+              <select
+                className="input"
+                value={statusFilter}
+                onChange={e => setStatusFilter(e.target.value)}
+                style={{ minWidth: 130 }}
+                aria-label={t("runs.filter.status")}
+              >
+                <option value="all">{t("runs.filter.status_all")}</option>
+                <option value="passed">{t("runs.filter.status_passed")}</option>
+                <option value="failed">{t("runs.filter.status_failed")}</option>
+                <option value="error">{t("runs.filter.status_error")}</option>
+                <option value="running">{t("runs.filter.status_running")}</option>
+              </select>
+            </div>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", whiteSpace: "nowrap" }}>{t("runs.filter.flaky")}:</span>
+              <select
+                className="input"
+                value={flakyFilter}
+                onChange={e => setFlakyFilter(e.target.value)}
+                style={{ minWidth: 110 }}
+                aria-label={t("runs.filter.flaky")}
+              >
+                <option value="all">{t("runs.filter.flaky_all")}</option>
+                <option value="only">{t("runs.filter.flaky_only")}</option>
+              </select>
+            </div>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", whiteSpace: "nowrap" }}>{t("runs.filter.quarantine")}:</span>
+              <select
+                className="input"
+                value={quarantineFilter}
+                onChange={e => setQuarantineFilter(e.target.value)}
+                style={{ minWidth: 130 }}
+                aria-label={t("runs.filter.quarantine")}
+              >
+                <option value="all">{t("runs.filter.quarantine_all")}</option>
+                <option value="only">{t("runs.filter.quarantine_only")}</option>
+              </select>
+            </div>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", whiteSpace: "nowrap" }}>{t("runs.filter.retry")}:</span>
+              <select
+                className="input"
+                value={retryFilter}
+                onChange={e => setRetryFilter(e.target.value)}
+                style={{ minWidth: 120 }}
+                aria-label={t("runs.filter.retry")}
+              >
+                <option value="all">{t("runs.filter.retry_all")}</option>
+                <option value="only">{t("runs.filter.retry_only")}</option>
+              </select>
+            </div>
           </div>
 
           {!loading && runs.length === 0 ? (
