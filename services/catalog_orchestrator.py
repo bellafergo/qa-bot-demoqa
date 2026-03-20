@@ -52,6 +52,7 @@ from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from models.orchestrator_job import OrchestratorJob, JobStatus
 from services.test_catalog_service import catalog_service
+from services.failure_intelligence_service import failure_intelligence_service
 from services.db.orchestrator_job_repository import orch_job_repo
 
 logger = logging.getLogger("vanya.catalog_orchestrator")
@@ -67,6 +68,14 @@ EXECUTION_MAX_WORKERS:   int = int(os.getenv("EXECUTION_MAX_WORKERS",    "4"))
 EXECUTION_MAX_UI_WORKERS: int = int(os.getenv("EXECUTION_MAX_UI_WORKERS", "2"))
 EXECUTION_MAX_API_WORKERS: int = int(os.getenv("EXECUTION_MAX_API_WORKERS", "4"))
 EXECUTION_RETRY_LIMIT:   int = int(os.getenv("EXECUTION_RETRY_LIMIT",    "1"))
+
+# ── Flaky quarantine + retry policy (execution-scheduler block) ────────────
+# Defaults are conservative: disabled unless explicitly enabled.
+FLAKY_AUTO_RETRY_ENABLED: bool = str(os.getenv("FLAKY_AUTO_RETRY_ENABLED", "false")).lower() == "true"
+FLAKY_AUTO_RETRY_MAX: int = max(0, int(os.getenv("FLAKY_AUTO_RETRY_MAX", "1")))
+FLAKY_QUARANTINE_RECOMMENDATION_ENABLED: bool = (
+    str(os.getenv("FLAKY_QUARANTINE_RECOMMENDATION_ENABLED", "true")).lower() == "true"
+)
 
 # ── Module-level state ────────────────────────────────────────────────────────
 
@@ -264,6 +273,34 @@ def _run_single_test(
     with _STATS_LOCK:
         _STATS["queued_tasks"] = max(0, _STATS["queued_tasks"] - 1)
 
+    # ── Optional flakiness auto-retry policy ───────────────────────────────
+    flaky_signal: Optional[str] = None
+    flaky_score: Optional[float] = None
+    flip_rate: Optional[float] = None
+    suspected_flaky: bool = False
+
+    if FLAKY_AUTO_RETRY_ENABLED and FLAKY_AUTO_RETRY_MAX > 0:
+        try:
+            s = failure_intelligence_service.get_flaky_test_signal(tc_id)
+            suspected_flaky = bool(getattr(s, "suspected_flaky", False))
+            if suspected_flaky:
+                flaky_signal = "suspected_flaky"
+                flaky_score = getattr(s, "flaky_score", None)
+                flip_rate = getattr(s, "flip_rate", None)
+        except Exception:
+            # Non-fatal: if flaky detection fails, fall back to error-only retry.
+            logger.debug("orchestrator: flaky detection failed for %s", tc_id, exc_info=True)
+
+    flaky_retry_limit = FLAKY_AUTO_RETRY_MAX if suspected_flaky else 0
+    max_attempts = 1 + max(0, retry_limit) + flaky_retry_limit
+
+    # Separate counters for auditability and to avoid mixing semantics.
+    error_retries_used = 0
+    flaky_retries_used = 0
+
+    initial_status: Optional[str] = None
+    last_run_obj: Any = None
+
     was_retried = False
     last_result: Dict[str, Any] = {
         "test_case_id": tc_id,
@@ -272,9 +309,14 @@ def _run_single_test(
         "duration_ms":  None,
         "attempt":      1,
         "test_type":    test_type,
+        "flaky_signal": flaky_signal,
+        "retry_policy_applied": False,
+        "retry_count": 0,
+        "quarantine_recommended": False,
+        "final_outcome_reason": None,
     }
 
-    for attempt in range(retry_limit + 1):
+    for attempt in range(max_attempts):
         if attempt > 0:
             was_retried = True
             time.sleep(0.3)   # brief pause before retry
@@ -299,12 +341,29 @@ def _run_single_test(
                     _extra_meta = {"trigger_context": _json.loads(job.context_json)}
                 except Exception:
                     pass
+
+            # Flaky metadata is attached to every attempt so it can be audited
+            # in run history / evidence pages.
+            if suspected_flaky and flaky_signal:
+                _extra_meta = dict(_extra_meta or {})
+                _extra_meta.update(
+                    {
+                        "flaky_signal": flaky_signal,
+                        "flaky_score": flaky_score,
+                        "flip_rate": flip_rate,
+                        "retry_policy_applied": True,  # may still result in 0 retries
+                    }
+                )
+
             run = catalog_service.run_test_case(
                 tc_id,
                 environment=job.environment,
                 extra_meta=_extra_meta,
                 correlation_id=str(job.job_id),
             )
+            last_run_obj = run
+            if initial_status is None:
+                initial_status = run.status
             last_result = {
                 "test_case_id": tc_id,
                 "run_id":       run.run_id,
@@ -312,6 +371,11 @@ def _run_single_test(
                 "duration_ms":  run.duration_ms,
                 "attempt":      attempt + 1,
                 "test_type":    test_type,
+                "flaky_signal": flaky_signal,
+                "retry_policy_applied": False,  # finalized after loop
+                "retry_count": 0,
+                "quarantine_recommended": False,
+                "final_outcome_reason": None,
             }
         except Exception as exc:
             last_result = {
@@ -322,6 +386,11 @@ def _run_single_test(
                 "error":        f"{type(exc).__name__}: {exc}",
                 "attempt":      attempt + 1,
                 "test_type":    test_type,
+                "flaky_signal": flaky_signal,
+                "retry_policy_applied": False,
+                "retry_count": 0,
+                "quarantine_recommended": False,
+                "final_outcome_reason": None,
             }
         finally:
             sem.release()
@@ -332,15 +401,97 @@ def _run_single_test(
                 else:
                     _STATS["running_api"] = max(0, _STATS["running_api"] - 1)
 
-        # Retry decision: only on error, not on assertion failures
-        if last_result["status"] == "error" and attempt < retry_limit:
+        final_status = last_result.get("status")
+        if final_status == "pass":
+            break
+
+        # Retry decision:
+        # - Always allow error retries (runner crash / timeout) up to retry_limit
+        # - If suspected flaky: allow retries on both "fail" and "error" up to
+        #   FLAKY_AUTO_RETRY_MAX, but never exceed overall max_attempts.
+        if final_status == "error":
+            if error_retries_used < retry_limit:
+                error_retries_used += 1
+                logger.info(
+                    "orchestrator: retrying %s (attempt %d→%d) — status=error (error-retry %d/%d)",
+                    tc_id, attempt + 1, attempt + 2, error_retries_used, retry_limit,
+                )
+                continue
+            if suspected_flaky and flaky_retries_used < flaky_retry_limit:
+                flaky_retries_used += 1
+                logger.info(
+                    "orchestrator: retrying %s (attempt %d→%d) — status=error (flaky-retry %d/%d)",
+                    tc_id, attempt + 1, attempt + 2, flaky_retries_used, flaky_retry_limit,
+                )
+                continue
+
+        if final_status == "fail" and suspected_flaky and flaky_retries_used < flaky_retry_limit:
+            flaky_retries_used += 1
             logger.info(
-                "orchestrator: retrying %s (attempt %d→%d) — status=error",
-                tc_id, attempt + 1, attempt + 2,
+                "orchestrator: retrying %s (attempt %d→%d) — status=fail (flaky-retry %d/%d)",
+                tc_id, attempt + 1, attempt + 2, flaky_retries_used, flaky_retry_limit,
             )
             continue
 
-        break   # success ("pass"), assertion failure ("fail"), or retries exhausted
+        # No further retry: stop
+        break
+
+    # ── Final flaky policy outcome (after retries) ─────────────────────────
+    final_status = last_result.get("status")
+    retry_count_total = int(error_retries_used + flaky_retries_used)
+    retry_policy_applied = bool(suspected_flaky and retry_count_total > 0)
+
+    quarantine_recommended = bool(
+        FLAKY_QUARANTINE_RECOMMENDATION_ENABLED
+        and suspected_flaky
+        and final_status in ("fail", "error")
+        and retry_count_total > 0
+    )
+
+    if final_status == "pass":
+        if retry_count_total > 0 and suspected_flaky:
+            final_outcome_reason = "pass_after_flaky_retries"
+        else:
+            final_outcome_reason = "passed"
+    else:
+        if quarantine_recommended:
+            final_outcome_reason = "quarantine_candidate_after_flaky_retries"
+        else:
+            final_outcome_reason = "failed"
+
+    last_result.update(
+        {
+            "flaky_signal": flaky_signal,
+            "retry_policy_applied": retry_policy_applied,
+            "retry_count": retry_count_total,
+            "quarantine_recommended": quarantine_recommended,
+            "final_outcome_reason": final_outcome_reason,
+        }
+    )
+
+    # Persist metadata updates in the final attempt run record.
+    try:
+        if (
+            last_run_obj is not None
+            and callable(getattr(last_run_obj, "model_dump", None))
+            and isinstance(getattr(last_run_obj, "meta", None), dict)
+        ):
+            last_run_obj.meta.update(
+                {
+                    "flaky_signal": flaky_signal,
+                    "flaky_score": flaky_score,
+                    "flip_rate": flip_rate,
+                    "retry_count": retry_count_total,
+                    "retry_policy_applied": retry_policy_applied,
+                    "quarantine_recommended": quarantine_recommended,
+                    "final_outcome_reason": final_outcome_reason,
+                }
+            )
+            # Upsert meta into SQLite
+            from services.db.test_run_repository import test_run_repo
+            test_run_repo.create_run(last_run_obj)
+    except Exception:
+        logger.debug("orchestrator: failed to upsert flaky metadata for %s", tc_id, exc_info=True)
 
     # Final accounting (once per test, after all retry attempts)
     with _STATS_LOCK:

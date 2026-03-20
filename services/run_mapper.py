@@ -119,6 +119,13 @@ def run_from_catalog_testrun(tr: Any) -> CanonicalRun:
         correlation_id=raw_meta.get("correlation_id"),
         client_id=raw_meta.get("client_id"),
         workspace_id=raw_meta.get("workspace_id"),
+        flaky_signal=raw_meta.get("flaky_signal"),
+        flaky_score=raw_meta.get("flaky_score"),
+        flip_rate=raw_meta.get("flip_rate"),
+        retry_count=raw_meta.get("retry_count"),
+        retry_policy_applied=raw_meta.get("retry_policy_applied"),
+        quarantine_recommended=raw_meta.get("quarantine_recommended"),
+        final_outcome_reason=raw_meta.get("final_outcome_reason"),
     )
 
     steps = list(getattr(tr, "steps_result", None) or [])

@@ -408,6 +408,89 @@ class TestRetryPolicy:
         assert result["status"] == "pass"
         assert result["attempt"] == 2
 
+    def test_flaky_retry_on_fail_status(self):
+        """When suspected flaky, a fail status can be retried (bounded)."""
+        id1 = self._create_active_tc("RETRY-FLAKY-001")
+
+        attempt_results = [_make_fake_run("fail"), _make_fake_run("pass")]
+        call_count = [0]
+
+        def _side_effect(*args, **kwargs):
+            result = attempt_results[min(call_count[0], len(attempt_results) - 1)]
+            call_count[0] += 1
+            return result
+
+        flaky_signal = MagicMock(
+            suspected_flaky=True,
+            flaky_score=0.8,
+            flip_rate=0.6,
+        )
+
+        with patch(
+            "services.catalog_orchestrator.catalog_service.run_test_case",
+            side_effect=_side_effect,
+        ):
+            with patch(
+                "services.catalog_orchestrator.failure_intelligence_service.get_flaky_test_signal",
+                return_value=flaky_signal,
+            ):
+                with patch("services.catalog_orchestrator.FLAKY_AUTO_RETRY_ENABLED", True):
+                    with patch("services.catalog_orchestrator.FLAKY_AUTO_RETRY_MAX", 1):
+                        with patch("services.catalog_orchestrator.FLAKY_QUARANTINE_RECOMMENDATION_ENABLED", True):
+                            from services.catalog_orchestrator import _run_single_test
+                            from models.orchestrator_job import OrchestratorJob
+                            job = OrchestratorJob(test_case_ids=[id1], total_count=1, environment="test")
+                            result = _run_single_test(job, id1, retry_limit=0)
+
+        assert result["status"] == "pass"
+        assert result["attempt"] == 2
+        assert call_count[0] == 2
+        assert result["retry_count"] == 1
+        assert result["retry_policy_applied"] is True
+        assert result["quarantine_recommended"] is False
+
+    def test_flaky_quarantine_recommended_when_still_failing(self):
+        """If retries on flakiness are exhausted and still failing, recommend quarantine."""
+        id1 = self._create_active_tc("RETRY-FLAKY-002")
+
+        attempt_results = [_make_fake_run("fail"), _make_fake_run("fail")]
+        call_count = [0]
+
+        def _side_effect(*args, **kwargs):
+            result = attempt_results[min(call_count[0], len(attempt_results) - 1)]
+            call_count[0] += 1
+            return result
+
+        flaky_signal = MagicMock(
+            suspected_flaky=True,
+            flaky_score=0.7,
+            flip_rate=0.5,
+        )
+
+        with patch(
+            "services.catalog_orchestrator.catalog_service.run_test_case",
+            side_effect=_side_effect,
+        ):
+            with patch(
+                "services.catalog_orchestrator.failure_intelligence_service.get_flaky_test_signal",
+                return_value=flaky_signal,
+            ):
+                with patch("services.catalog_orchestrator.FLAKY_AUTO_RETRY_ENABLED", True):
+                    with patch("services.catalog_orchestrator.FLAKY_AUTO_RETRY_MAX", 1):
+                        with patch("services.catalog_orchestrator.FLAKY_QUARANTINE_RECOMMENDATION_ENABLED", True):
+                            from services.catalog_orchestrator import _run_single_test
+                            from models.orchestrator_job import OrchestratorJob
+                            job = OrchestratorJob(test_case_ids=[id1], total_count=1, environment="test")
+                            result = _run_single_test(job, id1, retry_limit=0)
+
+        assert result["status"] == "fail"
+        assert result["attempt"] == 2
+        assert call_count[0] == 2
+        assert result["retry_count"] == 1
+        assert result["quarantine_recommended"] is True
+        assert isinstance(result["final_outcome_reason"], str)
+        assert "quarantine" in result["final_outcome_reason"].lower()
+
 
 # ── 6. Execution status ───────────────────────────────────────────────────────
 

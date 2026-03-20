@@ -255,6 +255,74 @@ class FailureIntelligenceService:
         signals.sort(key=lambda s: (-int(s.suspected_flaky), -s.flaky_score))
         return signals
 
+    # ── Targeted flaky signal (single test case) ──────────────────────────
+    def get_flaky_test_signal(
+        self,
+        test_case_id: str,
+        window:         int   = FLAKY_WINDOW,
+        min_runs:       int   = FLAKY_MIN_RUNS,
+        flip_threshold: float = FLAKY_FLIP_THRESHOLD,
+    ) -> Optional[FlakyTestSignal]:
+        """
+        Compute a FlakyTestSignal for a single test_case_id using the same
+        heuristic criteria as `get_flaky_tests`, but without scanning all
+        test cases.
+
+        Returns None when there is no recent history for the test case.
+        """
+        from services.db.test_run_repository import test_run_repo
+
+        recent = test_run_repo.list_runs(test_case_id=test_case_id, limit=window)
+        if not recent:
+            return None
+
+        statuses    = [r.status for r in recent]
+        total       = len(statuses)
+        pass_count  = statuses.count("pass")
+        fail_count  = statuses.count("fail")
+        error_count = statuses.count("error")
+        non_pass    = fail_count + error_count
+
+        flip_rate = _compute_flip_rate(statuses)
+
+        pass_frac   = pass_count / total if total > 0 else 0.0
+        fail_frac   = non_pass   / total if total > 0 else 0.0
+        flaky_score = round(flip_rate * min(pass_frac, fail_frac) * 2, 4)
+
+        suspected_flaky = (
+            total     >= min_runs
+            and pass_count > 0
+            and non_pass   > 0
+            and flip_rate  >= flip_threshold
+        )
+
+        if suspected_flaky:
+            notes = (
+                f"Alternates pass/fail across {total} recent runs "
+                f"(flip rate: {flip_rate:.2f}, score: {flaky_score:.2f})."
+            )
+        elif non_pass == total:
+            notes = f"Consistently failing — {non_pass}/{total} runs failed."
+        elif pass_count == total:
+            notes = f"Consistently passing — all {pass_count} runs passed."
+        else:
+            notes = (
+                f"Low flip rate ({flip_rate:.2f}) — not suspected flaky "
+                f"({pass_count} pass, {non_pass} fail/error of {total})."
+            )
+
+        return FlakyTestSignal(
+            test_case_id=test_case_id,
+            total_runs=total,
+            pass_count=pass_count,
+            fail_count=fail_count,
+            error_count=error_count,
+            flip_rate=flip_rate,
+            flaky_score=flaky_score,
+            suspected_flaky=suspected_flaky,
+            notes=notes,
+        )
+
     # ── Regression detection ────────────────────────────────────────────────────
 
     def get_regressions(

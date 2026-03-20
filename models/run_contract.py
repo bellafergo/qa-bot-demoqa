@@ -82,6 +82,15 @@ class RunMeta(BaseModel):
     client_id:      Optional[str] = None  # optional multi-client partition id
     workspace_id:   Optional[str] = None  # optional multi-workspace partition id
 
+    # ── CI / operability: flaky quarantine & retry metadata ─────────────
+    flaky_signal: Optional[str] = None  # e.g. "suspected_flaky"
+    flaky_score: Optional[float] = None
+    flip_rate: Optional[float] = None
+    retry_count: Optional[int] = None  # number of auto retries applied
+    retry_policy_applied: Optional[bool] = None
+    quarantine_recommended: Optional[bool] = None
+    final_outcome_reason: Optional[str] = None
+
 
 class CanonicalRun(BaseModel):
     """
