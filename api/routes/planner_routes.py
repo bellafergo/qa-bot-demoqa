@@ -38,6 +38,35 @@ class ExecuteTextRequest(BaseModel):
     allow_risky: bool           = False
 
 
+# ── Step expansion ───────────────────────────────────────────────────────────
+
+def _expand_abstract_steps(steps: list[dict]) -> list[dict]:
+    """
+    Expand abstract planner steps into concrete runner-compatible steps.
+
+    Currently handles:
+      {"action": "login", "email": "...", "password": "..."}
+        → fill #user-name, fill #password, click #login-button  (SauceDemo / generic)
+
+    All other steps are passed through unchanged.
+    """
+    expanded: list[dict] = []
+    for step in steps:
+        if step.get("action") == "login" and not any(
+            k in step for k in ("selector", "target", "loc")
+        ):
+            email    = step.get("email")    or step.get("username") or "{EMAIL}"
+            password = step.get("password") or "{PASSWORD}"
+            expanded += [
+                {"action": "fill", "selector": "#user-name", "value": email},
+                {"action": "fill", "selector": "#password",  "value": password},
+                {"action": "click", "selector": "#login-button"},
+            ]
+        else:
+            expanded.append(step)
+    return expanded
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/plan_from_text")
@@ -92,6 +121,9 @@ def execute_text_endpoint(req: ExecuteTextRequest) -> Dict[str, Any]:
     steps = plan.get("steps") or []
     if not steps:
         return {"plan": plan, "run": None, "reason": "No executable steps generated"}
+
+    # Expand abstract steps (e.g. login → fill/click) before handing to runner
+    steps = _expand_abstract_steps(steps)
 
     # 2 — execute
     try:
