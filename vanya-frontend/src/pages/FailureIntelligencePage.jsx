@@ -101,6 +101,15 @@ function FlakyTab({ data, loading, error, t, navigate }) {
                     <div style={{ marginTop: 3, fontSize: 11, fontFamily: "monospace" }}>
                       {statusPattern(f.pass_count, f.fail_count, f.error_count)}
                     </div>
+                    <div style={{ marginTop: 6 }}>
+                      <span
+                        className="badge badge-red"
+                        style={{ fontSize: 10, cursor: "help" }}
+                        title={`${t("fi.flaky.hint")}${typeof f.flaky_score === "number" ? ` (score: ${Math.round(f.flaky_score * 100)})` : ""}`}
+                      >
+                        {t("fi.flaky.badge.suspected")}
+                      </span>
+                    </div>
                   </td>
                   <td>{flipBar(f.flip_rate)}</td>
                   <td style={{ textAlign: "right" }}>
@@ -127,7 +136,7 @@ function FlakyTab({ data, loading, error, t, navigate }) {
             <span style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-3)" }}>
               {t("fi.flaky.badge.watch")}
             </span>
-            <span className="badge badge-gray" style={{ fontSize: 10 }}>{watching.length}</span>
+            <span className="badge badge-orange" style={{ fontSize: 10 }}>{watching.length}</span>
           </div>
           <table className="data-table" style={{ fontSize: 12 }}>
             <thead><tr>
