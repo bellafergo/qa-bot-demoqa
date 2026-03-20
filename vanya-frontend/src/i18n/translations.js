@@ -15,7 +15,7 @@ export const translations = {
     "nav.dashboard":    "Dashboard",
     "nav.catalog":      "Catalog",
     "nav.execution":    "Execution",
-    "nav.runs":         "Runs & RCA",
+    "nav.runs":         "Runs",
     "nav.pr_analysis":  "PR Analysis",
     "nav.coverage":     "Coverage",
     "nav.drafts":       "Drafts",
@@ -28,6 +28,27 @@ export const translations = {
     "nav.risk_selection": "Risk Selection",
     "nav.evidence":       "Evidence Library",
     "nav.settings":       "Settings",
+    "nav.section_generate": "Generate",
+    "nav.generate":         "Generate Tests",
+    "nav.insights":         "Insights",
+
+    // ── Generate Tests page ──────────────────────────────────────────────────
+    "gen.title":            "Generate Tests",
+    "gen.subtitle":         "Create tests from text descriptions, URLs, PRs and API specs",
+    "gen.tab.description":  "From Description",
+    "gen.tab.url":          "From URL",
+    "gen.tab.pr":           "From PR",
+    "gen.tab.api":          "From API",
+
+    // ── Insights page ────────────────────────────────────────────────────────
+    "insights.title":       "Insights",
+    "insights.subtitle":    "Failure intelligence, coverage and risk-based analysis",
+    "insights.tab.failures":"Failures",
+    "insights.tab.coverage":"Coverage",
+    "insights.tab.risk":    "Risk",
+    "insights.tab.ai":      "AI Recommendations",
+    "insights.ai.title":    "AI Recommendations",
+    "insights.ai.desc":     "AI-powered test recommendations based on failure patterns, coverage gaps and risk signals. Coming soon.",
 
     // ── Evidence Library page ────────────────────────────────────────────────
     "ev.title":           "Evidence Library",
@@ -999,7 +1020,7 @@ export const translations = {
     "nav.dashboard":    "Tablero",
     "nav.catalog":      "Catálogo",
     "nav.execution":    "Ejecución",
-    "nav.runs":         "Ejecuciones & RCA",
+    "nav.runs":         "Runs",
     "nav.pr_analysis":  "Análisis PR",
     "nav.coverage":     "Cobertura",
     "nav.drafts":       "Borradores",
@@ -1012,6 +1033,27 @@ export const translations = {
     "nav.risk_selection": "Selección por Riesgo",
     "nav.evidence":       "Biblioteca de Evidencias",
     "nav.settings":       "Configuración",
+    "nav.section_generate": "Generar",
+    "nav.generate":         "Generar pruebas",
+    "nav.insights":         "Insights",
+
+    // ── Generate Tests page ──────────────────────────────────────────────────
+    "gen.title":            "Generar Pruebas",
+    "gen.subtitle":         "Crea pruebas desde texto, URLs, PRs y specs de API",
+    "gen.tab.description":  "Desde descripción",
+    "gen.tab.url":          "Desde URL",
+    "gen.tab.pr":           "Desde PR",
+    "gen.tab.api":          "Desde API",
+
+    // ── Insights page ────────────────────────────────────────────────────────
+    "insights.title":       "Insights",
+    "insights.subtitle":    "Inteligencia de fallos, cobertura y análisis de riesgo",
+    "insights.tab.failures":"Fallos",
+    "insights.tab.coverage":"Cobertura",
+    "insights.tab.risk":    "Riesgo",
+    "insights.tab.ai":      "Recomendaciones IA",
+    "insights.ai.title":    "Recomendaciones IA",
+    "insights.ai.desc":     "Recomendaciones de pruebas con IA basadas en patrones de fallos, brechas de cobertura y señales de riesgo. Próximamente.",
 
     // ── Evidence Library page ────────────────────────────────────────────────
     "ev.title":           "Biblioteca de Evidencias",

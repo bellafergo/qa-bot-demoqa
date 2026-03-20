@@ -8,43 +8,42 @@ const NAV_SECTIONS_DEF = [
   {
     labelKey: "nav.core",
     items: [
-      { to: "/dashboard",  icon: "⊞", labelKey: "nav.dashboard"  },
-      { to: "/catalog",    icon: "☰", labelKey: "nav.catalog"    },
-      { to: "/execution",  icon: "⚙", labelKey: "nav.execution"  },
-      { to: "/runs",       icon: "◈", labelKey: "nav.runs"       },
-      { to: "/evidence",   icon: "⊟", labelKey: "nav.evidence"   },
+      { to: "/dashboard", icon: "⊞", labelKey: "nav.dashboard" },
+      { to: "/catalog",   icon: "☰", labelKey: "nav.catalog"   },
+      { to: "/runs",      icon: "◈", labelKey: "nav.runs"      },
+      { to: "/evidence",  icon: "⊟", labelKey: "nav.evidence"  },
+    ],
+  },
+  {
+    labelKey: "nav.section_generate",
+    items: [
+      { to: "/generate", icon: "⊕", labelKey: "nav.generate" },
     ],
   },
   {
     labelKey: "nav.intelligence",
     items: [
-      { to: "/pr-analysis",   icon: "◎", labelKey: "nav.pr_analysis"  },
-      { to: "/coverage",      icon: "◐", labelKey: "nav.coverage"     },
-      { to: "/drafts",        icon: "⊕", labelKey: "nav.drafts"       },
-      { to: "/failure-intel",   icon: "⚠", labelKey: "nav.failure_intel"   },
-      { to: "/risk-selection", icon: "◈", labelKey: "nav.risk_selection" },
+      { to: "/insights", icon: "◐", labelKey: "nav.insights" },
     ],
   },
   {
     labelKey: "nav.tools",
     items: [
-      { to: "/chat",        icon: "✦", labelKey: "nav.chat"        },
-      { to: "/api-testing", icon: "⌥", labelKey: "nav.api_testing" },
-      { to: "/planner",     icon: "⚡", labelKey: "nav.planner"    },
-      { to: "/documents",   icon: "⊟", labelKey: "nav.documents"   },
+      { to: "/chat", icon: "✦", labelKey: "nav.chat" },
     ],
   },
   {
     labelKey: "nav.platform",
     items: [
       { to: "/integrations", icon: "⊕", labelKey: "nav.integrations" },
+      { to: "/documents",    icon: "⊟", labelKey: "nav.documents"    },
+      { to: "/settings",     icon: "⊛", labelKey: "nav.settings"     },
     ],
   },
 ];
 
-const BOTTOM_ITEMS_DEF = [
-  { to: "/settings", icon: "⊛", labelKey: "nav.settings" },
-];
+// Settings moved into Platform section above; bottom bar is now only language
+const BOTTOM_ITEMS_DEF = [];
 
 function NavItem({ to, icon, label }) {
   return (

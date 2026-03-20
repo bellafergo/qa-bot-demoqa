@@ -20,6 +20,8 @@ import IntegrationsPage         from "./pages/IntegrationsPage";
 import FailureIntelligencePage  from "./pages/FailureIntelligencePage";
 import RiskSelectionPage        from "./pages/RiskSelectionPage";
 import EvidencePage            from "./pages/EvidencePage";
+import GeneratePage            from "./pages/GeneratePage";
+import InsightsPage            from "./pages/InsightsPage";
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -52,29 +54,27 @@ export default function App() {
         <Route path="/" element={<Layout />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
 
-          {/* Core */}
-          <Route path="dashboard"   element={<DashboardPage />} />
-          <Route path="catalog"     element={<CatalogPage />} />
-          <Route path="execution"   element={<ExecutionPage />} />
-          <Route path="runs"        element={<RunsPage />} />
-          <Route path="evidence"    element={<EvidencePage />} />
-
-          {/* Intelligence */}
-          <Route path="pr-analysis"       element={<PRAnalysisPage />} />
-          <Route path="coverage"          element={<CoveragePage />} />
-          <Route path="drafts"            element={<DraftsPage />} />
-          <Route path="failure-intel"     element={<FailureIntelligencePage />} />
-          <Route path="risk-selection"    element={<RiskSelectionPage />} />
-
-          {/* Integrations */}
+          {/* ── Primary nav routes ───────────────────────────────────── */}
+          <Route path="dashboard"  element={<DashboardPage />} />
+          <Route path="catalog"    element={<CatalogPage />} />
+          <Route path="runs"       element={<RunsPage />} />
+          <Route path="evidence"   element={<EvidencePage />} />
+          <Route path="generate"   element={<GeneratePage />} />
+          <Route path="insights"   element={<InsightsPage />} />
+          <Route path="chat"       element={<ChatPage />} />
           <Route path="integrations" element={<IntegrationsPage />} />
+          <Route path="documents"  element={<DocumentsPage />} />
+          <Route path="settings"   element={<SettingsPage />} />
 
-          {/* Tools */}
-          <Route path="chat"        element={<ChatPage />} />
-          <Route path="api-testing" element={<ApiTestingPage />} />
-          <Route path="planner"     element={<PlannerPage />} />
-          <Route path="documents"   element={<DocumentsPage />} />
-          <Route path="settings"    element={<SettingsPage />} />
+          {/* ── Legacy routes — active but not in sidebar ────────────── */}
+          <Route path="execution"      element={<ExecutionPage />} />
+          <Route path="pr-analysis"    element={<PRAnalysisPage />} />
+          <Route path="coverage"       element={<CoveragePage />} />
+          <Route path="drafts"         element={<DraftsPage />} />
+          <Route path="failure-intel"  element={<FailureIntelligencePage />} />
+          <Route path="risk-selection" element={<RiskSelectionPage />} />
+          <Route path="api-testing"    element={<ApiTestingPage />} />
+          <Route path="planner"        element={<PlannerPage />} />
 
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
