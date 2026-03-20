@@ -77,7 +77,7 @@ function getStepsCount(run) {
 
 function hasEvidenceForList(run) {
   if (!run) return false;
-  const arts = run.artifacts || {};
+  const arts = run?.artifacts || {};
   return Boolean(
     run.evidence_url ||
       run.report_url ||
@@ -297,6 +297,7 @@ function toDataUri(b64) {
 }
 
 function getScreenshotSrc(detail) {
+  if (!detail) return null;
   // 1. canonical artifacts.screenshot_b64 (new contract)
   const artifacts = detail.artifacts || {};
   if (artifacts.screenshot_b64) return toDataUri(artifacts.screenshot_b64);
@@ -318,6 +319,7 @@ function getScreenshotSrc(detail) {
 
 function EvidenceCard({ detail, runType }) {
   const { t } = useLang();
+  if (!detail) return null;
   // Support both canonical (artifacts.*) and legacy (flat fields)
   const artifacts    = detail.artifacts || {};
   const evidenceUrl  = artifacts.evidence_url  || detail.evidence_url;
@@ -649,7 +651,7 @@ function EvidenceLookupTab() {
 
           {/* Evidence links — support both canonical (artifacts.*) and legacy (flat) fields */}
           {(() => {
-            const arts = run.artifacts || {};
+            const arts = run?.artifacts || {};
             const evUrl = arts.evidence_url || run.evidence_url;
             const rpUrl = arts.report_url   || run.report_url;
             const baseUrl = run.meta?.base_url;
@@ -1200,8 +1202,8 @@ function RunHistoryTab({ initialRunId }) {
 
                   const testCaseId = detail.test_id || detail.test_case_id;
                   const correlationId = detail.correlation_id || meta.correlation_id;
-                  const evidenceUrl = detail.evidence_url || detail.artifacts?.evidence_url;
-                  const reportUrl = detail.report_url || detail.artifacts?.report_url;
+                  const evidenceUrl = detail?.evidence_url || detail?.artifacts?.evidence_url;
+                  const reportUrl = detail?.report_url || detail?.artifacts?.report_url;
 
                   const canRetry =
                     !!testCaseId &&
