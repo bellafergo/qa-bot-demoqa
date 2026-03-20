@@ -664,10 +664,10 @@ export default function DashboardPage() {
           {/* RIGHT */}
           <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
 
-            {/* Failure Intelligence */}
+            {/* Failure Intelligence summary — links to Insights */}
             {fi && (
               <div className="card">
-                <div className="section-title">{t("dash.failure_intel")}</div>
+                <div className="section-title">{t("dash.insights_summary")}</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
                   <Row label={t("dash.fi.flaky_tests")}  value={fi.flaky_tests_count ?? 0}           accent={fi.flaky_tests_count > 0 ? "var(--orange)" : undefined} />
                   <Row label={t("dash.fi.clusters")}      value={fi.total_clusters ?? 0} />
@@ -679,8 +679,8 @@ export default function DashboardPage() {
                   )}
                 </div>
                 <div style={{ marginTop: 12 }}>
-                  <Link to="/runs" style={{ fontSize: 12, color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>
-                    {t("dash.view_rca")}
+                  <Link to="/insights" style={{ fontSize: 12, color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>
+                    {t("dash.view_insights")}
                   </Link>
                 </div>
               </div>
@@ -691,13 +691,11 @@ export default function DashboardPage() {
               <div className="section-title">{t("dash.quick_actions")}</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {[
-                  { to: "/catalog",     icon: "☰", labelKey: "nav.catalog",      subKey: "dash.qa.catalog_sub"   },
-                  { to: "/execution",   icon: "⚙", labelKey: "nav.execution",    subKey: "dash.qa.execution_sub" },
-                  { to: "/drafts",      icon: "⊕", labelKey: "nav.drafts",       subKey: "dash.qa.drafts_sub"    },
-                  { to: "/pr-analysis", icon: "◎", labelKey: "nav.pr_analysis",  subKey: "dash.qa.pr_sub"        },
-                  { to: "/api-testing", icon: "⌥", labelKey: "nav.api_testing",  subKey: "dash.qa.api_sub"       },
-                  { to: "/coverage",    icon: "◐", labelKey: "nav.coverage",     subKey: "dash.qa.coverage_sub"  },
-                  { to: "/chat",        icon: "✦", labelKey: "nav.chat",         subKey: "dash.qa.chat_sub"      },
+                  { to: "/catalog",   icon: "☰", labelKey: "nav.catalog",   subKey: "dash.qa.catalog_sub"   },
+                  { to: "/generate",  icon: "⊕", labelKey: "nav.generate",  subKey: "dash.qa.generate_sub"  },
+                  { to: "/insights",  icon: "◐", labelKey: "nav.insights",  subKey: "dash.qa.insights_sub"  },
+                  { to: "/execution", icon: "⚙", labelKey: "exec.page.title", subKey: "dash.qa.execution_sub" },
+                  { to: "/chat",      icon: "✦", labelKey: "nav.chat",      subKey: "dash.qa.chat_sub"      },
                 ].map(({ to, icon, labelKey, subKey }) => (
                   <Link key={to} to={to} className="quick-action" style={{ flexDirection: "row", gap: 12 }}>
                     <span className="quick-action-icon" style={{ fontSize: 15 }}>{icon}</span>

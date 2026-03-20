@@ -239,7 +239,7 @@ export default function CoveragePage() {
                   {saving ? t("cov.suggestions.saving") : t("cov.suggestions.save_all")}
                 </button>
               )}
-              <button className="btn btn-secondary btn-sm" onClick={() => navigate("/drafts")}>
+              <button className="btn btn-secondary btn-sm" onClick={() => navigate("/generate")}>
                 {t("cov.suggestions.open_drafts")}
               </button>
               <button className="btn btn-secondary btn-sm" onClick={() => { setSuggestions(null); setSaveResult(null); }}>✕</button>
@@ -257,7 +257,7 @@ export default function CoveragePage() {
                   <span>
                     ✓ {saveResult.saved_count ?? 0} {t("cov.suggestions.saved_count")}
                     {saveResult.error_count > 0 && ` · ${saveResult.error_count} ${t("cov.suggestions.batch_failed")}`}
-                    {" "}<button className="btn btn-secondary btn-sm" style={{ fontSize: 11, marginLeft: 8 }} onClick={() => navigate("/drafts")}>{t("cov.suggestions.open_drafts")}</button>
+                    {" "}<button className="btn btn-secondary btn-sm" style={{ fontSize: 11, marginLeft: 8 }} onClick={() => navigate("/generate")}>{t("cov.suggestions.open_drafts")}</button>
                   </span>
                 )
               }

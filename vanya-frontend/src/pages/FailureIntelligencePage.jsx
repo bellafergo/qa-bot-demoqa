@@ -300,7 +300,7 @@ function ClustersTab({ data, loading, error, t }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-export default function FailureIntelligencePage() {
+export default function FailureIntelligencePage({ embedded = false }) {
   const { t } = useLang();
 
   const [tab, setTab]               = useState("flaky");
@@ -366,15 +366,17 @@ export default function FailureIntelligencePage() {
   return (
     <div className="page-wrap">
 
-      {/* Header */}
-      <div style={{ marginBottom: 20 }}>
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "var(--text)" }}>
-          {t("fi.title")}
-        </h2>
-        <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--text-3)" }}>
-          {t("fi.subtitle")}
-        </p>
-      </div>
+      {/* Header — suppressed when embedded inside InsightsPage */}
+      {!embedded && (
+        <div style={{ marginBottom: 20 }}>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "var(--text)" }}>
+            {t("fi.title")}
+          </h2>
+          <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--text-3)" }}>
+            {t("fi.subtitle")}
+          </p>
+        </div>
+      )}
 
       {/* Tabs */}
       <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: "1px solid var(--border)" }}>

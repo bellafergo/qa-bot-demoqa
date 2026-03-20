@@ -48,7 +48,7 @@ function ScoreBar({ score, max = 25 }) {
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
-export default function RiskSelectionPage() {
+export default function RiskSelectionPage({ embedded = false }) {
   const { t } = useLang();
   const navigate  = useNavigate();
   const location  = useLocation();
@@ -234,10 +234,10 @@ export default function RiskSelectionPage() {
   return (
     <div className="page-wrap">
 
-      {/* Hero */}
+      {/* Hero — h1/subtitle suppressed when embedded inside InsightsPage */}
       <div style={{ marginBottom: 24 }}>
-        <h1 className="page-title">{t("risk.title")}</h1>
-        <p className="page-subtitle">{t("risk.subtitle")}</p>
+        {!embedded && <h1 className="page-title">{t("risk.title")}</h1>}
+        {!embedded && <p className="page-subtitle">{t("risk.subtitle")}</p>}
         {fromPR && prefillMods && (
           <div style={{
             display: "inline-flex", alignItems: "center", gap: 8,
@@ -343,9 +343,9 @@ export default function RiskSelectionPage() {
               <button
                 className="btn btn-secondary btn-sm"
                 style={{ marginLeft: "auto" }}
-                onClick={() => navigate("/execution")}
+                onClick={() => navigate("/runs")}
               >
-                {t("risk.run.go_execution")}
+                {t("risk.run.go_runs")}
               </button>
             </div>
           ) : (
@@ -486,7 +486,7 @@ export default function RiskSelectionPage() {
                               onClick={() => handleEdit(test.module)}
                               title={t("risk.edit.tooltip")}
                             >
-                              ✏ Edit
+                              ✏ {t("risk.edit.btn")}
                             </button>
                           </td>
                         </tr>
