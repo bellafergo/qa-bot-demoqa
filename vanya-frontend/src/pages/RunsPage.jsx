@@ -20,10 +20,30 @@ const TAB_KEYS = ["runs.tab.history", "runs.tab.lookup"];
 function statusBadgeClass(status) {
   const s = String(status || "").toLowerCase();
   if (s === "pass" || s === "passed" || s === "completed") return "badge badge-green";
-  if (s === "fail" || s === "failed" || s === "error")     return "badge badge-red";
+  if (s === "fail" || s === "failed")                      return "badge badge-red";
+  if (s === "error")                                      return "badge badge-orange";
   if (s === "running")                                     return "badge badge-blue";
   if (s === "queued")                                      return "badge badge-orange";
+  if (s === "planning" || s === "compiled")                 return "badge badge-orange";
+  if (s === "canceled" || s === "cancelled")              return "badge badge-gray";
   return "badge badge-gray";
+}
+
+function statusIcon(status) {
+  const s = String(status || "").toLowerCase();
+  if (s === "pass" || s === "passed" || s === "completed") return "✓";
+  if (s === "fail" || s === "failed") return "✕";
+  if (s === "error") return "⚠";
+  if (s === "running") return "⏱";
+  if (s === "queued") return "⏳";
+  if (s === "planning" || s === "compiled") return "⌁";
+  if (s === "canceled" || s === "cancelled") return "⦸";
+  return "•";
+}
+
+function statusBadgeText(status) {
+  const label = status || "—";
+  return `${statusIcon(status)} ${label}`;
 }
 
 function stepStatusColor(status) {
@@ -42,6 +62,122 @@ function fmtDate(iso) {
 function fmtMs(ms) {
   if (ms == null) return "—";
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
+}
+
+function getStepsCount(run) {
+  if (!run) return 0;
+  const n =
+    run.steps_count ??
+    (Array.isArray(run.steps) ? run.steps.length : null) ??
+    (Array.isArray(run.steps_result) ? run.steps_result.length : null) ??
+    0;
+  const nn = Number(n);
+  return Number.isFinite(nn) ? nn : 0;
+}
+
+function hasEvidenceForList(run) {
+  if (!run) return false;
+  const arts = run.artifacts || {};
+  return Boolean(
+    run.evidence_url ||
+      run.report_url ||
+      arts.evidence_url ||
+      arts.report_url ||
+      arts.screenshot_b64 ||
+      run.meta?.evidence_url ||
+      run.meta?.report_url
+  );
+}
+
+function CorrelationIdChip({ value }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(String(value));
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 900);
+    } catch {
+      // ignore (clipboard may not be available)
+    }
+  };
+  if (!value) return null;
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+      <span className="badge badge-gray" style={{ fontSize: 10, opacity: 0.9 }}>correlation</span>
+      <code style={{ fontSize: 11, color: "var(--text-2)" }}>{value}</code>
+      <button
+        className="btn btn-secondary btn-sm"
+        onClick={copy}
+        style={{ fontSize: 11, padding: "4px 10px" }}
+        title="Copy correlation_id"
+      >
+        {copied ? "Copied" : "Copy"}
+      </button>
+    </span>
+  );
+}
+
+function DebugAccordion({ detail }) {
+  const errType = detail?.error_type || detail?.meta?.error_type;
+  const stepIndex = detail?.step_index ?? detail?.meta?.step_index;
+  const hint = detail?.hint ?? detail?.meta?.hint;
+  const rawReason = detail?.reason || detail?.message || detail?.error_message || "";
+  const rawMessage = rawReason || detail?.runner?.reason || "";
+  const hasAny = Boolean(errType || stepIndex != null || hint || rawMessage);
+
+  if (!hasAny) return null;
+
+  return (
+    <div className="card" style={{ marginBottom: 20 }}>
+      <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)" }}>
+        <div className="section-title" style={{ margin: 0 }}>Debug</div>
+      </div>
+      <div style={{ padding: 16 }}>
+        <details>
+          <summary style={{ cursor: "pointer", fontSize: 13, color: "var(--text-2)" }}>
+            Show error details
+          </summary>
+          <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+            {errType && (
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  error_type
+                </span>
+                <span className="badge badge-orange">{errType}</span>
+              </div>
+            )}
+            {stepIndex != null && (
+              <div>
+                <span style={{ fontSize: 11, fontWeight: 800, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  step_index
+                </span>{" "}
+                <code style={{ fontSize: 12, color: "var(--text-2)" }}>{String(stepIndex)}</code>
+              </div>
+            )}
+            {hint && (
+              <div>
+                <span style={{ fontSize: 11, fontWeight: 800, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  hint
+                </span>{" "}
+                <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.6, marginTop: 4 }}>{hint}</div>
+              </div>
+            )}
+            {rawMessage && (
+              <div>
+                <span style={{ fontSize: 11, fontWeight: 800, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  raw reason/message
+                </span>
+                <pre className="code-block" style={{ marginTop: 6, maxHeight: 180, overflow: "auto", whiteSpace: "pre-wrap" }}>
+                  {rawMessage}
+                </pre>
+              </div>
+            )}
+          </div>
+        </details>
+      </div>
+    </div>
+  );
 }
 
 // ── Run type / backend inference helpers ──────────────────────────────────────
@@ -355,6 +491,8 @@ function EvidenceLookupTab() {
     return s2.includes("fail") || s2.includes("error");
   }).length ?? 0;
   const totalSteps = run?.steps?.length ?? 0;
+  const stepsCount = getStepsCount(run);
+  const screenshotSrc = getScreenshotSrc(run);
 
   return (
     <>
@@ -383,10 +521,17 @@ function EvidenceLookupTab() {
         <>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
             <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "var(--text)" }}>{t("runs.detail.title")}</h2>
-            <span className={statusBadgeClass(run.status)}>{run.status || "unknown"}</span>
+            <span className={statusBadgeClass(run.status)}>{statusBadgeText(run.status || "unknown")}</span>
             <RunTypeBadge runType={inferRunType(run)} />
             <BackendBadge backend={inferBackend(run)} />
             {run.evidence_id && <code style={{ fontSize: 12, color: "var(--text-2)" }}>{run.evidence_id}</code>}
+            {stepsCount > 0 && <span className="badge badge-gray">{stepsCount} steps</span>}
+            {(run.started_at || run.created_at) && (
+              <span className="badge badge-gray" title="Start time">
+                {fmtDate(run.started_at || run.created_at)}
+              </span>
+            )}
+            <CorrelationIdChip value={run.correlation_id || run.meta?.correlation_id} />
             {hasHealing && (
               <span className="badge badge-orange" title={`${healedEntries.length} selector(s) auto-healed`}>
                 ⚡ {healedEntries.length} {t("runs.detail.auto_healed")}
@@ -470,12 +615,21 @@ function EvidenceLookupTab() {
             );
           })()}
 
-          {run.reason && (
+          {(run.error_summary || run.reason || run.message || run.error_message) && (
             <div className="card" style={{ marginBottom: 20 }}>
               <div className="section-title">{t("runs.detail.failure_reason")}</div>
-              <div style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6 }}>{run.reason}</div>
+              <div style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6 }}>
+                {run.error_summary || run.reason || run.message || run.error_message}
+              </div>
+              {(run.hint || run.meta?.hint) && (
+                <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-3)", lineHeight: 1.6 }}>
+                  <strong>Hint:</strong> {run.hint || run.meta?.hint}
+                </div>
+              )}
             </div>
           )}
+
+          <DebugAccordion detail={run} />
 
           <FailureAnalysisPanel fa={run.failure_analysis} style={{ marginBottom: 20 }} />
 
@@ -555,11 +709,11 @@ function EvidenceLookupTab() {
             </div>
           )}
 
-          {run.screenshot_b64 && (
+          {screenshotSrc && (
             <div className="card">
               <div className="section-title">{t("runs.detail.screenshot")}</div>
               <img
-                src={run.screenshot_b64.startsWith("data:image/") ? run.screenshot_b64 : `data:image/png;base64,${run.screenshot_b64}`}
+                src={screenshotSrc}
                 alt={t("runs.detail.screenshot")}
                 style={{ maxWidth: "100%", borderRadius: "var(--r-sm)", border: "1px solid var(--border)", marginTop: 4 }}
               />
@@ -628,7 +782,6 @@ function RunHistoryTab({ initialRunId }) {
       autoOpenedRef.current = true;
       openDetail(initialRunId);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialRunId]);
 
   // Scroll selected row into view once runs are loaded and a row is selected
@@ -737,9 +890,23 @@ function RunHistoryTab({ initialRunId }) {
                       <span style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                         {r.test_id || r.test_case_id || "—"}
                         <RunTypeBadge runType={inferRunType(r)} />
+                        {getStepsCount(r) > 0 && (
+                          <span className="badge badge-gray" style={{ fontSize: 10 }} title="Executed steps">
+                            {getStepsCount(r)} steps
+                          </span>
+                        )}
                       </span>
                     </td>
-                    <td><span className={statusBadgeClass(r.status)}>{r.status || "—"}</span></td>
+                    <td>
+                      <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <span className={statusBadgeClass(r.status)}>{statusBadgeText(r.status)}</span>
+                        {hasEvidenceForList(r) && (
+                          <span className="badge badge-green" style={{ fontSize: 10 }} title="Evidence available">
+                            E
+                          </span>
+                        )}
+                      </span>
+                    </td>
                     <td style={{ fontSize: 12, color: "var(--text-3)" }}>{fmtMs(r.duration_ms)}</td>
                     <td style={{ fontSize: 11, color: "var(--text-3)", whiteSpace: "nowrap" }}>{fmtDate(r.started_at || r.created_at)}</td>
                   </tr>
@@ -778,17 +945,32 @@ function RunHistoryTab({ initialRunId }) {
                   {detail.run_id}
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-                  <span className={statusBadgeClass(detail.status)}>{detail.status}</span>
+                  <span className={statusBadgeClass(detail.status)}>{statusBadgeText(detail.status)}</span>
                   {detail.duration_ms != null && <span className="badge badge-gray">{fmtMs(detail.duration_ms)}</span>}
+                  {getStepsCount(detail) > 0 && (
+                    <span className="badge badge-gray" title="Executed steps">{getStepsCount(detail)} steps</span>
+                  )}
                   {(detail.test_id || detail.test_case_id) && <span className="badge badge-gray">{detail.test_id || detail.test_case_id}</span>}
+                  {detail.started_at || detail.created_at ? (
+                    <span className="badge badge-gray" title="Start time">{fmtDate(detail.started_at || detail.created_at)}</span>
+                  ) : null}
                   <RunTypeBadge runType={inferRunType(detail)} />
                   <BackendBadge backend={inferBackend(detail)} />
+                  <CorrelationIdChip value={detail.correlation_id || detail.meta?.correlation_id} />
                 </div>
-                {detail.reason && (
-                  <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.5, marginBottom: 8 }}>
-                    <strong>{t("runs.history.reason")}</strong> {detail.reason}
+                {(detail.error_summary || detail.reason || detail.message || detail.error_message) && (
+                  <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.55, marginBottom: 8 }}>
+                    <strong>{t("runs.history.reason")}</strong>{" "}
+                    {detail.error_summary || detail.reason || detail.message || detail.error_message}
+                    {(detail.hint || detail.meta?.hint) && (
+                      <div style={{ marginTop: 6, color: "var(--text-3)" }}>
+                        <strong>Hint:</strong> {detail.hint || detail.meta?.hint}
+                      </div>
+                    )}
                   </div>
                 )}
+
+                <DebugAccordion detail={detail} />
                 {detail.steps?.length > 0 && (
                   <div style={{ fontSize: 12, color: "var(--text-3)" }}>
                     {detail.steps.length} {t("runs.history.steps_label")} — {detail.steps.filter(s => String(s.status || "").toLowerCase().includes("pass")).length} {t("runs.history.passed_label")}
