@@ -71,6 +71,8 @@ export default function ExecutionPage() {
   const [sendAlertBusy, setSendAlertBusy] = useState(false);
   const [sendAlertError, setSendAlertError] = useState("");
   const [sendAlertSuccess, setSendAlertSuccess] = useState(false);
+  const [sendAlertConnector, setSendAlertConnector] = useState("slack");
+  const [sendAlertRecipients, setSendAlertRecipients] = useState("");
 
   // Auto-poll interval ref — keeps one interval at a time
   const pollRef = useRef(null);
@@ -171,6 +173,7 @@ export default function ExecutionPage() {
     error = "",
     onConfirm,
     onCancel,
+    children,
   }) {
     if (!open) return null;
     return (
@@ -194,6 +197,7 @@ export default function ExecutionPage() {
             <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.6 }}>{description}</div>
           </div>
           <div style={{ padding: "14px 20px" }}>
+            {children}
             {error && (
               <div className="alert alert-error" style={{ marginBottom: 12, fontSize: 12 }}>
                 {error}
@@ -492,6 +496,8 @@ export default function ExecutionPage() {
                         onClick={() => {
                           setSendAlertError("");
                           setSendAlertSuccess(false);
+                          setSendAlertConnector("slack");
+                          setSendAlertRecipients("");
                           setSendAlertOpen(true);
                         }}
                       >
@@ -671,6 +677,10 @@ export default function ExecutionPage() {
             setSendAlertError(t("exec.action.send_alert_error"));
             return;
           }
+          if (sendAlertConnector === "email" && !sendAlertRecipients.trim()) {
+            setSendAlertError(t("exec.action.send_alert_recipients_required"));
+            return;
+          }
           setSendAlertBusy(true);
           setSendAlertError("");
           try {
@@ -678,12 +688,19 @@ export default function ExecutionPage() {
               `Job ${jobDetail.job_id} — ${jobDetail.status}`,
               `Passed: ${jobDetail.passed_count ?? 0}, Failed: ${jobDetail.failed_count ?? 0}, Error: ${jobDetail.error_count ?? 0}`,
             ].join(". ");
-            await sendAlert({
-              connector_id: "slack",
+            const payload = {
+              connector_id: sendAlertConnector,
               job_id: jobDetail.job_id,
               run_id: jobDetail.run_ids?.[0] || undefined,
               message: msg,
-            });
+            };
+            if (sendAlertConnector === "email") {
+              payload.recipients = sendAlertRecipients
+                .split(/[\n,]+/)
+                .map((s) => s.trim())
+                .filter(Boolean);
+            }
+            await sendAlert(payload);
             setSendAlertOpen(false);
             setSendAlertSuccess(true);
           } catch (e) {
@@ -692,7 +709,38 @@ export default function ExecutionPage() {
             setSendAlertBusy(false);
           }
         }}
-      />
+      >
+        <div style={{ marginBottom: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-2)", minWidth: 72 }}>{t("exec.action.send_alert_connector")}:</span>
+            <select
+              className="input"
+              value={sendAlertConnector}
+              onChange={(e) => setSendAlertConnector(e.target.value)}
+              style={{ minWidth: 140, fontSize: 12 }}
+              aria-label={t("exec.action.send_alert_connector")}
+            >
+              <option value="slack">{t("exec.action.send_alert_connector_slack")}</option>
+              <option value="email">{t("exec.action.send_alert_connector_email")}</option>
+              <option value="teams">{t("exec.action.send_alert_connector_teams")}</option>
+            </select>
+          </div>
+          {sendAlertConnector === "email" && (
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-2)", minWidth: 72, paddingTop: 6 }}>{t("exec.action.send_alert_recipients")}:</span>
+              <textarea
+                className="input"
+                value={sendAlertRecipients}
+                onChange={(e) => setSendAlertRecipients(e.target.value)}
+                placeholder={t("exec.action.send_alert_recipients_placeholder")}
+                rows={2}
+                style={{ flex: 1, fontSize: 12, resize: "vertical", minWidth: 180 }}
+                aria-label={t("exec.action.send_alert_recipients")}
+              />
+            </div>
+          )}
+        </div>
+      </ConfirmModal>
 
       {sendAlertSuccess && (
         <div
