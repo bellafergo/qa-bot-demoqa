@@ -866,6 +866,24 @@ export const translations = {
     "exec.detail.ts.finished":    "Finished:",
     "exec.detail.open_runs":      "→ Open in Runs",
     "exec.detail.open_run_tip":   "Open run detail",
+
+    // ── Execution operational actions ─────────────────────────────────────
+    "exec.action.operational_actions": "Operational actions",
+    "exec.action.retry_failed":        "Retry failed",
+    "exec.action.retry_failed_hint":  "This job has {failedCount} failed tests and {errorCount} error results. Confirm to enqueue a retry of those failures.",
+    "exec.action.retry_enqueued_prefix": "Retry job enqueued:",
+    "exec.action.retry_open_new_job":    "Open new job",
+
+    "exec.action.retry_failed_confirmation_title": "Retry failed tests? (requires confirmation)",
+    "exec.action.retry_failed_confirmation_desc":  "Confirm to enqueue a new retry job for the failed tests from job `{jobId}`. (failed: {failedCount}, error: {errorCount})",
+    "exec.action.retry_failed_confirmation_desc_fallback": "Confirm to enqueue a retry job for the failed tests.",
+    "exec.action.retry_failed_error_missing_job_id": "Missing job_id, cannot retry.",
+    "exec.action.retry_failed_error_enqueue_failed": "Failed to enqueue retry job.",
+
+    "exec.action.send_alert": "Send alert",
+    "exec.action.alerting_not_configured": "Alerting / notification dispatch is not configured. Configure integrations in Settings.",
+    "exec.action.assign_owner_not_configured": "Ownership assignment is not configured. No backend support for assigning owners.",
+
     "runs.from_execution":        "← Execution Center",
     "runs.from_execution_tip":    "This run was opened from Execution Center",
 
@@ -2026,6 +2044,23 @@ export const translations = {
     "exec.detail.ts.finished":    "Finalizado:",
     "exec.detail.open_runs":      "→ Ver en Runs",
     "exec.detail.open_run_tip":   "Abrir detalle del run",
+
+    "exec.action.operational_actions": "Acciones operativas",
+    "exec.action.retry_failed":        "Reintentar fallidos",
+    "exec.action.retry_failed_hint":  "Este job tiene {failedCount} pruebas fallidas y {errorCount} errores. Confirmar para encolar un reintento.",
+    "exec.action.retry_enqueued_prefix": "Job de reintento encolado:",
+    "exec.action.retry_open_new_job":    "Abrir nuevo job",
+
+    "exec.action.retry_failed_confirmation_title": "¿Reintentar pruebas fallidas? (requiere confirmación)",
+    "exec.action.retry_failed_confirmation_desc":  "Confirmar para encolar un nuevo job que reintenta las pruebas fallidas del job `{jobId}`. (fallidas: {failedCount}, errores: {errorCount})",
+    "exec.action.retry_failed_confirmation_desc_fallback": "Confirmar para encolar un job de reintento de las pruebas fallidas.",
+    "exec.action.retry_failed_error_missing_job_id": "Falta job_id; no se puede reintentar.",
+    "exec.action.retry_failed_error_enqueue_failed": "No se pudo encolar el job de reintento.",
+
+    "exec.action.send_alert": "Enviar alerta",
+    "exec.action.alerting_not_configured": "El envío de alertas/notificaciones no está configurado. Configurá integraciones en Ajustes.",
+    "exec.action.assign_owner_not_configured": "La asignación de responsables no está configurada. No hay soporte en backend.",
+
     "runs.from_execution":        "← Execution Center",
     "runs.from_execution_tip":    "Este run fue abierto desde Execution Center",
 

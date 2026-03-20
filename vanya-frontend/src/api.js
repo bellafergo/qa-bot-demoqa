@@ -166,6 +166,7 @@ export const getJob          = (id)          => apiGet(`/orchestrator/jobs/${id}
 export const enqueueSingle   = (body)        => apiPost("/orchestrator/jobs/single", body);
 export const enqueueSuite    = (body)        => apiPost("/orchestrator/jobs/suite", body);
 export const runBatch        = (body)        => apiPost("/execution/run-batch", body);
+export const retryFailed     = (body)        => apiPost("/execution/retry-failed", body);
 export const getExecStatus   = ()            => apiGet("/execution/status");
 
 // ========= RCA / Business Risk =========

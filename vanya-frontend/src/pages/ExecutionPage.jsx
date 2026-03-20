@@ -5,7 +5,7 @@
  */
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { getExecStatus, listJobs, runBatch, getJob } from "../api";
+import { getExecStatus, listJobs, runBatch, getJob, retryFailed } from "../api";
 import { useLang } from "../i18n/LangContext";
 
 const POLL_INTERVAL_MS = 7000;
@@ -58,6 +58,12 @@ export default function ExecutionPage() {
   const [selectedJob, setSelectedJob]     = useState(null);
   const [jobDetail, setJobDetail]         = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
+
+  // Retry failed flow (human confirmation)
+  const [retryFailedOpen, setRetryFailedOpen] = useState(false);
+  const [retryFailedBusy, setRetryFailedBusy] = useState(false);
+  const [retryFailedError, setRetryFailedError] = useState("");
+  const [retryEnqueuedJobId, setRetryEnqueuedJobId] = useState(null);
 
   // Auto-poll interval ref — keeps one interval at a time
   const pollRef = useRef(null);
@@ -137,8 +143,73 @@ export default function ExecutionPage() {
     }
   }
 
+  // ── Local confirm modal (operational actions require explicit approval) ──
+  function ConfirmModal({
+    open,
+    title,
+    description,
+    busy = false,
+    error = "",
+    onConfirm,
+    onCancel,
+  }) {
+    if (!open) return null;
+    return (
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(0,0,0,0.45)",
+          zIndex: 9999,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 16,
+        }}
+        role="dialog"
+        aria-modal="true"
+      >
+        <div className="card" style={{ width: "min(680px, 100%)", padding: 0, overflow: "hidden" }}>
+          <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)" }}>
+            <div style={{ fontSize: 15, fontWeight: 900, color: "var(--text-1)", marginBottom: 6 }}>{title}</div>
+            <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.6 }}>{description}</div>
+          </div>
+          <div style={{ padding: "14px 20px" }}>
+            {error && (
+              <div className="alert alert-error" style={{ marginBottom: 12, fontSize: 12 }}>
+                {error}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>
+              <button className="btn btn-secondary btn-sm" onClick={onCancel} disabled={busy}>
+                {t("common.cancel")}
+              </button>
+              <button className="btn btn-primary btn-sm" onClick={onConfirm} disabled={busy}>
+                {busy ? t("common.working") : t("common.confirm")}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const st = status || {};
   const hasActive = jobs.some(j => j.status === "queued" || j.status === "running");
+  const jobFailedCount = (jobDetail?.failed_count ?? 0);
+  const jobErrorCount = (jobDetail?.error_count ?? 0);
+  const jobCanRetryFailed =
+    !!jobDetail &&
+    (jobDetail.status === "failed" || jobDetail.status === "completed" || jobDetail.status === "partial") &&
+    (jobFailedCount > 0 || jobErrorCount > 0);
+
+  const formatTpl = (tpl, vars) => {
+    let s = String(tpl ?? "");
+    for (const [k, v] of Object.entries(vars || {})) {
+      s = s.replaceAll(`{${k}}`, String(v));
+    }
+    return s;
+  };
 
   const kpiItems = [
     { labelKey: "exec.kpi.active_workers", value: loading ? "…" : st.active_workers ?? "—",  accent: st.active_workers > 0 ? "var(--green)" : undefined },
@@ -330,6 +401,67 @@ export default function ExecutionPage() {
                       </button>
                     </div>
                   )}
+
+                  {/* Operational actions (CI / SRE) — always visible when job selected */}
+                  <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)" }}>
+                    <div style={{ fontSize: 12, color: "var(--text-2)", fontWeight: 700, marginBottom: 10 }}>
+                      {t("exec.action.operational_actions")}
+                    </div>
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                      {jobCanRetryFailed && (
+                        <button
+                          className="btn btn-primary btn-sm"
+                          onClick={() => {
+                            setRetryFailedError("");
+                            setRetryEnqueuedJobId(null);
+                            setRetryFailedOpen(true);
+                          }}
+                        >
+                          {t("exec.action.retry_failed")}
+                        </button>
+                      )}
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        disabled
+                        title={t("exec.action.alerting_not_configured")}
+                        style={{ opacity: 0.65, cursor: "not-allowed" }}
+                      >
+                        {t("exec.action.send_alert")}
+                      </button>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        disabled
+                        title={t("exec.action.assign_owner_not_configured")}
+                        style={{ opacity: 0.65, cursor: "not-allowed" }}
+                      >
+                        {t("runs.action_panel.assign_owner")}
+                      </button>
+                    </div>
+                    {jobCanRetryFailed && (
+                      <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-3)", lineHeight: 1.6 }}>
+                        {formatTpl(
+                          t("exec.action.retry_failed_hint"),
+                          { failedCount: jobFailedCount, errorCount: jobErrorCount },
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {retryEnqueuedJobId && (
+                    <div style={{ marginTop: 12, fontSize: 12, color: "var(--text-2)" }}>
+                      {t("exec.action.retry_enqueued_prefix")}{" "}
+                      <span style={{ fontFamily: "monospace" }}>{retryEnqueuedJobId}</span>
+                      {" "}
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        style={{ marginLeft: 10 }}
+                        onClick={() => openJobDetail(retryEnqueuedJobId)}
+                      >
+                        {t("exec.action.retry_open_new_job")}
+                      </button>
+                    </div>
+                  )}
+
                   {/* Trigger context — shown when job originated from Risk Selection or PR Analysis */}
                   {(() => {
                     if (!jobDetail.context_json) return null;
@@ -408,6 +540,45 @@ export default function ExecutionPage() {
           )}
         </div>
       </div>
+
+      <ConfirmModal
+        open={retryFailedOpen}
+        busy={retryFailedBusy}
+        error={retryFailedError}
+        title={t("exec.action.retry_failed_confirmation_title")}
+        description={
+          jobDetail
+            ? formatTpl(
+                t("exec.action.retry_failed_confirmation_desc"),
+                {
+                  jobId: jobDetail.job_id ? jobDetail.job_id.slice(0, 14) : "—",
+                  failedCount: jobFailedCount,
+                  errorCount: jobErrorCount,
+                },
+              )
+            : t("exec.action.retry_failed_confirmation_desc_fallback")
+        }
+        onCancel={() => setRetryFailedOpen(false)}
+        onConfirm={async () => {
+          if (!jobDetail?.job_id) {
+            setRetryFailedError(t("exec.action.retry_failed_error_missing_job_id"));
+            return;
+          }
+          setRetryFailedBusy(true);
+          setRetryFailedError("");
+          try {
+            const res = await retryFailed({ job_id: jobDetail.job_id });
+            setRetryFailedOpen(false);
+            setRetryEnqueuedJobId(res?.job_id || null);
+            // Refresh job list so the new job appears in the UI.
+            load();
+          } catch (e) {
+            setRetryFailedError(e?.message || t("exec.action.retry_failed_error_enqueue_failed"));
+          } finally {
+            setRetryFailedBusy(false);
+          }
+        }}
+      />
     </div>
   );
 }
