@@ -240,3 +240,5 @@ export const updateIntegrationConfig  = (id, body)  => apiPost(`/integrations/${
 export const getIntegrationActions    = (id)        => apiGet(`/integrations/${id}/actions`);
 export const alertingReady            = ()          => apiGet(`/integrations/alerting/ready`);
 export const sendAlert                = (body)      => apiPost(`/integrations/send-alert`, body);
+export const integrationsReadiness    = ()          => apiGet(`/integrations/readiness`);
+export const createItsmTicket         = (body)      => apiPost(`/integrations/create-ticket`, body);

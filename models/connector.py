@@ -19,7 +19,7 @@ def _now_utc() -> datetime:
 
 # ── Type aliases ──────────────────────────────────────────────────────────────
 
-ConnectorId   = Literal["jira", "github", "slack", "qmetry"]
+ConnectorId   = Literal["jira", "github", "slack", "qmetry", "email", "teams", "itsm"]
 AuthType      = Literal["token", "basic", "api_key", "none"]
 HealthStatus  = Literal["ok", "degraded", "unreachable", "unconfigured", "unknown"]
 

@@ -3,7 +3,7 @@
 Integration connector framework tests.
 
 Covers:
-  - ConnectorRegistry — all 4 connectors present, ids unique
+  - ConnectorRegistry — core + operational connectors present, ids unique
   - BaseConnector contract — each connector implements required methods
   - ConnectorConfig model — defaults, secret masking
   - Per-connector validate_config logic
@@ -23,13 +23,16 @@ from unittest.mock import patch
 # ── Registry tests ─────────────────────────────────────────────────────────────
 
 class TestConnectorRegistry:
-    def test_all_four_connectors_present(self):
+    def test_core_and_operational_connectors_present(self):
         from connectors.registry import registry
         ids = registry.ids()
         assert "jira"    in ids
         assert "github"  in ids
         assert "slack"   in ids
         assert "qmetry"  in ids
+        assert "email"   in ids
+        assert "teams"   in ids
+        assert "itsm"    in ids
 
     def test_no_duplicate_ids(self):
         from connectors.registry import registry
@@ -49,7 +52,7 @@ class TestConnectorRegistry:
     def test_all_returns_list(self):
         from connectors.registry import registry
         assert isinstance(registry.all(), list)
-        assert len(registry.all()) == 4
+        assert len(registry.all()) >= 7
 
 
 # ── BaseConnector contract ─────────────────────────────────────────────────────

@@ -15,11 +15,10 @@ POST /integrations/send-alert                  — send alert (requires human co
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, AliasChoices
 
 from models.connector import (
     ConnectorConfig,
@@ -27,6 +26,7 @@ from models.connector import (
     ConnectorStatus,
     ConnectorSummary,
 )
+from services.integration_dispatcher import integration_dispatcher
 from services.integration_service import integration_service
 
 logger = logging.getLogger("vanya.integrations")
@@ -42,31 +42,37 @@ def _not_found(connector_id: str) -> HTTPException:
 
 class SendAlertRequest(BaseModel):
     """Request for POST /integrations/send-alert. Requires explicit UI confirmation."""
-    connector_id: str = Field(default="slack", description="Target connector (only 'slack' supported)")
+    connector_id: str = Field(
+        default="slack",
+        validation_alias=AliasChoices("connector_id", "connector"),
+        description="Target connector id (slack|email|teams)",
+    )
     job_id:       Optional[str] = Field(None, description="Job ID for context")
     run_id:       Optional[str] = Field(None, description="Run ID for context")
     channel:      Optional[str] = Field(None, description="Override channel (else from config)")
+    subject:      Optional[str] = Field(None, description="Optional title/subject for connectors that support it")
+    recipients:   Optional[List[str]] = Field(default=None, description="Email recipients (for email connector)")
     message:      str = Field(..., description="Alert message text")
+    metadata:     Optional[Dict[str, Any]] = Field(default=None, description="Optional extra context")
+
+
+class CreateTicketRequest(BaseModel):
+    title: str = Field(..., description="Ticket title")
+    description: str = Field(..., description="Ticket description")
+    priority: str = Field(default="medium", description="Ticket priority")
+    context: Optional[Dict[str, Any]] = Field(default=None, description="Optional context payload")
+
+
+@router.get("/readiness")
+def readiness() -> Dict[str, Any]:
+    """Readiness snapshot for all connectors."""
+    return {"connectors": integration_dispatcher.readiness()}
 
 
 @router.get("/alerting/ready")
 def alerting_ready() -> Dict[str, Any]:
-    """
-    Check if alerting can be sent. Used by UI to enable/disable Send alert button.
-    Returns { ready: bool, connector_id?: str, reason?: str }.
-    """
-    token = (os.environ.get("SLACK_BOT_TOKEN") or "").strip()
-    if not token:
-        return {"ready": False, "reason": "SLACK_BOT_TOKEN not configured"}
-    try:
-        cfg = integration_service.get_config("slack")
-        if not cfg.enabled:
-            return {"ready": False, "reason": "Slack connector is disabled"}
-        if not cfg.channel:
-            return {"ready": False, "reason": "Slack channel not configured"}
-        return {"ready": True, "connector_id": "slack"}
-    except KeyError:
-        return {"ready": False, "reason": "Slack connector not found"}
+    """Backward-compatible readiness endpoint used by current ExecutionPage."""
+    return integration_dispatcher.alerting_ready_legacy()
 
 
 @router.post("/send-alert")
@@ -76,28 +82,6 @@ def send_alert(body: SendAlertRequest) -> Dict[str, Any]:
     ONLY call after explicit human confirmation in the UI.
     Does NOT auto-send; this endpoint is purely reactive.
     """
-    if body.connector_id != "slack":
-        raise HTTPException(status_code=400, detail=f"Only 'slack' connector supported, got {body.connector_id!r}")
-
-    try:
-        cfg = integration_service.get_config("slack")
-    except KeyError:
-        raise HTTPException(status_code=404, detail="Slack connector not found")
-
-    if not cfg.enabled:
-        raise HTTPException(status_code=503, detail="Slack connector is disabled. Enable it in Integrations.")
-
-    channel = (body.channel or cfg.channel or "").strip()
-    if not channel:
-        raise HTTPException(status_code=400, detail="No channel specified. Configure in Integrations or pass in request.")
-
-    token = (os.environ.get("SLACK_BOT_TOKEN") or "").strip()
-    if not token:
-        raise HTTPException(
-            status_code=503,
-            detail="Slack token not configured. Set SLACK_BOT_TOKEN environment variable.",
-        )
-
     # Build message with context
     parts = [body.message]
     if body.job_id:
@@ -105,23 +89,34 @@ def send_alert(body: SendAlertRequest) -> Dict[str, Any]:
     if body.run_id:
         parts.append(f"Run: `{body.run_id}`")
     text = "\n".join(parts)
-
-    from connectors.slack_connector import SlackConnector
-    from connectors.registry import registry
-
-    connector = registry.get("slack")
-    if connector is None or not isinstance(connector, SlackConnector):
-        raise HTTPException(status_code=500, detail="Slack connector not available")
-
-    ok, msg = connector.send_alert(
-        channel=channel,
-        text=text,
-        job_id=body.job_id,
-        run_id=body.run_id,
+    ok, result = integration_dispatcher.send_alert(
+        connector_id=body.connector_id,
+        subject=body.subject,
+        message=text,
+        recipients=body.recipients,
+        channel=body.channel,
+        context={"job_id": body.job_id, "run_id": body.run_id, "metadata": body.metadata or {}},
     )
     if not ok:
-        raise HTTPException(status_code=502, detail=msg)
-    return {"ok": True, "channel": channel, "message": msg}
+        raise HTTPException(status_code=502, detail=result.get("error") or result.get("message") or "Alert dispatch failed")
+    return {"ok": True, **result}
+
+
+@router.post("/create-ticket")
+def create_ticket(body: CreateTicketRequest) -> Dict[str, Any]:
+    """
+    Create a ticket via ITSM generic connector.
+    This endpoint is reactive and must only be called after explicit user approval.
+    """
+    ok, result = integration_dispatcher.create_ticket(
+        title=body.title,
+        description=body.description,
+        priority=body.priority,
+        context=body.context or {},
+    )
+    if not ok:
+        raise HTTPException(status_code=502, detail=result.get("error") or "Ticket creation failed")
+    return {"ok": True, **result}
 
 
 # ── List ──────────────────────────────────────────────────────────────────────

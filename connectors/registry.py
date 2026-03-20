@@ -15,12 +15,18 @@ from connectors.jira_connector import JiraConnector
 from connectors.github_connector import GitHubConnector
 from connectors.slack_connector import SlackConnector
 from connectors.qmetry_connector import QMetryConnector
+from connectors.email_connector import EmailConnector
+from connectors.teams_connector import TeamsConnector
+from connectors.itsm_connector import ITSMConnector
 
 _ALL_CONNECTORS: List[BaseConnector] = [
     JiraConnector(),
     GitHubConnector(),
     SlackConnector(),
     QMetryConnector(),
+    EmailConnector(),
+    TeamsConnector(),
+    ITSMConnector(),
 ]
 
 

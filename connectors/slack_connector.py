@@ -9,6 +9,7 @@ Implements the BaseConnector contract with:
 """
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -24,7 +25,8 @@ class SlackConnector(BaseConnector):
     # ── Contract ──────────────────────────────────────────────────────────────
 
     def validate_config(self, config: ConnectorConfig) -> Tuple[bool, str]:
-        if not config.token_present:
+        has_token = config.token_present or bool((os.getenv("SLACK_BOT_TOKEN") or "").strip())
+        if not has_token:
             return False, "A Slack bot token (xoxb-…) is required"
         if not config.channel:
             return False, "A target channel (e.g. #qa-alerts) is required"
@@ -135,8 +137,6 @@ class SlackConnector(BaseConnector):
         Token can come from SLACK_BOT_TOKEN env var if not passed.
         Returns (success: bool, message: str).
         """
-        import os
-
         tok = (token or "").strip() or (os.environ.get("SLACK_BOT_TOKEN") or "").strip()
         if not tok:
             return False, "Slack token not configured. Set SLACK_BOT_TOKEN env var or configure in Integrations."
