@@ -98,7 +98,11 @@ export const translations = {
     "ev.title":           "Evidence Library",
     "ev.subtitle":        "Centralized view of all run evidence and reports",
     "ev.loading":         "Loading evidence…",
-    "ev.empty":           "No evidence records found.",
+    "ev.empty":              "No evidence records found.",
+    "ev.empty_state.title":  "No evidence yet",
+    "ev.empty_state.desc":   "Execute tests from the catalog to generate evidence here.",
+    "ev.empty_state.cta":    "Go to Runs",
+    "ev.view_run":           "View run",
     "ev.col.date":        "Date",
     "ev.col.test_id":     "Test ID",
     "ev.col.test_name":   "Test Name",
@@ -416,8 +420,18 @@ export const translations = {
     "lang.es":    "Español",
 
     // ── Runs page ───────────────────────────────────────────────────────────
-    "runs.tab.evidence_lookup": "Evidence Lookup",
-    "runs.tab.run_history":     "Run History",
+    "runs.tab.history":         "History",
+    "runs.tab.lookup":          "Look up by ID",
+    // ── Runs page header + empty states ───────────────────────────────────────
+    "runs.page.title":          "Runs",
+    "runs.page.subtitle":       "Execution history, run detail, RCA and risk analysis",
+    "runs.page.batch_link":     "→ Batch Runner",
+    "runs.page.batch_tip":      "Open the bulk execution center",
+    "runs.empty.title":         "No runs yet",
+    "runs.empty.desc":          "Execute tests from the catalog or generate new ones to see history here.",
+    "runs.empty.cta_catalog":   "Go to Catalog",
+    "runs.empty.cta_generate":  "Generate Tests",
+    "runs.view_evidence":       "View in Evidence Library",
 
     "runs.evidence.title":  "Evidence",
     "runs.evidence.none":   "No evidence available for this run.",
@@ -711,6 +725,10 @@ export const translations = {
     "drafts.ai.tests_created_label": "test(s):",
     "drafts.ai.empty_title":       "No test cases generated yet",
     "drafts.ai.empty_desc":        "Describe a feature or user flow above — Vanya will generate structured test cases ready to review and approve.",
+
+    // ── Execution Center page ─────────────────────────────────────────────────
+    "exec.page.title":    "Batch Runner",
+    "exec.page.subtitle": "Bulk test execution · job queue monitoring · worker pool status",
 
     // ── Execution page ──────────────────────────────────────────────────────
     "exec.kpi.active_workers": "Active Workers",
@@ -1147,7 +1165,11 @@ export const translations = {
     "ev.title":           "Biblioteca de Evidencias",
     "ev.subtitle":        "Vista centralizada de todas las evidencias y reportes de ejecución",
     "ev.loading":         "Cargando evidencias…",
-    "ev.empty":           "No se encontraron registros de evidencia.",
+    "ev.empty":              "No se encontraron registros de evidencia.",
+    "ev.empty_state.title":  "Sin evidencias aún",
+    "ev.empty_state.desc":   "Ejecutá pruebas desde el catálogo para generar evidencias aquí.",
+    "ev.empty_state.cta":    "Ir a Runs",
+    "ev.view_run":           "Ver run",
     "ev.col.date":        "Fecha",
     "ev.col.test_id":     "ID de Test",
     "ev.col.test_name":   "Nombre del Test",
@@ -1465,8 +1487,18 @@ export const translations = {
     "lang.es":    "Español",
 
     // ── Runs page ───────────────────────────────────────────────────────────
-    "runs.tab.evidence_lookup": "Búsqueda de Evidencia",
-    "runs.tab.run_history":     "Historial de Ejecuciones",
+    "runs.tab.history":         "Historial",
+    "runs.tab.lookup":          "Buscar por ID",
+    // ── Runs page header + empty states ───────────────────────────────────────
+    "runs.page.title":          "Runs",
+    "runs.page.subtitle":       "Historial de ejecuciones, detalle, RCA y análisis de riesgo",
+    "runs.page.batch_link":     "→ Batch Runner",
+    "runs.page.batch_tip":      "Abrir centro de ejecución masiva",
+    "runs.empty.title":         "Sin ejecuciones aún",
+    "runs.empty.desc":          "Ejecutá pruebas desde el catálogo o generá nuevas para ver el historial aquí.",
+    "runs.empty.cta_catalog":   "Ir al Catálogo",
+    "runs.empty.cta_generate":  "Generar Pruebas",
+    "runs.view_evidence":       "Ver en Biblioteca de Evidencias",
 
     "runs.evidence.title":  "Evidencia",
     "runs.evidence.none":   "Sin evidencia disponible para esta ejecución.",
@@ -1760,6 +1792,10 @@ export const translations = {
     "drafts.ai.tests_created_label": "caso(s):",
     "drafts.ai.empty_title":        "No hay casos de prueba generados aún",
     "drafts.ai.empty_desc":         "Describe una funcionalidad o flujo de usuario — Vanya generará casos de prueba estructurados listos para revisar y aprobar.",
+
+    // ── Execution Center page ─────────────────────────────────────────────────
+    "exec.page.title":    "Batch Runner",
+    "exec.page.subtitle": "Ejecución masiva de pruebas · cola de jobs · estado del worker pool",
 
     // ── Execution page ──────────────────────────────────────────────────────
     "exec.kpi.active_workers": "Workers Activos",

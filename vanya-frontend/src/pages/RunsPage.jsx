@@ -13,7 +13,7 @@ const API_BASE = (
 ).replace(/\/$/, "");
 
 // Tab identifiers — rendered via t() in the component
-const TAB_KEYS = ["runs.tab.evidence_lookup", "runs.tab.run_history"];
+const TAB_KEYS = ["runs.tab.history", "runs.tab.lookup"];
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -575,6 +575,7 @@ function EvidenceLookupTab() {
 
 function RunHistoryTab({ initialRunId }) {
   const { t } = useLang();
+  const navigate = useNavigate();
   const [runs, setRuns]             = useState([]);
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState("");
@@ -699,7 +700,15 @@ function RunHistoryTab({ initialRunId }) {
           </div>
 
           {runs.length === 0 && !loading ? (
-            <div style={{ padding: "20px", color: "var(--text-3)", fontSize: 13 }}>{t("runs.history.none")}</div>
+            <div style={{ padding: "32px 24px", textAlign: "center" }}>
+              <div style={{ fontSize: 28, marginBottom: 10 }}>◈</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)", marginBottom: 6 }}>{t("runs.empty.title")}</div>
+              <div style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.7, marginBottom: 16, maxWidth: 320, margin: "0 auto 16px" }}>{t("runs.empty.desc")}</div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+                <button className="btn btn-primary btn-sm" onClick={() => navigate("/catalog")}>{t("runs.empty.cta_catalog")}</button>
+                <button className="btn btn-secondary btn-sm" onClick={() => navigate("/generate")}>{t("runs.empty.cta_generate")}</button>
+              </div>
+            </div>
           ) : (
             <table className="data-table">
               <thead><tr>
@@ -800,7 +809,20 @@ function RunHistoryTab({ initialRunId }) {
           </div>
 
           {/* Evidence */}
-          {detail && !detail.error && <EvidenceCard detail={detail} runType={inferRunType(detail)} />}
+          {detail && !detail.error && (
+            <>
+              <EvidenceCard detail={detail} runType={inferRunType(detail)} />
+              <div style={{ textAlign: "right", marginTop: -8 }}>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  style={{ fontSize: 11 }}
+                  onClick={() => navigate("/evidence")}
+                >
+                  {t("runs.view_evidence")}
+                </button>
+              </div>
+            </>
+          )}
 
           {/* Desktop context */}
           {detail && !detail.error && <DesktopContextCard run={detail} />}
@@ -882,7 +904,7 @@ export default function RunsPage() {
   const location = useLocation();
   const navigate  = useNavigate();
   const navState  = location.state || {};
-  const [activeTab, setActiveTab] = useState(navState.tab === 1 ? 1 : 0);
+  const [activeTab, setActiveTab] = useState(navState.tab ?? 0);
   const [initialRunId] = useState(navState.run_id || null);
 
   // Clear navigation state from history so back/forward doesn't re-trigger auto-open
@@ -895,6 +917,22 @@ export default function RunsPage() {
 
   return (
     <div className="page-wrap">
+
+      {/* Page header */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0, color: "var(--text-1)" }}>{t("runs.page.title")}</h1>
+          <p style={{ fontSize: 13, color: "var(--text-3)", margin: "4px 0 0" }}>{t("runs.page.subtitle")}</p>
+        </div>
+        <button
+          className="btn btn-secondary btn-sm"
+          onClick={() => navigate("/execution")}
+          title={t("runs.page.batch_tip")}
+          style={{ alignSelf: "flex-start" }}
+        >
+          {t("runs.page.batch_link")}
+        </button>
+      </div>
 
       {/* Tab bar */}
       <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: "2px solid var(--border)", paddingBottom: 0 }}>
@@ -919,8 +957,8 @@ export default function RunsPage() {
         ))}
       </div>
 
-      {activeTab === 0 && <EvidenceLookupTab />}
-      {activeTab === 1 && <RunHistoryTab initialRunId={initialRunId} />}
+      {activeTab === 0 && <RunHistoryTab initialRunId={initialRunId} />}
+      {activeTab === 1 && <EvidenceLookupTab />}
     </div>
   );
 }

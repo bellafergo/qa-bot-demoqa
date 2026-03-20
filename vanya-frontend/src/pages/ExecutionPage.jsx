@@ -153,6 +153,12 @@ export default function ExecutionPage() {
   return (
     <div className="page-wrap">
 
+      {/* Page header */}
+      <div style={{ marginBottom: 24 }}>
+        <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0, color: "var(--text-1)" }}>{t("exec.page.title")}</h1>
+        <p style={{ fontSize: 13, color: "var(--text-3)", margin: "4px 0 0" }}>{t("exec.page.subtitle")}</p>
+      </div>
+
       {/* Status cards */}
       <div className="kpi-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", marginBottom: 24 }}>
         {kpiItems.map(({ labelKey, value, accent }) => (
@@ -182,7 +188,13 @@ export default function ExecutionPage() {
             </div>
 
             {jobs.length === 0 && !loading ? (
-              <div style={{ padding: "20px", color: "var(--text-3)", fontSize: 13 }}>{t("exec.jobs.none")}</div>
+              <div style={{ padding: "32px 24px", textAlign: "center" }}>
+                <div style={{ fontSize: 28, marginBottom: 10 }}>◈</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-2)", marginBottom: 6 }}>{t("exec.jobs.none")}</div>
+                <div style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.6 }}>
+                  {t("exec.batch.desc")}
+                </div>
+              </div>
             ) : (
               <table className="data-table">
                 <thead><tr>
@@ -220,7 +232,7 @@ export default function ExecutionPage() {
                           <button
                             className="btn btn-secondary btn-sm"
                             style={{ fontSize: 11, padding: "2px 8px", whiteSpace: "nowrap" }}
-                            onClick={() => navigate("/runs", { state: { tab: 1, run_id: j.run_ids[0] } })}
+                            onClick={() => navigate("/runs", { state: { tab: 0, run_id: j.run_ids[0] } })}
                             title={t("exec.jobs.open_runs_tip")}
                           >
                             {t("exec.jobs.open_runs")}
@@ -312,7 +324,7 @@ export default function ExecutionPage() {
                     <div style={{ marginBottom: 10 }}>
                       <button
                         className="btn btn-secondary btn-sm"
-                        onClick={() => navigate("/runs", { state: { tab: 1, run_id: jobDetail.run_ids[0] } })}
+                        onClick={() => navigate("/runs", { state: { tab: 0, run_id: jobDetail.run_ids[0] } })}
                       >
                         {t("exec.detail.open_runs")} ({jobDetail.run_ids.length})
                       </button>
@@ -374,7 +386,7 @@ export default function ExecutionPage() {
                             key={i}
                             style={{ cursor: r.run_id ? "pointer" : "default" }}
                             title={r.run_id ? t("exec.detail.open_run_tip") : undefined}
-                            onClick={() => r.run_id && navigate("/runs", { state: { tab: 1, run_id: r.run_id } })}
+                            onClick={() => r.run_id && navigate("/runs", { state: { tab: 0, run_id: r.run_id } })}
                           >
                             <td style={{ fontFamily: "monospace" }}>
                               {r.test_case_id || "—"}

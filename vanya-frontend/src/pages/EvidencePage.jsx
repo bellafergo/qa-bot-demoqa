@@ -7,6 +7,7 @@
  * This page only shows links; no inline images.
  */
 import React, { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { listEvidences } from "../api";
 import { useLang } from "../i18n/LangContext";
 
@@ -52,6 +53,7 @@ function truncate(str, n = 80) {
 
 export default function EvidencePage() {
   const { t } = useLang();
+  const navigate = useNavigate();
 
   const [rows, setRows]         = useState([]);
   const [loading, setLoading]   = useState(true);
@@ -176,8 +178,19 @@ export default function EvidencePage() {
       )}
 
       {!loading && !error && filtered.length === 0 && (
-        <div className="card" style={{ color: "var(--text-3)", fontSize: 13, padding: "24px 20px" }}>
-          {t("ev.empty")}
+        <div className="card" style={{ padding: "48px 32px", textAlign: "center" }}>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>⊟</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)", marginBottom: 6 }}>
+            {rows.length === 0 ? t("ev.empty_state.title") : t("ev.empty")}
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.7, marginBottom: 16, maxWidth: 340, margin: "0 auto 16px" }}>
+            {rows.length === 0 ? t("ev.empty_state.desc") : t("ev.empty")}
+          </div>
+          {rows.length === 0 && (
+            <button className="btn btn-primary btn-sm" onClick={() => navigate("/runs")}>
+              {t("ev.empty_state.cta")}
+            </button>
+          )}
         </div>
       )}
 
@@ -198,7 +211,7 @@ export default function EvidencePage() {
               </thead>
               <tbody>
                 {filtered.map(r => (
-                  <EvidenceRow key={r.run_id} row={r} t={t} />
+                  <EvidenceRow key={r.run_id} row={r} t={t} navigate={navigate} />
                 ))}
               </tbody>
             </table>
@@ -222,7 +235,7 @@ export default function EvidencePage() {
 
 // ── row component ─────────────────────────────────────────────────────────────
 
-function EvidenceRow({ row, t }) {
+function EvidenceRow({ row, t, navigate }) {
   const evidenceHref = row.run_id
     ? `${API_BASE}/runs/${row.run_id}`
     : null;
@@ -295,6 +308,15 @@ function EvidenceRow({ row, t }) {
             >
               {t("ev.action.report")}
             </a>
+          )}
+          {row.run_id && navigate && (
+            <button
+              className="btn btn-secondary btn-sm"
+              style={{ fontSize: 11 }}
+              onClick={() => navigate("/runs", { state: { tab: 0, run_id: row.run_id } })}
+            >
+              {t("ev.view_run")}
+            </button>
           )}
         </div>
       </td>
