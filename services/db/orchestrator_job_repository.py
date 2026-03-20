@@ -42,6 +42,8 @@ class OrchestratorJobRow(Base):
     scheduling_notes   = Column(String)
     # Trigger context — set at enqueue time, never overwritten
     context_json       = Column(Text)
+    # Retry correlation — parent job when this job is a retry of failed tests
+    parent_job_id      = Column(String)
 
 
 # ── Conversion helpers ────────────────────────────────────────────────────────
@@ -82,6 +84,7 @@ def _row_to_model(row: OrchestratorJobRow):
         skipped_count    = row.skipped_count  or 0,
         scheduling_notes = row.scheduling_notes,
         context_json     = row.context_json,
+        parent_job_id    = getattr(row, "parent_job_id", None) or None,
     )
 
 
@@ -112,6 +115,7 @@ class OrchestratorJobRepository:
             skipped_count      = getattr(job, "skipped_count", 0) or 0,
             scheduling_notes   = getattr(job, "scheduling_notes", None),
             context_json       = getattr(job, "context_json", None),
+            parent_job_id      = getattr(job, "parent_job_id", None),
         )
         with get_session() as s:
             s.add(row)
@@ -140,6 +144,7 @@ class OrchestratorJobRepository:
             skipped_count      = getattr(job, "skipped_count", 0) or 0,
             scheduling_notes   = getattr(job, "scheduling_notes", None),
             context_json       = getattr(job, "context_json", None),
+            parent_job_id      = getattr(job, "parent_job_id", None),
         )
         with get_session() as s:
             s.merge(row)
@@ -170,6 +175,17 @@ class OrchestratorJobRepository:
                 .all()
             )
         return {status: count for status, count in rows}
+
+    def list_job_ids_by_parent_job(self, parent_job_id: str) -> List[str]:
+        """Return job_ids of jobs that were created as retries of the given parent."""
+        with get_session() as s:
+            rows = (
+                s.query(OrchestratorJobRow.job_id)
+                .filter(OrchestratorJobRow.parent_job_id == parent_job_id)
+                .order_by(OrchestratorJobRow.created_at.asc())
+                .all()
+            )
+        return [r[0] for r in rows]
 
     def get_last_created_at(self) -> Optional[str]:
         """Return the most recent created_at ISO string, or None."""

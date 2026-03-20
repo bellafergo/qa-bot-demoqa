@@ -108,4 +108,9 @@ def get_job(job_id: str):
     job = orchestrator_service.get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
+    # Enrich with retry_job_ids (jobs spawned from this one via retry-failed)
+    from services.db.orchestrator_job_repository import orch_job_repo
+    retry_ids = orch_job_repo.list_job_ids_by_parent_job(job_id)
+    if retry_ids:
+        job.retry_job_ids = retry_ids
     return job

@@ -238,3 +238,5 @@ export const enableIntegration        = (id)        => apiPost(`/integrations/${
 export const disableIntegration       = (id)        => apiPost(`/integrations/${id}/disable`,      {});
 export const updateIntegrationConfig  = (id, body)  => apiPost(`/integrations/${id}/config`,       body);
 export const getIntegrationActions    = (id)        => apiGet(`/integrations/${id}/actions`);
+export const alertingReady            = ()          => apiGet(`/integrations/alerting/ready`);
+export const sendAlert                = (body)      => apiPost(`/integrations/send-alert`, body);

@@ -714,6 +714,7 @@ def retry_failed_tests(job_id: str) -> Optional[OrchestratorJob]:
         test_case_ids    = failed_ids,
         total_count      = len(failed_ids),
         environment      = original.environment,
+        parent_job_id    = job_id,
         scheduling_notes = (
             f"Retry of {len(failed_ids)} failed test(s) from job {job_id[:8]}"
         ),

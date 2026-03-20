@@ -866,6 +866,11 @@ export const translations = {
     "exec.detail.ts.finished":    "Finished:",
     "exec.detail.open_runs":      "→ Open in Runs",
     "exec.detail.open_run_tip":   "Open run detail",
+    "exec.detail.error_message":  "Error / notes",
+    "exec.detail.parent_job":     "Retry of job",
+    "exec.detail.retry_jobs":     "Retry jobs",
+    "exec.detail.open_parent_job": "Open parent job",
+    "exec.detail.open_retry_job": "Open retry job",
 
     // ── Execution operational actions ─────────────────────────────────────
     "exec.action.operational_actions": "Operational actions",
@@ -882,6 +887,10 @@ export const translations = {
 
     "exec.action.send_alert": "Send alert",
     "exec.action.alerting_not_configured": "Alerting / notification dispatch is not configured. Configure integrations in Settings.",
+    "exec.action.send_alert_confirmation_title": "Send alert? (requires confirmation)",
+    "exec.action.send_alert_confirmation_desc": "This will send an alert to Slack for job `{jobId}`. The message will include job context and failure summary. Only confirm if you intend to notify the team.",
+    "exec.action.send_alert_success": "Alert sent successfully",
+    "exec.action.send_alert_error": "Failed to send alert",
     "exec.action.assign_owner_not_configured": "Ownership assignment is not configured. No backend support for assigning owners.",
 
     "runs.from_execution":        "← Execution Center",
@@ -2044,6 +2053,11 @@ export const translations = {
     "exec.detail.ts.finished":    "Finalizado:",
     "exec.detail.open_runs":      "→ Ver en Runs",
     "exec.detail.open_run_tip":   "Abrir detalle del run",
+    "exec.detail.error_message":  "Error / notas",
+    "exec.detail.parent_job":     "Retry del job",
+    "exec.detail.retry_jobs":     "Jobs de retry",
+    "exec.detail.open_parent_job": "Abrir job original",
+    "exec.detail.open_retry_job": "Abrir job de retry",
 
     "exec.action.operational_actions": "Acciones operativas",
     "exec.action.retry_failed":        "Reintentar fallidos",
@@ -2059,6 +2073,10 @@ export const translations = {
 
     "exec.action.send_alert": "Enviar alerta",
     "exec.action.alerting_not_configured": "El envío de alertas/notificaciones no está configurado. Configurá integraciones en Ajustes.",
+    "exec.action.send_alert_confirmation_title": "¿Enviar alerta? (requiere confirmación)",
+    "exec.action.send_alert_confirmation_desc": "Se enviará una alerta a Slack para el job `{jobId}`. El mensaje incluirá el contexto del job y el resumen de fallos. Confirmar solo si deseas notificar al equipo.",
+    "exec.action.send_alert_success": "Alerta enviada correctamente",
+    "exec.action.send_alert_error": "Error al enviar la alerta",
     "exec.action.assign_owner_not_configured": "La asignación de responsables no está configurada. No hay soporte en backend.",
 
     "runs.from_execution":        "← Execution Center",

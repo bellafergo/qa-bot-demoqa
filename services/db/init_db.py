@@ -53,6 +53,7 @@ def init_catalog_db() -> None:
                 ("skipped_count",    "ALTER TABLE orchestrator_jobs ADD COLUMN skipped_count INTEGER DEFAULT 0"),
                 ("scheduling_notes", "ALTER TABLE orchestrator_jobs ADD COLUMN scheduling_notes TEXT"),
                 ("context_json",     "ALTER TABLE orchestrator_jobs ADD COLUMN context_json TEXT"),
+                ("parent_job_id",    "ALTER TABLE orchestrator_jobs ADD COLUMN parent_job_id TEXT"),
             ]
             for col_name, sql in migrations:
                 if col_name not in existing_cols:

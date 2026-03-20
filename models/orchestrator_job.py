@@ -65,6 +65,11 @@ class OrchestratorJob(BaseModel):
     #       selected_modules, selected_test_ids
     context_json:     Optional[str] = None
 
+    # Retry correlation — when this job was created via retry-failed
+    parent_job_id:    Optional[str] = None
+    # Populated at read time: job_ids of retries spawned from this job (not persisted)
+    retry_job_ids:    Optional[List[str]] = None
+
     # Timestamps
     created_at:       datetime = Field(default_factory=_now_utc)
     started_at:       Optional[datetime] = None

@@ -9,13 +9,17 @@ POST /integrations/{connector_id}/enable       — enable connector
 POST /integrations/{connector_id}/disable      — disable connector
 POST /integrations/{connector_id}/config       — update config (secrets consumed, not returned)
 GET  /integrations/{connector_id}/actions      — list supported actions
+GET  /integrations/alerting/ready              — check if alerting can be sent (for UI)
+POST /integrations/send-alert                  — send alert (requires human confirmation in UI)
 """
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List
+import os
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
 from models.connector import (
     ConnectorConfig,
@@ -32,6 +36,92 @@ router = APIRouter(prefix="/integrations", tags=["integrations"])
 
 def _not_found(connector_id: str) -> HTTPException:
     return HTTPException(status_code=404, detail=f"Connector '{connector_id}' not found")
+
+
+# ── Alerting (must be defined before /{connector_id} to avoid path conflict) ───
+
+class SendAlertRequest(BaseModel):
+    """Request for POST /integrations/send-alert. Requires explicit UI confirmation."""
+    connector_id: str = Field(default="slack", description="Target connector (only 'slack' supported)")
+    job_id:       Optional[str] = Field(None, description="Job ID for context")
+    run_id:       Optional[str] = Field(None, description="Run ID for context")
+    channel:      Optional[str] = Field(None, description="Override channel (else from config)")
+    message:      str = Field(..., description="Alert message text")
+
+
+@router.get("/alerting/ready")
+def alerting_ready() -> Dict[str, Any]:
+    """
+    Check if alerting can be sent. Used by UI to enable/disable Send alert button.
+    Returns { ready: bool, connector_id?: str, reason?: str }.
+    """
+    token = (os.environ.get("SLACK_BOT_TOKEN") or "").strip()
+    if not token:
+        return {"ready": False, "reason": "SLACK_BOT_TOKEN not configured"}
+    try:
+        cfg = integration_service.get_config("slack")
+        if not cfg.enabled:
+            return {"ready": False, "reason": "Slack connector is disabled"}
+        if not cfg.channel:
+            return {"ready": False, "reason": "Slack channel not configured"}
+        return {"ready": True, "connector_id": "slack"}
+    except KeyError:
+        return {"ready": False, "reason": "Slack connector not found"}
+
+
+@router.post("/send-alert")
+def send_alert(body: SendAlertRequest) -> Dict[str, Any]:
+    """
+    Send an alert via the specified connector.
+    ONLY call after explicit human confirmation in the UI.
+    Does NOT auto-send; this endpoint is purely reactive.
+    """
+    if body.connector_id != "slack":
+        raise HTTPException(status_code=400, detail=f"Only 'slack' connector supported, got {body.connector_id!r}")
+
+    try:
+        cfg = integration_service.get_config("slack")
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Slack connector not found")
+
+    if not cfg.enabled:
+        raise HTTPException(status_code=503, detail="Slack connector is disabled. Enable it in Integrations.")
+
+    channel = (body.channel or cfg.channel or "").strip()
+    if not channel:
+        raise HTTPException(status_code=400, detail="No channel specified. Configure in Integrations or pass in request.")
+
+    token = (os.environ.get("SLACK_BOT_TOKEN") or "").strip()
+    if not token:
+        raise HTTPException(
+            status_code=503,
+            detail="Slack token not configured. Set SLACK_BOT_TOKEN environment variable.",
+        )
+
+    # Build message with context
+    parts = [body.message]
+    if body.job_id:
+        parts.append(f"Job: `{body.job_id}`")
+    if body.run_id:
+        parts.append(f"Run: `{body.run_id}`")
+    text = "\n".join(parts)
+
+    from connectors.slack_connector import SlackConnector
+    from connectors.registry import registry
+
+    connector = registry.get("slack")
+    if connector is None or not isinstance(connector, SlackConnector):
+        raise HTTPException(status_code=500, detail="Slack connector not available")
+
+    ok, msg = connector.send_alert(
+        channel=channel,
+        text=text,
+        job_id=body.job_id,
+        run_id=body.run_id,
+    )
+    if not ok:
+        raise HTTPException(status_code=502, detail=msg)
+    return {"ok": True, "channel": channel, "message": msg}
 
 
 # ── List ──────────────────────────────────────────────────────────────────────

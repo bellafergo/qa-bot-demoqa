@@ -5,7 +5,7 @@
  */
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { getExecStatus, listJobs, runBatch, getJob, retryFailed } from "../api";
+import { getExecStatus, listJobs, runBatch, getJob, retryFailed, alertingReady, sendAlert } from "../api";
 import { useLang } from "../i18n/LangContext";
 
 const POLL_INTERVAL_MS = 7000;
@@ -65,6 +65,13 @@ export default function ExecutionPage() {
   const [retryFailedError, setRetryFailedError] = useState("");
   const [retryEnqueuedJobId, setRetryEnqueuedJobId] = useState(null);
 
+  // Alerting (human confirmation)
+  const [alertingReadyState, setAlertingReadyState] = useState(null);
+  const [sendAlertOpen, setSendAlertOpen] = useState(false);
+  const [sendAlertBusy, setSendAlertBusy] = useState(false);
+  const [sendAlertError, setSendAlertError] = useState("");
+  const [sendAlertSuccess, setSendAlertSuccess] = useState(false);
+
   // Auto-poll interval ref — keeps one interval at a time
   const pollRef = useRef(null);
 
@@ -87,6 +94,18 @@ export default function ExecutionPage() {
 
   // Initial load
   useEffect(() => { load(); }, [load]);
+
+  // Check if alerting is available (for Send alert button)
+  useEffect(() => {
+    alertingReady().then((r) => setAlertingReadyState(r)).catch(() => setAlertingReadyState({ ready: false }));
+  }, []);
+
+  // Auto-dismiss send alert success toast
+  useEffect(() => {
+    if (!sendAlertSuccess) return;
+    const t = setTimeout(() => setSendAlertSuccess(false), 4000);
+    return () => clearTimeout(t);
+  }, [sendAlertSuccess]);
 
   // Auto-poll while any job is queued or running; stop when all are done
   useEffect(() => {
@@ -361,13 +380,22 @@ export default function ExecutionPage() {
               <div className="section-title" style={{ marginBottom: 10 }}>{t("exec.detail.title")}</div>
               {detailLoading ? (
                 <div style={{ fontSize: 13, color: "var(--text-3)" }}>{t("exec.detail.loading")}</div>
-              ) : jobDetail?.error_message || jobDetail?.error ? (
-                <div className="alert alert-error">{jobDetail?.error_message || jobDetail?.error}</div>
+              ) : jobDetail?.error && !jobDetail?.job_id ? (
+                <div className="alert alert-error">{jobDetail.error}</div>
               ) : jobDetail ? (
                 <div>
+                  {/* Job ID */}
                   <div style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-3)", marginBottom: 8, wordBreak: "break-all" }}>
                     {jobDetail.job_id}
                   </div>
+                  {/* Error message — prominent when present */}
+                  {jobDetail.error_message && (
+                    <div className="alert alert-error" style={{ marginBottom: 10, fontSize: 12 }}>
+                      <span style={{ fontWeight: 700, marginRight: 6 }}>{t("exec.detail.error_message")}:</span>
+                      {jobDetail.error_message}
+                    </div>
+                  )}
+                  {/* Status badges */}
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
                     <span className={`badge ${statusClass(jobDetail.status)}`}>{jobDetail.status}</span>
                     <span className="badge badge-gray">{jobDetail.total_count} {t("exec.detail.tests")}</span>
@@ -390,6 +418,42 @@ export default function ExecutionPage() {
                       <span><span style={{ fontWeight: 700, color: "var(--text-2)" }}>{t("exec.detail.ts.finished")}</span> {fmtDate(jobDetail.finished_at)}</span>
                     )}
                   </div>
+                  {/* Correlation: parent job / retry jobs */}
+                  {(jobDetail.parent_job_id || (jobDetail.retry_job_ids?.length > 0)) && (
+                    <div style={{ marginBottom: 10, padding: "8px 12px", background: "var(--accent-light)", borderRadius: "var(--r-sm)", border: "1px solid var(--accent-border)", fontSize: 12 }}>
+                      {jobDetail.parent_job_id && (
+                        <div style={{ marginBottom: jobDetail.retry_job_ids?.length ? 6 : 0 }}>
+                          <span style={{ fontWeight: 700, color: "var(--text-2)", marginRight: 6 }}>{t("exec.detail.parent_job")}:</span>
+                          <span style={{ fontFamily: "monospace", marginRight: 8 }}>{jobDetail.parent_job_id}</span>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            style={{ fontSize: 11, padding: "2px 8px" }}
+                            onClick={() => openJobDetail(jobDetail.parent_job_id)}
+                          >
+                            {t("exec.detail.open_parent_job")}
+                          </button>
+                        </div>
+                      )}
+                      {jobDetail.retry_job_ids?.length > 0 && (
+                        <div>
+                          <span style={{ fontWeight: 700, color: "var(--text-2)", marginRight: 6 }}>{t("exec.detail.retry_jobs")}:</span>
+                          {jobDetail.retry_job_ids.map((rid) => (
+                            <span key={rid} style={{ display: "inline-flex", alignItems: "center", gap: 4, marginRight: 8, marginBottom: 4 }}>
+                              <span style={{ fontFamily: "monospace", fontSize: 11 }}>{rid}</span>
+                              <button
+                                className="btn btn-secondary btn-sm"
+                                style={{ fontSize: 10, padding: "2px 6px" }}
+                                onClick={() => openJobDetail(rid)}
+                              >
+                                {t("exec.detail.open_retry_job")}
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Navigation to Runs */}
                   {jobDetail.run_ids?.length > 0 && (
                     <div style={{ marginBottom: 10 }}>
@@ -422,9 +486,14 @@ export default function ExecutionPage() {
                       )}
                       <button
                         className="btn btn-secondary btn-sm"
-                        disabled
-                        title={t("exec.action.alerting_not_configured")}
-                        style={{ opacity: 0.65, cursor: "not-allowed" }}
+                        disabled={!alertingReadyState?.ready}
+                        title={alertingReadyState?.ready ? undefined : (alertingReadyState?.reason || t("exec.action.alerting_not_configured"))}
+                        style={!alertingReadyState?.ready ? { opacity: 0.65, cursor: "not-allowed" } : undefined}
+                        onClick={() => {
+                          setSendAlertError("");
+                          setSendAlertSuccess(false);
+                          setSendAlertOpen(true);
+                        }}
                       >
                         {t("exec.action.send_alert")}
                       </button>
@@ -579,6 +648,61 @@ export default function ExecutionPage() {
           }
         }}
       />
+
+      <ConfirmModal
+        open={sendAlertOpen}
+        busy={sendAlertBusy}
+        error={sendAlertError}
+        title={t("exec.action.send_alert_confirmation_title")}
+        description={
+          jobDetail
+            ? formatTpl(t("exec.action.send_alert_confirmation_desc"), {
+                jobId: (jobDetail.job_id || "").slice(0, 14) + (jobDetail.job_id?.length > 14 ? "…" : ""),
+              })
+            : "Send an alert for this job."
+        }
+        onCancel={() => {
+          setSendAlertOpen(false);
+          setSendAlertError("");
+          setSendAlertSuccess(false);
+        }}
+        onConfirm={async () => {
+          if (!jobDetail?.job_id) {
+            setSendAlertError(t("exec.action.send_alert_error"));
+            return;
+          }
+          setSendAlertBusy(true);
+          setSendAlertError("");
+          try {
+            const msg = [
+              `Job ${jobDetail.job_id} — ${jobDetail.status}`,
+              `Passed: ${jobDetail.passed_count ?? 0}, Failed: ${jobDetail.failed_count ?? 0}, Error: ${jobDetail.error_count ?? 0}`,
+            ].join(". ");
+            await sendAlert({
+              connector_id: "slack",
+              job_id: jobDetail.job_id,
+              run_id: jobDetail.run_ids?.[0] || undefined,
+              message: msg,
+            });
+            setSendAlertOpen(false);
+            setSendAlertSuccess(true);
+          } catch (e) {
+            setSendAlertError(e?.message || t("exec.action.send_alert_error"));
+          } finally {
+            setSendAlertBusy(false);
+          }
+        }}
+      />
+
+      {sendAlertSuccess && (
+        <div
+          className="alert alert-success"
+          style={{ position: "fixed", bottom: 20, right: 20, zIndex: 9998, maxWidth: 320 }}
+          role="status"
+        >
+          {t("exec.action.send_alert_success")}
+        </div>
+      )}
     </div>
   );
 }

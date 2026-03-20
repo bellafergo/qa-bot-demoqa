@@ -571,6 +571,7 @@ class TestRetryFailed:
 
         assert new_job is not None
         assert new_job.job_id != original.job_id
+        assert new_job.parent_job_id == original.job_id
         assert "TC-002" in new_job.test_case_ids
         assert "TC-001" not in new_job.test_case_ids
         assert new_job.total_count == 1
