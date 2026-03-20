@@ -7,9 +7,10 @@ import threading
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
-    from services.run_bridge import bridge_run_to_sqlite
+    from services.run_bridge import bridge_run_to_sqlite, bridge_async_run_to_sqlite
 except Exception:  # pragma: no cover
     bridge_run_to_sqlite = None  # type: ignore[assignment]
+    bridge_async_run_to_sqlite = None  # type: ignore[assignment]
 
 try:
     from services.run_store_supabase import persist_run_supabase
@@ -254,11 +255,17 @@ def save_run(run_payload: Dict[str, Any]) -> Optional[str]:
         except Exception:
             pass
 
-        # Bridge best-effort to SQLite (official run history) for final states.
-        # Skips queued/running; catalog runs never reach this path.
+        # Bridge best-effort to SQLite for polling consistency:
+        # - queued/running → bridge_async_run_to_sqlite (so /runs/{id} works cross-process)
+        # - completed/failed → bridge_run_to_sqlite (official history)
+        raw_status = str(run_payload.get("status") or "").strip().lower()
         try:
-            if bridge_run_to_sqlite is not None:
-                bridge_run_to_sqlite(run_payload)
+            if raw_status in ("queued", "running", "pending"):
+                if bridge_async_run_to_sqlite is not None:
+                    bridge_async_run_to_sqlite(run_payload)
+            else:
+                if bridge_run_to_sqlite is not None:
+                    bridge_run_to_sqlite(run_payload)
         except Exception:
             pass
 

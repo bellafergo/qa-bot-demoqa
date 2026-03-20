@@ -81,6 +81,28 @@ class Settings:
         return bool(self.GITHUB_TOKEN)
 
     # ----------------------------
+    # Evidence capture
+    # ----------------------------
+    # Defaults: prod → off (reduces memory/disk), dev → on (debugging)
+    @property
+    def EVIDENCE_TIMELINE(self) -> bool:
+        env_val = (os.getenv("EVIDENCE_TIMELINE_ENABLED") or "").strip().lower()
+        if env_val in ("1", "true", "yes"):
+            return True
+        if env_val in ("0", "false", "no"):
+            return False
+        return not self.IS_PROD
+
+    @property
+    def EVIDENCE_ACTION_TRACE(self) -> bool:
+        env_val = (os.getenv("EVIDENCE_ACTION_TRACE_ENABLED") or "").strip().lower()
+        if env_val in ("1", "true", "yes"):
+            return True
+        if env_val in ("0", "false", "no"):
+            return False
+        return not self.IS_PROD
+
+    # ----------------------------
     # Runner (si lo usas)
     # ----------------------------
     RUNNER_URL: str = (os.getenv("RUNNER_URL") or "").strip()

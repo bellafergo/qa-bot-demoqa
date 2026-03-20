@@ -50,11 +50,11 @@ from services.db.test_run_repository import test_run_repo
 
 logger = logging.getLogger("vanya.run_bridge")
 
-# States that are skip-worthy (intermediate lifecycle states, not final results)
-_SKIP_STATUSES = frozenset({"queued", "running", "pending"})
+# States that are intermediate (bridged separately via bridge_async_run_to_sqlite)
+_ASYNC_STATUSES = frozenset({"queued", "running", "pending"})
 
 # Map arbitrary run_store status strings → TestRun's status set
-# TestRun accepts: "pass" | "fail" | "error" | "running"
+# TestRun accepts: "pass" | "fail" | "error" | "running" | "queued"
 _STATUS_MAP: Dict[str, str] = {
     "passed":    "pass",
     "pass":      "pass",
@@ -64,6 +64,9 @@ _STATUS_MAP: Dict[str, str] = {
     "fail":      "fail",
     "error":     "error",
     "partial":   "fail",
+    "queued":    "queued",
+    "running":   "running",
+    "pending":   "queued",
 }
 
 
@@ -85,6 +88,62 @@ def _to_datetime(value: Any) -> datetime:
     return datetime.now(timezone.utc)
 
 
+def bridge_async_run_to_sqlite(payload: Dict[str, Any]) -> bool:
+    """
+    Persist queued/running runs to SQLite so GET /runs/{evidence_id} can resolve
+    them even when the request hits a different process (e.g. multi-instance).
+    Uses test_case_id="_async" to distinguish from catalog runs.
+    Returns True on success, False on skip or error. Never raises.
+    """
+    try:
+        raw_status = str(payload.get("status") or "").strip().lower()
+        if raw_status not in _ASYNC_STATUSES:
+            return False
+
+        evidence_id = str(payload.get("evidence_id") or payload.get("run_id") or "").strip()
+        if not evidence_id:
+            return False
+
+        meta: Dict[str, Any] = dict(payload.get("meta") or {})
+        meta.setdefault("source", "chat")
+        meta["evidence_id"] = evidence_id
+
+        executed_at = _to_datetime(
+            payload.get("created_at") or payload.get("started_at")
+        )
+
+        status_sql = _STATUS_MAP.get(raw_status, "queued")
+        if status_sql not in ("queued", "running"):
+            status_sql = "queued"
+
+        tr = TestRun(
+            run_id=evidence_id,
+            test_case_id="_async",
+            test_name=meta.get("test_name") or "Async Run",
+            executed_at=executed_at,
+            environment=meta.get("environment") or "default",
+            status=status_sql,
+            duration_ms=int(payload.get("duration_ms") or 0),
+            evidence_url=None,
+            report_url=None,
+            evidence_id=evidence_id,
+            logs=[],
+            steps_result=[],
+            meta=meta,
+        )
+
+        test_run_repo.create_run(tr)
+        logger.debug("run_bridge: persisted async run %s status=%s", evidence_id, status_sql)
+        return True
+
+    except Exception as exc:
+        logger.warning(
+            "run_bridge: failed to persist async %s — %s: %s",
+            payload.get("evidence_id", "?"), type(exc).__name__, exc,
+        )
+        return False
+
+
 def bridge_run_to_sqlite(payload: Dict[str, Any]) -> bool:
     """
     Persist a run_store payload to SQLite test_run_repo.
@@ -93,9 +152,9 @@ def bridge_run_to_sqlite(payload: Dict[str, Any]) -> bool:
     Returns True on success, False on skip or error.  Never raises.
     """
     try:
-        # ── Skip intermediate states ──────────────────────────────────────────
+        # ── Skip intermediate states (handled by bridge_async_run_to_sqlite) ───
         raw_status = str(payload.get("status") or "").strip().lower()
-        if raw_status in _SKIP_STATUSES:
+        if raw_status in _ASYNC_STATUSES:
             return False
 
         # ── Require an evidence_id ────────────────────────────────────────────

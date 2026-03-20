@@ -85,8 +85,12 @@ def run_execute_steps_job(evidence_id: str, payload: Dict[str, Any], meta: Dict[
         "meta": meta or {},
     })
 
+    # Pass evidence_id so runner uses it (artifacts, trace, EvidenceCapture run_id)
+    payload_with_evid = dict(payload)
+    payload_with_evid["evidence_id"] = evidence_id
+
     try:
-        run = _run_with_retry(payload)
+        run = _run_with_retry(payload_with_evid)
 
         if not isinstance(run, dict):
             run = {"status": "failed", "error_message": "Runner returned non-dict"}

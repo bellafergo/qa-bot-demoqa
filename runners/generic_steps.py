@@ -31,6 +31,7 @@ from services.selector_healer import resolve_locator
 from services.failure_classifier import classify_failure
 from services.memory_store import save_memory, load_memory  # ✅ fix real
 
+from core.settings import settings
 from core.dom_analyzer import extract_dom_inventory
 from core.selector_resolver import (
     resolve_intent,
@@ -74,6 +75,7 @@ def execute_test(
     viewport: Optional[Dict[str, int]] = None,
     timeout_s: Optional[int] = None,
     expected: Optional[str] = None,
+    evidence_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Ejecuta steps Playwright.
@@ -100,10 +102,12 @@ def execute_test(
     screenshot_b64: Optional[str] = None
     report_steps: List[Dict[str, Any]] = []
     logs: List[str] = []
-    evidence_id = f"EV-{uuid.uuid4().hex[:10]}"
+    evidence_id = (evidence_id or "").strip() or f"EV-{uuid.uuid4().hex[:10]}"
+    _timeline = getattr(settings, "EVIDENCE_TIMELINE", True)
+    _trace = getattr(settings, "EVIDENCE_ACTION_TRACE", True)
     cap = EvidenceCapture(
         run_id=evidence_id,
-        config=EvidenceConfig(screenshot_timeline=True, action_trace=True),
+        config=EvidenceConfig(screenshot_timeline=_timeline, action_trace=_trace),
     )
     _ev_bundle = None
     resolution_log: List[Dict[str, Any]] = []
