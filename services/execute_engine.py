@@ -1,8 +1,6 @@
 # services/execute_engine.py
 from __future__ import annotations
 
-import os
-import io
 import json
 import logging
 import re
@@ -12,9 +10,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import HTTPException
 from openai import OpenAI
-
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
 
 from core.settings import settings
 from core import chat_helpers as H
@@ -31,9 +26,7 @@ from core.semantic_intent_extractor import (
     extract_action_intent as _extract_semantic_action,
 )
 
-from services.cloudinary_service import upload_screenshot_b64 as cloud_upload_screenshot_b64
-from services.cloudinary_service import upload_pdf_bytes as cloud_upload_pdf_bytes
-from services.report_service import generate_pdf_report
+from services.evidence_pipeline import process_evidence
 
 logger = logging.getLogger("vanya.execute_engine")
 
@@ -142,17 +135,6 @@ def _strip_quotes(s: str) -> str:
     if len(ss) >= 2 and ((ss[0] == ss[-1] == '"') or (ss[0] == ss[-1] == "'")):
         return ss[1:-1]
     return ss
-
-
-def _make_png_data_url(b64_or_data_url: Optional[str]) -> Optional[str]:
-    if not b64_or_data_url:
-        return None
-    s = str(b64_or_data_url).strip()
-    if not s or s == "None":
-        return None
-    if s.startswith("data:image"):
-        return s
-    return f"data:image/png;base64,{s}"
 
 
 def _ensure_has_assert(steps: List[Dict[str, Any]], base_url: str) -> List[Dict[str, Any]]:
@@ -554,72 +536,6 @@ def _render_execute_answer(
     return "\n".join(parts).strip()
 
 
-def _pull_evidence_fields(runner: Dict[str, Any]) -> Tuple[str, Optional[str]]:
-    raw = runner.get("raw") if isinstance(runner.get("raw"), dict) else {}
-    evidence_id = str(runner.get("evidence_id") or raw.get("evidence_id") or "").strip()
-    b64 = (
-        runner.get("screenshot_b64")
-        or runner.get("screenshotBase64")
-        or runner.get("screenshotB64")
-        or raw.get("screenshot_b64")
-        or raw.get("screenshotBase64")
-        or raw.get("screenshotB64")
-    )
-    return evidence_id, (str(b64) if b64 else None)
-
-
-def _build_fallback_pdf_bytes(
-    *,
-    prompt: str,
-    base_url: str,
-    status: str,
-    duration_ms: int,
-    evidence_id: str,
-    evidence_url: Optional[str],
-    steps: List[Dict[str, Any]],
-    runner: Dict[str, Any],
-) -> bytes:
-    buf = io.BytesIO()
-    c = canvas.Canvas(buf, pagesize=letter)
-    w, h = letter
-
-    y = h - 50
-    c.setFont("Helvetica-Bold", 14)
-    c.drawString(50, y, "Vanya QA Run Report")
-    y -= 24
-
-    c.setFont("Helvetica", 10)
-    c.drawString(50, y, f"Base URL: {base_url}")
-    y -= 14
-    c.drawString(50, y, f"Status: {status}   Duration: {duration_ms} ms   Evidence ID: {evidence_id}")
-    y -= 14
-    c.drawString(50, y, f"Prompt: {prompt[:1200]}")
-    y -= 18
-
-    if evidence_url:
-        c.drawString(50, y, f"Evidence URL: {evidence_url}")
-        y -= 18
-
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(50, y, "Steps")
-    y -= 14
-    c.setFont("Helvetica", 9)
-    for i, s in enumerate(steps[:80], start=1):
-        line = f"{i}. {s.get('action')} " + (
-            " ".join([f"{k}={s.get(k)}" for k in ("url", "selector", "text", "key", "ms") if s.get(k) is not None])
-        )
-        c.drawString(55, y, line[:120])
-        y -= 11
-        if y < 80:
-            c.showPage()
-            y = h - 50
-            c.setFont("Helvetica", 9)
-
-    c.showPage()
-    c.save()
-    return buf.getvalue()
-
-
 # ============================================================
 # EXECUTE mode handler (exportado)
 # ============================================================
@@ -837,99 +753,26 @@ def handle_execute_mode(
 
     status_label = "PASSED" if status == "passed" else "FAILED" if status == "failed" else "UNKNOWN"
 
-    evidence_url: Optional[str] = None
-    report_url: Optional[str] = None
-    screenshot_data_url: Optional[str] = None
-
-    # 4) Evidence
-    evidence_id, b64 = _pull_evidence_fields(runner)
-    if not evidence_id:
-        evidence_id = f"EV-{uuid.uuid4().hex[:10]}"
-
-    if b64:
-        screenshot_data_url = _make_png_data_url(b64)
-
-    try:
-        if screenshot_data_url and getattr(settings, "HAS_CLOUDINARY", False):
-            res = cloud_upload_screenshot_b64(str(screenshot_data_url), evidence_id=evidence_id)
-            if isinstance(res, dict):
-                evidence_url = (res.get("secure_url") or res.get("url") or "").strip() or None
-            else:
-                evidence_url = str(res).strip() or None
-
-        if not evidence_url:
-            raw0 = runner.get("raw", {}) if isinstance(runner.get("raw"), dict) else {}
-            evidence_url = (
-                runner.get("evidence_url")
-                or runner.get("screenshot_url")
-                or raw0.get("evidence_url")
-                or raw0.get("screenshot_url")
-            )
-    except Exception:
-        logger.exception("Evidence upload failed (continuing)")
-
-    # 5) PDF
-    pdf_error: Optional[str] = None
-    pdf_bytes: Optional[bytes] = None
-
-    try:
-        rep = generate_pdf_report(
-            prompt=redact_secrets(prompt),
-            base_url=base_url,
-            runner={**runner, "screenshot_data_url": screenshot_data_url} if screenshot_data_url else runner,
-            steps=redact_steps(steps),
-            evidence_id=evidence_id,
-            meta={
-                "thread_id": thread_id,
-                "session_id": session_id,
-                "headless": getattr(req, "headless", True),
-            },
-        )
-
-        if isinstance(rep, dict) and rep.get("report_path"):
-            rp = str(rep.get("report_path") or "").strip()
-            if rp and os.path.exists(rp):
-                with open(rp, "rb") as f:
-                    pdf_bytes = f.read()
-    except Exception as e:
-        pdf_error = f"report_service failed: {type(e).__name__}: {e}"
-        logger.exception("report_service generate_pdf_report failed (will fallback)")
-
-    if not pdf_bytes:
-        try:
-            pdf_bytes = _build_fallback_pdf_bytes(
-                prompt=redact_secrets(prompt),
-                base_url=base_url,
-                status=status,
-                duration_ms=duration_ms,
-                evidence_id=(evidence_id or "EV-unknown"),
-                evidence_url=evidence_url,
-                steps=redact_steps(steps),
-                runner=runner,
-            )
-        except Exception as e:
-            pdf_error = (pdf_error or "") + f" | fallback_pdf failed: {type(e).__name__}: {e}"
-            logger.exception("fallback PDF generation failed")
-
-    if not getattr(settings, "HAS_CLOUDINARY", False):
-        pdf_error = pdf_error or "HAS_CLOUDINARY is false"
-    elif not pdf_bytes:
-        pdf_error = pdf_error or "pdf_bytes empty"
-    elif len(pdf_bytes) <= 800:
-        pdf_error = pdf_error or f"pdf_bytes too small: {len(pdf_bytes)}"
-    else:
-        try:
-            res_pdf = cloud_upload_pdf_bytes(pdf_bytes, evidence_id=(evidence_id or "EV-unknown"))
-            if isinstance(res_pdf, dict):
-                report_url = (res_pdf.get("secure_url") or res_pdf.get("url") or "").strip() or None
-            else:
-                report_url = str(res_pdf).strip() or None
-
-            if not report_url:
-                pdf_error = pdf_error or "Cloudinary upload returned no secure_url/url"
-        except Exception as e:
-            pdf_error = pdf_error or f"cloudinary upload failed: {type(e).__name__}: {e}"
-            logger.exception("Cloudinary PDF upload failed")
+    # 4) Evidence (pipeline centraliza PDF, upload, fallbacks)
+    evidence_result = process_evidence(
+        runner=runner,
+        prompt=prompt,
+        base_url=base_url,
+        steps=steps,
+        evidence_id=None,
+        status=status,
+        duration_ms=duration_ms,
+        meta={
+            "thread_id": thread_id,
+            "session_id": session_id,
+            "headless": getattr(req, "headless", True),
+        },
+    )
+    evidence_id = evidence_result["evidence_id"]
+    evidence_url = evidence_result["evidence_url"]
+    report_url = evidence_result["report_url"]
+    pdf_error = evidence_result["pdf_error"]
+    screenshot_data_url = evidence_result["screenshot_data_url"]
 
     # 6) save_run
     try:
@@ -956,7 +799,7 @@ def handle_execute_mode(
     except Exception:
         logger.exception("save_run failed (continuing)")
 
-    # 7) respuesta final
+    # 7) respuesta
     answer = _render_execute_answer(
         status=status,
         msg=msg,

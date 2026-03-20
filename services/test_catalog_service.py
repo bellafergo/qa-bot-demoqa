@@ -719,11 +719,33 @@ class TestCatalogService:
 
             duration_ms = result.get("duration_ms") or int((time.time() - t0) * 1000)
 
+            evidence_url = result.get("evidence_url")
+            report_url = result.get("report_url")
+            if result.get("screenshot_b64"):
+                try:
+                    from core.settings import settings
+                    from services.evidence_pipeline import process_evidence
+                    if getattr(settings, "HAS_CLOUDINARY", False):
+                        ev = process_evidence(
+                            runner=result,
+                            prompt=tc.name or "",
+                            base_url=(base_url or tc.base_url or ""),
+                            steps=result.get("steps") or steps,
+                            evidence_id=evidence_id,
+                            status=run_status,
+                            duration_ms=duration_ms,
+                            meta={"source": "catalog", "test_case_id": tc.test_case_id},
+                        )
+                        evidence_url = ev.get("evidence_url")
+                        report_url = ev.get("report_url")
+                except Exception as e:
+                    logger.warning("test_catalog: evidence_pipeline failed for %s — %s", tc.test_case_id, e)
+
             run = TestRun(
                 run_id=run_id, test_case_id=tc.test_case_id, test_name=tc.name,
                 environment=environment, status=run_status, duration_ms=int(duration_ms),
-                evidence_id=evidence_id, evidence_url=result.get("evidence_url"),
-                report_url=result.get("report_url"),
+                evidence_id=evidence_id, evidence_url=evidence_url,
+                report_url=report_url,
                 logs=result.get("logs") or [], steps_result=result.get("steps") or [],
                 meta={
                     "runner_ok":      run_status == "pass",
