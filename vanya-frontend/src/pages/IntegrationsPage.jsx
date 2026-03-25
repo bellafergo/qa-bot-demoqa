@@ -44,7 +44,7 @@ function HealthBadge({ health }) {
   return (
     <span style={{
       display: "inline-flex", alignItems: "center", gap: 5,
-      fontSize: 11, fontWeight: 600,
+      fontSize: 11, fontWeight: 500,
       padding: "2px 8px", borderRadius: 20,
       background: `${color}18`,
       color: color,
@@ -60,7 +60,7 @@ function StatusPill({ enabled }) {
   const { t } = useLang();
   return (
     <span style={{
-      fontSize: 10, fontWeight: 700,
+      fontSize: 10, fontWeight: 400,
       padding: "2px 7px", borderRadius: 20, textTransform: "uppercase",
       background: enabled ? "rgba(34,197,94,0.12)" : "rgba(148,163,184,0.12)",
       color:      enabled ? "var(--green, #22c55e)" : "var(--text-2, #94a3b8)",
@@ -137,7 +137,7 @@ function ConfigForm({ connectorId, currentConfig, onSaved }) {
 
   return (
     <div style={{ marginTop: 16 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-2)", marginBottom: 10 }}>
+      <div style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-2)", marginBottom: 10 }}>
         {t("integrations.config.title")}
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -263,7 +263,7 @@ function ConnectorCard({ summary, onAction }) {
         {/* Name + description */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <span style={{ fontWeight: 700, fontSize: 14 }}>{summary.connector_name}</span>
+            <span style={{ fontWeight: 600, fontSize: 14 }}>{summary.connector_name}</span>
             <StatusPill enabled={summary.enabled} />
             <HealthBadge health={health} />
           </div>
@@ -306,14 +306,14 @@ function ConnectorCard({ summary, onAction }) {
           {/* Health detail */}
           {detail && (
             <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-2)", marginBottom: 6 }}>
+              <div style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-2)", marginBottom: 6 }}>
                 {t("integrations.card.last_check")}
               </div>
               <div style={{ fontSize: 12, color: "var(--text-2)" }}>
                 {fmtTs(detail.last_check_at)}
               </div>
               {detail.last_check_message && (
-                <div style={{ fontSize: 12, marginTop: 4, padding: "6px 10px", background: "var(--surface-2, #f8fafc)", borderRadius: 6, fontFamily: "monospace", color: "var(--text)" }}>
+                <div style={{ fontSize: 12, marginTop: 4, padding: "6px 10px", background: "var(--surface-2, #f8fafc)", borderRadius: 6, fontFamily: "monospace", color: "var(--text-1)" }}>
                   {detail.last_check_message}
                 </div>
               )}
@@ -323,7 +323,7 @@ function ConnectorCard({ summary, onAction }) {
           {/* Supported actions */}
           {actions && actions.length > 0 && (
             <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-2)", marginBottom: 6 }}>
+              <div style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-2)", marginBottom: 6 }}>
                 {t("integrations.card.supported")}
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -394,7 +394,7 @@ export default function IntegrationsPage() {
     <div className="page-wrap">
       {/* Hero */}
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>{t("integrations.hero.title")}</h1>
+        <h1 style={{ fontSize: 22, fontWeight: 600, margin: 0 }}>{t("integrations.hero.title")}</h1>
         <p style={{ fontSize: 13, color: "var(--text-2)", margin: "4px 0 0" }}>
           {t("integrations.hero.subtitle")}
         </p>
@@ -426,7 +426,7 @@ export default function IntegrationsPage() {
       {!loading && !error && connectors.length === 0 && (
         <div className="card" style={{ padding: "48px 32px", textAlign: "center" }}>
           <div style={{ fontSize: 36, marginBottom: 12 }}>◇</div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)", marginBottom: 8 }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)", marginBottom: 8 }}>
             {t("integrations.empty.title")}
           </div>
           <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.7, maxWidth: 400, margin: "0 auto" }}>

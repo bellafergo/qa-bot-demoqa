@@ -16,7 +16,7 @@ function ScoreBar({ value, max = 100 }) {
       <div style={{ flex: 1, height: 6, background: "var(--surface-2)", borderRadius: 3, overflow: "hidden" }}>
         <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 3, transition: "width 0.4s" }} />
       </div>
-      <span style={{ fontSize: 11, fontWeight: 700, color, minWidth: 32, textAlign: "right" }}>
+      <span style={{ fontSize: 12, fontWeight: 600, color, minWidth: 32, textAlign: "right", letterSpacing: "-0.02em" }}>
         {Math.round(pct)}%
       </span>
     </div>
@@ -191,7 +191,7 @@ export default function CoveragePage() {
                           <div style={{ display: "flex", gap: 32, flexWrap: "wrap" }}>
                             {m.gaps?.length > 0 && (
                               <div>
-                                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
+                                <div style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
                                   {t("cov.section.gaps")}
                                 </div>
                                 {m.gaps.map((g, i) => (
@@ -201,7 +201,7 @@ export default function CoveragePage() {
                             )}
                             {m.notes && (
                               <div>
-                                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
+                                <div style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
                                   {t("cov.section.notes")}
                                 </div>
                                 <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.6 }}>{m.notes}</div>
@@ -302,7 +302,7 @@ export default function CoveragePage() {
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {discoveredPages.map((p, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 11, color: "var(--green)", fontWeight: 700 }}>✓</span>
+                  <span style={{ fontSize: 11, color: "var(--green)", fontWeight: 600 }}>✓</span>
                   <span style={{ fontFamily: "monospace", fontSize: 12, color: "var(--text-2)", wordBreak: "break-all" }}>
                     {typeof p === "string" ? p : p.url || p.path || JSON.stringify(p)}
                   </span>

@@ -36,7 +36,7 @@ class ErrorBoundary extends React.Component {
       return (
         <div style={{ padding: 32, maxWidth: 600, margin: "0 auto" }}>
           <div className="card" style={{ borderColor: "var(--red-border)" }}>
-            <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 8, color: "var(--red-text)" }}>UI Crashed</div>
+            <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 8, color: "var(--red-text)" }}>UI Crashed</div>
             <div style={{ fontSize: 13, color: "var(--text-2)", whiteSpace: "pre-wrap", marginBottom: 12 }}>{msg}</div>
             <button className="btn btn-secondary btn-sm" onClick={() => window.location.reload()}>Reload Page</button>
           </div>

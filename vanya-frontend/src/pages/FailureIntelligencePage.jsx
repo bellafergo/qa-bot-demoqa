@@ -43,9 +43,9 @@ function statusPattern(pass_count, fail_count, error_count) {
   const total = pass_count + fail_count + error_count;
   if (total === 0) return "—";
   const parts = [];
-  if (pass_count  > 0) parts.push(<span key="p" style={{ color: "var(--green)", fontWeight: 700 }}>P×{pass_count}</span>);
-  if (fail_count  > 0) parts.push(<span key="f" style={{ color: "var(--red)",   fontWeight: 700 }}>F×{fail_count}</span>);
-  if (error_count > 0) parts.push(<span key="e" style={{ color: "var(--orange, #f59e0b)", fontWeight: 700 }}>E×{error_count}</span>);
+  if (pass_count  > 0) parts.push(<span key="p" style={{ color: "var(--green)", fontWeight: 600 }}>P×{pass_count}</span>);
+  if (fail_count  > 0) parts.push(<span key="f" style={{ color: "var(--red)",   fontWeight: 600 }}>F×{fail_count}</span>);
+  if (error_count > 0) parts.push(<span key="e" style={{ color: "var(--orange, #f59e0b)", fontWeight: 600 }}>E×{error_count}</span>);
   return parts.reduce((acc, el, i) => [...acc, i > 0 ? <span key={`sep-${i}`} style={{ color: "var(--text-3)", margin: "0 3px" }}>/</span> : null, el], []);
 }
 
@@ -67,7 +67,7 @@ function FlakyTab({ data, loading, error, t, navigate }) {
       {suspected.length === 0 && watching.length === 0 && (
         <div style={{ padding: "32px 0", textAlign: "center" }}>
           <div style={{ fontSize: 32, marginBottom: 10 }}>✓</div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)", marginBottom: 6 }}>{t("fi.flaky.empty")}</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", marginBottom: 6 }}>{t("fi.flaky.empty")}</div>
           <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 16, lineHeight: 1.7 }}>{t("fi.empty_cta_desc")}</div>
           <button className="btn btn-secondary btn-sm" onClick={() => navigate("/catalog")}>
             {t("fi.flaky.empty_cta")}
@@ -78,7 +78,7 @@ function FlakyTab({ data, loading, error, t, navigate }) {
       {suspected.length > 0 && (
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <span style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-3)" }}>
+            <span style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-3)" }}>
               {t("fi.flaky.badge.suspected")}
             </span>
             <span className="badge badge-red" style={{ fontSize: 10 }}>{suspected.length}</span>
@@ -97,7 +97,7 @@ function FlakyTab({ data, loading, error, t, navigate }) {
               {suspected.map(f => (
                 <tr key={f.test_case_id}>
                   <td>
-                    <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 600 }}>{f.test_case_id}</span>
+                    <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 500 }}>{f.test_case_id}</span>
                     <div style={{ marginTop: 3, fontSize: 11, fontFamily: "monospace" }}>
                       {statusPattern(f.pass_count, f.fail_count, f.error_count)}
                     </div>
@@ -113,7 +113,7 @@ function FlakyTab({ data, loading, error, t, navigate }) {
                   </td>
                   <td>{flipBar(f.flip_rate)}</td>
                   <td style={{ textAlign: "right" }}>
-                    <span style={{ fontWeight: 700, fontSize: 12, color: scoreColor(f.flaky_score) }}>
+                    <span style={{ fontWeight: 600, fontSize: 12, color: scoreColor(f.flaky_score) }}>
                       {Math.round(f.flaky_score * 100)}
                     </span>
                   </td>
@@ -133,7 +133,7 @@ function FlakyTab({ data, loading, error, t, navigate }) {
       {watching.length > 0 && (
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <span style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-3)" }}>
+            <span style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-3)" }}>
               {t("fi.flaky.badge.watch")}
             </span>
             <span className="badge badge-orange" style={{ fontSize: 10 }}>{watching.length}</span>
@@ -176,7 +176,7 @@ function RegressionsTab({ data, loading, error, t }) {
   if (!data || data.length === 0) return (
     <div style={{ padding: "32px 0", textAlign: "center" }}>
       <div style={{ fontSize: 32, marginBottom: 10 }}>✓</div>
-      <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)", marginBottom: 6 }}>{t("fi.reg.empty_title")}</div>
+      <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", marginBottom: 6 }}>{t("fi.reg.empty_title")}</div>
       <div style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.7 }}>{t("fi.reg.empty_note")}</div>
     </div>
   );
@@ -205,10 +205,10 @@ function RegressionsTab({ data, loading, error, t }) {
             const sig = regSignal(r.repeated_failures);
             return (
               <tr key={r.pattern_id}>
-                <td style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 600 }}>{r.test_case_id}</td>
+                <td style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 500 }}>{r.test_case_id}</td>
                 <td><span className="badge badge-gray" style={{ fontSize: 10 }}>{r.module || "—"}</span></td>
                 <td style={{ textAlign: "right" }}>
-                  <span style={{ color: "var(--red)", fontWeight: 700 }}>{r.repeated_failures}</span>
+                  <span style={{ color: "var(--red)", fontWeight: 600 }}>{r.repeated_failures}</span>
                 </td>
                 <td>
                   <span className="badge badge-gray" style={{ fontSize: 10 }}>
@@ -217,7 +217,7 @@ function RegressionsTab({ data, loading, error, t }) {
                 </td>
                 <td style={{ textAlign: "center" }}>
                   <span style={{
-                    fontSize: 10, fontWeight: 700, padding: "2px 8px",
+                    fontSize: 10, fontWeight: 400, padding: "2px 8px",
                     borderRadius: 4, background: sig.bg, color: sig.text,
                   }}>
                     {sig.label}
@@ -254,7 +254,7 @@ function ClustersTab({ data, loading, error, t }) {
   if (!data || data.length === 0) return (
     <div style={{ padding: "32px 0", textAlign: "center" }}>
       <div style={{ fontSize: 32, marginBottom: 10 }}>◎</div>
-      <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)", marginBottom: 6 }}>{t("fi.clusters.empty_title")}</div>
+      <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", marginBottom: 6 }}>{t("fi.clusters.empty_title")}</div>
       <div style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.7 }}>{t("fi.clusters.empty_note")}</div>
     </div>
   );
@@ -294,7 +294,7 @@ function ClustersTab({ data, loading, error, t }) {
                   {cl.module || "—"}
                 </span>
               </td>
-              <td style={{ textAlign: "right", fontWeight: 700, color: "var(--red)" }}>
+              <td style={{ textAlign: "right", fontWeight: 600, color: "var(--red)" }}>
                 {cl.total_failures}
               </td>
               <td style={{ textAlign: "center" }}>
@@ -389,7 +389,7 @@ export default function FailureIntelligencePage({ embedded = false }) {
       {/* Header — suppressed when embedded inside InsightsPage */}
       {!embedded && (
         <div style={{ marginBottom: 20 }}>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "var(--text)" }}>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: "var(--text-1)" }}>
             {t("fi.title")}
           </h2>
           <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--text-3)" }}>
@@ -409,12 +409,14 @@ export default function FailureIntelligencePage({ embedded = false }) {
             key={key}
             onClick={() => setTab(key)}
             style={{
-              background: "none", border: "none", cursor: "pointer",
-              padding: "8px 16px", fontSize: 13, fontWeight: tab === key ? 700 : 500,
-              color: tab === key ? "var(--accent)" : "var(--text-2)",
-              borderBottom: tab === key ? "2px solid var(--accent)" : "2px solid transparent",
-              marginBottom: -1, transition: "color 0.15s",
+              background: tab === key ? "var(--accent-light)" : "transparent",
+              border: "none", borderBottom: tab === key ? "2px solid var(--accent-border)" : "2px solid transparent",
+              cursor: "pointer",
+              padding: "8px 16px", fontSize: 13, fontWeight: tab === key ? 500 : 400,
+              color: tab === key ? "var(--accent)" : "var(--text-3)",
+              marginBottom: -1, transition: "background 0.15s, color 0.15s",
               display: "flex", alignItems: "center", gap: 6,
+              borderRadius: "8px 8px 0 0",
             }}
           >
             {label}

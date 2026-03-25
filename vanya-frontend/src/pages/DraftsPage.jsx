@@ -483,7 +483,7 @@ function SavedDraftsPanel() {
                       onChange={e => setEditing(prev => ({ ...prev, [d.draft_id]: { ...prev[d.draft_id], rationale: e.target.value } }))}
                       placeholder={t("drafts.saved.rationale_placeholder")}
                     />
-                    <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>
+                    <div style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>
                       {t("drafts.saved.steps_json_label")}
                     </div>
                     <textarea
@@ -497,7 +497,7 @@ function SavedDraftsPanel() {
                     <div style={{ fontSize: 10, color: "var(--text-3)", marginBottom: 8 }}>
                       {t("drafts.saved.json_helper_steps")}
                     </div>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>
+                    <div style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>
                       {t("drafts.saved.assertions_json_label")}
                     </div>
                     <textarea
@@ -522,7 +522,7 @@ function SavedDraftsPanel() {
                     )}
                     {d.steps?.length > 0 && (
                       <div style={{ marginBottom: 8 }}>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>
+                        <div style={{ fontSize: 10, fontWeight: 400, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>
                           {t("drafts.saved.steps_section")}
                         </div>
                         <ol style={{ margin: 0, paddingLeft: 18 }}>
@@ -541,7 +541,7 @@ function SavedDraftsPanel() {
                     )}
                     {d.assertions?.length > 0 && (
                       <div style={{ marginBottom: 8 }}>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>
+                        <div style={{ fontSize: 10, fontWeight: 400, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>
                           {t("drafts.saved.assertions_section")}
                         </div>
                         <ul style={{ margin: 0, paddingLeft: 16, listStyleType: "disc" }}>
@@ -569,7 +569,7 @@ function SavedDraftsPanel() {
                 {/* AI suggestion panel */}
                 {hasSuggest && (
                   <div style={{ background: "var(--accent-light)", border: "1px solid var(--border)", borderRadius: 6, padding: "10px 12px", marginBottom: 10 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", marginBottom: 6 }}>
+                    <div style={{ fontSize: 11, fontWeight: 500, color: "var(--accent)", marginBottom: 6 }}>
                       ✦ {t("drafts.saved.ai_suggest_result")}
                     </div>
                     {suggest[d.draft_id].note && (
@@ -587,7 +587,7 @@ function SavedDraftsPanel() {
                     )}
                     {suggest[d.draft_id].suggested_steps?.length > 0 && (
                       <div style={{ marginBottom: 6 }}>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>
+                        <div style={{ fontSize: 10, fontWeight: 400, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>
                           {t("drafts.saved.steps_section")} ({suggest[d.draft_id].suggested_steps.length})
                         </div>
                         <ol style={{ margin: 0, paddingLeft: 18 }}>
@@ -602,7 +602,7 @@ function SavedDraftsPanel() {
                     )}
                     {suggest[d.draft_id].suggested_assertions?.length > 0 && (
                       <div style={{ marginBottom: 6 }}>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>
+                        <div style={{ fontSize: 10, fontWeight: 400, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>
                           {t("drafts.saved.assertions_section")} ({suggest[d.draft_id].suggested_assertions.length})
                         </div>
                         <ul style={{ margin: 0, paddingLeft: 16, listStyleType: "disc" }}>
@@ -631,7 +631,7 @@ function SavedDraftsPanel() {
                 {/* Assertion suggestion panel */}
                 {hasAssertSuggest && (
                   <div style={{ background: "var(--accent-light)", border: "1px solid var(--border)", borderRadius: 6, padding: "10px 12px", marginBottom: 10 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", marginBottom: 6 }}>
+                    <div style={{ fontSize: 11, fontWeight: 500, color: "var(--accent)", marginBottom: 6 }}>
                       ◎ {t("drafts.saved.ass_suggest_title")}
                     </div>
                     {suggestAss[d.draft_id].note && (
@@ -678,7 +678,7 @@ function SavedDraftsPanel() {
                 {/* DOM Suggestion panel */}
                 {hasDomSuggest && (
                   <div style={{ background: "var(--accent-light)", border: "1px solid var(--border)", borderRadius: 6, padding: "10px 12px", marginBottom: 10 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", marginBottom: 6 }}>
+                    <div style={{ fontSize: 11, fontWeight: 500, color: "var(--accent)", marginBottom: 6 }}>
                       ⬡ {t("drafts.saved.dom_suggest_title")}
                     </div>
                     {suggestDom[d.draft_id].note && (
@@ -1030,7 +1030,7 @@ function ExplorerDraftsPanel({ onGoToCatalog, initialDrafts = [] }) {
                   />
                   <div style={{ flex: 1 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
-                      <span style={{ fontWeight: 700, fontSize: 14, fontFamily: "monospace", color: "var(--text)" }}>
+                      <span style={{ fontWeight: 600, fontSize: 14, fontFamily: "monospace", color: "var(--text-1)" }}>
                         {d.test_name}
                       </span>
                       <PriorityBadge p={d.priority} />
@@ -1092,7 +1092,7 @@ function ExplorerDraftsPanel({ onGoToCatalog, initialDrafts = [] }) {
       {!loading && drafts.length === 0 && !loadError && (
         <div className="card" style={{ padding: "40px 32px" }}>
           <div style={{ fontSize: 28, marginBottom: 12 }}>⊕</div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text)", marginBottom: 8 }}>{t("drafts.explorer.empty_title")}</div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)", marginBottom: 8 }}>{t("drafts.explorer.empty_title")}</div>
           <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.8 }}>
             {t("drafts.explorer.empty_desc")}
           </div>
@@ -1138,7 +1138,7 @@ function PageCard({ page, selected, onToggle }) {
           />
         )}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 14 }}>{page.title || "(no title)"}</div>
+          <div style={{ fontWeight: 600, fontSize: 14 }}>{page.title || "(no title)"}</div>
           <div style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-3)", marginTop: 2, wordBreak: "break-all" }}>
             {page.url}
           </div>
@@ -1150,7 +1150,7 @@ function PageCard({ page, selected, onToggle }) {
             </span>
           ))}
           <button
-            style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: 11, fontWeight: 600, padding: "0 4px" }}
+            style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: 11, fontWeight: 500, padding: "0 4px" }}
             onClick={() => setOpen(v => !v)}
           >
             {open ? t("drafts.common.less") : t("drafts.common.detail")}
@@ -1165,7 +1165,7 @@ function PageCard({ page, selected, onToggle }) {
           {/* Inputs */}
           {page.inputs?.length > 0 && (
             <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("drafts.page.inputs")}</div>
+              <div style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("drafts.page.inputs")}</div>
               <table className="data-table" style={{ fontSize: 11 }}>
                 <thead><tr><th>{t("drafts.col.name")}</th><th>{t("drafts.col.selector")}</th></tr></thead>
                 <tbody>
@@ -1183,7 +1183,7 @@ function PageCard({ page, selected, onToggle }) {
           {/* Buttons */}
           {page.buttons?.length > 0 && (
             <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("drafts.page.buttons")}</div>
+              <div style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("drafts.page.buttons")}</div>
               <table className="data-table" style={{ fontSize: 11 }}>
                 <thead><tr><th>{t("drafts.col.name")}</th><th>{t("drafts.col.selector")}</th></tr></thead>
                 <tbody>
@@ -1201,7 +1201,7 @@ function PageCard({ page, selected, onToggle }) {
           {/* Links */}
           {page.links?.length > 0 && (
             <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("drafts.page.links")}</div>
+              <div style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("drafts.page.links")}</div>
               <table className="data-table" style={{ fontSize: 11 }}>
                 <thead><tr><th>{t("drafts.col.text")}</th><th>{t("drafts.col.selector")}</th></tr></thead>
                 <tbody>
@@ -1219,10 +1219,10 @@ function PageCard({ page, selected, onToggle }) {
           {/* Forms */}
           {page.forms?.length > 0 && (
             <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("drafts.page.forms")}</div>
+              <div style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("drafts.page.forms")}</div>
               {page.forms.map((frm, i) => (
                 <div key={i} style={{ fontSize: 12, padding: "6px 10px", background: "var(--bg)", borderRadius: 6, marginBottom: 4 }}>
-                  <span style={{ fontWeight: 700 }}>{frm.name || `form_${i + 1}`}</span>
+                  <span style={{ fontWeight: 600 }}>{frm.name || `form_${i + 1}`}</span>
                   {frm.fields?.length > 0 && (
                     <span style={{ marginLeft: 8, color: "var(--text-3)" }}>
                       {t("drafts.page.fields_prefix")} {frm.fields.join(", ")}
@@ -1250,13 +1250,13 @@ function AppMapDraftCard({ draft }) {
   return (
     <div className="card" style={{ marginBottom: 8 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <span style={{ fontWeight: 700, fontSize: 13, fontFamily: "monospace", flex: 1 }}>{draft.test_name}</span>
+        <span style={{ fontWeight: 600, fontSize: 13, fontFamily: "monospace", flex: 1 }}>{draft.test_name}</span>
         <PriorityBadge p={draft.priority} />
         <ReasonBadge   r={draft.reason} />
         <span className="badge badge-gray">{t("drafts.badge.suggested")}</span>
         <span style={{ fontSize: 11, color: "var(--text-3)" }}>{draft.steps?.length ?? 0} {t("drafts.appmap.actions_count")}</span>
         <button
-          style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: 11, fontWeight: 600, padding: 0 }}
+          style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: 11, fontWeight: 500, padding: 0 }}
           onClick={() => setOpen(v => !v)}
         >
           {open ? "▲" : "▼"}
@@ -1378,7 +1378,7 @@ function AppMapPanel({ onGoToExplorer }) {
     <div>
       {/* Hero header */}
       <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 20, fontWeight: 800, color: "var(--text)", marginBottom: 4 }}>
+        <div style={{ fontSize: 20, fontWeight: 600, color: "var(--text-1)", marginBottom: 4 }}>
           {t("drafts.appmap.title")}
         </div>
         <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.6 }}>
@@ -1436,23 +1436,23 @@ function AppMapPanel({ onGoToExplorer }) {
             <div style={{ fontFamily: "monospace", fontSize: 12, wordBreak: "break-all", marginBottom: 16 }}>{result.start_url}</div>
             <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
               <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 26, fontWeight: 800, color: "var(--accent)" }}>{result.visited_count ?? 0}</div>
+                <div style={{ fontSize: 26, fontWeight: 600, color: "var(--accent)" }}>{result.visited_count ?? 0}</div>
                 <div style={{ fontSize: 11, color: "var(--text-3)" }}>{t("drafts.appmap.pages_discovered_label")}</div>
               </div>
               <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 26, fontWeight: 800, color: "var(--accent)" }}>
+                <div style={{ fontSize: 26, fontWeight: 600, color: "var(--accent)" }}>
                   {pages.reduce((sum, p) => sum + (p.inputs?.length ?? 0) + (p.buttons?.length ?? 0) + (p.links?.length ?? 0), 0)}
                 </div>
                 <div style={{ fontSize: 11, color: "var(--text-3)" }}>{t("drafts.appmap.interactive_elements")}</div>
               </div>
               <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 26, fontWeight: 800, color: generatedDrafts.length > 0 ? "var(--green, #22c55e)" : "var(--text-3)" }}>
+                <div style={{ fontSize: 26, fontWeight: 600, color: generatedDrafts.length > 0 ? "var(--green, #22c55e)" : "var(--text-3)" }}>
                   {generatedDrafts.length > 0 ? generatedDrafts.length : "—"}
                 </div>
                 <div style={{ fontSize: 11, color: "var(--text-3)" }}>{t("drafts.appmap.test_scenarios_label")}</div>
               </div>
               <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 26, fontWeight: 800, color: result.errors?.length > 0 ? "var(--red)" : "var(--text-3)" }}>
+                <div style={{ fontSize: 26, fontWeight: 600, color: result.errors?.length > 0 ? "var(--red)" : "var(--text-3)" }}>
                   {result.errors?.length ?? 0}
                 </div>
                 <div style={{ fontSize: 11, color: "var(--text-3)" }}>{t("drafts.appmap.exploration_issues_label")}</div>
@@ -1500,7 +1500,7 @@ function AppMapPanel({ onGoToExplorer }) {
           {/* Page cards */}
           {pages.length > 0 && (
             <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-2)", marginBottom: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-2)", marginBottom: 8 }}>
                 {t("drafts.appmap.discovered_pages")} ({pages.length})
               </div>
               {pages.map((page, i) => (
@@ -1517,7 +1517,7 @@ function AppMapPanel({ onGoToExplorer }) {
           {/* Errors */}
           {result.errors?.length > 0 && (
             <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--red)", marginBottom: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--red)", marginBottom: 8 }}>
                 {t("drafts.appmap.exploration_issues_title")} ({result.errors.length})
               </div>
               <div className="card" style={{ padding: 0, overflow: "hidden" }}>
@@ -1540,7 +1540,7 @@ function AppMapPanel({ onGoToExplorer }) {
           {generatedDrafts.length > 0 && (
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-2)" }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-2)" }}>
                   {t("drafts.appmap.suggested_scenarios")} ({generatedDrafts.length})
                 </div>
                 <span className="badge badge-green">{generatedDrafts.length} {t("drafts.appmap.ready_to_approve")}</span>
@@ -1600,7 +1600,7 @@ function AppMapPanel({ onGoToExplorer }) {
       {!exploring && !result && !exploreErr && (
         <div className="card" style={{ padding: "40px 32px" }}>
           <div style={{ fontSize: 28, marginBottom: 14 }}>🗺</div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: "var(--text)", marginBottom: 10 }}>
+          <div style={{ fontSize: 16, fontWeight: 600, color: "var(--text-1)", marginBottom: 10 }}>
             {t("drafts.appmap.empty_title")}
           </div>
           <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.8, maxWidth: 500 }}>
@@ -1814,7 +1814,7 @@ function CatalogExecutionPanel() {
       {execResult && (
         <div className="card" style={{ marginBottom: 16, borderColor: "var(--accent-border)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
-            <span style={{ fontWeight: 700, fontSize: 14 }}>{t("drafts.catalog.exec_complete")}</span>
+            <span style={{ fontWeight: 600, fontSize: 14 }}>{t("drafts.catalog.exec_complete")}</span>
             <span className="badge badge-gray">{execResult.total ?? 0} {t("drafts.catalog.total")}</span>
             <span className="badge badge-green">{execResult.passed ?? 0} {t("drafts.catalog.passed")}</span>
             {(execResult.failed ?? 0) > 0 && <span className="badge badge-red">{execResult.failed} {t("drafts.catalog.failed")}</span>}
@@ -1919,7 +1919,7 @@ function CatalogExecutionPanel() {
       {!loading && visible.length === 0 && !loadError && (
         <div className="card" style={{ padding: "40px 32px" }}>
           <div style={{ fontSize: 28, marginBottom: 12 }}>▶</div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text)", marginBottom: 8 }}>{t("drafts.catalog.empty_title")}</div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)", marginBottom: 8 }}>{t("drafts.catalog.empty_title")}</div>
           <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.8 }}>
             {t("drafts.catalog.empty_desc")}
           </div>
@@ -2122,7 +2122,7 @@ function AIGenerationPanel() {
                   />
                   <div style={{ flex: 1 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
-                      <span style={{ fontWeight: 700, fontSize: 14, color: "var(--text)" }}>{d.name}</span>
+                      <span style={{ fontWeight: 600, fontSize: 14, color: "var(--text-1)" }}>{d.name}</span>
                       <span className="badge badge-gray">{d.module}</span>
                       <span className="badge badge-blue">{d.type}</span>
                       <span className="badge badge-orange">{d.priority}</span>
@@ -2172,7 +2172,7 @@ function AIGenerationPanel() {
       {!generating && drafts.length === 0 && !genError && (
         <div className="card" style={{ padding: "40px 32px" }}>
           <div style={{ fontSize: 28, marginBottom: 12 }}>✦</div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text)", marginBottom: 8 }}>{t("drafts.ai.empty_title")}</div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)", marginBottom: 8 }}>{t("drafts.ai.empty_title")}</div>
           <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.8 }}>
             {t("drafts.ai.empty_desc")}
           </div>
@@ -2206,7 +2206,7 @@ function KpiBar() {
           padding: "0 20px",
           borderRight: i < arr.length - 1 ? "1px solid var(--border)" : "none",
         }}>
-          <div style={{ fontSize: 22, fontWeight: 800, color: "var(--accent)" }}>{kpi.value}</div>
+          <div style={{ fontSize: 22, fontWeight: 600, color: "var(--accent)" }}>{kpi.value}</div>
           <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-2)", marginTop: 2 }}>{t(kpi.labelKey)}</div>
           <div style={{ fontSize: 11, color: "var(--text-3)" }}>{t(kpi.hintKey)}</div>
         </div>
@@ -2238,16 +2238,17 @@ export default function DraftsPage() {
             key={tabDef.id}
             onClick={() => setTab(tabDef.id)}
             style={{
-              background: "none",
+              background: tab === tabDef.id ? "var(--accent-light)" : "transparent",
               border: "none",
               padding: "8px 18px",
               cursor: "pointer",
               fontSize: 13,
-              fontWeight: tab === tabDef.id ? 700 : 400,
-              color: tab === tabDef.id ? "var(--accent)" : "var(--text-2)",
-              borderBottom: tab === tabDef.id ? "2px solid var(--accent)" : "2px solid transparent",
+              fontWeight: tab === tabDef.id ? 500 : 400,
+              color: tab === tabDef.id ? "var(--accent)" : "var(--text-3)",
+              borderBottom: tab === tabDef.id ? "2px solid var(--accent-border)" : "2px solid transparent",
               marginBottom: -1,
-              transition: "color 0.15s",
+              transition: "background 0.15s, color 0.15s",
+              borderRadius: "8px 8px 0 0",
             }}
           >
             {t(tabDef.labelKey)}

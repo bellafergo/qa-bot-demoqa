@@ -59,7 +59,7 @@ function PassRateTrendChart({ runs, loading, t }) {
     }
     return (
       <div style={{ textAlign: "center", padding: "24px 0" }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-2)" }}>{t("dash.trends.no_data")}</div>
+        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-3)" }}>{t("dash.trends.no_data")}</div>
         <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 4 }}>{t("dash.trends.no_data_sub")}</div>
       </div>
     );
@@ -100,12 +100,6 @@ function PassRateTrendChart({ runs, loading, t }) {
   return (
     <div>
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: 110, display: "block" }}>
-        <defs>
-          <linearGradient id="vanyaTrendGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%"   stopColor="var(--accent)" stopOpacity="0.22" />
-            <stop offset="100%" stopColor="var(--accent)" stopOpacity="0.02" />
-          </linearGradient>
-        </defs>
 
         {/* Grid lines */}
         {[0, 0.5, 1].map(pct => {
@@ -117,15 +111,15 @@ function PassRateTrendChart({ runs, loading, t }) {
         })}
 
         {/* Area fill */}
-        <path d={areaPath} fill="url(#vanyaTrendGrad)" />
+        <path d={areaPath} fill="var(--chart-trend-fill)" />
 
         {/* Avg line */}
         <line x1={PAD_L} y1={avgY} x2={W - PAD_R} y2={avgY}
           stroke="var(--text-3)" strokeWidth="1" strokeDasharray="3,3" />
 
         {/* Trend line */}
-        <polyline points={lineStr} fill="none" stroke="var(--accent)"
-          strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+        <polyline points={lineStr} fill="none" stroke="var(--chart-line)"
+          strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round" />
 
         {/* Data points */}
         {pts.map(([x, y], i) => (
@@ -152,7 +146,7 @@ function PassRateTrendChart({ runs, loading, t }) {
 
       <div style={{ display: "flex", gap: 12, marginTop: 6, fontSize: 11, color: "var(--text-3)" }}>
         <span>{t("dash.trends.subtitle")}: <strong style={{ color: "var(--text-2)" }}>{data.length}</strong></span>
-        <span>· {t("dash.trends.avg")}: <strong style={{ color: "var(--accent)" }}>{(avgRate * 100).toFixed(0)}%</strong></span>
+        <span>· {t("dash.trends.avg")}: <strong style={{ color: "var(--chart-line)" }}>{(avgRate * 100).toFixed(0)}%</strong></span>
       </div>
     </div>
   );
@@ -188,7 +182,7 @@ function CoverageDonutChart({ summary, loading, t }) {
         {/* UI segment */}
         {ui > 0 && (
           <circle cx={CX} cy={CY} r={R} fill="none"
-            stroke="var(--accent)" strokeWidth={STROKE}
+            stroke="var(--chart-donut-ui)" strokeWidth={STROKE}
             strokeDasharray={`${uiArc.toFixed(2)} ${(CIRC - uiArc).toFixed(2)}`}
             style={{ transform: `rotate(-90deg)`, transformOrigin: `${CX}px ${CY}px` }}
           />
@@ -197,14 +191,14 @@ function CoverageDonutChart({ summary, loading, t }) {
         {/* API segment */}
         {api > 0 && (
           <circle cx={CX} cy={CY} r={R} fill="none"
-            stroke="var(--green)" strokeWidth={STROKE}
+            stroke="var(--chart-donut-api)" strokeWidth={STROKE}
             strokeDasharray={`${apiArc.toFixed(2)} ${(CIRC - apiArc).toFixed(2)}`}
             style={{ transform: `rotate(${(-90 + uiDeg).toFixed(2)}deg)`, transformOrigin: `${CX}px ${CY}px` }}
           />
         )}
 
         {/* Center */}
-        <text x={CX} y={CY - 7} textAnchor="middle" fontSize="17" fontWeight="800" fill="var(--text)">
+        <text x={CX} y={CY - 7} textAnchor="middle" fontSize="18" fontWeight="600" fill="var(--text-1)">
           {loading ? "…" : total}
         </text>
         <text x={CX} y={CY + 9} textAnchor="middle" fontSize="9" fill="var(--text-3)">
@@ -214,14 +208,14 @@ function CoverageDonutChart({ summary, loading, t }) {
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 12, flex: 1 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-          <span style={{ width: 9, height: 9, borderRadius: "50%", background: "var(--accent)", flexShrink: 0 }} />
+          <span style={{ width: 9, height: 9, borderRadius: "50%", background: "var(--chart-donut-ui)", flexShrink: 0 }} />
           <span style={{ color: "var(--text-2)", flex: 1 }}>{t("dash.coverage.ui")}</span>
-          <span style={{ fontWeight: 700, color: "var(--text)" }}>{loading ? "…" : ui}</span>
+          <span style={{ fontWeight: 600, color: "var(--text-1)" }}>{loading ? "…" : ui}</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-          <span style={{ width: 9, height: 9, borderRadius: "50%", background: "var(--green)", flexShrink: 0 }} />
+          <span style={{ width: 9, height: 9, borderRadius: "50%", background: "var(--chart-donut-api)", flexShrink: 0 }} />
           <span style={{ color: "var(--text-2)", flex: 1 }}>{t("dash.coverage.api")}</span>
-          <span style={{ fontWeight: 700, color: "var(--text)" }}>{loading ? "…" : api}</span>
+          <span style={{ fontWeight: 600, color: "var(--text-1)" }}>{loading ? "…" : api}</span>
         </div>
         {total > 0 && (
           <div style={{ fontSize: 10, color: "var(--text-3)", borderTop: "1px solid var(--border)", paddingTop: 6 }}>
@@ -241,7 +235,7 @@ function FailureDistributionChart({ fi, loading, t }) {
   if (!fi && !loading) {
     return (
       <div style={{ textAlign: "center", padding: "20px 0" }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-2)" }}>{t("dash.failures.no_data")}</div>
+        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-3)" }}>{t("dash.failures.no_data")}</div>
         <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 4 }}>{t("dash.failures.no_data_sub")}</div>
       </div>
     );
@@ -255,13 +249,13 @@ function FailureDistributionChart({ fi, loading, t }) {
 
   const bars = [
     { key: "dash.failures.flaky",       val: flaky,       color: "var(--orange)" },
-    { key: "dash.failures.clusters",    val: clusters,    color: "var(--accent)"  },
+    { key: "dash.failures.clusters",    val: clusters,    color: "var(--blue)"  },
     { key: "dash.failures.regressions", val: regressions, color: "var(--red)"     },
   ];
 
   if (allZero && !loading) {
     return (
-      <div style={{ padding: "14px 0", fontSize: 12, color: "var(--green)", fontWeight: 600 }}>
+      <div style={{ padding: "14px 0", fontSize: 12, color: "var(--green)", fontWeight: 500 }}>
         ✓ {t("dash.failures.all_clear")}
       </div>
     );
@@ -273,7 +267,7 @@ function FailureDistributionChart({ fi, loading, t }) {
         <div key={key}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5, fontSize: 12 }}>
             <span style={{ color: "var(--text-2)" }}>{t(key)}</span>
-            <span style={{ fontWeight: 700, color: val > 0 ? color : "var(--text-3)" }}>
+            <span style={{ fontWeight: 600, color: val > 0 ? color : "var(--text-3)" }}>
               {loading ? "…" : val}
             </span>
           </div>
@@ -314,7 +308,7 @@ function FailureIntelMiniPanel({ fi, t }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: notes ? 10 : 0 }}>
           <div style={{
             fontSize: 11,
-            fontWeight: 800,
+            fontWeight: 500,
             textTransform: "uppercase",
             letterSpacing: "0.08em",
             color: "var(--text-3)",
@@ -324,7 +318,7 @@ function FailureIntelMiniPanel({ fi, t }) {
           </div>
           {topEntries.map(([cat, count]) => (
             <div key={cat} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12, color: "var(--text-2)" }}>
-              <span style={{ fontWeight: 700 }}>{cat}</span>
+              <span style={{ fontWeight: 500 }}>{cat}</span>
               <span style={{ color: "var(--text-3)", whiteSpace: "nowrap", fontFamily: "monospace" }}>{count}</span>
             </div>
           ))}
@@ -333,7 +327,7 @@ function FailureIntelMiniPanel({ fi, t }) {
 
       {!!notes && (
         <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.6 }}>
-          <div style={{ fontWeight: 800, color: "var(--text-3)", marginBottom: 6 }}>{t("fi.col.notes")}</div>
+          <div style={{ fontWeight: 500, color: "var(--text-4)", marginBottom: 6 }}>{t("fi.col.notes")}</div>
           <div style={{ whiteSpace: "pre-wrap" }}>{notes}</div>
         </div>
       )}
@@ -382,9 +376,9 @@ function RiskSummaryCard({ summary, fi, loading, t }) {
   }
 
   const THEME = {
-    HIGH:   { bg: "#fff5f5", border: "#fca5a5", text: "#dc2626", pillBg: "#fee2e2", icon: "⚠",  labelKey: "dash.risk.high"   },
-    MEDIUM: { bg: "#fffbeb", border: "#fcd34d", text: "#d97706", pillBg: "#fef3c7", icon: "◎",  labelKey: "dash.risk.medium" },
-    LOW:    { bg: "#f0fdf4", border: "#86efac", text: "#16a34a", pillBg: "#dcfce7", icon: "✓",  labelKey: "dash.risk.low"    },
+    HIGH:   { bg: "#fef2f2", border: "#fecaca", text: "#b91c1c", pillBg: "#fee2e2", icon: "⚠",  labelKey: "dash.risk.high"   },
+    MEDIUM: { bg: "#fffbeb", border: "#fde68a", text: "#b45309", pillBg: "#fef3c7", icon: "◎",  labelKey: "dash.risk.medium" },
+    LOW:    { bg: "#f0fdf4", border: "#bbf7d0", text: "#15803d", pillBg: "#dcfce7", icon: "✓",  labelKey: "dash.risk.low"    },
   };
   const c = THEME[level];
 
@@ -409,23 +403,23 @@ function RiskSummaryCard({ summary, fi, loading, t }) {
   return (
     <div style={{
       borderRadius: "var(--r-sm)",
-      border: `1.5px solid ${c.border}`,
+      border: `1px solid ${c.border}`,
       background: c.bg,
-      padding: "14px 16px",
+      padding: "16px 18px",
       boxSizing: "border-box",
     }}>
       {/* Header row: icon + level badge + optional sub */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
         <span style={{ fontSize: 16, lineHeight: 1, flexShrink: 0 }}>{c.icon}</span>
         <span style={{
-          fontWeight: 700,
-          fontSize: 13,
+          fontWeight: 500,
+          fontSize: 12,
           color: c.text,
           background: c.pillBg,
           border: `1px solid ${c.border}`,
-          borderRadius: 4,
-          padding: "2px 8px",
-          letterSpacing: "0.01em",
+          borderRadius: 999,
+          padding: "4px 10px",
+          letterSpacing: "0.02em",
         }}>
           {t(c.labelKey)}
         </span>
@@ -445,16 +439,16 @@ function RiskSummaryCard({ summary, fi, loading, t }) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px 8px", marginBottom: reasons.length > 0 ? 10 : 0 }}>
         {metrics.map(({ labelKey, value, accent }) => (
           <div key={labelKey} style={{
-            background: "rgba(255,255,255,0.55)",
-            border: "1px solid rgba(0,0,0,0.06)",
-            borderRadius: 6,
-            padding: "7px 8px",
+            background: "rgba(255,255,255,0.7)",
+            border: "1px solid var(--border-light)",
+            borderRadius: 8,
+            padding: "8px 10px",
             textAlign: "center",
           }}>
-            <div style={{ fontSize: 14, fontWeight: 800, color: accent, lineHeight: 1.1, marginBottom: 3 }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: accent, lineHeight: 1.1, marginBottom: 3 }}>
               {value}
             </div>
-            <div style={{ fontSize: 10, color: "var(--text-3)", lineHeight: 1.2 }}>
+            <div style={{ fontSize: 10, fontWeight: 400, color: "var(--text-4)", lineHeight: 1.2 }}>
               {t(labelKey)}
             </div>
           </div>
@@ -504,12 +498,12 @@ function SectionCard({ title, link, linkLabel, children }) {
   return (
     <div className="card" style={{ padding: 0, overflow: "hidden" }}>
       <div style={{
-        padding: "14px 20px", borderBottom: "1px solid var(--border)",
+        padding: "16px 22px", borderBottom: "1px solid var(--border)",
         display: "flex", alignItems: "center", justifyContent: "space-between",
       }}>
         <div className="section-title" style={{ margin: 0 }}>{title}</div>
         {link && (
-          <Link to={link} style={{ fontSize: 12, color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>
+          <Link to={link} style={{ fontSize: 12, color: "var(--accent)", fontWeight: 500, textDecoration: "none" }}>
             {linkLabel || "View all →"}
           </Link>
         )}
@@ -521,8 +515,8 @@ function SectionCard({ title, link, linkLabel, children }) {
 
 function WidgetCard({ title, subtitle, children }) {
   return (
-    <div className="card" style={{ padding: "16px 20px" }}>
-      <div style={{ marginBottom: 14 }}>
+    <div className="card" style={{ padding: "20px 24px" }}>
+      <div style={{ marginBottom: 16 }}>
         <div className="section-title" style={{ margin: 0 }}>{title}</div>
         {subtitle && <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>{subtitle}</div>}
       </div>
@@ -577,15 +571,15 @@ export default function DashboardPage() {
 
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <div className="dash-hero">
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 20, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 24, flexWrap: "wrap" }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 26, fontWeight: 900, color: "var(--text)", letterSpacing: "-0.03em", lineHeight: 1.1 }}>
+            <h1 style={{ margin: 0, fontSize: 26, fontWeight: 600, color: "var(--text-1)", letterSpacing: "-0.02em", lineHeight: 1.2 }}>
               {t("dash.title")}
             </h1>
-            <p style={{ margin: "6px 0 14px", fontSize: 14, color: "var(--text-2)", lineHeight: 1.5 }}>
+            <p style={{ margin: "10px 0 18px", fontSize: 13, fontWeight: 400, color: "var(--text-3)", lineHeight: 1.55 }}>
               {t("dash.subtitle")}
             </p>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div className="dash-hero-pill-row" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <span className="badge badge-green">● {t("common.live")}</span>
               <span className="badge badge-accent">{t("common.production")}</span>
               {lastRefresh && (
@@ -601,10 +595,10 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div style={{ padding: "24px 28px" }}>
+      <div style={{ padding: "32px 40px" }}>
 
         {/* ── KPI grid ─────────────────────────────────────────────────────── */}
-        <div className="kpi-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", marginBottom: 24 }}>
+        <div className="kpi-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", marginBottom: 28 }}>
           <KpiCard label={t("dash.kpi.total_tests")}    value={loading ? "…" : s.total_test_cases} sub={`${s.active_test_cases ?? "—"} ${t("dash.kpi.active")}`}                        icon="☰" />
           <KpiCard label={t("dash.kpi.total_runs")}     value={loading ? "…" : s.total_runs}        sub={`${s.pass_runs ?? 0} ${t("dash.kpi.pass")} · ${s.fail_runs ?? 0} ${t("dash.kpi.fail")}`} icon="▶" />
           <KpiCard label={t("dash.kpi.pass_rate")}      value={loading ? "…" : passRate}            sub={t("dash.kpi.all_time")}                                                          accent={s.pass_rate >= 80 ? "var(--green)" : "var(--orange)"} icon="✓" />
@@ -616,7 +610,7 @@ export default function DashboardPage() {
         </div>
 
         {/* ── Visual row 1: Trend (2/3) + Coverage Donut (1/3) ─────────────── */}
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr)", gap: 20, marginBottom: 20 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr)", gap: 24, marginBottom: 24 }}>
           <WidgetCard title={t("dash.trends.title")} subtitle={`${t("dash.trends.subtitle")} · ${recentRuns.length}`}>
             <PassRateTrendChart runs={recentRuns} loading={loading} t={t} />
           </WidgetCard>
@@ -626,7 +620,7 @@ export default function DashboardPage() {
         </div>
 
         {/* ── Visual row 2: Failure Distribution (1/2) + Risk Summary (1/2) ── */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 24 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 28 }}>
           <WidgetCard title={t("dash.failures.title")} subtitle={t("dash.failures.subtitle")}>
             <FailureDistributionChart fi={fi} loading={loading} t={t} />
             <FailureIntelMiniPanel fi={fi} t={t} />
@@ -637,10 +631,10 @@ export default function DashboardPage() {
         </div>
 
         {/* ── Bottom 2-col grid: runs/jobs (left) + intel/actions (right) ──── */}
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr)", gap: 24, alignItems: "start" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr)", gap: 28, alignItems: "start" }}>
 
           {/* LEFT */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
 
             {/* Recent Runs */}
             <SectionCard title={t("dash.recent_runs")} link="/runs" linkLabel={t("dash.recent_runs.link")}>
@@ -648,7 +642,7 @@ export default function DashboardPage() {
                 <div style={{ padding: "20px", color: "var(--text-3)", fontSize: 13 }}>{t("dash.loading_runs")}</div>
               ) : recentRuns.length === 0 ? (
                 <div style={{ padding: "20px", color: "var(--text-3)", fontSize: 13 }}>
-                  {t("dash.no_runs")} <Link to="/catalog" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>{t("dash.run_a_test")}</Link>
+                  {t("dash.no_runs")} <Link to="/catalog" style={{ color: "var(--accent)", fontWeight: 500, textDecoration: "none" }}>{t("dash.run_a_test")}</Link>
                 </div>
               ) : (
                 <table className="data-table">
@@ -661,7 +655,7 @@ export default function DashboardPage() {
                   <tbody>
                     {recentRuns.slice(0, 8).map((r, i) => (
                       <tr key={r.run_id || i}>
-                        <td style={{ fontWeight: 600, fontSize: 12, fontFamily: "monospace" }}>
+                        <td style={{ fontWeight: 500, fontSize: 12, fontFamily: "monospace" }}>
                           {r.test_id || r.test_case_id || "—"}
                         </td>
                         <td><span className={`badge ${statusClass(r.status)}`}>{r.status}</span></td>
@@ -682,7 +676,7 @@ export default function DashboardPage() {
                 <div style={{ padding: "20px", color: "var(--text-3)", fontSize: 13 }}>{t("dash.loading_jobs")}</div>
               ) : recentJobs.length === 0 ? (
                 <div style={{ padding: "20px", color: "var(--text-3)", fontSize: 13 }}>
-                  {t("dash.no_jobs")} <Link to="/execution" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>{t("dash.run_batch")}</Link>
+                  {t("dash.no_jobs")} <Link to="/execution" style={{ color: "var(--accent)", fontWeight: 500, textDecoration: "none" }}>{t("dash.run_batch")}</Link>
                 </div>
               ) : (
                 <table className="data-table">
@@ -711,13 +705,13 @@ export default function DashboardPage() {
           </div>
 
           {/* RIGHT */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
 
             {/* Failure Intelligence summary — links to Insights */}
             {fi && (
               <div className="card">
                 <div className="section-title">{t("dash.insights_summary")}</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 6 }}>
                   <Row label={t("dash.fi.flaky_tests")}  value={fi.flaky_tests_count ?? 0}           accent={fi.flaky_tests_count > 0 ? "var(--orange)" : undefined} />
                   <Row label={t("dash.fi.clusters")}      value={fi.total_clusters ?? 0} />
                   <Row label={t("dash.fi.regressions")}   value={fi.recurrent_regressions_count ?? 0} accent={fi.recurrent_regressions_count > 0 ? "var(--red)" : undefined} />
@@ -728,7 +722,7 @@ export default function DashboardPage() {
                   )}
                 </div>
                 <div style={{ marginTop: 12 }}>
-                  <Link to="/insights" style={{ fontSize: 12, color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>
+                  <Link to="/insights" style={{ fontSize: 12, color: "var(--accent)", fontWeight: 500, textDecoration: "none" }}>
                     {t("dash.view_insights")}
                   </Link>
                 </div>
@@ -738,7 +732,7 @@ export default function DashboardPage() {
             {/* Quick Actions */}
             <div className="card">
               <div className="section-title">{t("dash.quick_actions")}</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {[
                   { to: "/catalog",   icon: "☰", labelKey: "nav.catalog",   subKey: "dash.qa.catalog_sub"   },
                   { to: "/generate",  icon: "⊕", labelKey: "nav.generate",  subKey: "dash.qa.generate_sub"  },
@@ -762,9 +756,9 @@ export default function DashboardPage() {
       </div>
 
       {/* ── Run Analytics ────────────────────────────────────────────────── */}
-      <div style={{ marginTop: 24 }}>
-        <div className="card" style={{ padding: "16px 20px" }}>
-          <div style={{ marginBottom: 14, display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+      <div style={{ marginTop: 32, padding: "0 40px 40px" }}>
+        <div className="card" style={{ padding: "20px 24px" }}>
+          <div style={{ marginBottom: 18, display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
             <div>
               <div className="section-title" style={{ margin: 0 }}>{t("dash.analytics.title")}</div>
               <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>{t("dash.analytics.subtitle")}</div>
@@ -780,7 +774,7 @@ export default function DashboardPage() {
           {analytics && (
             <>
               {/* Summary mini-KPIs */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10, marginBottom: 20 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 14, marginBottom: 24 }}>
                 {[
                   { label: t("dash.analytics.runs_7d"),      value: analytics.summary.runs_last_7_days },
                   { label: t("dash.analytics.runs_30d"),     value: analytics.summary.runs_last_30_days },
@@ -795,20 +789,20 @@ export default function DashboardPage() {
                     padding: "8px 12px",
                     textAlign: "center",
                   }}>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: accent || "var(--text)", lineHeight: 1.1, marginBottom: 4 }}>
+                    <div style={{ fontSize: 18, fontWeight: 600, color: accent || "var(--text-1)", lineHeight: 1.1, marginBottom: 4 }}>
                       {value ?? "—"}
                     </div>
-                    <div style={{ fontSize: 10, color: "var(--text-3)", lineHeight: 1.2 }}>{label}</div>
+                    <div style={{ fontSize: 10, fontWeight: 400, color: "var(--text-4)", lineHeight: 1.2 }}>{label}</div>
                   </div>
                 ))}
               </div>
 
               {/* Two-column: top failures + 7-day trend */}
-              <div style={{ display: "grid", gridTemplateColumns: "minmax(0,3fr) minmax(0,2fr)", gap: 20 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(0,3fr) minmax(0,2fr)", gap: 24 }}>
 
                 {/* Top Failing Tests */}
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-2)", marginBottom: 8 }}>
+                  <div style={{ fontSize: 11, fontWeight: 500, color: "var(--text-4)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
                     {t("dash.analytics.top_failures")}
                   </div>
                   {analytics.top_failures.length === 0 ? (
@@ -834,7 +828,7 @@ export default function DashboardPage() {
                             </td>
                             <td style={{ textAlign: "right" }}>{tf.total_runs}</td>
                             <td style={{ textAlign: "right" }}>
-                              <span style={{ color: "var(--red)", fontWeight: 700 }}>{tf.failed_runs}</span>
+                              <span style={{ color: "var(--red)", fontWeight: 600 }}>{tf.failed_runs}</span>
                             </td>
                             <td style={{ textAlign: "right" }}>
                               <span style={{ color: tf.pass_rate >= 80 ? "var(--green)" : "var(--orange)", fontWeight: 600 }}>
@@ -850,7 +844,7 @@ export default function DashboardPage() {
 
                 {/* 7-day daily trend */}
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-2)", marginBottom: 8 }}>
+                  <div style={{ fontSize: 11, fontWeight: 500, color: "var(--text-4)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
                     {t("dash.analytics.trend_7d")}
                   </div>
                   <table className="data-table" style={{ fontSize: 12 }}>
@@ -892,8 +886,8 @@ export default function DashboardPage() {
 function Row({ label, value, accent }) {
   return (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
-      <span style={{ color: "var(--text-2)" }}>{label}</span>
-      <span style={{ fontWeight: 700, color: accent || "var(--text)" }}>{value}</span>
+      <span style={{ color: "var(--text-3)", fontWeight: 400 }}>{label}</span>
+      <span style={{ fontWeight: 600, color: accent || "var(--text-1)" }}>{value}</span>
     </div>
   );
 }

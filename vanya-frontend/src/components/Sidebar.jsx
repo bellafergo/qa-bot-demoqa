@@ -128,7 +128,7 @@ export default function Sidebar({
           justifyContent: "space-between",
           marginBottom: 10,
         }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.07em" }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.07em" }}>
             {t("chat.sidebar.title")}
           </span>
           <button
@@ -164,7 +164,7 @@ export default function Sidebar({
             background: "var(--accent-light)",
             color: "var(--accent)",
             cursor: busy ? "not-allowed" : "pointer",
-            fontWeight: 700,
+            fontWeight: 600,
             fontSize: 13,
             fontFamily: "inherit",
             opacity: busy ? 0.7 : 1,
@@ -190,7 +190,7 @@ export default function Sidebar({
               border: "1px solid var(--border)",
               borderRadius: 7,
               background: "var(--surface-2)",
-              color: "var(--text)",
+              color: "var(--text-1)",
               fontSize: 12,
               fontFamily: "inherit",
               outline: "none",
@@ -243,9 +243,9 @@ export default function Sidebar({
             >
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div style={{
-                  fontWeight: isActive ? 700 : 500,
+                  fontWeight: isActive ? 500 : 400,
                   fontSize: 13,
-                  color: isActive ? "var(--accent)" : "var(--text)",
+                  color: isActive ? "var(--accent)" : "var(--text-2)",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
                   whiteSpace: "nowrap",
@@ -255,7 +255,8 @@ export default function Sidebar({
                 {subtitle && (
                   <div style={{
                     fontSize: 11,
-                    color: "var(--text-3)",
+                    fontWeight: 400,
+                    color: "var(--text-4)",
                     marginTop: 2,
                     overflow: "hidden",
                     textOverflow: "ellipsis",

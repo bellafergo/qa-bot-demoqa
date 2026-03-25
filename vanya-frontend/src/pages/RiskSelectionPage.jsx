@@ -41,7 +41,7 @@ function ScoreBar({ score, max = 25 }) {
       <div style={{ flex: 1, height: 6, borderRadius: 3, background: "var(--border)", overflow: "hidden" }}>
         <div style={{ width: `${pct}%`, height: "100%", background: scoreColor(score), borderRadius: 3, transition: "width 0.3s" }} />
       </div>
-      <span style={{ fontSize: 12, fontWeight: 700, color: scoreColor(score), minWidth: 22, textAlign: "right" }}>{score}</span>
+      <span style={{ fontSize: 12, fontWeight: 600, color: scoreColor(score), minWidth: 22, textAlign: "right" }}>{score}</span>
     </div>
   );
 }
@@ -245,7 +245,7 @@ export default function RiskSelectionPage({ embedded = false }) {
             background: "var(--accent-light)", borderRadius: "var(--r-sm)",
             border: "1px solid var(--accent-border)", fontSize: 12,
           }}>
-            <span style={{ color: "var(--accent)", fontWeight: 700 }}>◎</span>
+            <span style={{ color: "var(--accent)", fontWeight: 600 }}>◎</span>
             <span style={{ color: "var(--text-2)" }}>{t("risk.prefill.hint")}</span>
             {navState.prTitle && (
               <span className="badge badge-gray" style={{ fontSize: 10 }}>{navState.prTitle}</span>
@@ -259,7 +259,7 @@ export default function RiskSelectionPage({ embedded = false }) {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 160px", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
 
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>
+            <label style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>
               {t("risk.form.modules_label")}
             </label>
             <input
@@ -272,7 +272,7 @@ export default function RiskSelectionPage({ embedded = false }) {
           </div>
 
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>
+            <label style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>
               {t("risk.form.max_label")}
             </label>
             <input
@@ -286,7 +286,7 @@ export default function RiskSelectionPage({ embedded = false }) {
           </div>
 
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>
+            <label style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>
               {t("risk.form.priority_label")}
             </label>
             <select className="input" value={priority} onChange={e => setPriority(e.target.value)}>
@@ -314,7 +314,7 @@ export default function RiskSelectionPage({ embedded = false }) {
           {/* Selection counter */}
           {tests.length > 0 && (
             <span style={{ fontSize: 12, color: "var(--text-3)", marginLeft: 4 }}>
-              <span style={{ fontWeight: 700, color: noneSelected ? "var(--red)" : "var(--text-2)" }}>
+              <span style={{ fontWeight: 600, color: noneSelected ? "var(--red)" : "var(--text-2)" }}>
                 {selectedIds.size}
               </span>
               {" "}{t("risk.selection.of")}{" "}
@@ -334,7 +334,7 @@ export default function RiskSelectionPage({ embedded = false }) {
             <div className="alert alert-error">{runError}</div>
           ) : runResult?.ok ? (
             <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: "var(--green)" }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--green)" }}>
                 ✓ {t("risk.run.enqueued")} — {runResult.count} {t("risk.run.tests_label")}
               </span>
               {runResult.job_id && (
@@ -447,7 +447,7 @@ export default function RiskSelectionPage({ embedded = false }) {
                           <td style={{ fontWeight: 600, fontSize: 13, maxWidth: 240 }}>
                             {test.name}
                             {test.version != null && (
-                              <span className="badge badge-gray" style={{ marginLeft: 7, fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", verticalAlign: "middle" }}>
+                              <span className="badge badge-gray" style={{ marginLeft: 7, fontSize: 10, fontWeight: 400, letterSpacing: "0.05em", verticalAlign: "middle" }}>
                                 v{test.version}
                               </span>
                             )}
@@ -496,7 +496,7 @@ export default function RiskSelectionPage({ embedded = false }) {
                           <tr>
                             <td colSpan={9} style={{ background: "var(--accent-light)", borderTop: "1px solid var(--border)", padding: "12px 20px" }}>
                               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                                <span style={{ fontWeight: 700, fontSize: 13, color: "var(--accent)" }}>
+                                <span style={{ fontWeight: 600, fontSize: 13, color: "var(--accent)" }}>
                                   ⏱ {t("catalog.versions.title")} — {test.test_case_id}
                                 </span>
                                 <span style={{ fontSize: 11, color: "var(--text-3)", fontStyle: "italic" }}>

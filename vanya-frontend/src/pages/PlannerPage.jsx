@@ -148,7 +148,7 @@ export default function PlannerPage({ embedded = false }) {
             className={`btn ${mode === "plan" ? "btn-secondary" : "btn-ghost"}`}
             onClick={() => { setMode("plan"); handlePlan(); }}
             disabled={loading || !text.trim()}
-            style={mode === "plan" ? { borderColor: "var(--accent)", color: "var(--accent)" } : {}}
+            style={mode === "plan" ? { borderColor: "var(--accent-border)", color: "var(--accent)", background: "var(--accent-light)" } : {}}
           >
             {loading && mode === "plan" ? t("planner.btn.generating") : t("planner.btn.generate")}
           </button>
@@ -170,7 +170,7 @@ export default function PlannerPage({ embedded = false }) {
       {plan && (
         <div className="card" style={{ marginBottom: 20 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
-            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: "var(--text)" }}>
+            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "var(--text-1)" }}>
               {t("planner.plan.title")}
             </h2>
             <span className={`badge ${planOk ? "badge-green" : "badge-red"}`}>
@@ -208,10 +208,10 @@ export default function PlannerPage({ embedded = false }) {
                       alignItems: "baseline",
                     }}
                   >
-                    <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", width: 22, flexShrink: 0, textAlign: "right" }}>
+                    <span style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", width: 22, flexShrink: 0, textAlign: "right" }}>
                       {i + 1}
                     </span>
-                    <code style={{ fontSize: 12, color: "var(--accent)", fontWeight: 700 }}>
+                    <code style={{ fontSize: 12, color: "var(--accent)", fontWeight: 500 }}>
                       {step.action}
                     </code>
                     {step.url && <span style={{ fontSize: 12, color: "var(--text-2)" }}>{step.url}</span>}
@@ -253,7 +253,7 @@ export default function PlannerPage({ embedded = false }) {
       {run?.evidence_id && (
         <div className="card" style={{ borderColor: "var(--green-border)", background: "var(--green-bg)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: "var(--green-text)" }}>
+            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "var(--green-text)" }}>
               {t("planner.run.title")}
             </h2>
             {run.status && (
@@ -263,7 +263,7 @@ export default function PlannerPage({ embedded = false }) {
             )}
           </div>
 
-          <div style={{ display: "grid", gap: 8, fontSize: 13, color: "var(--text)" }}>
+          <div style={{ display: "grid", gap: 8, fontSize: 13, color: "var(--text-1)" }}>
             {run.status && (
               <div style={{ display: "flex", gap: 8 }}>
                 <span style={{ color: "var(--text-3)", width: 100 }}>{t("planner.run.status")}</span>

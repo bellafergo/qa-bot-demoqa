@@ -193,7 +193,7 @@ export default function ExecutionPage() {
       >
         <div className="card" style={{ width: "min(680px, 100%)", padding: 0, overflow: "hidden" }}>
           <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)" }}>
-            <div style={{ fontSize: 15, fontWeight: 900, color: "var(--text-1)", marginBottom: 6 }}>{title}</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)", marginBottom: 6 }}>{title}</div>
             <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.6 }}>{description}</div>
           </div>
           <div style={{ padding: "14px 20px" }}>
@@ -249,7 +249,7 @@ export default function ExecutionPage() {
 
       {/* Page header */}
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0, color: "var(--text-1)" }}>{t("exec.page.title")}</h1>
+        <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0, color: "var(--text-1)" }}>{t("exec.page.title")}</h1>
         <p style={{ fontSize: 13, color: "var(--text-3)", margin: "4px 0 0" }}>{t("exec.page.subtitle")}</p>
       </div>
 
@@ -284,7 +284,7 @@ export default function ExecutionPage() {
             {jobs.length === 0 && !loading ? (
               <div style={{ padding: "32px 24px", textAlign: "center" }}>
                 <div style={{ fontSize: 28, marginBottom: 10 }}>◈</div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-2)", marginBottom: 6 }}>{t("exec.jobs.none")}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-2)", marginBottom: 6 }}>{t("exec.jobs.none")}</div>
                 <div style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.6 }}>
                   {t("exec.batch.desc")}
                 </div>
@@ -395,7 +395,7 @@ export default function ExecutionPage() {
                   {/* Error message — prominent when present */}
                   {jobDetail.error_message && (
                     <div className="alert alert-error" style={{ marginBottom: 10, fontSize: 12 }}>
-                      <span style={{ fontWeight: 700, marginRight: 6 }}>{t("exec.detail.error_message")}:</span>
+                      <span style={{ fontWeight: 600, marginRight: 6 }}>{t("exec.detail.error_message")}:</span>
                       {jobDetail.error_message}
                     </div>
                   )}
@@ -413,13 +413,13 @@ export default function ExecutionPage() {
                   {/* Timestamps */}
                   <div style={{ fontSize: 11, color: "var(--text-3)", display: "flex", flexWrap: "wrap", gap: "4px 16px", marginBottom: 10 }}>
                     {jobDetail.created_at && (
-                      <span><span style={{ fontWeight: 700, color: "var(--text-2)" }}>{t("exec.detail.ts.created")}</span> {fmtDate(jobDetail.created_at)}</span>
+                      <span><span style={{ fontWeight: 600, color: "var(--text-2)" }}>{t("exec.detail.ts.created")}</span> {fmtDate(jobDetail.created_at)}</span>
                     )}
                     {jobDetail.started_at && (
-                      <span><span style={{ fontWeight: 700, color: "var(--text-2)" }}>{t("exec.detail.ts.started")}</span> {fmtDate(jobDetail.started_at)}</span>
+                      <span><span style={{ fontWeight: 600, color: "var(--text-2)" }}>{t("exec.detail.ts.started")}</span> {fmtDate(jobDetail.started_at)}</span>
                     )}
                     {jobDetail.finished_at && (
-                      <span><span style={{ fontWeight: 700, color: "var(--text-2)" }}>{t("exec.detail.ts.finished")}</span> {fmtDate(jobDetail.finished_at)}</span>
+                      <span><span style={{ fontWeight: 600, color: "var(--text-2)" }}>{t("exec.detail.ts.finished")}</span> {fmtDate(jobDetail.finished_at)}</span>
                     )}
                   </div>
                   {/* Correlation: parent job / retry jobs */}
@@ -427,7 +427,7 @@ export default function ExecutionPage() {
                     <div style={{ marginBottom: 10, padding: "8px 12px", background: "var(--accent-light)", borderRadius: "var(--r-sm)", border: "1px solid var(--accent-border)", fontSize: 12 }}>
                       {jobDetail.parent_job_id && (
                         <div style={{ marginBottom: jobDetail.retry_job_ids?.length ? 6 : 0 }}>
-                          <span style={{ fontWeight: 700, color: "var(--text-2)", marginRight: 6 }}>{t("exec.detail.parent_job")}:</span>
+                          <span style={{ fontWeight: 600, color: "var(--text-2)", marginRight: 6 }}>{t("exec.detail.parent_job")}:</span>
                           <span style={{ fontFamily: "monospace", marginRight: 8 }}>{jobDetail.parent_job_id}</span>
                           <button
                             className="btn btn-secondary btn-sm"
@@ -440,7 +440,7 @@ export default function ExecutionPage() {
                       )}
                       {jobDetail.retry_job_ids?.length > 0 && (
                         <div>
-                          <span style={{ fontWeight: 700, color: "var(--text-2)", marginRight: 6 }}>{t("exec.detail.retry_jobs")}:</span>
+                          <span style={{ fontWeight: 600, color: "var(--text-2)", marginRight: 6 }}>{t("exec.detail.retry_jobs")}:</span>
                           {jobDetail.retry_job_ids.map((rid) => (
                             <span key={rid} style={{ display: "inline-flex", alignItems: "center", gap: 4, marginRight: 8, marginBottom: 4 }}>
                               <span style={{ fontFamily: "monospace", fontSize: 11 }}>{rid}</span>
@@ -472,7 +472,7 @@ export default function ExecutionPage() {
 
                   {/* Operational actions (CI / SRE) — always visible when job selected */}
                   <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)" }}>
-                    <div style={{ fontSize: 12, color: "var(--text-2)", fontWeight: 700, marginBottom: 10 }}>
+                    <div style={{ fontSize: 12, color: "var(--text-2)", fontWeight: 600, marginBottom: 10 }}>
                       {t("exec.action.operational_actions")}
                     </div>
                     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
@@ -556,7 +556,7 @@ export default function ExecutionPage() {
                               <span className="badge badge-gray" style={{ fontSize: 10 }}>{ctx.selection_type}</span>
                             )}
                             {ctx.pr_title && (
-                              <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text)" }}>{ctx.pr_title}</span>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-1)" }}>{ctx.pr_title}</span>
                             )}
                             {ctx.pr_branch && (
                               <span className="badge badge-gray" style={{ fontSize: 10 }}>⎇ {ctx.pr_branch}</span>

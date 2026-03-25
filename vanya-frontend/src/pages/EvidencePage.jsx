@@ -97,7 +97,7 @@ function ConfirmModal({
     >
       <div className="card" style={{ width: "min(680px, 100%)", padding: 0, overflow: "hidden" }}>
         <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)" }}>
-          <div style={{ fontSize: 15, fontWeight: 900, color: "var(--text-1)", marginBottom: 6 }}>{title}</div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)", marginBottom: 6 }}>{title}</div>
           <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.6 }}>{description}</div>
         </div>
         <div style={{ padding: "14px 20px" }}>
@@ -217,7 +217,7 @@ export default function EvidencePage() {
     <div className="page-wrap">
       {/* Header */}
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0, color: "var(--text-1)" }}>
+        <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0, color: "var(--text-1)" }}>
           {t("ev.title")}
         </h1>
         <p style={{ fontSize: 13, color: "var(--text-3)", margin: "4px 0 0" }}>
@@ -240,7 +240,7 @@ export default function EvidencePage() {
 
           {/* Status dropdown */}
           <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", whiteSpace: "nowrap" }}>{t("ev.filter.status")}:</span>
+            <span style={{ fontSize: 11, fontWeight: 500, color: "var(--text-2)", whiteSpace: "nowrap" }}>{t("ev.filter.status")}:</span>
             <select
               className="input"
               value={statusFilter}
@@ -257,7 +257,7 @@ export default function EvidencePage() {
 
           {/* Flaky dropdown */}
           <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", whiteSpace: "nowrap" }}>{t("ev.filter.flaky")}:</span>
+            <span style={{ fontSize: 11, fontWeight: 500, color: "var(--text-2)", whiteSpace: "nowrap" }}>{t("ev.filter.flaky")}:</span>
             <select
               className="input"
               value={flakyFilter}
@@ -272,7 +272,7 @@ export default function EvidencePage() {
 
           {/* Quarantine dropdown */}
           <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", whiteSpace: "nowrap" }}>{t("ev.filter.quarantine")}:</span>
+            <span style={{ fontSize: 11, fontWeight: 500, color: "var(--text-2)", whiteSpace: "nowrap" }}>{t("ev.filter.quarantine")}:</span>
             <select
               className="input"
               value={quarantineFilter}
@@ -326,7 +326,7 @@ export default function EvidencePage() {
       {!loading && !error && filtered.length === 0 && (
         <div className="card" style={{ padding: "48px 32px", textAlign: "center" }}>
           <div style={{ fontSize: 32, marginBottom: 12 }}>⊟</div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)", marginBottom: 6 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", marginBottom: 6 }}>
             {rows.length === 0 ? t("ev.empty_state.title") : t("ev.filter.no_results")}
           </div>
           <div style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.7, marginBottom: 16, maxWidth: 340, margin: "0 auto 16px" }}>
@@ -541,7 +541,7 @@ function EvidenceRow({ row, t, navigate }) {
                 {errorType && <span className="badge badge-orange">error_type: {errorType}</span>}
                 {stepIndex != null && (
                   <div>
-                    <span style={{ fontSize: 11, fontWeight: 800, color: "var(--text-3)", textTransform: "uppercase" }}>step_index</span>{" "}
+                    <span style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", textTransform: "uppercase" }}>step_index</span>{" "}
                     <code style={{ fontSize: 12, color: "var(--text-2)" }}>{String(stepIndex)}</code>
                   </div>
                 )}
@@ -581,13 +581,13 @@ function EvidenceRow({ row, t, navigate }) {
                 )}
                 {hint && (
                   <div>
-                    <span style={{ fontSize: 11, fontWeight: 800, color: "var(--text-3)", textTransform: "uppercase" }}>hint</span>
+                    <span style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", textTransform: "uppercase" }}>hint</span>
                     <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.6, marginTop: 4 }}>{hint}</div>
                   </div>
                 )}
                 {errorSummary && (
                   <div>
-                    <span style={{ fontSize: 11, fontWeight: 800, color: "var(--text-3)", textTransform: "uppercase" }}>raw</span>
+                    <span style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", textTransform: "uppercase" }}>raw</span>
                     <pre className="code-block" style={{ marginTop: 6, maxHeight: 140, overflow: "auto" }}>
                       {errorSummary}
                     </pre>
@@ -596,7 +596,7 @@ function EvidenceRow({ row, t, navigate }) {
 
                 {shouldShowActionPanel && (
                   <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border)" }}>
-                    <div style={{ fontSize: 12, color: "var(--text-2)", marginBottom: 8, fontWeight: 800 }}>
+                    <div style={{ fontSize: 12, color: "var(--text-2)", marginBottom: 8, fontWeight: 600 }}>
                       {t("runs.action_panel.suggested_next_steps")}{" "}
                       <span style={{ fontWeight: 600, color: "var(--text-3)" }}>
                         {t("runs.action_panel.requires_confirmation_for_operations")}

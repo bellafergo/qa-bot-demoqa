@@ -139,14 +139,16 @@ export default function ApiTestingPage() {
             onClick={() => setActiveTab(i)}
             style={{
               padding: "8px 16px",
-              background: "none",
+              background: activeTab === i ? "var(--accent-light)" : "transparent",
               border: "none",
-              borderBottom: activeTab === i ? "2px solid var(--accent)" : "2px solid transparent",
+              borderBottom: activeTab === i ? "2px solid var(--accent-border)" : "2px solid transparent",
               marginBottom: -2,
-              fontWeight: activeTab === i ? 700 : 500,
+              fontWeight: activeTab === i ? 500 : 400,
               fontSize: 13,
-              color: activeTab === i ? "var(--accent)" : "var(--text-2)",
+              color: activeTab === i ? "var(--accent)" : "var(--text-3)",
               cursor: "pointer",
+              borderRadius: "8px 8px 0 0",
+              transition: "background 0.15s, color 0.15s",
             }}
           >
             {t(tab.labelKey)}
@@ -315,7 +317,7 @@ export default function ApiTestingPage() {
                 )}
 
                 <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 10 }}>{t("api.run.title")}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-1)", marginBottom: 10 }}>{t("api.run.title")}</div>
                   <div style={{ display: "flex", gap: 12, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
                     <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
                       <input type="radio" name="runMode" value="draft" checked={runMode === "draft"} onChange={() => setRunMode("draft")} />

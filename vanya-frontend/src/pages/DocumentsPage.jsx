@@ -108,7 +108,7 @@ export default function DocumentsPage() {
           >
             <span style={{ fontSize: 20 }}>📄</span>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-1)" }}>
                 {file ? file.name : t("docs.upload.choose")}
               </div>
               <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>
@@ -224,7 +224,7 @@ export default function DocumentsPage() {
                   marginBottom: 8,
                   gap: 8,
                 }}>
-                  <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text)" }}>
+                  <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-1)" }}>
                     {s.filename || t("docs.results.unknown")}
                   </div>
                   <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>

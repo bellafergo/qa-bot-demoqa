@@ -33,7 +33,7 @@ export default function InsightsPage() {
     <div>
       {/* ── Header + tab bar ─────────────────────────────────────────────── */}
       <div style={{ padding: "24px 24px 0", background: "var(--bg)" }}>
-        <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0, color: "var(--text-1)" }}>
+        <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0, color: "var(--text-1)" }}>
           {t("insights.title")}
         </h1>
         <p style={{ fontSize: 13, color: "var(--text-3)", margin: "4px 0 16px" }}>
@@ -48,13 +48,13 @@ export default function InsightsPage() {
               style={{
                 padding: "7px 16px",
                 borderRadius: 8,
-                border: "none",
+                border: tab === i ? "1px solid var(--accent-border)" : "1px solid var(--border)",
                 cursor: "pointer",
                 fontSize: 13,
-                fontWeight: tab === i ? 700 : 500,
-                background: tab === i ? "var(--accent)" : "var(--surface)",
-                color: tab === i ? "#fff" : "var(--text-2)",
-                boxShadow: tab === i ? "0 2px 8px rgba(79,107,255,0.25)" : "none",
+                fontWeight: 500,
+                background: tab === i ? "var(--accent-light)" : "var(--surface)",
+                color: tab === i ? "var(--accent)" : "var(--text-3)",
+                boxShadow: tab === i ? "var(--shadow-1)" : "none",
                 transition: "all 0.15s",
                 display: "flex",
                 alignItems: "center",
@@ -119,7 +119,7 @@ function AIRecommendationsTab() {
           ✦
         </div>
         <div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: "var(--text-1)", marginBottom: 4 }}>
+          <div style={{ fontSize: 16, fontWeight: 600, color: "var(--text-1)", marginBottom: 4 }}>
             {t("insights.ai.title")}
           </div>
           <div style={{ fontSize: 13, color: "var(--text-3)", lineHeight: 1.6, maxWidth: 520 }}>
@@ -140,7 +140,7 @@ function AIRecommendationsTab() {
             style={{ background: card.accentColor, borderColor: "transparent" }}
           >
             <div style={{ fontSize: 20, marginBottom: 10 }}>{card.icon}</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)", marginBottom: 6 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", marginBottom: 6 }}>
               {t(card.titleKey)}
             </div>
             <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.6 }}>
@@ -153,7 +153,7 @@ function AIRecommendationsTab() {
       {/* CTAs */}
       <div className="card" style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
         <div style={{ flex: 1, minWidth: 200 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-1)", marginBottom: 4 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-1)", marginBottom: 4 }}>
             {t("insights.ai.cta_heading")}
           </div>
           <div style={{ fontSize: 12, color: "var(--text-3)" }}>

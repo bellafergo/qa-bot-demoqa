@@ -38,53 +38,20 @@ export default function Layout() {
 
         {/* Top header — hidden on pages that manage their own title (e.g. Dashboard) */}
         {showHeader && (
-          <header style={{
-            height: "var(--header-h)",
-            minHeight: "var(--header-h)",
-            background: "var(--surface)",
-            borderBottom: "1px solid var(--border)",
-            display: "flex",
-            alignItems: "center",
-            padding: "0 28px",
-            gap: 16,
-            flexShrink: 0,
-            boxShadow: "0 1px 0 var(--border)",
-          }}>
+          <header className="layout-header">
             <div style={{ flex: 1 }}>
-              <div style={{
-                fontSize: 15,
-                fontWeight: 800,
-                color: "var(--text)",
-                letterSpacing: "-0.02em",
-                lineHeight: 1.2,
-              }}>
+              <div className="layout-header-title">
                 {t(meta.titleKey)}
               </div>
               {meta.subtitleKey && (
-                <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>
+                <div className="layout-header-sub">
                   {t(meta.subtitleKey)}
                 </div>
               )}
             </div>
 
-            {/* Live status indicator */}
-            <div style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              fontSize: 11,
-              color: "var(--text-3)",
-              fontWeight: 500,
-            }}>
-              <span style={{
-                width: 7,
-                height: 7,
-                borderRadius: "50%",
-                background: "var(--green)",
-                display: "inline-block",
-                boxShadow: "0 0 0 2px var(--green-bg)",
-                flexShrink: 0,
-              }} />
+            <div className="layout-live-pill" role="status">
+              <span className="layout-live-dot" aria-hidden />
               {t("common.live")}
             </div>
           </header>

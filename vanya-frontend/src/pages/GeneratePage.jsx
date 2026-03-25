@@ -62,24 +62,25 @@ function SourceCard({ card, active, onClick, t }) {
         minWidth: 150,
         padding: "14px 16px",
         borderRadius: 10,
-        border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
-        background: active ? "rgba(79,107,255,0.06)" : "var(--surface)",
+        border: active ? "1px solid var(--accent-border)" : "1px solid var(--border)",
+        background: active ? "var(--accent-light)" : "var(--surface)",
+        boxShadow: active ? "var(--shadow-1)" : "none",
         cursor: "pointer",
         transition: "border-color 0.15s, background 0.15s",
       }}
     >
       <div style={{
         width: 34, height: 34, borderRadius: 8,
-        background: active ? "rgba(79,107,255,0.15)" : "var(--bg)",
+        background: active ? "var(--accent-light)" : "var(--bg)",
         display: "flex", alignItems: "center", justifyContent: "center",
         fontSize: 16, marginBottom: 10,
       }}>
         {card.icon}
       </div>
-      <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-1)", marginBottom: 4 }}>
+      <div style={{ fontSize: 13, fontWeight: 500, color: active ? "var(--accent)" : "var(--text-1)", marginBottom: 4, letterSpacing: "-0.01em" }}>
         {t(card.titleKey)}
       </div>
-      <div style={{ fontSize: 11, color: "var(--text-3)", lineHeight: 1.5 }}>
+      <div style={{ fontSize: 11, fontWeight: 400, color: "var(--text-4)", lineHeight: 1.5 }}>
         {t(card.descKey)}
       </div>
     </div>
@@ -322,7 +323,7 @@ function FromUrlPanel() {
                     style={{ marginTop: 3, flexShrink: 0 }}
                   />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 13 }}>{page.title || "(no title)"}</div>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>{page.title || "(no title)"}</div>
                     <div style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-3)", wordBreak: "break-all", marginTop: 2 }}>
                       {page.url}
                     </div>
@@ -435,7 +436,7 @@ function FromUrlPanel() {
                     />
                     <div style={{ flex: 1 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
-                        <span style={{ fontWeight: 700, fontSize: 14, fontFamily: "monospace", color: "var(--text)" }}>
+                        <span style={{ fontWeight: 600, fontSize: 14, fontFamily: "monospace", color: "var(--text-1)" }}>
                           {d.test_name}
                         </span>
                         <PriorityBadge p={d.priority} />
@@ -487,7 +488,7 @@ function FromUrlPanel() {
       {!exploring && pages.length === 0 && !exploreErr && (
         <div className="card" style={{ padding: "48px 32px", textAlign: "center" }}>
           <div style={{ fontSize: 32, marginBottom: 12 }}>⊞</div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text)", marginBottom: 8 }}>{t("gen.url.empty_title")}</div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)", marginBottom: 8 }}>{t("gen.url.empty_title")}</div>
           <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.8, maxWidth: 380, margin: "0 auto" }}>
             {t("gen.url.empty_desc")}
           </div>
@@ -507,7 +508,7 @@ export default function GeneratePage() {
     <div>
       {/* ── Header + source cards ─────────────────────────────────────────── */}
       <div style={{ padding: "24px 24px 0", background: "var(--bg)" }}>
-        <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0, color: "var(--text-1)" }}>
+        <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0, color: "var(--text-1)" }}>
           {t("gen.title")}
         </h1>
         <p style={{ fontSize: 13, color: "var(--text-3)", margin: "4px 0 16px" }}>
@@ -536,13 +537,13 @@ export default function GeneratePage() {
               style={{
                 padding: "7px 16px",
                 borderRadius: 8,
-                border: "none",
+                border: tab === i ? "1px solid var(--accent-border)" : "1px solid var(--border)",
                 cursor: "pointer",
                 fontSize: 13,
-                fontWeight: tab === i ? 700 : 500,
-                background: tab === i ? "var(--accent)" : "var(--surface)",
-                color: tab === i ? "#fff" : "var(--text-2)",
-                boxShadow: tab === i ? "0 2px 8px rgba(79,107,255,0.25)" : "none",
+                fontWeight: 500,
+                background: tab === i ? "var(--accent-light)" : "var(--surface)",
+                color: tab === i ? "var(--accent)" : "var(--text-3)",
+                boxShadow: tab === i ? "var(--shadow-1)" : "none",
                 transition: "all 0.15s",
                 display: "flex",
                 alignItems: "center",

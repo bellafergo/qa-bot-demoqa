@@ -60,13 +60,13 @@ function DiffPanel({ diff, t }) {
 
   return (
     <div style={{ marginBottom: 12, border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden" }}>
-      <div style={{ background: "var(--surface-2)", padding: "6px 12px", fontSize: 11, fontWeight: 700, color: "var(--text-2)", borderBottom: "1px solid var(--border)" }}>
+      <div style={{ background: "var(--surface-2)", padding: "6px 12px", fontSize: 11, fontWeight: 500, color: "var(--text-2)", borderBottom: "1px solid var(--border)" }}>
         v{diff.from_version} → v{diff.to_version}
       </div>
       <div style={{ padding: "10px 12px" }}>
         {hasFields && (
           <div style={{ marginBottom: 8 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", marginBottom: 4 }}>{t("catalog.versions.diff_fields")}</div>
+            <div style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", marginBottom: 4 }}>{t("catalog.versions.diff_fields")}</div>
             {Object.entries(fields).map(([field, change]) => (
               <div key={field} style={{ fontFamily: "monospace", fontSize: 12, marginBottom: 2 }}>
                 <span style={{ color: "var(--text-2)", fontWeight: 600 }}>{field}:</span>{" "}
@@ -79,7 +79,7 @@ function DiffPanel({ diff, t }) {
         )}
         {hasSteps && (
           <div style={{ marginBottom: 8 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", marginBottom: 4 }}>{t("catalog.versions.diff_steps")}</div>
+            <div style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", marginBottom: 4 }}>{t("catalog.versions.diff_steps")}</div>
             {steps.map((entry, i) => (
               <div key={i} style={lineStyle(entry.type === "added")}>
                 {entry.type === "added" ? "+ " : "- "}{entry.value}
@@ -89,7 +89,7 @@ function DiffPanel({ diff, t }) {
         )}
         {hasAssertions && (
           <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", marginBottom: 4 }}>{t("catalog.versions.diff_assertions")}</div>
+            <div style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", marginBottom: 4 }}>{t("catalog.versions.diff_assertions")}</div>
             {assertions.map((entry, i) => (
               <div key={i} style={lineStyle(entry.type === "added")}>
                 {entry.type === "added" ? "+ " : "- "}{entry.value}
@@ -379,7 +379,7 @@ export default function CatalogPage() {
       {/* Page header */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
         <div>
-          <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0, color: "var(--text-1)" }}>{t("catalog.page.title")}</h1>
+          <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0, color: "var(--text-1)" }}>{t("catalog.page.title")}</h1>
           <p style={{ fontSize: 13, color: "var(--text-3)", margin: "4px 0 0" }}>{t("catalog.page.subtitle")}</p>
         </div>
         <button className="btn btn-primary" onClick={() => navigate("/generate")}>
@@ -481,7 +481,7 @@ export default function CatalogPage() {
               {runResult.run?.steps_count != null ? (
                 <div style={{ fontSize: 12, color: "var(--text-3)" }}>
                   Steps:{" "}
-                  <strong style={{ fontWeight: 700 }}>{runResult.run?.steps_count}</strong>
+                  <strong style={{ fontWeight: 600 }}>{runResult.run?.steps_count}</strong>
                 </div>
               ) : null}
               {(
@@ -542,7 +542,7 @@ export default function CatalogPage() {
         {tests.length === 0 && !loading ? (
           <div style={{ padding: "48px 32px", textAlign: "center" }}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>☰</div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)", marginBottom: 8 }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)", marginBottom: 8 }}>
               {t("catalog.empty.title")}
             </div>
             <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.7, maxWidth: 380, margin: "0 auto 20px" }}>
@@ -588,7 +588,7 @@ export default function CatalogPage() {
                       {tc.version != null && (
                         <span
                           className="badge badge-gray"
-                          style={{ marginLeft: 7, fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", verticalAlign: "middle" }}
+                          style={{ marginLeft: 7, fontSize: 10, fontWeight: 400, letterSpacing: "0.05em", verticalAlign: "middle" }}
                         >
                           v{tc.version}
                         </span>
@@ -637,7 +637,7 @@ export default function CatalogPage() {
                       <td colSpan={9} style={{ background: "var(--surface-2)", padding: "12px 20px" }}>
                         {editingId === tc.test_case_id && editForm ? (
                           <div style={{ display: "flex", flexDirection: "column", gap: 10, maxWidth: 680 }}>
-                            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 2 }}>✏ Edit {tc.test_case_id}</div>
+                            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>✏ Edit {tc.test_case_id}</div>
                             {editError && <div style={{ fontSize: 12, color: "var(--red)" }}>{editError}</div>}
                             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                               <div style={{ flex: "1 1 200px" }}>
@@ -697,7 +697,7 @@ export default function CatalogPage() {
                             {fixPreviewResult && (
                               <div style={{ marginTop: 10, border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden" }}>
                                 <div style={{ background: "var(--surface-2)", padding: "6px 12px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                                  <span style={{ fontWeight: 700, fontSize: 12, color: "var(--text-2)" }}>
+                                  <span style={{ fontWeight: 600, fontSize: 12, color: "var(--text-2)" }}>
                                     ⚙ {t("catalog.edit.autofix_preview")}
                                   </span>
                                   <span style={{ fontSize: 11, color: "var(--text-3)" }}>
@@ -751,7 +751,7 @@ export default function CatalogPage() {
                     <tr>
                       <td colSpan={9} style={{ background: "var(--accent-light)", borderTop: "1px solid var(--border)", padding: "14px 20px" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                          <span style={{ fontWeight: 700, fontSize: 13, color: "var(--accent)" }}>
+                          <span style={{ fontWeight: 600, fontSize: 13, color: "var(--accent)" }}>
                             ⏱ {t("catalog.versions.title")} — {tc.test_case_id}
                           </span>
                           <span style={{ fontSize: 11, color: "var(--text-3)" }}>

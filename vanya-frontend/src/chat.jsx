@@ -356,7 +356,7 @@ export default function Chat(props) {
             border: `1px solid ${role === "user" ? "var(--bubble-user-border)" : "var(--bubble-bot-border)"}`,
             color: "var(--bubble-text)",
             wordBreak: "break-word",
-            boxShadow: "var(--shadow-xs)",
+            boxShadow: "var(--shadow-1)",
           }}
         >
           {/* Header */}
@@ -370,14 +370,14 @@ export default function Chat(props) {
               flexWrap: "wrap",
             }}
           >
-            <span style={{ color: "var(--bubble-meta)", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em" }}>{isBot ? t("chat.bubble.bot") : t("chat.bubble.user")}</span>
+            <span style={{ color: "var(--bubble-meta)", fontWeight: 500, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em" }}>{isBot ? t("chat.bubble.bot") : t("chat.bubble.user")}</span>
 
             {badge ? (
               <span
                 style={{
                   padding: "2px 8px",
                   borderRadius: 999,
-                  fontWeight: 900,
+                  fontWeight: 500,
                   fontSize: 11,
                   color: badgeColor(badge.kind),
                   border: `1px solid ${badgeColor(badge.kind)}`,
@@ -456,16 +456,16 @@ export default function Chat(props) {
               borderRadius: 12,
               border: "1px solid var(--chat-input-border)",
               background: "var(--chat-input-bg)",
-              color: "var(--text)",
+              color: "var(--text-1)",
               outline: "none",
               fontFamily: "inherit",
               fontSize: 14,
               lineHeight: 1.5,
-              boxShadow: "var(--shadow-xs)",
+              boxShadow: "var(--shadow-1)",
               transition: "border-color 0.15s, box-shadow 0.15s",
             }}
-            onFocus={e => { e.target.style.borderColor = "var(--border-focus)"; e.target.style.boxShadow = "0 0 0 3px rgba(79,107,255,0.12)"; }}
-            onBlur={e => { e.target.style.borderColor = "var(--chat-input-border)"; e.target.style.boxShadow = "var(--shadow-xs)"; }}
+            onFocus={e => { e.target.style.borderColor = "var(--border-focus)"; e.target.style.boxShadow = "none"; e.target.style.outline = "2px solid var(--accent-border)"; e.target.style.outlineOffset = "1px"; }}
+            onBlur={e => { e.target.style.borderColor = "var(--chat-input-border)"; e.target.style.boxShadow = "var(--shadow-1)"; e.target.style.outline = "none"; }}
             disabled={isLoading}
           />
 
@@ -479,12 +479,12 @@ export default function Chat(props) {
               background: isLoading || !String(input || "").trim() ? "var(--surface-3)" : "var(--accent)",
               color: isLoading || !String(input || "").trim() ? "var(--text-3)" : "#ffffff",
               cursor: isLoading || !String(input || "").trim() ? "not-allowed" : "pointer",
-              fontWeight: 700,
+              fontWeight: 500,
               fontSize: 13,
               fontFamily: "inherit",
               flexShrink: 0,
               transition: "background 0.15s",
-              boxShadow: isLoading || !String(input || "").trim() ? "none" : "0 2px 6px rgba(79,107,255,0.30)",
+              boxShadow: isLoading || !String(input || "").trim() ? "none" : "var(--shadow-1)",
             }}
             title={sessionId ? `session: ${sessionId}` : ""}
           >
@@ -523,7 +523,7 @@ function EvidenceBlock({ evidenceUrl }) {
 
   return (
     <div style={{ marginTop: 10 }}>
-      <div style={{ fontSize: 11, color: "var(--bubble-meta)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>{t("chat.screenshot")}</div>
+      <div style={{ fontSize: 11, color: "var(--bubble-meta)", fontWeight: 400, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>{t("chat.screenshot")}</div>
 
       {canRenderImg ? (
         <img
@@ -534,7 +534,7 @@ function EvidenceBlock({ evidenceUrl }) {
             maxWidth: 720,
             borderRadius: 10,
             border: "1px solid var(--border)",
-            boxShadow: "var(--shadow-sm)",
+            boxShadow: "var(--shadow-2)",
           }}
           loading="lazy"
           onError={() => setFailed(true)}
@@ -545,7 +545,7 @@ function EvidenceBlock({ evidenceUrl }) {
             href={hasValidHttpUrl(url) ? url : undefined}
             target="_blank"
             rel="noreferrer"
-            style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}
+            style={{ color: "var(--accent)", fontWeight: 500, textDecoration: "none" }}
             onClick={(e) => { if (!hasValidHttpUrl(url)) e.preventDefault(); }}
             title={url}
           >
@@ -579,7 +579,7 @@ function RunDebugBlock({ runner }) {
   return (
     <div style={{ marginTop: 12 }}>
       <details style={{ border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
-        <summary style={{ cursor: "pointer", fontWeight: 700, fontSize: 12, padding: "8px 12px", background: "var(--surface-2)", color: "var(--text-2)", userSelect: "none" }}>
+        <summary style={{ cursor: "pointer", fontWeight: 500, fontSize: 12, padding: "8px 12px", background: "var(--surface-2)", color: "var(--text-3)", userSelect: "none" }}>
           Run details
         </summary>
 
@@ -594,7 +594,7 @@ function RunDebugBlock({ runner }) {
                 background: "var(--surface)",
                 color: "var(--text-2)",
                 cursor: "pointer",
-                fontWeight: 600,
+                fontWeight: 500,
                 fontSize: 12,
                 fontFamily: "inherit",
               }}
@@ -610,7 +610,7 @@ function RunDebugBlock({ runner }) {
 
           {steps.length ? (
             <div style={{ marginBottom: 10 }}>
-              <div style={{ fontWeight: 700, fontSize: 11, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>{t("chat.run.steps")}</div>
+              <div style={{ fontWeight: 500, fontSize: 11, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>{t("chat.run.steps")}</div>
               <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 6 }}>
                 <table className="data-table" style={{ fontSize: 12 }}>
                   <thead>
@@ -630,7 +630,7 @@ function RunDebugBlock({ runner }) {
                         <td style={{ color: "var(--text-2)", maxWidth: 220, wordBreak: "break-all" }}>
                           {s.url ? `url: ${s.url}` : s.selector ? `sel: ${s.selector}` : "—"}
                         </td>
-                        <td style={{ color: String(s.status || "").toLowerCase().includes("pass") ? "var(--green)" : String(s.status || "").toLowerCase().includes("fail") ? "var(--red)" : "var(--text-3)", fontWeight: 600 }}>{String(s.status || "—")}</td>
+                        <td style={{ color: String(s.status || "").toLowerCase().includes("pass") ? "var(--green)" : String(s.status || "").toLowerCase().includes("fail") ? "var(--red)" : "var(--text-3)", fontWeight: 500 }}>{String(s.status || "—")}</td>
                         <td style={{ color: "var(--red-text)", fontSize: 11 }}>{s.error ? String(s.error) : ""}</td>
                       </tr>
                     ))}
@@ -642,7 +642,7 @@ function RunDebugBlock({ runner }) {
 
           {logs.length ? (
             <div>
-              <div style={{ fontWeight: 700, fontSize: 11, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>{t("chat.run.logs")}</div>
+              <div style={{ fontWeight: 500, fontSize: 11, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>{t("chat.run.logs")}</div>
               <pre className="code-block" style={{ fontSize: 11, maxHeight: 200, overflow: "auto", margin: 0 }}>
                 {logs.join("\n")}
               </pre>
@@ -679,7 +679,7 @@ function ReportBlock({ reportUrl }) {
             background: "rgba(0,0,0,0.25)",
             color: "rgba(160,200,255,0.95)",
             textDecoration: "none",
-            fontWeight: 700,
+            fontWeight: 500,
             fontSize: 12,
           }}
           onClick={(e) => {

@@ -222,7 +222,7 @@ export default function PRAnalysisPage() {
           background: "var(--accent-light)", borderRadius: "var(--r-sm)",
           border: "1px solid var(--border)", fontSize: 12,
         }}>
-          <span style={{ color: "var(--accent)", fontWeight: 700 }}>◎</span>
+          <span style={{ color: "var(--accent)", fontWeight: 600 }}>◎</span>
           <span style={{ color: "var(--text-2)" }}>{t("pr.diff.loaded")}</span>
           <span className="badge badge-gray" style={{ fontSize: 10 }}>
             {(prDiff.length / 1000).toFixed(1)}k chars
@@ -301,7 +301,7 @@ export default function PRAnalysisPage() {
             )}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
               <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
+                <div style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
                   {t("pr.result.inferred_modules")}
                 </div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
@@ -326,7 +326,7 @@ export default function PRAnalysisPage() {
                 )}
               </div>
               <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
+                <div style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
                   {t("pr.result.risk_reasons")}
                 </div>
                 <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.6 }}>

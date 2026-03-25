@@ -6,7 +6,7 @@
 export const translations = {
   en: {
     // ── Navigation sections ─────────────────────────────────────────────────
-    "nav.core":          "Core",
+    "nav.core":          "Main",
     "nav.intelligence":  "Intelligence",
     "nav.tools":         "Tools",
     "nav.platform":      "Platform",

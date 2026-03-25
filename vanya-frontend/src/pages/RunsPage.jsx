@@ -141,7 +141,7 @@ function DebugAccordion({ detail }) {
           <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
             {errType && (
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                <span style={{ fontSize: 11, fontWeight: 800, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                <span style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
                   error_type
                 </span>
                 <span className="badge badge-orange">{errType}</span>
@@ -149,7 +149,7 @@ function DebugAccordion({ detail }) {
             )}
             {stepIndex != null && (
               <div>
-                <span style={{ fontSize: 11, fontWeight: 800, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                <span style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
                   step_index
                 </span>{" "}
                 <code style={{ fontSize: 12, color: "var(--text-2)" }}>{String(stepIndex)}</code>
@@ -157,7 +157,7 @@ function DebugAccordion({ detail }) {
             )}
             {hint && (
               <div>
-                <span style={{ fontSize: 11, fontWeight: 800, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                <span style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
                   hint
                 </span>{" "}
                 <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.6, marginTop: 4 }}>{hint}</div>
@@ -165,7 +165,7 @@ function DebugAccordion({ detail }) {
             )}
             {rawMessage && (
               <div>
-                <span style={{ fontSize: 11, fontWeight: 800, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                <span style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
                   raw reason/message
                 </span>
                 <pre className="code-block" style={{ marginTop: 6, maxHeight: 180, overflow: "auto", whiteSpace: "pre-wrap" }}>
@@ -210,7 +210,7 @@ function ConfirmModal({
     >
       <div className="card" style={{ width: "min(680px, 100%)", padding: 0, overflow: "hidden" }}>
         <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)" }}>
-          <div style={{ fontSize: 15, fontWeight: 900, color: "var(--text-1)", marginBottom: 6 }}>{title}</div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)", marginBottom: 6 }}>{title}</div>
           <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.6 }}>{description}</div>
         </div>
         <div style={{ padding: "14px 20px" }}>
@@ -339,7 +339,7 @@ function EvidenceCard({ detail, runType }) {
           {screenshotSrc && (
             <>
               {isDesktop && (
-                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>
+                <div style={{ fontSize: 10, fontWeight: 400, color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>
                   ⊞ {t("runs.desktop.screenshot")}
                 </div>
               )}
@@ -406,7 +406,7 @@ function DesktopContextCard({ run }) {
       <div style={{ display: "grid", gridTemplateColumns: "90px 1fr", gap: "6px 12px", alignItems: "center" }}>
         {rows.map(({ label, value }) => (
           <React.Fragment key={label}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</div>
+            <div style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</div>
             <div style={{ fontSize: 12, color: "var(--text-2)", wordBreak: "break-all" }}>{value}</div>
           </React.Fragment>
         ))}
@@ -434,17 +434,17 @@ function FailureAnalysisPanel({ fa, style }) {
     <div className="card" style={style}>
       <div className="section-title" style={{ marginBottom: 12 }}>{t("runs.failure_analysis.title")}</div>
       <div style={{ display: "grid", gridTemplateColumns: "90px 1fr", gap: "8px 12px", alignItems: "center" }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("runs.failure_analysis.type")}</div>
+        <div style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("runs.failure_analysis.type")}</div>
         <div><span className={typeCls}>{fa.failure_type || "—"}</span></div>
-        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("runs.failure_analysis.layer")}</div>
+        <div style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("runs.failure_analysis.layer")}</div>
         <div style={{ fontSize: 12, color: "var(--text-2)" }}>{fa.layer || "—"}</div>
         {fa.target && (
           <>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("runs.failure_analysis.target")}</div>
-            <div><code style={{ fontSize: 11, color: "var(--text)" }}>{fa.target}</code></div>
+            <div style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("runs.failure_analysis.target")}</div>
+            <div><code style={{ fontSize: 11, color: "var(--text-1)" }}>{fa.target}</code></div>
           </>
         )}
-        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("runs.failure_analysis.confidence")}</div>
+        <div style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("runs.failure_analysis.confidence")}</div>
         <div><span className={confCls}>{fa.confidence || "—"}</span></div>
       </div>
     </div>
@@ -492,7 +492,7 @@ function FailureClustersPanel({ clusters, loading }) {
                   <td style={{ fontSize: 12, color: "var(--text-2)", fontFamily: "monospace" }}>
                     {c.target || <span style={{ color: "var(--text-3)" }}>—</span>}
                   </td>
-                  <td style={{ textAlign: "right", fontWeight: 700, fontSize: 14, color: "var(--text)" }}>{c.count}</td>
+                  <td style={{ textAlign: "right", fontWeight: 600, fontSize: 14, color: "var(--text-1)" }}>{c.count}</td>
                 </tr>
               );
             })}
@@ -579,7 +579,7 @@ function EvidenceLookupTab() {
       {run && (
         <>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
-            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "var(--text)" }}>{t("runs.detail.title")}</h2>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: "var(--text-1)" }}>{t("runs.detail.title")}</h2>
             <span className={statusBadgeClass(run.status)}>{statusBadgeText(run.status || "unknown")}</span>
             <RunTypeBadge runType={inferRunType(run)} />
             <BackendBadge backend={inferBackend(run)} />
@@ -609,7 +609,7 @@ function EvidenceLookupTab() {
             return (
               <div className="card" style={{ marginBottom: 16, padding: "10px 16px" }}>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em", marginRight: 4 }}>
+                  <span style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em", marginRight: 4 }}>
                     {t("runs.trigger.label")}
                   </span>
                   <span className="badge badge-blue" style={{ fontSize: 11 }}>{sourceLabel}</span>
@@ -617,7 +617,7 @@ function EvidenceLookupTab() {
                     <span className="badge badge-gray" style={{ fontSize: 10 }}>{ctx.selection_type}</span>
                   )}
                   {ctx.pr_title && (
-                    <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text)" }}>{ctx.pr_title}</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-1)" }}>{ctx.pr_title}</span>
                   )}
                   {ctx.pr_branch && (
                     <span className="badge badge-gray" style={{ fontSize: 10 }}>⎇ {ctx.pr_branch}</span>
@@ -645,8 +645,8 @@ function EvidenceLookupTab() {
             {totalSteps > 0 && <div className="kpi-card"><div className="kpi-label">{t("runs.detail.total_steps")}</div><div className="kpi-value">{totalSteps}</div></div>}
             {totalSteps > 0 && <div className="kpi-card"><div className="kpi-label">{t("runs.detail.passed")}</div><div className="kpi-value" style={{ color: "var(--green)" }}>{passedSteps}</div></div>}
             {totalSteps > 0 && failedSteps > 0 && <div className="kpi-card"><div className="kpi-label">{t("runs.detail.failed")}</div><div className="kpi-value" style={{ color: "var(--red)" }}>{failedSteps}</div></div>}
-            {run.expected && <div className="kpi-card"><div className="kpi-label">{t("runs.detail.expected")}</div><div style={{ fontSize: 14, fontWeight: 700, color: "var(--text)", marginTop: 4 }}>{run.expected}</div></div>}
-            {run.outcome && <div className="kpi-card"><div className="kpi-label">{t("runs.detail.outcome")}</div><div style={{ fontSize: 14, fontWeight: 700, color: "var(--text)", marginTop: 4 }}>{run.outcome}</div></div>}
+            {run.expected && <div className="kpi-card"><div className="kpi-label">{t("runs.detail.expected")}</div><div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", marginTop: 4 }}>{run.expected}</div></div>}
+            {run.outcome && <div className="kpi-card"><div className="kpi-label">{t("runs.detail.outcome")}</div><div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", marginTop: 4 }}>{run.outcome}</div></div>}
           </div>
 
           {/* Evidence links — support both canonical (artifacts.*) and legacy (flat) fields */}
@@ -677,7 +677,7 @@ function EvidenceLookupTab() {
           {(run.error_summary || run.reason || run.message || run.error_message) && (
             <div className="card" style={{ marginBottom: 20 }}>
               <div className="section-title">{t("runs.detail.failure_reason")}</div>
-              <div style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6 }}>
+              <div style={{ fontSize: 13, color: "var(--text-1)", lineHeight: 1.6 }}>
                 {run.error_summary || run.reason || run.message || run.error_message}
               </div>
               {(run.hint || run.meta?.hint) && (
@@ -716,7 +716,7 @@ function EvidenceLookupTab() {
                         <td style={{ color: "var(--text-3)", fontWeight: 600 }}>{step.index ?? i + 1}</td>
                         <td><code style={{ fontSize: 12 }}>{step.action || "—"}</code></td>
                         <td style={{ maxWidth: 320, wordBreak: "break-all", fontSize: 12, color: "var(--text-2)" }}>{bestStepTarget(step)}</td>
-                        <td><span style={{ fontSize: 11, fontWeight: 700, color: stepStatusColor(step.status), textTransform: "uppercase", letterSpacing: "0.03em" }}>{step.status || "—"}</span></td>
+                        <td><span style={{ fontSize: 11, fontWeight: 500, color: stepStatusColor(step.status), textTransform: "uppercase", letterSpacing: "0.03em" }}>{step.status || "—"}</span></td>
                         <td style={{ color: "var(--text-3)", fontSize: 12, whiteSpace: "nowrap" }}>{step.duration_ms ? `${step.duration_ms}ms` : "—"}</td>
                       </tr>
                     ))}
@@ -947,7 +947,7 @@ function RunHistoryTab({ initialRunId }) {
           {/* Filters (compact, frontend-only) */}
           <div style={{ padding: "12px 20px", display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
             <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", whiteSpace: "nowrap" }}>{t("runs.filter.status")}:</span>
+              <span style={{ fontSize: 11, fontWeight: 500, color: "var(--text-2)", whiteSpace: "nowrap" }}>{t("runs.filter.status")}:</span>
               <select
                 className="input"
                 value={statusFilter}
@@ -963,7 +963,7 @@ function RunHistoryTab({ initialRunId }) {
               </select>
             </div>
             <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", whiteSpace: "nowrap" }}>{t("runs.filter.flaky")}:</span>
+              <span style={{ fontSize: 11, fontWeight: 500, color: "var(--text-2)", whiteSpace: "nowrap" }}>{t("runs.filter.flaky")}:</span>
               <select
                 className="input"
                 value={flakyFilter}
@@ -976,7 +976,7 @@ function RunHistoryTab({ initialRunId }) {
               </select>
             </div>
             <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", whiteSpace: "nowrap" }}>{t("runs.filter.quarantine")}:</span>
+              <span style={{ fontSize: 11, fontWeight: 500, color: "var(--text-2)", whiteSpace: "nowrap" }}>{t("runs.filter.quarantine")}:</span>
               <select
                 className="input"
                 value={quarantineFilter}
@@ -989,7 +989,7 @@ function RunHistoryTab({ initialRunId }) {
               </select>
             </div>
             <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", whiteSpace: "nowrap" }}>{t("runs.filter.retry")}:</span>
+              <span style={{ fontSize: 11, fontWeight: 500, color: "var(--text-2)", whiteSpace: "nowrap" }}>{t("runs.filter.retry")}:</span>
               <select
                 className="input"
                 value={retryFilter}
@@ -1006,7 +1006,7 @@ function RunHistoryTab({ initialRunId }) {
           {!loading && runs.length === 0 ? (
             <div style={{ padding: "32px 24px", textAlign: "center" }}>
               <div style={{ fontSize: 28, marginBottom: 10 }}>◈</div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)", marginBottom: 6 }}>{t("runs.empty.title")}</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", marginBottom: 6 }}>{t("runs.empty.title")}</div>
               <div style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.7, marginBottom: 16, maxWidth: 320, margin: "0 auto 16px" }}>{t("runs.empty.desc")}</div>
               <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
                 <button className="btn btn-primary btn-sm" onClick={() => navigate("/catalog")}>{t("runs.empty.cta_catalog")}</button>
@@ -1015,7 +1015,7 @@ function RunHistoryTab({ initialRunId }) {
             </div>
           ) : !loading && filteredRuns.length === 0 ? (
             <div style={{ padding: "32px 24px", textAlign: "center" }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)", marginBottom: 6 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", marginBottom: 6 }}>
                 {filtersActive ? t("runs.filter.no_results") : t("runs.history.none")}
               </div>
               {filtersActive && (
@@ -1351,7 +1351,7 @@ function RunHistoryTab({ initialRunId }) {
                     <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.6, marginBottom: 8 }}>{rcaResult.summary}</div>
                   )}
                   {rcaResult.probable_cause && (
-                    <div style={{ fontSize: 12, color: "var(--text)", fontWeight: 600, marginBottom: 6 }}>
+                    <div style={{ fontSize: 12, color: "var(--text-1)", fontWeight: 600, marginBottom: 6 }}>
                       {t("runs.rca.probable_cause")} {rcaResult.probable_cause}
                     </div>
                   )}
@@ -1463,7 +1463,7 @@ export default function RunsPage() {
       {/* Page header */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
         <div>
-          <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0, color: "var(--text-1)" }}>{t("runs.page.title")}</h1>
+          <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0, color: "var(--text-1)" }}>{t("runs.page.title")}</h1>
           <p style={{ fontSize: 13, color: "var(--text-3)", margin: "4px 0 0" }}>{t("runs.page.subtitle")}</p>
         </div>
         <button
@@ -1484,14 +1484,16 @@ export default function RunsPage() {
             onClick={() => setActiveTab(i)}
             style={{
               padding: "8px 16px",
-              background: "none",
+              background: activeTab === i ? "var(--accent-light)" : "transparent",
               border: "none",
-              borderBottom: activeTab === i ? "2px solid var(--accent)" : "2px solid transparent",
+              borderBottom: activeTab === i ? "2px solid var(--accent-border)" : "2px solid transparent",
               marginBottom: -2,
-              fontWeight: activeTab === i ? 700 : 500,
+              fontWeight: activeTab === i ? 500 : 400,
               fontSize: 13,
-              color: activeTab === i ? "var(--accent)" : "var(--text-2)",
+              color: activeTab === i ? "var(--accent)" : "var(--text-3)",
               cursor: "pointer",
+              borderRadius: "8px 8px 0 0",
+              transition: "background 0.15s, color 0.15s",
             }}
           >
             {t(key)}

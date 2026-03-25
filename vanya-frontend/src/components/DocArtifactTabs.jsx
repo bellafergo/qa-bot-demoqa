@@ -97,21 +97,21 @@ export default function DocArtifactTabs({ doc }) {
       </div>
 
       <div style={{ display: "grid", gap: 10 }}>
-        <div style={{ fontSize: 18, fontWeight: 700 }}>{ev.title || "Artefacto QA"}</div>
+        <div style={{ fontSize: 18, fontWeight: 600 }}>{ev.title || "Artefacto QA"}</div>
         {ev.objective ? <div style={{ opacity: 0.9 }}><b>Objetivo:</b> {ev.objective}</div> : null}
 
         {tab === "executive" ? (
           <>
             {riskRows.length ? (
               <>
-                <div style={{ fontWeight: 700, marginTop: 6 }}>Riesgos principales</div>
+                <div style={{ fontWeight: 600, marginTop: 6 }}>Riesgos principales</div>
                 <Table columns={["Prioridad", "Riesgo", "Impacto"]} rows={riskRows} />
               </>
             ) : null}
 
             {matrixRows.length ? (
               <>
-                <div style={{ fontWeight: 700, marginTop: 6 }}>Matriz resumida</div>
+                <div style={{ fontWeight: 600, marginTop: 6 }}>Matriz resumida</div>
                 <Table columns={["ID", "Escenario", "Resultado esperado", "Prioridad"]} rows={matrixRows} />
               </>
             ) : null}
@@ -120,7 +120,7 @@ export default function DocArtifactTabs({ doc }) {
           <>
             {(qv.assumptions || []).length ? (
               <div>
-                <div style={{ fontWeight: 700 }}>Supuestos</div>
+                <div style={{ fontWeight: 600 }}>Supuestos</div>
                 <ul style={{ marginTop: 6 }}>
                   {qv.assumptions.map((a, i) => <li key={i}>{a}</li>)}
                 </ul>
@@ -129,7 +129,7 @@ export default function DocArtifactTabs({ doc }) {
 
             {(qv.questions_to_clarify || []).length ? (
               <div>
-                <div style={{ fontWeight: 700 }}>Preguntas</div>
+                <div style={{ fontWeight: 600 }}>Preguntas</div>
                 <ul style={{ marginTop: 6 }}>
                   {qv.questions_to_clarify.map((q, i) => <li key={i}>{q}</li>)}
                 </ul>
@@ -138,7 +138,7 @@ export default function DocArtifactTabs({ doc }) {
 
             {caseRows.length ? (
               <>
-                <div style={{ fontWeight: 700 }}>Casos detallados</div>
+                <div style={{ fontWeight: 600 }}>Casos detallados</div>
                 <Table columns={["ID", "Escenario", "Prioridad", "Tipo", "Preconditions", "Pasos", "Resultado esperado"]} rows={caseRows} />
               </>
             ) : null}
