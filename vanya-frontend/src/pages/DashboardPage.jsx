@@ -566,6 +566,26 @@ export default function DashboardPage() {
   const s        = summary || {};
   const passRate = s.pass_rate != null ? `${s.pass_rate.toFixed(1)}%` : "—";
 
+  // KPI "Total Ejecuciones" — subtexto dinámico con solo los estados > 0
+  const runsSubParts = [];
+  if ((s.pass_runs  ?? 0) > 0) runsSubParts.push(`${s.pass_runs}  ${t("dash.kpi.pass")}`);
+  if ((s.fail_runs  ?? 0) > 0) runsSubParts.push(`${s.fail_runs}  ${t("dash.kpi.fail")}`);
+  if ((s.error_runs ?? 0) > 0) runsSubParts.push(`${s.error_runs} ${t("dash.kpi.error")}`);
+  const runsSub = runsSubParts.length > 0 ? runsSubParts.join(" · ") : t("dash.kpi.no_runs");
+
+  // KPI "Tasa de Éxito" — subtexto con total_runs + nota discreta si historial < 5
+  const totalRunsN  = s.total_runs ?? 0;
+  const passRateSub = (
+    <>
+      {`${t("dash.kpi.based_on")} ${totalRunsN} ${t("dash.kpi.runs_unit")}`}
+      {totalRunsN < 5 && (
+        <span style={{ fontStyle: "italic", color: "var(--text-3)", marginLeft: 4 }}>
+          {`· ${t("dash.risk.limited_history")}`}
+        </span>
+      )}
+    </>
+  );
+
   return (
     <div style={{ height: "100%", overflow: "auto", background: "var(--bg)" }}>
 
@@ -600,8 +620,8 @@ export default function DashboardPage() {
         {/* ── KPI grid ─────────────────────────────────────────────────────── */}
         <div className="kpi-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", marginBottom: 28 }}>
           <KpiCard label={t("dash.kpi.total_tests")}    value={loading ? "…" : s.total_test_cases} sub={`${s.active_test_cases ?? "—"} ${t("dash.kpi.active")}`}                        icon="☰" />
-          <KpiCard label={t("dash.kpi.total_runs")}     value={loading ? "…" : s.total_runs}        sub={`${s.pass_runs ?? 0} ${t("dash.kpi.pass")} · ${s.fail_runs ?? 0} ${t("dash.kpi.fail")}`} icon="▶" />
-          <KpiCard label={t("dash.kpi.pass_rate")}      value={loading ? "…" : passRate}            sub={t("dash.kpi.all_time")}                                                          accent={s.pass_rate >= 80 ? "var(--green)" : "var(--orange)"} icon="✓" />
+          <KpiCard label={t("dash.kpi.total_runs")}     value={loading ? "…" : s.total_runs}        sub={runsSub}      icon="▶" />
+          <KpiCard label={t("dash.kpi.pass_rate")}      value={loading ? "…" : passRate}            sub={passRateSub}  accent={s.pass_rate >= 80 ? "var(--green)" : "var(--orange)"} icon="✓" />
           <KpiCard label={t("dash.kpi.active_workers")} value={loading ? "…" : s.active_workers}    sub={`${s.queue_depth ?? 0} ${t("dash.kpi.queued")}`}                                icon="⚙" />
           <KpiCard label={t("dash.kpi.total_jobs")}     value={loading ? "…" : s.total_jobs}        sub={`${s.running_jobs ?? 0} ${t("dash.kpi.running")} · ${s.queued_jobs ?? 0} ${t("dash.kpi.queued")}`} icon="◈" />
           <KpiCard label={t("dash.kpi.ui_tests")}       value={loading ? "…" : s.total_ui_tests}    sub={t("dash.kpi.in_catalog")}                                                        icon="◻" />

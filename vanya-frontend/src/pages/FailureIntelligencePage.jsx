@@ -53,7 +53,7 @@ function statusPattern(pass_count, fail_count, error_count) {
 
 function FlakyTab({ data, loading, error, t, navigate }) {
   const suspected = (data || []).filter(f => f.suspected_flaky);
-  const watching  = (data || []).filter(f => !f.suspected_flaky && f.flip_rate > 0);
+  const watching  = (data || []).filter(f => !f.suspected_flaky);
 
   if (loading) return <div style={{ padding: 24, color: "var(--text-3)", fontSize: 13 }}>{t("fi.loading")}</div>;
   if (error)   return <div style={{ padding: 16 }} className="alert alert-error">{error}</div>;
@@ -323,10 +323,11 @@ export default function FailureIntelligencePage({ embedded = false }) {
   const { t } = useLang();
   const navigate = useNavigate();
 
-  const [tab, setTab]               = useState("flaky");
-  const [flaky, setFlaky]           = useState(null);
-  const [regressions, setRegressions] = useState(null);
-  const [clusters, setClusters]     = useState(null);
+  const [tab, setTab]                       = useState("flaky");
+  const [hasUserSelectedSubtab, setHasUserSelectedSubtab] = useState(false);
+  const [flaky, setFlaky]                   = useState(null);
+  const [regressions, setRegressions]       = useState(null);
+  const [clusters, setClusters]             = useState(null);
   const [loadingFlaky, setLoadingFlaky]     = useState(false);
   const [loadingReg,   setLoadingReg]       = useState(false);
   const [loadingClusters, setLoadingClusters] = useState(false);
@@ -379,6 +380,17 @@ export default function FailureIntelligencePage({ embedded = false }) {
     loadClusters();
   }, [loadFlaky, loadReg, loadClusters]);
 
+  // Select the most informative subtab once all three datasets are loaded,
+  // but only if the user hasn't already picked one manually.
+  useEffect(() => {
+    if (hasUserSelectedSubtab) return;
+    if (flaky === null || regressions === null || clusters === null) return;
+    if (clusters.length > 0)    { setTab("clusters");    return; }
+    if (flaky.length > 0)       { setTab("flaky");       return; }
+    if (regressions.length > 0) { setTab("regressions"); return; }
+    // all empty → keep "flaky" as fallback (already the initial value)
+  }, [flaky, regressions, clusters, hasUserSelectedSubtab]);
+
   const suspectedCount   = (flaky || []).filter(f => f.suspected_flaky).length;
   const regressionCount  = (regressions || []).length;
   const clusterCount     = (clusters || []).length;
@@ -407,7 +419,7 @@ export default function FailureIntelligencePage({ embedded = false }) {
         ].map(({ key, label, count, badgeClass }) => (
           <button
             key={key}
-            onClick={() => setTab(key)}
+            onClick={() => { setHasUserSelectedSubtab(true); setTab(key); }}
             style={{
               background: tab === key ? "var(--accent-light)" : "transparent",
               border: "none", borderBottom: tab === key ? "2px solid var(--accent-border)" : "2px solid transparent",

@@ -272,6 +272,10 @@ export const translations = {
     "dash.kpi.running":        "running",
     "dash.kpi.pass":           "pass",
     "dash.kpi.fail":           "fail",
+    "dash.kpi.error":          "errors",
+    "dash.kpi.no_runs":        "no runs recorded",
+    "dash.kpi.based_on":       "based on",
+    "dash.kpi.runs_unit":      "runs",
     "dash.kpi.clusters":       "clusters",
 
     "dash.recent_runs":         "Recent Runs",
@@ -1470,6 +1474,10 @@ export const translations = {
     "dash.kpi.running":        "en ejecución",
     "dash.kpi.pass":           "exitosas",
     "dash.kpi.fail":           "fallidas",
+    "dash.kpi.error":          "errores",
+    "dash.kpi.no_runs":        "sin ejecuciones registradas",
+    "dash.kpi.based_on":       "basado en",
+    "dash.kpi.runs_unit":      "ejecuciones",
     "dash.kpi.clusters":       "clusters",
 
     "dash.recent_runs":         "Ejecuciones Recientes",
