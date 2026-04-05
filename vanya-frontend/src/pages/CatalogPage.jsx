@@ -32,6 +32,38 @@ function fmtMs(ms) {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
 
+/** Alineado con services/test_auto_fixer.is_unstable_selector (subset mínimo). */
+function isFragileSelectorString(sel) {
+  if (sel == null || typeof sel !== "string" || !sel.trim()) return false;
+  const s = sel.trim();
+  if (/^#:[A-Za-z0-9]{4,}:-/.test(s)) return true;
+  if (/:nth-child\(\d+\)$/.test(s)) return true;
+  if (/#[a-z]+-[a-f0-9]{6,}/i.test(s)) return true;
+  return false;
+}
+
+function selectorFromStepOrAssertion(obj) {
+  if (!obj || typeof obj !== "object") return null;
+  if (typeof obj.selector === "string" && obj.selector.trim()) return obj.selector.trim();
+  if (typeof obj.target === "string" && obj.target.trim()) return obj.target.trim();
+  return null;
+}
+
+/** Pasos/assertions en JSON (editor) contienen algún selector frágil. */
+function jsonStepsOrAssertionsHaveFragileSelectors(stepsJson, assertionsJson) {
+  const scan = (raw) => {
+    let arr;
+    try {
+      arr = JSON.parse(raw || "[]");
+    } catch {
+      return false;
+    }
+    if (!Array.isArray(arr)) return false;
+    return arr.some((row) => isFragileSelectorString(selectorFromStepOrAssertion(row)));
+  };
+  return scan(stepsJson) || scan(assertionsJson);
+}
+
 // ── Diff display component ────────────────────────────────────────────────────
 
 function DiffPanel({ diff, t }) {
@@ -585,6 +617,15 @@ export default function CatalogPage() {
                     <td style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-2)" }}>{tc.test_case_id}</td>
                     <td style={{ fontWeight: 600, fontSize: 13 }}>
                       <span>{tc.name}</span>
+                      {tc.has_fragile_selectors && (
+                        <span
+                          className="badge badge-orange"
+                          style={{ marginLeft: 6, fontSize: 10, fontWeight: 500, verticalAlign: "middle" }}
+                          title="selector frágil"
+                        >
+                          selector frágil
+                        </span>
+                      )}
                       {tc.version != null && (
                         <span
                           className="badge badge-gray"
@@ -663,6 +704,11 @@ export default function CatalogPage() {
                               <textarea className="input" rows={6} style={{ width: "100%", fontFamily: "monospace", fontSize: 11 }}
                                 value={editForm.stepsJson}
                                 onChange={e => setEditForm(f => ({ ...f, stepsJson: e.target.value }))} />
+                              {jsonStepsOrAssertionsHaveFragileSelectors(editForm.stepsJson, editForm.assertionsJson) && (
+                                <div style={{ fontSize: 12, color: "var(--orange-text)", marginTop: 6, lineHeight: 1.45 }}>
+                                  ⚠ Este test tiene selectores generados dinámicamente que pueden fallar entre builds. Usa Auto-fix para ver sugerencias.
+                                </div>
+                              )}
                             </div>
                             <div>
                               <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 3 }}>Assertions (JSON)</label>

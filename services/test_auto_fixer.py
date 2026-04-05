@@ -19,7 +19,58 @@ Rules applied (in order):
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List
+import re
+from typing import Any, Dict, List, Optional
+
+# ── Unstable / dynamic selector patterns (React / Radix / RHF, nth-child, hash IDs) ──
+_RE_RADIX_COLON_ID = re.compile(r"#:[A-Za-z0-9]{4,}:-")
+_RE_NTH_CHILD_TAIL = re.compile(r":nth-child\(\d+\)$")
+_RE_HASH_SUFFIX_ID = re.compile(r"#[a-z]+-[a-f0-9]{6,}", re.IGNORECASE)
+
+
+def is_unstable_selector(selector: Any) -> bool:
+    """
+    True if the selector string matches known fragile patterns (dynamic React/Radix IDs,
+    nth-child terminal, hashed suffix IDs). Non-strings / empty → False.
+    """
+    if selector is None or not isinstance(selector, str):
+        return False
+    s = selector.strip()
+    if not s:
+        return False
+    if _RE_RADIX_COLON_ID.search(s):
+        return True
+    if _RE_NTH_CHILD_TAIL.search(s):
+        return True
+    if _RE_HASH_SUFFIX_ID.search(s):
+        return True
+    return False
+
+
+def _step_selector_string(step: dict) -> Optional[str]:
+    sel = step.get("selector")
+    if isinstance(sel, str) and sel.strip():
+        return sel.strip()
+    t = step.get("target")
+    if isinstance(t, str) and t.strip():
+        return t.strip()
+    return None
+
+
+def _assertion_selector_string(a: dict) -> Optional[str]:
+    for key in ("selector", "target"):
+        v = a.get(key)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return None
+
+
+def _unstable_selector_warning_message(sel: str) -> str:
+    """Human message; {sel!r} avoids format injection if selector contains braces."""
+    return (
+        f"Selector posiblemente inestable: {sel!r}. "
+        "Reemplázalo por data-testid, aria-label o texto visible."
+    )
 
 
 # ── Canonical allowed actions (sourced from runners/generic_steps.py) ────────
@@ -119,6 +170,11 @@ def _fix_steps(
             continue
 
         step = dict(raw)  # shallow copy, do not mutate original
+
+        _usel = _step_selector_string(step)
+        if _usel and is_unstable_selector(_usel):
+            changes.append({"type": "warning", "message": _unstable_selector_warning_message(_usel)})
+
         action_raw = (step.get("action") or "").strip().lower()
 
         # Rule 1: normalize aliases
@@ -186,6 +242,10 @@ def _fix_assertions(
             continue
 
         a = dict(raw)  # shallow copy
+
+        _asel = _assertion_selector_string(a)
+        if _asel and is_unstable_selector(_asel):
+            changes.append({"type": "warning", "message": _unstable_selector_warning_message(_asel)})
 
         # Normalize type/action alias (mirrors Rule 1 for steps)
         raw_type = (a.get("type") or a.get("action") or "").strip().lower()

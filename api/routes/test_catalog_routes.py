@@ -23,6 +23,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from models.test_case import TestCase, TestCaseCreate, TestCaseSummary
+from services.test_auto_fixer import is_unstable_selector
 from models.test_run import TestRun, SuiteRunResult
 from models.run_contract import CanonicalRun, CanonicalSuiteResult
 from models.test_version_models import (
@@ -90,6 +91,17 @@ def list_test_cases(
         tags=tags,
         limit=limit,
     )
+    def _case_has_fragile_selectors(tc: TestCase) -> bool:
+        for s in tc.steps:
+            for fld in (s.selector, s.target):
+                if isinstance(fld, str) and is_unstable_selector(fld):
+                    return True
+        for a in tc.assertions or []:
+            for fld in (a.selector, a.target):
+                if isinstance(fld, str) and is_unstable_selector(fld):
+                    return True
+        return False
+
     return [
         TestCaseSummary(
             id=c.id,
@@ -103,6 +115,7 @@ def list_test_cases(
             version=c.version,
             tags=c.tags,
             steps_count=len(c.steps),
+            has_fragile_selectors=_case_has_fragile_selectors(c),
             created_at=c.created_at,
             updated_at=c.updated_at,
         )

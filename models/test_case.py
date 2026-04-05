@@ -148,5 +148,6 @@ class TestCaseSummary(BaseModel):
     version:      int
     tags:         List[str]
     steps_count:  int
+    has_fragile_selectors: bool = False
     created_at:   datetime
     updated_at:   datetime

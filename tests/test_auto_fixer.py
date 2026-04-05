@@ -1,7 +1,7 @@
 # tests/test_auto_fixer.py
 """Unit tests for the deterministic auto-fix engine (services/test_auto_fixer.py)."""
 import pytest
-from services.test_auto_fixer import auto_fix_test
+from services.test_auto_fixer import auto_fix_test, is_unstable_selector
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -147,3 +147,47 @@ def test_original_lists_not_mutated():
     auto_fix_test(original_steps, original_assertions)
     assert original_steps == [{"action": "click"}]
     assert original_assertions == []
+
+
+# ── Unstable selector detection + warnings ────────────────────────────────────
+
+def test_is_unstable_selector_radix_style():
+    assert is_unstable_selector("#:Rhjdjtskq:-form-item")
+    assert not is_unstable_selector("#stable-id")
+
+
+def test_is_unstable_selector_nth_child_tail():
+    assert is_unstable_selector("div.items > li:nth-child(3)")
+    assert not is_unstable_selector(":nth-child(2) > span")
+
+
+def test_is_unstable_selector_hash_suffix():
+    assert is_unstable_selector("#root-abc123def456")
+    assert not is_unstable_selector("#ab-12345")
+
+
+def test_is_unstable_selector_non_string():
+    assert not is_unstable_selector(None)
+    assert not is_unstable_selector("")
+    assert not is_unstable_selector(42)
+
+
+def test_autofix_emits_warning_for_radix_selector():
+    steps = [
+        {"action": "goto", "url": "https://example.com"},
+        {"action": "click", "selector": "#:Rhjdjtskq:-form-item"},
+    ]
+    r = fix(steps, [])
+    assert any(
+        c["type"] == "warning" and "inestable" in c["message"] and "Rhjdjtskq" in c["message"]
+        for c in r["changes"]
+    )
+    assert r["steps"][-1]["selector"] == "#:Rhjdjtskq:-form-item"
+
+
+def test_autofix_warning_on_assertion_selector():
+    r = fix(
+        [{"action": "goto", "url": "https://example.com"}],
+        [{"type": "assert_visible", "selector": "#:Abcd1234:-root"}],
+    )
+    assert any("inestable" in c["message"] for c in r["changes"])
