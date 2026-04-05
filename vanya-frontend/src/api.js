@@ -316,7 +316,25 @@ export const integrationsReadiness    = ()          => apiGet(`/integrations/rea
 export const createItsmTicket         = (body)      => apiPost(`/integrations/create-ticket`, body);
 
 // ========= Projects (multi-project catalog scope) =========
-export const listProjects   = ()                    => apiGet("/projects");
+/** GET /projects — 200 + [] or empty body must be success (never throw from JSON parse). */
+export async function listProjects() {
+  const res = await fetch(`${API_BASE}/projects`, {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(txt || res.statusText);
+  }
+  const text = await res.text();
+  if (text == null || text.trim() === "") return [];
+  try {
+    const data = JSON.parse(text);
+    return Array.isArray(data) ? data : [];
+  } catch {
+    throw new Error(text.slice(0, 200) || "Invalid JSON response");
+  }
+}
 export const getProject     = (projectId)           => apiGet(`/projects/${encodeURIComponent(projectId)}`);
 export const createProject  = (payload)           => apiPost("/projects", payload);
 export const updateProject  = (projectId, payload) => apiPatch(`/projects/${encodeURIComponent(projectId)}`, payload);

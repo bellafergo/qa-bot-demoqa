@@ -276,8 +276,8 @@ export const translations = {
     // ── Projects (multi-project) ───────────────────────────────────────────────
     "projects.page_title":            "Projects",
     "projects.page_subtitle":         "Create and manage catalog workspaces. Execution views still use the full catalog until you enable per-project filters.",
-    "projects.empty_title":           "No projects yet",
-    "projects.empty_hint":            "Create a project to organize tests and set a default base URL for your team.",
+    "projects.empty_title":           "You don't have any projects yet",
+    "projects.empty_hint":            "Create your first project to organize your test catalog.",
     "projects.create_first":          "Create your first project",
     "projects.create_new":            "New project",
     "projects.loading_list":          "Loading projects…",
@@ -1593,8 +1593,8 @@ export const translations = {
     // ── Projects (multi-project) ───────────────────────────────────────────────
     "projects.page_title":            "Proyectos",
     "projects.page_subtitle":         "Creá y gestioná espacios de trabajo para el catálogo. Las vistas de ejecución siguen usando el catálogo completo hasta activar filtros por proyecto.",
-    "projects.empty_title":           "No hay proyectos",
-    "projects.empty_hint":            "Creá un proyecto para organizar pruebas y definir una URL base por defecto.",
+    "projects.empty_title":           "Aún no tienes proyectos",
+    "projects.empty_hint":            "Creá tu primer proyecto para organizar tu catálogo de tests.",
     "projects.create_first":          "Crear tu primer proyecto",
     "projects.create_new":            "Nuevo proyecto",
     "projects.loading_list":          "Cargando proyectos…",

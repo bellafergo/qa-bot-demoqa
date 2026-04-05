@@ -89,6 +89,7 @@ export function ProjectProvider({ children }) {
       const raw = await apiListProjects();
       const listNorm = Array.isArray(raw) ? raw : [];
       setProjects(listNorm);
+      setError(null);
 
       const prev = currentIdRef.current;
       const next = pickCurrentAfterLoad(

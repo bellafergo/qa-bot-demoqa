@@ -78,7 +78,7 @@ export default function ProjectsPage() {
         <p className="page-subtitle">{t("projects.page_subtitle")}</p>
       </div>
 
-      {error && (
+      {error && !loading && (
         <div className="card" style={{ marginBottom: 16, borderColor: "var(--orange-border)" }}>
           <div style={{ fontSize: 13, color: "var(--orange-text)" }}>{error}</div>
           <button type="button" className="btn btn-secondary btn-sm" style={{ marginTop: 10 }} onClick={() => reloadProjects()}>
@@ -119,6 +119,24 @@ export default function ProjectsPage() {
 
       {!loading && !projects.length && !error && (
         <div className="card" style={{ textAlign: "center", padding: 40 }}>
+          <div
+            aria-hidden
+            style={{
+              width: 56,
+              height: 56,
+              borderRadius: 14,
+              margin: "0 auto 16px",
+              border: "1px dashed var(--border)",
+              background: "var(--surface-2, rgba(0,0,0,0.04))",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 22,
+              color: "var(--text-3)",
+            }}
+          >
+            ◇
+          </div>
           <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>{t("projects.empty_title")}</div>
           <p style={{ fontSize: 14, color: "var(--text-2)", marginBottom: 20 }}>{t("projects.empty_hint")}</p>
           <button type="button" className="btn btn-primary" onClick={openCreate}>
