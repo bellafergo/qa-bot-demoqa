@@ -9,6 +9,7 @@ import ChatPage       from "./pages/ChatPage";
 import PlannerPage    from "./pages/PlannerPage";
 import DocumentsPage  from "./pages/DocumentsPage";
 import RunsPage       from "./pages/RunsPage";
+import BatchRunnerPage from "./pages/BatchRunnerPage";
 import SettingsPage   from "./pages/SettingsPage";
 import CatalogPage    from "./pages/CatalogPage";
 import DraftsPage     from "./pages/DraftsPage";
@@ -58,6 +59,7 @@ export default function App() {
           <Route path="dashboard"  element={<DashboardPage />} />
           <Route path="catalog"    element={<CatalogPage />} />
           <Route path="runs"       element={<RunsPage />} />
+          <Route path="batch"      element={<BatchRunnerPage />} />
           <Route path="evidence"   element={<EvidencePage />} />
           <Route path="generate"   element={<GeneratePage />} />
           <Route path="insights"   element={<InsightsPage />} />

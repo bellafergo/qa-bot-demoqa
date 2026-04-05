@@ -10,6 +10,7 @@ const NAV_SECTIONS_DEF = [
       { to: "/dashboard", icon: "⊞", labelKey: "nav.dashboard" },
       { to: "/catalog",   icon: "☰", labelKey: "nav.catalog"   },
       { to: "/runs",      icon: "◈", labelKey: "nav.runs"      },
+      { to: "/batch",     icon: "▶", labelKey: "nav.batch"     },
       { to: "/evidence",  icon: "⊟", labelKey: "nav.evidence"  },
     ],
   },

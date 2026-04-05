@@ -1468,7 +1468,7 @@ export default function RunsPage() {
         </div>
         <button
           className="btn btn-secondary btn-sm"
-          onClick={() => navigate("/execution")}
+          onClick={() => navigate("/batch")}
           title={t("runs.page.batch_tip")}
           style={{ alignSelf: "flex-start" }}
         >

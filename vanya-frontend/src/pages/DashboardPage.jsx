@@ -691,12 +691,12 @@ export default function DashboardPage() {
             </SectionCard>
 
             {/* Recent Jobs */}
-            <SectionCard title={t("dash.recent_jobs")} link="/execution" linkLabel={t("dash.recent_jobs.link")}>
+            <SectionCard title={t("dash.recent_jobs")} link="/batch" linkLabel={t("dash.recent_jobs.link")}>
               {loading ? (
                 <div style={{ padding: "20px", color: "var(--text-3)", fontSize: 13 }}>{t("dash.loading_jobs")}</div>
               ) : recentJobs.length === 0 ? (
                 <div style={{ padding: "20px", color: "var(--text-3)", fontSize: 13 }}>
-                  {t("dash.no_jobs")} <Link to="/execution" style={{ color: "var(--accent)", fontWeight: 500, textDecoration: "none" }}>{t("dash.run_batch")}</Link>
+                  {t("dash.no_jobs")} <Link to="/batch" style={{ color: "var(--accent)", fontWeight: 500, textDecoration: "none" }}>{t("dash.run_batch")}</Link>
                 </div>
               ) : (
                 <table className="data-table">

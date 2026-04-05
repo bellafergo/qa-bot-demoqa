@@ -11,6 +11,7 @@ const ROUTE_META = {
   "/planner":      { titleKey: "layout.planner.title",       subtitleKey: "layout.planner.subtitle"       },
   "/documents":    { titleKey: "layout.documents.title",     subtitleKey: "layout.documents.subtitle"     },
   "/runs":         { titleKey: "layout.runs.title",          subtitleKey: "layout.runs.subtitle"          },
+  "/batch":        { titleKey: "layout.batch.title",         subtitleKey: "layout.batch.subtitle"         },
   "/settings":     { titleKey: "layout.settings.title",      subtitleKey: "layout.settings.subtitle"      },
   "/catalog":      { titleKey: "layout.catalog.title",       subtitleKey: "layout.catalog.subtitle"       },
   "/drafts":       { titleKey: "layout.drafts.title",        subtitleKey: "layout.drafts.subtitle"        },
