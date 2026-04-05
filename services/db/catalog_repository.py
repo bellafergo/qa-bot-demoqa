@@ -260,6 +260,76 @@ class CatalogRepository:
             )
         return {(m or ""): c for m, c in rows}
 
+    def list_test_case_ids_for_project(self, project_id: str) -> List[str]:
+        """Return test_case_id values belonging to a catalog project (slug)."""
+        pid = (project_id or "").strip()
+        if not pid:
+            return []
+        with get_session() as s:
+            rows = (
+                s.query(TestCaseRow.test_case_id)
+                .filter(TestCaseRow.project_id == pid)
+                .all()
+            )
+        return [r[0] for r in rows]
+
+    def count_by_status_for_project(self, project_id: str) -> dict:
+        from sqlalchemy import func
+
+        pid = (project_id or "").strip()
+        if not pid:
+            return {}
+        with get_session() as s:
+            rows = (
+                s.query(TestCaseRow.status, func.count(TestCaseRow.id))
+                .filter(TestCaseRow.project_id == pid)
+                .group_by(TestCaseRow.status)
+                .all()
+            )
+        return {status: c for status, c in rows}
+
+    def count_by_test_type_for_project(self, project_id: str) -> dict:
+        from sqlalchemy import func
+
+        pid = (project_id or "").strip()
+        if not pid:
+            return {}
+        with get_session() as s:
+            rows = (
+                s.query(TestCaseRow.test_type, func.count(TestCaseRow.id))
+                .filter(TestCaseRow.project_id == pid)
+                .group_by(TestCaseRow.test_type)
+                .all()
+            )
+        return {(t or "ui"): c for t, c in rows}
+
+    def count_test_cases_by_module_for_project(self, project_id: str) -> dict:
+        from sqlalchemy import func
+
+        pid = (project_id or "").strip()
+        if not pid:
+            return {}
+        with get_session() as s:
+            rows = (
+                s.query(TestCaseRow.module, func.count(TestCaseRow.id))
+                .filter(TestCaseRow.project_id == pid)
+                .group_by(TestCaseRow.module)
+                .all()
+            )
+        return {(m or ""): c for m, c in rows}
+
+    def all_modules_for_project(self, project_id: str) -> list:
+        pid = (project_id or "").strip()
+        if not pid:
+            return []
+        with get_session() as s:
+            rows = (
+                s.query(TestCaseRow.test_case_id, TestCaseRow.module)
+                .filter(TestCaseRow.project_id == pid)
+                .all()
+            )
+        return [(r[0], r[1] or "") for r in rows]
+
     def clear_all(self) -> None:
         """Wipe all rows — used in tests only."""
         with get_session() as s:

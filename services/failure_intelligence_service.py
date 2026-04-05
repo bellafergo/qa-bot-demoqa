@@ -86,6 +86,7 @@ class FailureIntelligenceService:
         limit: int = CLUSTER_LIMIT,
         module: Optional[str] = None,
         root_cause_category: Optional[str] = None,
+        project_id: Optional[str] = None,
     ) -> List[FailureCluster]:
         """
         Load recent failed/error runs, run RCA on each, then group by
@@ -97,7 +98,8 @@ class FailureIntelligenceService:
         from services.db.catalog_repository import catalog_repo
         from services.rca_service import rca_service
 
-        all_runs     = test_run_repo.list_runs(limit=limit)
+        pid = (project_id or "").strip() or None
+        all_runs     = test_run_repo.list_runs(limit=limit, project_id=pid)
         failed_runs  = [r for r in all_runs if r.status in ("fail", "error")]
 
         # Build tc_id → module lookup
@@ -183,6 +185,7 @@ class FailureIntelligenceService:
         window:         int   = FLAKY_WINDOW,
         min_runs:       int   = FLAKY_MIN_RUNS,
         flip_threshold: float = FLAKY_FLIP_THRESHOLD,
+        project_id: Optional[str] = None,
     ) -> List[FlakyTestSignal]:
         """
         Analyse the most recent `window` runs per test case.
@@ -194,9 +197,17 @@ class FailureIntelligenceService:
 
         flaky_score ∈ [0, 1] combines flip_rate and pass/fail balance.
         """
+        from services.db.catalog_repository import catalog_repo
         from services.db.test_run_repository import test_run_repo
 
-        runs_by_tc = test_run_repo.count_runs_by_test_case()
+        pid = (project_id or "").strip() or None
+        if pid:
+            allowed = set(catalog_repo.list_test_case_ids_for_project(pid))
+            if not allowed:
+                return []
+            runs_by_tc = test_run_repo.count_runs_by_test_case(test_case_ids=allowed)
+        else:
+            runs_by_tc = test_run_repo.count_runs_by_test_case()
         signals: List[FlakyTestSignal] = []
 
         for tc_id in runs_by_tc:
@@ -329,6 +340,7 @@ class FailureIntelligenceService:
         self,
         min_failures: int = REGRESSION_MIN_FAILURES,
         window:       int = REGRESSION_WINDOW,
+        project_id: Optional[str] = None,
     ) -> List[RegressionPattern]:
         """
         Detect test cases that have failed >= min_failures times within
@@ -338,14 +350,25 @@ class FailureIntelligenceService:
         from services.db.catalog_repository import catalog_repo
         from services.rca_service import rca_service
 
+        pid = (project_id or "").strip() or None
         tc_module: Dict[str, str] = {}
         try:
-            for tc_id, mod in catalog_repo.all_modules():
-                tc_module[tc_id] = mod
+            if pid:
+                for tc_id, mod in catalog_repo.all_modules_for_project(pid):
+                    tc_module[tc_id] = mod
+            else:
+                for tc_id, mod in catalog_repo.all_modules():
+                    tc_module[tc_id] = mod
         except Exception:
             pass
 
-        runs_by_tc = test_run_repo.count_runs_by_test_case()
+        if pid:
+            allowed = set(catalog_repo.list_test_case_ids_for_project(pid))
+            if not allowed:
+                return []
+            runs_by_tc = test_run_repo.count_runs_by_test_case(test_case_ids=allowed)
+        else:
+            runs_by_tc = test_run_repo.count_runs_by_test_case()
         patterns: List[RegressionPattern] = []
 
         for tc_id, status_counts in runs_by_tc.items():
@@ -386,16 +409,24 @@ class FailureIntelligenceService:
 
     # ── Summary ────────────────────────────────────────────────────────────────
 
-    def get_summary(self) -> FailureIntelligenceSummary:
+    def get_summary(self, project_id: Optional[str] = None) -> FailureIntelligenceSummary:
         """Aggregate all failure intelligence metrics into one summary object."""
+        from services.db.catalog_repository import catalog_repo
         from services.db.test_run_repository import test_run_repo
 
-        run_counts   = test_run_repo.count_by_status()
+        pid = (project_id or "").strip() or None
+        if pid:
+            tc_ids = set(catalog_repo.list_test_case_ids_for_project(pid))
+            run_counts = test_run_repo.count_by_status(
+                test_case_ids=tc_ids if tc_ids else [],
+            )
+        else:
+            run_counts = test_run_repo.count_by_status()
         total_failed = run_counts.get("fail", 0) + run_counts.get("error", 0)
 
-        clusters    = self.get_clusters()
-        flaky       = self.get_flaky_tests()
-        regressions = self.get_regressions()
+        clusters    = self.get_clusters(project_id=pid)
+        flaky       = self.get_flaky_tests(project_id=pid)
+        regressions = self.get_regressions(project_id=pid)
 
         flaky_count = sum(1 for f in flaky if f.suspected_flaky)
 

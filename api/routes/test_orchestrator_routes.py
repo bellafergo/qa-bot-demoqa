@@ -97,9 +97,12 @@ def enqueue_suite(body: SuiteJobRequest):
 
 
 @router.get("/jobs", response_model=List[OrchestratorJob])
-def list_jobs(limit: int = Query(100, ge=1, le=500)):
+def list_jobs(
+    limit: int = Query(100, ge=1, le=500),
+    project_id: Optional[str] = Query(None, description="Jobs that include tests in this catalog project"),
+):
     """Return recent orchestrator jobs, most recent first."""
-    return orchestrator_service.list_jobs(limit=limit)
+    return orchestrator_service.list_jobs(limit=limit, project_id=project_id)
 
 
 @router.get("/jobs/{job_id}", response_model=OrchestratorJob)

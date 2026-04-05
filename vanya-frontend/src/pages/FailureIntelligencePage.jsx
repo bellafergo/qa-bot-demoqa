@@ -12,6 +12,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { getFlakyTests, getRegressions, getClusters } from "../api";
 import { useLang } from "../i18n/LangContext";
+import { useProject } from "../context/ProjectContext.jsx";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -321,6 +322,8 @@ function ClustersTab({ data, loading, error, t }) {
 
 export default function FailureIntelligencePage({ embedded = false }) {
   const { t } = useLang();
+  const { currentProject } = useProject();
+  const projectId = currentProject?.id;
   const navigate = useNavigate();
 
   const [tab, setTab]                       = useState("flaky");
@@ -339,40 +342,40 @@ export default function FailureIntelligencePage({ embedded = false }) {
     setLoadingFlaky(true);
     setErrorFlaky("");
     try {
-      const data = await getFlakyTests();
+      const data = await getFlakyTests(projectId);
       setFlaky(Array.isArray(data) ? data : []);
     } catch (e) {
       setErrorFlaky(e?.message || "Failed to load flaky tests");
     } finally {
       setLoadingFlaky(false);
     }
-  }, []);
+  }, [projectId]);
 
   const loadReg = useCallback(async () => {
     setLoadingReg(true);
     setErrorReg("");
     try {
-      const data = await getRegressions();
+      const data = await getRegressions(projectId);
       setRegressions(Array.isArray(data) ? data : []);
     } catch (e) {
       setErrorReg(e?.message || "Failed to load regressions");
     } finally {
       setLoadingReg(false);
     }
-  }, []);
+  }, [projectId]);
 
   const loadClusters = useCallback(async () => {
     setLoadingClusters(true);
     setErrorClusters("");
     try {
-      const data = await getClusters();
+      const data = await getClusters(projectId ? { project_id: projectId } : {});
       setClusters(Array.isArray(data) ? data : []);
     } catch (e) {
       setErrorClusters(e?.message || "Failed to load clusters");
     } finally {
       setLoadingClusters(false);
     }
-  }, []);
+  }, [projectId]);
 
   useEffect(() => {
     loadFlaky();
@@ -397,6 +400,13 @@ export default function FailureIntelligencePage({ embedded = false }) {
 
   return (
     <div className="page-wrap">
+
+      {currentProject && (
+        <div style={{ marginBottom: 12, fontSize: 12, color: "var(--text-2)", display: "flex", alignItems: "center", gap: 8 }}>
+          <span aria-hidden style={{ width: 8, height: 8, borderRadius: "50%", background: currentProject.color || "var(--accent)" }} />
+          <span className="badge badge-gray" style={{ fontSize: 11 }}>{t("insights.fi_scope", { name: currentProject.name })}</span>
+        </div>
+      )}
 
       {/* Header — suppressed when embedded inside InsightsPage */}
       {!embedded && (

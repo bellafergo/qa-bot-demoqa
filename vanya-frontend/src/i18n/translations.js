@@ -105,6 +105,8 @@ export const translations = {
     // ── Insights page ────────────────────────────────────────────────────────
     "insights.title":       "Insights",
     "insights.subtitle":    "Failure intelligence, coverage and risk-based analysis",
+    "insights.fi_scope":    "Failures data: {{name}}",
+    "insights.page_scope":  "Selected project: {{name}} (Failures tab uses project scope; Coverage and Risk remain global.)",
     "insights.tab.failures":"Failures",
     "insights.tab.coverage":"Coverage",
     "insights.tab.risk":    "Risk",
@@ -310,6 +312,8 @@ export const translations = {
     "projects.switcher_pick_project":   "Select a project",
 
     // ── Batch Runner (/batch) ────────────────────────────────────────────────
+    "batch.active_project":      "Running in project: {{name}}",
+    "batch.jobs_filtered_hint":  "Recent jobs list filtered to this project when a project is selected.",
     "batch.section_tests":       "Select tests",
     "batch.section_config":      "Batch configuration",
     "batch.section_jobs":        "Recent jobs",
@@ -353,6 +357,7 @@ export const translations = {
     // ── Dashboard ───────────────────────────────────────────────────────────
     "dash.title":    "Vanya QA Intelligence",
     "dash.subtitle": "Execution, risk and evidence control center",
+    "dash.active_project": "Scope: {{name}}",
     "dash.refresh":    "↻ Refresh",
     "dash.refreshing": "Refreshing…",
     "dash.refreshed":  "Refreshed",
@@ -556,6 +561,9 @@ export const translations = {
     "catalog.empty.title":       "No tests yet",
     "catalog.empty.desc":        "Your catalog is empty. Generate tests from a description, a URL, or a PR to get started.",
     "catalog.empty.cta":         "Generate Tests",
+    "catalog.active_project":    "Current project: {{name}}",
+    "catalog.empty.project_title": "No tests in this project yet",
+    "catalog.empty.project_desc": "This workspace has no catalog tests. Switch project, add tests to this project in the backend, or generate new ones.",
     "catalog.table.edit":        "Edit",
     "catalog.edit.save":         "Save",
     "catalog.edit.saving":       "Saving…",
@@ -576,6 +584,8 @@ export const translations = {
     "runs.page.batch_tip":      "Open the bulk execution center",
     "runs.empty.title":         "No runs yet",
     "runs.empty.desc":          "Execute tests from the catalog or generate new ones to see history here.",
+    "runs.empty.project_desc":  "No runs recorded for tests in this project yet.",
+    "runs.active_project":      "Project: {{name}}",
     "runs.empty.cta_catalog":   "Go to Catalog",
     "runs.empty.cta_generate":  "Generate Tests",
     "runs.view_evidence":       "View in Evidence Library",
@@ -1414,6 +1424,8 @@ export const translations = {
     // ── Insights page ────────────────────────────────────────────────────────
     "insights.title":       "Insights",
     "insights.subtitle":    "Inteligencia de fallos, cobertura y análisis de riesgo",
+    "insights.fi_scope":    "Datos de fallos: {{name}}",
+    "insights.page_scope":  "Proyecto seleccionado: {{name}} (la pestaña Fallos usa el proyecto; Cobertura y Riesgo siguen siendo globales.)",
     "insights.tab.failures":"Fallos",
     "insights.tab.coverage":"Cobertura",
     "insights.tab.risk":    "Riesgo",
@@ -1617,6 +1629,8 @@ export const translations = {
     "projects.switcher_pick_project":   "Elegí un proyecto",
 
     // ── Batch Runner (/batch) ────────────────────────────────────────────────
+    "batch.active_project":      "Ejecutando en proyecto: {{name}}",
+    "batch.jobs_filtered_hint":  "La lista de jobs recientes se filtra por este proyecto cuando hay uno seleccionado.",
     "batch.section_tests":       "Seleccionar tests",
     "batch.section_config":      "Configuración del batch",
     "batch.section_jobs":        "Jobs recientes",
@@ -1660,6 +1674,7 @@ export const translations = {
     // ── Dashboard ───────────────────────────────────────────────────────────
     "dash.title":    "Vanya QA Intelligence",
     "dash.subtitle": "Centro de control de ejecución, riesgo y evidencia",
+    "dash.active_project": "Ámbito: {{name}}",
     "dash.refresh":    "↻ Actualizar",
     "dash.refreshing": "Actualizando…",
     "dash.refreshed":  "Actualizado",
@@ -1859,6 +1874,9 @@ export const translations = {
     "catalog.empty.title":       "Sin pruebas todavía",
     "catalog.empty.desc":        "El catálogo está vacío. Generá pruebas desde una descripción, una URL o un PR para empezar.",
     "catalog.empty.cta":         "Generar Pruebas",
+    "catalog.active_project":    "Proyecto actual: {{name}}",
+    "catalog.empty.project_title": "No hay pruebas en este proyecto",
+    "catalog.empty.project_desc": "Este espacio no tiene casos en el catálogo. Cambiá de proyecto, asigná tests a este proyecto o generá nuevos.",
     "catalog.table.edit":        "Editar",
     "catalog.edit.save":         "Guardar",
     "catalog.edit.saving":       "Guardando…",
@@ -1879,6 +1897,8 @@ export const translations = {
     "runs.page.batch_tip":      "Abrir centro de ejecución masiva",
     "runs.empty.title":         "Sin ejecuciones aún",
     "runs.empty.desc":          "Ejecutá pruebas desde el catálogo o generá nuevas para ver el historial aquí.",
+    "runs.empty.project_desc":  "Todavía no hay ejecuciones para pruebas de este proyecto.",
+    "runs.active_project":      "Proyecto: {{name}}",
     "runs.empty.cta_catalog":   "Ir al Catálogo",
     "runs.empty.cta_generate":  "Generar Pruebas",
     "runs.view_evidence":       "Ver en Biblioteca de Evidencias",

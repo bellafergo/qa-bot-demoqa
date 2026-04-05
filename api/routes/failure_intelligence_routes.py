@@ -38,11 +38,11 @@ def health():
 # ── Summary ────────────────────────────────────────────────────────────────────
 
 @router.get("/summary", response_model=FailureIntelligenceSummary)
-def get_summary():
+def get_summary(project_id: Optional[str] = Query(None)):
     """Return platform-wide failure intelligence: clusters, flaky count, regressions."""
     from services.failure_intelligence_service import failure_intelligence_service
     try:
-        return failure_intelligence_service.get_summary()
+        return failure_intelligence_service.get_summary(project_id=project_id)
     except Exception as exc:
         logger.exception("failure-intelligence/summary failed")
         raise HTTPException(status_code=500, detail=f"Summary error: {exc}")
@@ -54,6 +54,7 @@ def get_summary():
 def get_clusters(
     module:               Optional[str] = Query(None, description="Filter by module name"),
     root_cause_category:  Optional[str] = Query(None, description="Filter by RCA category"),
+    project_id:           Optional[str] = Query(None, description="Scope to catalog project"),
     limit:                int           = Query(200, ge=1, le=1000, description="Max runs to analyse"),
 ):
     """
@@ -68,6 +69,7 @@ def get_clusters(
             limit=limit,
             module=module,
             root_cause_category=root_cause_category,
+            project_id=project_id,
         )
     except Exception as exc:
         logger.exception("failure-intelligence/clusters failed")
@@ -96,7 +98,7 @@ def get_run_clusters(limit: int = Query(50, ge=1, le=200, description="Max recen
 # ── Flaky tests ────────────────────────────────────────────────────────────────
 
 @router.get("/flaky-tests", response_model=List[FlakyTestSignal])
-def get_flaky_tests():
+def get_flaky_tests(project_id: Optional[str] = Query(None)):
     """
     Analyse recent run history per test case to detect flaky behaviour.
 
@@ -104,7 +106,7 @@ def get_flaky_tests():
     """
     from services.failure_intelligence_service import failure_intelligence_service
     try:
-        return failure_intelligence_service.get_flaky_tests()
+        return failure_intelligence_service.get_flaky_tests(project_id=project_id)
     except Exception as exc:
         logger.exception("failure-intelligence/flaky-tests failed")
         raise HTTPException(status_code=500, detail=f"Flaky detection error: {exc}")
@@ -113,13 +115,13 @@ def get_flaky_tests():
 # ── Regressions ────────────────────────────────────────────────────────────────
 
 @router.get("/regressions", response_model=List[RegressionPattern])
-def get_regressions():
+def get_regressions(project_id: Optional[str] = Query(None)):
     """
     Return test cases with repeated recent failures ordered by failure count.
     """
     from services.failure_intelligence_service import failure_intelligence_service
     try:
-        return failure_intelligence_service.get_regressions()
+        return failure_intelligence_service.get_regressions(project_id=project_id)
     except Exception as exc:
         logger.exception("failure-intelligence/regressions failed")
         raise HTTPException(status_code=500, detail=f"Regression detection error: {exc}")

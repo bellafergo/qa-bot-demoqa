@@ -69,6 +69,7 @@ class RunHistoryService:
         self,
         *,
         test_case_id: Optional[str] = None,
+        project_id: Optional[str] = None,
         limit: int = 100,
     ) -> List[CanonicalRun]:
         """
@@ -78,10 +79,15 @@ class RunHistoryService:
         Parameters
         ----------
         test_case_id : optional filter — only runs for this test case
+        project_id   : optional catalog project slug — only runs for tests in that project
         limit        : maximum records to return (default 100, max 500)
         """
         limit = max(1, min(int(limit), 500))
-        runs = test_run_repo.list_runs(test_case_id=test_case_id, limit=limit)
+        runs = test_run_repo.list_runs(
+            test_case_id=test_case_id,
+            project_id=project_id,
+            limit=limit,
+        )
         mapped = [run_from_catalog_testrun(r) for r in runs]
         # Strip screenshot_b64 from list payloads — large base64 blobs are only
         # needed for individual evidence views, not for history listings.

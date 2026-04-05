@@ -332,6 +332,7 @@ def run_test_case(test_case_id: str, request: Request, body: RunTestCaseRequest 
 @runs_router.get("", response_model=List[CanonicalRun])
 def list_test_runs(
     test_case_id: Optional[str] = Query(None),
+    project_id: Optional[str] = Query(None, description="Filter runs to tests in this catalog project"),
     limit: int = Query(100, ge=1, le=500),
 ):
     """
@@ -341,7 +342,11 @@ def list_test_runs(
     Only runs produced by the catalog execution path appear here.
     Async chat/execute runs are accessible via GET /runs/{evidence_id}.
     """
-    return run_history_service.list_runs(test_case_id=test_case_id, limit=limit)
+    return run_history_service.list_runs(
+        test_case_id=test_case_id,
+        project_id=project_id,
+        limit=limit,
+    )
 
 
 @runs_router.get("/{run_id}", response_model=CanonicalRun)

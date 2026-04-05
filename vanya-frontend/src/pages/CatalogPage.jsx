@@ -7,6 +7,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { listTests, getTest, runTest, runBatch, updateTest, listVersions, rollbackTest, diffVersions, previewAutoFix } from "../api";
 import { useLang } from "../i18n/LangContext";
+import { useProject } from "../context/ProjectContext.jsx";
 
 const API_BASE = (import.meta?.env?.VITE_API_BASE || "https://qa-bot-demoqa.onrender.com").replace(/\/$/, "");
 
@@ -136,6 +137,7 @@ function DiffPanel({ diff, t }) {
 
 export default function CatalogPage() {
   const { t } = useLang();
+  const { currentProject } = useProject();
   const location = useLocation();
   const navigate = useNavigate();
   const highlightModule = location.state?.highlightModule;
@@ -189,6 +191,7 @@ export default function CatalogPage() {
       if (filters.status !== undefined) params.status = filters.status;
       if (filters.test_type) params.test_type = filters.test_type;
       params.limit = 200;
+      if (currentProject?.id) params.project_id = currentProject.id;
       const data = await listTests(params);
       setTests(Array.isArray(data) ? data : []);
     } catch (e) {
@@ -196,9 +199,11 @@ export default function CatalogPage() {
     } finally {
       setLoading(false);
     }
-  }, [filters, t]);
+  }, [filters, t, currentProject?.id]);
 
-  useEffect(() => { load(); }, []);   // load on mount
+  useEffect(() => {
+    load();
+  }, [load]);
 
   function toggleSelect(id) {
     setSelected(prev => {
@@ -413,6 +418,22 @@ export default function CatalogPage() {
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0, color: "var(--text-1)" }}>{t("catalog.page.title")}</h1>
           <p style={{ fontSize: 13, color: "var(--text-3)", margin: "4px 0 0" }}>{t("catalog.page.subtitle")}</p>
+          {currentProject && (
+            <div style={{ marginTop: 8, display: "inline-flex", alignItems: "center", gap: 8 }}>
+              <span
+                aria-hidden
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  background: currentProject.color || "var(--accent)",
+                }}
+              />
+              <span className="badge badge-gray" style={{ fontSize: 11, fontWeight: 500 }}>
+                {t("catalog.active_project", { name: currentProject.name })}
+              </span>
+            </div>
+          )}
         </div>
         <button className="btn btn-primary" onClick={() => navigate("/generate")}>
           ⊕ {t("catalog.page.generate_btn")}
@@ -575,10 +596,10 @@ export default function CatalogPage() {
           <div style={{ padding: "48px 32px", textAlign: "center" }}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>☰</div>
             <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)", marginBottom: 8 }}>
-              {t("catalog.empty.title")}
+              {currentProject ? t("catalog.empty.project_title") : t("catalog.empty.title")}
             </div>
             <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.7, maxWidth: 380, margin: "0 auto 20px" }}>
-              {t("catalog.empty.desc")}
+              {currentProject ? t("catalog.empty.project_desc") : t("catalog.empty.desc")}
             </div>
             <button className="btn btn-primary" onClick={() => navigate("/generate")}>
               ⊕ {t("catalog.empty.cta")}

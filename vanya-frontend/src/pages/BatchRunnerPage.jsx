@@ -5,6 +5,7 @@
  */
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useLang } from "../i18n/LangContext";
+import { useProject } from "../context/ProjectContext.jsx";
 import { listTests, listJobs, runBatch, enqueueSingle, getJob } from "../api";
 
 const JOB_POLL_MS = 10_000;
@@ -58,6 +59,8 @@ function estimateBatchSeconds(n) {
 
 export default function BatchRunnerPage() {
   const { t } = useLang();
+  const { currentProject } = useProject();
+  const projectId = currentProject?.id;
 
   const [tests, setTests]           = useState([]);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
@@ -86,7 +89,9 @@ export default function BatchRunnerPage() {
     setLoadingTests(true);
     setTestsError("");
     try {
-      const data = await listTests({ limit: 500 });
+      const params = { limit: 500 };
+      if (projectId) params.project_id = projectId;
+      const data = await listTests(params);
       setTests(Array.isArray(data) ? data : []);
     } catch (e) {
       setTestsError(e?.message || t("batch.tests_load_error"));
@@ -94,20 +99,24 @@ export default function BatchRunnerPage() {
     } finally {
       setLoadingTests(false);
     }
-  }, [t]);
+  }, [t, projectId]);
 
   const loadJobs = useCallback(async (silent = false) => {
     if (!silent) setLoadingJobs(true);
     setJobsError("");
     try {
-      const jl = await listJobs(20);
+      const jl = await listJobs(20, projectId);
       setJobs(Array.isArray(jl) ? jl : []);
     } catch (e) {
       setJobsError(e?.message || t("batch.jobs_load_error"));
     } finally {
       if (!silent) setLoadingJobs(false);
     }
-  }, [t]);
+  }, [t, projectId]);
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [projectId]);
 
   useEffect(() => {
     loadTests();
@@ -259,7 +268,13 @@ export default function BatchRunnerPage() {
       <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "flex-start" }}>
         {/* ── Test selector ───────────────────────────────────────────── */}
         <div className="card" style={{ flex: "2 1 420px", minWidth: 280 }}>
-          <div className="section-title" style={{ marginBottom: 12 }}>{t("batch.section_tests")}</div>
+          <div className="section-title" style={{ marginBottom: 8 }}>{t("batch.section_tests")}</div>
+          {currentProject && (
+            <div style={{ fontSize: 12, color: "var(--text-2)", marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+              <span aria-hidden style={{ width: 8, height: 8, borderRadius: "50%", background: currentProject.color || "var(--accent)" }} />
+              {t("batch.active_project", { name: currentProject.name })}
+            </div>
+          )}
 
           {loadingTests && (
             <div style={{ padding: 16, color: "var(--text-3)" }}>…</div>
@@ -393,7 +408,12 @@ export default function BatchRunnerPage() {
 
       {/* ── Recent jobs ─────────────────────────────────────────────── */}
       <div ref={jobsSectionRef} className="card" style={{ marginTop: 20 }}>
-        <div className="section-title" style={{ marginBottom: 12 }}>{t("batch.section_jobs")}</div>
+        <div className="section-title" style={{ marginBottom: 8 }}>{t("batch.section_jobs")}</div>
+        {currentProject && (
+          <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 10 }}>
+            {t("batch.jobs_filtered_hint")}
+          </div>
+        )}
 
         {jobsError && (
           <div className="alert alert-error" style={{ marginBottom: 12, fontSize: 12 }}>{jobsError}</div>

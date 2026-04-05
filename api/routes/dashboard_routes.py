@@ -13,7 +13,7 @@ GET /dashboard/job-status-breakdown — job counts by status
 from __future__ import annotations
 
 import logging
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -34,7 +34,7 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
 @router.get("/summary", response_model=DashboardSummary)
-def get_summary():
+def get_summary(project_id: Optional[str] = Query(None, description="Scope metrics to a catalog project")):
     """
     Return platform-wide QA metrics in a single compact response.
 
@@ -42,38 +42,44 @@ def get_summary():
     pass_rate is a percentage (0–100), rounded to 2 decimal places.
     """
     try:
-        return dashboard_service.get_summary()
+        return dashboard_service.get_summary(project_id=project_id)
     except Exception as e:
         logger.exception("dashboard: get_summary failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/recent-runs", response_model=List[CanonicalRun])
-def get_recent_runs(limit: int = Query(20, ge=1, le=500)):
+def get_recent_runs(
+    limit: int = Query(20, ge=1, le=500),
+    project_id: Optional[str] = Query(None),
+):
     """Return the most recent test run records as CanonicalRun, newest first.
 
     Source: run_history_service → SQLite (official persistent store).
     Includes both catalog runs and bridged chat/execute runs.
     """
     try:
-        return run_history_service.list_runs(limit=limit)
+        return run_history_service.list_runs(limit=limit, project_id=project_id)
     except Exception as e:
         logger.exception("dashboard: get_recent_runs failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/recent-jobs", response_model=List[OrchestratorJob])
-def get_recent_jobs(limit: int = Query(20, ge=1, le=500)):
+def get_recent_jobs(
+    limit: int = Query(20, ge=1, le=500),
+    project_id: Optional[str] = Query(None),
+):
     """Return the most recent orchestrator job records, newest first."""
     try:
-        return dashboard_service.get_recent_jobs(limit=limit)
+        return dashboard_service.get_recent_jobs(limit=limit, project_id=project_id)
     except Exception as e:
         logger.exception("dashboard: get_recent_jobs failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/by-module", response_model=List[DashboardModuleMetrics])
-def get_by_module():
+def get_by_module(project_id: Optional[str] = Query(None)):
     """
     Return run metrics aggregated by test-case module.
 
@@ -81,27 +87,27 @@ def get_by_module():
     Results are sorted alphabetically by module name.
     """
     try:
-        return dashboard_service.get_by_module()
+        return dashboard_service.get_by_module(project_id=project_id)
     except Exception as e:
         logger.exception("dashboard: get_by_module failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/run-status-breakdown", response_model=RunStatusBreakdown)
-def get_run_status_breakdown():
+def get_run_status_breakdown(project_id: Optional[str] = Query(None)):
     """Return total run counts grouped by outcome status (pass / fail / error)."""
     try:
-        return dashboard_service.get_run_status_breakdown()
+        return dashboard_service.get_run_status_breakdown(project_id=project_id)
     except Exception as e:
         logger.exception("dashboard: get_run_status_breakdown failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/job-status-breakdown", response_model=JobStatusBreakdown)
-def get_job_status_breakdown():
+def get_job_status_breakdown(project_id: Optional[str] = Query(None)):
     """Return total orchestrator job counts grouped by status."""
     try:
-        return dashboard_service.get_job_status_breakdown()
+        return dashboard_service.get_job_status_breakdown(project_id=project_id)
     except Exception as e:
         logger.exception("dashboard: get_job_status_breakdown failed")
         raise HTTPException(status_code=500, detail=str(e))

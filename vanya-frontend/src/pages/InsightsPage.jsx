@@ -14,6 +14,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/LangContext";
+import { useProject } from "../context/ProjectContext.jsx";
 import FailureIntelligencePage from "./FailureIntelligencePage";
 import CoveragePage            from "./CoveragePage";
 import RiskSelectionPage       from "./RiskSelectionPage";
@@ -27,6 +28,7 @@ const TABS = [
 
 export default function InsightsPage() {
   const { t } = useLang();
+  const { currentProject } = useProject();
   const [tab, setTab] = useState(0);
 
   return (
@@ -39,6 +41,12 @@ export default function InsightsPage() {
         <p style={{ fontSize: 13, color: "var(--text-3)", margin: "4px 0 16px" }}>
           {t("insights.subtitle")}
         </p>
+        {currentProject && (
+          <div style={{ fontSize: 12, color: "var(--text-2)", margin: "-8px 0 12px", display: "flex", alignItems: "center", gap: 8 }}>
+            <span aria-hidden style={{ width: 8, height: 8, borderRadius: "50%", background: currentProject.color || "var(--accent)" }} />
+            <span>{t("insights.page_scope", { name: currentProject.name })}</span>
+          </div>
+        )}
 
         <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
           {TABS.map((tb, i) => (

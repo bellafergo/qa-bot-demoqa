@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import List, Optional
+from typing import List, Optional, Set
 
 from sqlalchemy import Column, Integer, String, Text
 
@@ -155,26 +155,77 @@ class OrchestratorJobRepository:
             row = s.query(OrchestratorJobRow).filter_by(job_id=job_id).first()
             return _row_to_model(row) if row else None
 
-    def list_jobs(self, limit: int = 100):
+    def list_jobs(self, limit: int = 100, project_id: Optional[str] = None):
+        """
+        Recent jobs, newest first. When project_id is set, keep jobs whose
+        test_case_ids overlap the catalog tests in that project (scans recent rows).
+        """
+        fetch = limit
+        if project_id and str(project_id).strip():
+            fetch = min(2000, max(limit * 25, limit))
+
         with get_session() as s:
             rows = (
                 s.query(OrchestratorJobRow)
                 .order_by(OrchestratorJobRow.created_at.desc())
-                .limit(limit)
+                .limit(fetch)
                 .all()
             )
-        return [_row_to_model(r) for r in rows]
+        models = [_row_to_model(r) for r in rows]
+        pid = (project_id or "").strip()
+        if not pid:
+            return models[:limit]
 
-    def count_by_status(self) -> dict:
-        """Return {status: count} for all orchestrator jobs."""
+        from services.db.catalog_repository import catalog_repo
+
+        allowed: Set[str] = set(catalog_repo.list_test_case_ids_for_project(pid))
+        if not allowed:
+            return []
+
+        out: List = []
+        for job in models:
+            ids = job.test_case_ids or []
+            if any(tcid in allowed for tcid in ids):
+                out.append(job)
+            if len(out) >= limit:
+                break
+        return out
+
+    def count_by_status(self, project_id: Optional[str] = None) -> dict:
+        """Job counts by status; optional scope to jobs touching a catalog project."""
         from sqlalchemy import func
-        with get_session() as s:
-            rows = (
-                s.query(OrchestratorJobRow.status, func.count(OrchestratorJobRow.job_id))
-                .group_by(OrchestratorJobRow.status)
-                .all()
-            )
-        return {status: count for status, count in rows}
+
+        if not (project_id and str(project_id).strip()):
+            with get_session() as s:
+                rows = (
+                    s.query(OrchestratorJobRow.status, func.count(OrchestratorJobRow.job_id))
+                    .group_by(OrchestratorJobRow.status)
+                    .all()
+                )
+            return {status: count for status, count in rows}
+
+        jobs = self.list_jobs(limit=800, project_id=project_id)
+        acc: dict = {}
+        for j in jobs:
+            acc[j.status] = acc.get(j.status, 0) + 1
+        return acc
+
+    def get_last_created_at(self, project_id: Optional[str] = None) -> Optional[str]:
+        from sqlalchemy import func
+
+        if not (project_id and str(project_id).strip()):
+            with get_session() as s:
+                return s.query(func.max(OrchestratorJobRow.created_at)).scalar()
+
+        jobs = self.list_jobs(limit=500, project_id=project_id)
+        if not jobs:
+            return None
+        best = None
+        for j in jobs:
+            ca = j.created_at.isoformat() if j.created_at else None
+            if ca and (best is None or ca > best):
+                best = ca
+        return best
 
     def list_job_ids_by_parent_job(self, parent_job_id: str) -> List[str]:
         """Return job_ids of jobs that were created as retries of the given parent."""
@@ -186,13 +237,6 @@ class OrchestratorJobRepository:
                 .all()
             )
         return [r[0] for r in rows]
-
-    def get_last_created_at(self) -> Optional[str]:
-        """Return the most recent created_at ISO string, or None."""
-        from sqlalchemy import func
-        with get_session() as s:
-            result = s.query(func.max(OrchestratorJobRow.created_at)).scalar()
-        return result
 
     def clear_all(self) -> None:
         """Wipe all rows — used in tests only."""

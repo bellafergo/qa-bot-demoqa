@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import List, Optional
+from typing import Collection, List, Optional
 
 from sqlalchemy import Column, Integer, String, Text
 
@@ -103,8 +103,17 @@ class TestRunRepository:
         self,
         *,
         test_case_id: Optional[str] = None,
+        project_id: Optional[str] = None,
         limit: int = 100,
     ):
+        allowed: Optional[List[str]] = None
+        if project_id:
+            from services.db.catalog_repository import catalog_repo
+
+            allowed = catalog_repo.list_test_case_ids_for_project(project_id)
+            if not allowed:
+                return []
+
         with get_session() as s:
             q = s.query(TestRunRow)
             # Async chat/execute runs are stored with test_case_id="_async".
@@ -115,48 +124,68 @@ class TestRunRepository:
                 q = q.filter(TestRunRow.test_case_id == test_case_id)
             else:
                 q = q.filter(TestRunRow.test_case_id != "_async")
+            if allowed is not None:
+                q = q.filter(TestRunRow.test_case_id.in_(allowed))
             q = q.order_by(TestRunRow.executed_at.desc()).limit(limit)
             rows = q.all()
         return [_row_to_model(r) for r in rows]
 
-    def count_by_status(self) -> dict:
-        """Return {status: count} for all test runs."""
+    def count_by_status(self, test_case_ids: Optional[Collection[str]] = None) -> dict:
+        """Return {status: count} for test runs; optional filter by catalog test ids."""
         from sqlalchemy import func
+
         with get_session() as s:
-            rows = (
+            q = (
                 s.query(TestRunRow.status, func.count(TestRunRow.run_id))
                 .filter(TestRunRow.test_case_id != "_async")
-                .group_by(TestRunRow.status)
-                .all()
             )
+            if test_case_ids is not None:
+                ids = list(test_case_ids)
+                if len(ids) == 0:
+                    return {}
+                q = q.filter(TestRunRow.test_case_id.in_(ids))
+            rows = q.group_by(TestRunRow.status).all()
         return {status: count for status, count in rows}
 
-    def get_last_executed_at(self) -> Optional[str]:
+    def get_last_executed_at(self, test_case_ids: Optional[Collection[str]] = None) -> Optional[str]:
         """Return the most recent executed_at ISO string, or None."""
         from sqlalchemy import func
+
         with get_session() as s:
-            # Exclude async/intermediate runs from "last executed" marker.
-            result = (
+            q = (
                 s.query(func.max(TestRunRow.executed_at))
                 .filter(TestRunRow.test_case_id != "_async")
-                .scalar()
             )
+            if test_case_ids is not None:
+                ids = list(test_case_ids)
+                if len(ids) == 0:
+                    return None
+                q = q.filter(TestRunRow.test_case_id.in_(ids))
+            result = q.scalar()
         return result
 
-    def count_runs_by_test_case(self) -> dict:
+    def count_runs_by_test_case(
+        self,
+        test_case_ids: Optional[Collection[str]] = None,
+    ) -> dict:
         """Return {test_case_id: {status: count}} aggregation."""
         from sqlalchemy import func
+
         with get_session() as s:
-            rows = (
+            q = (
                 s.query(
                     TestRunRow.test_case_id,
                     TestRunRow.status,
                     func.count(TestRunRow.run_id),
                 )
                 .filter(TestRunRow.test_case_id != "_async")
-                .group_by(TestRunRow.test_case_id, TestRunRow.status)
-                .all()
             )
+            if test_case_ids is not None:
+                ids = list(test_case_ids)
+                if len(ids) == 0:
+                    return {}
+                q = q.filter(TestRunRow.test_case_id.in_(ids))
+            rows = q.group_by(TestRunRow.test_case_id, TestRunRow.status).all()
         result: dict = {}
         for tc_id, status, count in rows:
             result.setdefault(tc_id, {})[status] = count

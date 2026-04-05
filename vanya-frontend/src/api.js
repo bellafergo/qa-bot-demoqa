@@ -102,10 +102,39 @@ export const chatRun = (prompt, thread_id, extra = {}) =>
   apiPost("/chat_run", { prompt, thread_id, headless: true, ...extra });
 
 // ========= Dashboard =========
-export const getDashboardSummary   = ()            => apiGet("/dashboard/summary");
-export const getDashboardRecentRuns = (limit = 20) => apiGet(`/dashboard/recent-runs?limit=${limit}`);
-export const getDashboardRecentJobs = (limit = 20) => apiGet(`/dashboard/recent-jobs?limit=${limit}`);
-export const getDashboardByModule  = ()            => apiGet("/dashboard/by-module");
+export function getDashboardSummary(params = {}) {
+  const q = new URLSearchParams();
+  if (params.project_id != null && String(params.project_id).trim()) {
+    q.set("project_id", String(params.project_id).trim());
+  }
+  const qs = q.toString();
+  return apiGet(`/dashboard/summary${qs ? `?${qs}` : ""}`);
+}
+
+export function getDashboardRecentRuns(limit = 20, project_id) {
+  const q = new URLSearchParams({ limit: String(limit) });
+  if (project_id != null && String(project_id).trim()) {
+    q.set("project_id", String(project_id).trim());
+  }
+  return apiGet(`/dashboard/recent-runs?${q}`);
+}
+
+export function getDashboardRecentJobs(limit = 20, project_id) {
+  const q = new URLSearchParams({ limit: String(limit) });
+  if (project_id != null && String(project_id).trim()) {
+    q.set("project_id", String(project_id).trim());
+  }
+  return apiGet(`/dashboard/recent-jobs?${q}`);
+}
+
+export function getDashboardByModule(project_id) {
+  const q = new URLSearchParams();
+  if (project_id != null && String(project_id).trim()) {
+    q.set("project_id", String(project_id).trim());
+  }
+  const qs = q.toString();
+  return apiGet(`/dashboard/by-module${qs ? `?${qs}` : ""}`);
+}
 
 // ========= Test Catalog =========
 export function listTests(params = {}) {
@@ -117,6 +146,9 @@ export function listTests(params = {}) {
   if (params.test_type) q.set("test_type", params.test_type);
   if (params.search)   q.set("search",   params.search);
   if (params.limit)    q.set("limit",    params.limit);
+  if (params.project_id != null && String(params.project_id).trim()) {
+    q.set("project_id", String(params.project_id).trim());
+  }
   const qs = q.toString();
   return apiGet(`/tests${qs ? "?" + qs : ""}`);
 }
@@ -135,6 +167,9 @@ export function listTestRuns(params = {}) {
   const q = new URLSearchParams();
   if (params.test_case_id) q.set("test_case_id", params.test_case_id);
   if (params.limit)        q.set("limit",        params.limit);
+  if (params.project_id != null && String(params.project_id).trim()) {
+    q.set("project_id", String(params.project_id).trim());
+  }
   const qs = q.toString();
   return apiGet(`/test-runs${qs ? "?" + qs : ""}`);
 }
@@ -150,7 +185,13 @@ export function listEvidences(params = {}) {
 }
 
 // ========= Orchestrator / Execution =========
-export const listJobs        = (limit = 100) => apiGet(`/orchestrator/jobs?limit=${limit}`);
+export function listJobs(limit = 100, project_id) {
+  const q = new URLSearchParams({ limit: String(limit) });
+  if (project_id != null && String(project_id).trim()) {
+    q.set("project_id", String(project_id).trim());
+  }
+  return apiGet(`/orchestrator/jobs?${q}`);
+}
 export const getJob          = (id)          => apiGet(`/orchestrator/jobs/${id}`);
 export const enqueueSingle   = (body)        => apiPost("/orchestrator/jobs/single", body);
 export const enqueueSuite    = (body)        => apiPost("/orchestrator/jobs/suite", body);
@@ -201,7 +242,14 @@ export const approveApiTests  = (body) => apiPost("/api-testing/approve",       
 export const runApiTests      = (body) => apiPost("/api-testing/run",            body);
 
 // ========= Run Analytics =========
-export const getRunsAnalytics = () => apiGet("/analytics/runs/dashboard");
+export function getRunsAnalytics(project_id) {
+  const q = new URLSearchParams();
+  if (project_id != null && String(project_id).trim()) {
+    q.set("project_id", String(project_id).trim());
+  }
+  const qs = q.toString();
+  return apiGet(`/analytics/runs/dashboard${qs ? `?${qs}` : ""}`);
+}
 
 // ========= Coverage =========
 export const getCoverageSummary    = () => apiGet("/coverage/summary");
@@ -209,10 +257,44 @@ export const generateCoverageTests = (module) => apiPost("/coverage/generate-tes
 export const saveCoverageDrafts    = (module, suggestions) => apiPost("/coverage/save-drafts", { module, suggestions });
 
 // ========= Failure Intelligence =========
-export const getFailureIntel = () => apiGet("/failure-intelligence/summary");
-export const getFlakyTests   = () => apiGet("/failure-intelligence/flaky-tests");
-export const getRegressions  = () => apiGet("/failure-intelligence/regressions");
-export const getClusters     = () => apiGet("/failure-intelligence/clusters");
+export function getFailureIntel(project_id) {
+  const q = new URLSearchParams();
+  if (project_id != null && String(project_id).trim()) {
+    q.set("project_id", String(project_id).trim());
+  }
+  const qs = q.toString();
+  return apiGet(`/failure-intelligence/summary${qs ? `?${qs}` : ""}`);
+}
+
+export function getFlakyTests(project_id) {
+  const q = new URLSearchParams();
+  if (project_id != null && String(project_id).trim()) {
+    q.set("project_id", String(project_id).trim());
+  }
+  const qs = q.toString();
+  return apiGet(`/failure-intelligence/flaky-tests${qs ? `?${qs}` : ""}`);
+}
+
+export function getRegressions(project_id) {
+  const q = new URLSearchParams();
+  if (project_id != null && String(project_id).trim()) {
+    q.set("project_id", String(project_id).trim());
+  }
+  const qs = q.toString();
+  return apiGet(`/failure-intelligence/regressions${qs ? `?${qs}` : ""}`);
+}
+
+export function getClusters(params = {}) {
+  const q = new URLSearchParams();
+  if (params.limit != null) q.set("limit", String(params.limit));
+  if (params.module) q.set("module", params.module);
+  if (params.root_cause_category) q.set("root_cause_category", params.root_cause_category);
+  if (params.project_id != null && String(params.project_id).trim()) {
+    q.set("project_id", String(params.project_id).trim());
+  }
+  const qs = q.toString();
+  return apiGet(`/failure-intelligence/clusters${qs ? `?${qs}` : ""}`);
+}
 export const getRunClusters  = (limit = 50) => apiGet(`/failure-intelligence/run-clusters?limit=${limit}`);
 
 // ========= Risk-Based Test Selection =========

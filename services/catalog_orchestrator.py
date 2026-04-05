@@ -148,14 +148,14 @@ def _get_job(job_id: str) -> Optional[OrchestratorJob]:
         return None
 
 
-def _list_jobs(limit: int = 100) -> List[OrchestratorJob]:
+def _list_jobs(limit: int = 100, project_id: Optional[str] = None) -> List[OrchestratorJob]:
     """
     Return jobs from DB (full persistent history).
     For active jobs not yet flushed to DB, in-memory state is fresher,
     so merge: DB results are overridden by in-memory version where present.
     """
     try:
-        db_jobs = orch_job_repo.list_jobs(limit=limit)
+        db_jobs = orch_job_repo.list_jobs(limit=limit, project_id=project_id)
     except Exception:
         logger.exception("orchestrator: DB list_jobs failed, falling back to memory")
         with _job_lock:
@@ -925,8 +925,8 @@ class CatalogOrchestratorService:
     def get_job(self, job_id: str) -> Optional[OrchestratorJob]:
         return _get_job(job_id)
 
-    def list_jobs(self, limit: int = 100) -> List[OrchestratorJob]:
-        return _list_jobs(limit=limit)
+    def list_jobs(self, limit: int = 100, project_id: Optional[str] = None) -> List[OrchestratorJob]:
+        return _list_jobs(limit=limit, project_id=project_id)
 
 
 # Module-level singleton — routes import this

@@ -14,7 +14,7 @@ a Postgres/Supabase DSN without any changes here.
 from __future__ import annotations
 
 import logging
-from typing import List
+from typing import List, Optional, Set
 
 from models.dashboard_models import (
     DashboardSummary,
@@ -41,34 +41,54 @@ class DashboardService:
 
     # ── Summary ───────────────────────────────────────────────────────────────
 
-    def get_summary(self) -> DashboardSummary:
+    def get_summary(self, project_id: Optional[str] = None) -> DashboardSummary:
+        pid = (project_id or "").strip() or None
+
         # Test cases
-        tc_by_status = catalog_repo.count_by_status()
-        active   = tc_by_status.get("active",   0)
-        inactive = tc_by_status.get("inactive", 0)
-        total_tc = sum(tc_by_status.values())
+        if pid:
+            tc_by_status = catalog_repo.count_by_status_for_project(pid)
+            active   = tc_by_status.get("active",   0)
+            inactive = tc_by_status.get("inactive", 0)
+            total_tc = sum(tc_by_status.values())
+            tc_by_test_type = catalog_repo.count_by_test_type_for_project(pid)
+            total_ui_tests  = tc_by_test_type.get("ui",  0)
+            total_api_tests = tc_by_test_type.get("api", 0)
+            tc_ids: Set[str] = set(catalog_repo.list_test_case_ids_for_project(pid))
+            run_filter = tc_ids if tc_ids else set()
+            run_by_status = test_run_repo.count_by_status(
+                test_case_ids=run_filter if run_filter else [],
+            )
+        else:
+            tc_by_status = catalog_repo.count_by_status()
+            active   = tc_by_status.get("active",   0)
+            inactive = tc_by_status.get("inactive", 0)
+            total_tc = sum(tc_by_status.values())
+            tc_by_test_type = catalog_repo.count_by_test_type()
+            total_ui_tests  = tc_by_test_type.get("ui",  0)
+            total_api_tests = tc_by_test_type.get("api", 0)
+            run_by_status = test_run_repo.count_by_status()
+            tc_ids: Set[str] = set()
 
-        tc_by_test_type = catalog_repo.count_by_test_type()
-        total_ui_tests  = tc_by_test_type.get("ui",  0)
-        total_api_tests = tc_by_test_type.get("api", 0)
-
-        # Runs
-        run_by_status = test_run_repo.count_by_status()
         pass_runs  = run_by_status.get("pass",  0)
         fail_runs  = run_by_status.get("fail",  0)
         error_runs = run_by_status.get("error", 0)
         total_runs = sum(run_by_status.values())
-        last_run_at = test_run_repo.get_last_executed_at()
+        if pid and not tc_ids:
+            last_run_at = None
+        elif pid:
+            last_run_at = test_run_repo.get_last_executed_at(test_case_ids=tc_ids)
+        else:
+            last_run_at = test_run_repo.get_last_executed_at()
 
         # Jobs
-        job_by_status = orch_job_repo.count_by_status()
+        job_by_status = orch_job_repo.count_by_status(project_id=pid)
         queued    = job_by_status.get("queued",    0)
         running   = job_by_status.get("running",   0)
         completed = job_by_status.get("completed", 0)
         partial   = job_by_status.get("partial",   0)
         failed    = job_by_status.get("failed",    0)
         total_jobs = sum(job_by_status.values())
-        last_job_at = orch_job_repo.get_last_created_at()
+        last_job_at = orch_job_repo.get_last_created_at(project_id=pid)
 
         # Execution scheduler live stats
         exec_active_workers = 0
@@ -91,7 +111,7 @@ class DashboardService:
         fi_cluster_count    = 0
         try:
             from services.failure_intelligence_service import failure_intelligence_service
-            fi_summary = failure_intelligence_service.get_summary()
+            fi_summary = failure_intelligence_service.get_summary(project_id=pid)
             fi_flaky_count      = fi_summary.flaky_tests_count
             fi_regression_count = fi_summary.recurrent_regressions_count
             fi_cluster_count    = fi_summary.total_clusters
@@ -127,15 +147,17 @@ class DashboardService:
 
     # ── Recent records ────────────────────────────────────────────────────────
 
-    def get_recent_runs(self, limit: int = 20) -> List[TestRun]:
-        return test_run_repo.list_runs(limit=limit)
+    def get_recent_runs(self, limit: int = 20, project_id: Optional[str] = None) -> List[TestRun]:
+        pid = (project_id or "").strip() or None
+        return test_run_repo.list_runs(limit=limit, project_id=pid)
 
-    def get_recent_jobs(self, limit: int = 20) -> List[OrchestratorJob]:
-        return orch_job_repo.list_jobs(limit=limit)
+    def get_recent_jobs(self, limit: int = 20, project_id: Optional[str] = None) -> List[OrchestratorJob]:
+        pid = (project_id or "").strip() or None
+        return orch_job_repo.list_jobs(limit=limit, project_id=pid)
 
     # ── By-module breakdown ───────────────────────────────────────────────────
 
-    def get_by_module(self) -> List[DashboardModuleMetrics]:
+    def get_by_module(self, project_id: Optional[str] = None) -> List[DashboardModuleMetrics]:
         """
         Aggregate test-case count and run metrics per module.
 
@@ -145,9 +167,18 @@ class DashboardService:
           3. runs_by_tc     = {test_case_id: {status: n}} (run DB)
           4. For each module, sum run stats across its test cases.
         """
-        tc_by_module = catalog_repo.count_test_cases_by_module()   # {module: count}
-        tc_to_module = {tc_id: mod for tc_id, mod in catalog_repo.all_modules()}
-        runs_by_tc   = test_run_repo.count_runs_by_test_case()     # {tc_id: {status: n}}
+        pid = (project_id or "").strip() or None
+        if pid:
+            tc_by_module = catalog_repo.count_test_cases_by_module_for_project(pid)
+            tc_to_module = {tc_id: mod for tc_id, mod in catalog_repo.all_modules_for_project(pid)}
+            allowed = set(tc_to_module.keys())
+            runs_by_tc = test_run_repo.count_runs_by_test_case(
+                test_case_ids=allowed if allowed else [],
+            )
+        else:
+            tc_by_module = catalog_repo.count_test_cases_by_module()   # {module: count}
+            tc_to_module = {tc_id: mod for tc_id, mod in catalog_repo.all_modules()}
+            runs_by_tc   = test_run_repo.count_runs_by_test_case()     # {tc_id: {status: n}}
 
         # Aggregate run stats per module
         module_runs: dict = {}  # {module: {status: count}}
@@ -180,16 +211,24 @@ class DashboardService:
 
     # ── Status breakdowns ─────────────────────────────────────────────────────
 
-    def get_run_status_breakdown(self) -> RunStatusBreakdown:
-        by_status = test_run_repo.count_by_status()
+    def get_run_status_breakdown(self, project_id: Optional[str] = None) -> RunStatusBreakdown:
+        pid = (project_id or "").strip() or None
+        if pid:
+            tc_ids = set(catalog_repo.list_test_case_ids_for_project(pid))
+            by_status = test_run_repo.count_by_status(
+                test_case_ids=tc_ids if tc_ids else [],
+            )
+        else:
+            by_status = test_run_repo.count_by_status()
         return RunStatusBreakdown(
             pass_count  = by_status.get("pass",  0),
             fail_count  = by_status.get("fail",  0),
             error_count = by_status.get("error", 0),
         )
 
-    def get_job_status_breakdown(self) -> JobStatusBreakdown:
-        by_status = orch_job_repo.count_by_status()
+    def get_job_status_breakdown(self, project_id: Optional[str] = None) -> JobStatusBreakdown:
+        pid = (project_id or "").strip() or None
+        by_status = orch_job_repo.count_by_status(project_id=pid)
         return JobStatusBreakdown(
             queued    = by_status.get("queued",    0),
             running   = by_status.get("running",   0),

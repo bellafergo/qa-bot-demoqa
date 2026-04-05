@@ -14,6 +14,7 @@ import {
   getRunsAnalytics,
 } from "../api";
 import { useLang } from "../i18n/LangContext";
+import { useProject } from "../context/ProjectContext.jsx";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -529,6 +530,8 @@ function WidgetCard({ title, subtitle, children }) {
 
 export default function DashboardPage() {
   const { t } = useLang();
+  const { currentProject } = useProject();
+  const projectId = currentProject?.id;
 
   const [summary, setSummary]         = useState(null);
   const [recentRuns, setRecentRuns]   = useState([]);
@@ -541,10 +544,11 @@ export default function DashboardPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
+      const pid = projectId;
       const [s, runs, jobs] = await Promise.all([
-        getDashboardSummary().catch(() => null),
-        getDashboardRecentRuns(10).catch(() => []),
-        getDashboardRecentJobs(10).catch(() => []),
+        getDashboardSummary(pid ? { project_id: pid } : {}).catch(() => null),
+        getDashboardRecentRuns(10, pid).catch(() => []),
+        getDashboardRecentJobs(10, pid).catch(() => []),
       ]);
       setSummary(s);
       setRecentRuns(Array.isArray(runs) ? runs : []);
@@ -552,16 +556,18 @@ export default function DashboardPage() {
       setLastRefresh(new Date());
 
       // Non-critical — load separately so they don't block the main render
-      getFailureIntel().then(f => setFi(f)).catch(() => {});
-      getRunsAnalytics().then(a => setAnalytics(a)).catch(() => {});
+      getFailureIntel(pid).then(f => setFi(f)).catch(() => {});
+      getRunsAnalytics(pid).then(a => setAnalytics(a)).catch(() => {});
     } catch {
       // partial load is fine
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [projectId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const s        = summary || {};
   const passRate = s.pass_rate != null ? `${s.pass_rate.toFixed(1)}%` : "—";
@@ -599,7 +605,13 @@ export default function DashboardPage() {
             <p style={{ margin: "10px 0 18px", fontSize: 13, fontWeight: 400, color: "var(--text-3)", lineHeight: 1.55 }}>
               {t("dash.subtitle")}
             </p>
-            <div className="dash-hero-pill-row" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <div className="dash-hero-pill-row" style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+              {currentProject && (
+                <span className="badge badge-gray" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <span aria-hidden style={{ width: 8, height: 8, borderRadius: "50%", background: currentProject.color || "var(--accent)" }} />
+                  {t("dash.active_project", { name: currentProject.name })}
+                </span>
+              )}
               <span className="badge badge-green">● {t("common.live")}</span>
               <span className="badge badge-accent">{t("common.production")}</span>
               {lastRefresh && (

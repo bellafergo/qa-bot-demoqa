@@ -49,7 +49,7 @@ def _day_of(iso: Optional[str]) -> Optional[str]:
         return None
 
 
-def get_runs_dashboard() -> Dict[str, Any]:
+def get_runs_dashboard(project_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Return a dict with three keys:
       summary       — RunAnalyticsSummary-compatible dict
@@ -57,7 +57,8 @@ def get_runs_dashboard() -> Dict[str, Any]:
       top_failures  — list[TopFailingTest-compatible dict], up to 10 items
     """
     try:
-        runs = run_history_service.list_runs(limit=500)
+        pid = (project_id or "").strip() or None
+        runs = run_history_service.list_runs(limit=500, project_id=pid)
     except Exception:
         logger.exception("run_analytics: failed to fetch runs")
         runs = []

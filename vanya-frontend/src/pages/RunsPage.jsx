@@ -7,6 +7,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { listTestRuns, getTestRun, analyzeRCA, analyzeRisk, getRunClusters, enqueueSingle } from "../api";
 import { useLang } from "../i18n/LangContext";
+import { useProject } from "../context/ProjectContext.jsx";
 
 const API_BASE = (
   import.meta?.env?.VITE_API_BASE || "https://qa-bot-demoqa.onrender.com"
@@ -788,6 +789,7 @@ function EvidenceLookupTab() {
 
 function RunHistoryTab({ initialRunId }) {
   const { t } = useLang();
+  const { currentProject } = useProject();
   const navigate = useNavigate();
   const [runs, setRuns]             = useState([]);
   const [loading, setLoading]       = useState(true);
@@ -836,16 +838,21 @@ function RunHistoryTab({ initialRunId }) {
     setLoading(true);
     setError("");
     try {
-      const data = await listTestRuns({ limit: 100 });
+      const opts = { limit: 100 };
+      if (currentProject?.id) opts.project_id = currentProject.id;
+      const data = await listTestRuns(opts);
       setRuns(Array.isArray(data) ? data : (data?.runs ?? []));
     } catch (e) {
       setError(e?.message || t("runs.history.error"));
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [t, currentProject?.id]);
 
-  useEffect(() => { load(); loadClusters(); }, [load, loadClusters]);
+  useEffect(() => {
+    load();
+    loadClusters();
+  }, [load, loadClusters]);
 
   // Auto-open a specific run when navigated from Execution Center
   useEffect(() => {
@@ -935,11 +942,18 @@ function RunHistoryTab({ initialRunId }) {
       <div>
         {error && <div className="alert alert-error" style={{ marginBottom: 12 }}>{error}</div>}
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-          <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div className="section-title" style={{ margin: 0 }}>
-              {loading
-                ? t("runs.history.loading")
-                : `${filteredRuns.length} run${filteredRuns.length !== 1 ? "s" : ""}`}
+          <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <div className="section-title" style={{ margin: 0 }}>
+                {loading
+                  ? t("runs.history.loading")
+                  : `${filteredRuns.length} run${filteredRuns.length !== 1 ? "s" : ""}`}
+              </div>
+              {currentProject && (
+                <span className="badge badge-gray" style={{ fontSize: 11 }}>
+                  {t("runs.active_project", { name: currentProject.name })}
+                </span>
+              )}
             </div>
             <button className="btn btn-secondary btn-sm" onClick={load} disabled={loading}>{t("runs.history.refresh")}</button>
           </div>
@@ -1007,7 +1021,9 @@ function RunHistoryTab({ initialRunId }) {
             <div style={{ padding: "32px 24px", textAlign: "center" }}>
               <div style={{ fontSize: 28, marginBottom: 10 }}>◈</div>
               <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", marginBottom: 6 }}>{t("runs.empty.title")}</div>
-              <div style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.7, marginBottom: 16, maxWidth: 320, margin: "0 auto 16px" }}>{t("runs.empty.desc")}</div>
+              <div style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.7, marginBottom: 16, maxWidth: 320, margin: "0 auto 16px" }}>
+                {currentProject ? t("runs.empty.project_desc") : t("runs.empty.desc")}
+              </div>
               <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
                 <button className="btn btn-primary btn-sm" onClick={() => navigate("/catalog")}>{t("runs.empty.cta_catalog")}</button>
                 <button className="btn btn-secondary btn-sm" onClick={() => navigate("/generate")}>{t("runs.empty.cta_generate")}</button>
