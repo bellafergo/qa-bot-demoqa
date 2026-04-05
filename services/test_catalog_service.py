@@ -806,6 +806,12 @@ class TestCatalogService:
 
     def _save_run(self, run: TestRun) -> None:
         test_run_repo.create_run(run)
+        try:
+            from services.alerting import schedule_slack_alert_on_failed_run
+
+            schedule_slack_alert_on_failed_run(run)
+        except Exception:
+            pass
 
 
 # Module-level singleton — all routes import this instance

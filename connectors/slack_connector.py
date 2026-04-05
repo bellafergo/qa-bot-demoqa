@@ -131,6 +131,7 @@ class SlackConnector(BaseConnector):
         job_id: Optional[str] = None,
         run_id: Optional[str] = None,
         status: Optional[str] = None,
+        evidence_url: Optional[str] = None,
     ) -> Tuple[bool, str]:
         """
         Send an alert to Slack. Uses real Slack API when token is provided.
@@ -149,6 +150,7 @@ class SlackConnector(BaseConnector):
                 text=text,
                 status=status,
                 run_id=run_id,
+                evidence_url=evidence_url,
             )
             # Slack API expects JSON with channel, text; optional blocks
             body: Dict[str, Any] = {

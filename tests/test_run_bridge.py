@@ -390,7 +390,7 @@ class TestFailureResilience(unittest.TestCase):
 class TestRunStoreSaveRunIntegration(unittest.TestCase):
     """
     Verify that run_store.save_run() calls bridge_run_to_sqlite for final states
-    and skips it for queued/running states, without affecting the return value.
+    and bridge_async_run_to_sqlite for queued/running, without affecting the return value.
     """
 
     def _save(self, status: str, evidence_id: str = "ev-int-test"):
@@ -400,39 +400,42 @@ class TestRunStoreSaveRunIntegration(unittest.TestCase):
             "duration_ms": 100,
             "meta": {},
         }
-        with patch("services.run_store.bridge_run_to_sqlite") as mock_bridge:
+        with patch("services.run_store.bridge_run_to_sqlite") as mock_bridge, patch(
+            "services.run_store.bridge_async_run_to_sqlite"
+        ) as mock_async:
             # Also suppress Supabase
             with patch("services.run_store.persist_run_supabase", side_effect=Exception):
                 from services.run_store import save_run
                 result = save_run(payload)
-        return result, mock_bridge
+        return result, mock_bridge, mock_async
 
     def test_save_run_returns_evidence_id_for_final_state(self):
-        result, _ = self._save("completed")
+        result, _, _ = self._save("completed")
         self.assertEqual(result, "ev-int-test")
 
     def test_save_run_returns_evidence_id_for_queued(self):
-        result, _ = self._save("queued", evidence_id="ev-q")
+        result, _, _ = self._save("queued", evidence_id="ev-q")
         self.assertEqual(result, "ev-q")
 
     def test_bridge_called_for_completed(self):
-        _, mock_bridge = self._save("completed")
+        _, mock_bridge, mock_async = self._save("completed")
         mock_bridge.assert_called_once()
+        mock_async.assert_not_called()
 
     def test_bridge_called_for_failed(self):
-        _, mock_bridge = self._save("failed")
+        _, mock_bridge, mock_async = self._save("failed")
         mock_bridge.assert_called_once()
+        mock_async.assert_not_called()
 
     def test_bridge_called_for_error(self):
-        _, mock_bridge = self._save("error")
+        _, mock_bridge, mock_async = self._save("error")
         mock_bridge.assert_called_once()
+        mock_async.assert_not_called()
 
-    def test_bridge_still_called_for_queued(self):
-        # bridge_run_to_sqlite IS called by save_run; the filtering happens
-        # INSIDE bridge_run_to_sqlite (it returns False for intermediate states).
-        # save_run always calls the bridge — the bridge decides whether to persist.
-        _, mock_bridge = self._save("queued")
-        mock_bridge.assert_called_once()
+    def test_queued_uses_async_bridge(self):
+        _, mock_bridge, mock_async = self._save("queued")
+        mock_async.assert_called_once()
+        mock_bridge.assert_not_called()
 
     def test_bridge_failure_does_not_affect_save_run_result(self):
         payload = {"evidence_id": "ev-safe", "status": "completed", "meta": {}}

@@ -76,6 +76,23 @@ function fmtTs(ts) {
   try { return new Date(ts).toLocaleString(); } catch { return ts; }
 }
 
+/** Relative time for last_check_at (minimal, lang-aware). */
+function fmtRelative(ts, lang) {
+  if (!ts) return "—";
+  const d = new Date(ts);
+  const ms = d.getTime();
+  if (Number.isNaN(ms)) return fmtTs(ts);
+  const sec = Math.floor((Date.now() - ms) / 1000);
+  if (sec < 0) return fmtTs(ts);
+  const es = lang === "es";
+  if (sec < 60) return es ? `hace ${sec}s` : `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return es ? `hace ${min} min` : `${min} min ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 48) return es ? `hace ${hr} h` : `${hr}h ago`;
+  return fmtTs(ts);
+}
+
 // ── Config form ───────────────────────────────────────────────────────────────
 
 const CONFIG_FIELDS = {
@@ -90,9 +107,9 @@ const CONFIG_FIELDS = {
     { key: "token",      label: "Access Token", placeholder: "ghp_…",                       type: "password", secret: true },
   ],
   slack: [
-    { key: "workspace",  label: "Workspace",   placeholder: "myworkspace",                  type: "text" },
-    { key: "channel",    label: "Channel",      placeholder: "#qa-alerts",                  type: "text" },
-    { key: "token",      label: "Bot Token",    placeholder: "xoxb-…",                      type: "password", secret: true },
+    { key: "token",      label: "Bot Token",           placeholder: "xoxb-…",   type: "password", secret: true },
+    { key: "channel",    label: "Default channel",      placeholder: "#qa-alerts", type: "text" },
+    { key: "workspace",  label: "Workspace (optional)", placeholder: "myworkspace", type: "text" },
   ],
   qmetry: [
     { key: "base_url",   label: "Base URL",     placeholder: "https://jira.example.com",    type: "text" },
@@ -115,17 +132,39 @@ function ConfigForm({ connectorId, currentConfig, onSaved }) {
 
   const handleChange = (key, val) => setValues(v => ({ ...v, [key]: val }));
 
+  const buildPayload = () => {
+    const payload = {};
+    fields.forEach(f => { if (values[f.key]) payload[f.key] = values[f.key]; });
+    if (connectorId === "slack") payload.auth_type = "token";
+    return payload;
+  };
+
   const handleSave = async () => {
     setSaving(true); setError(null); setOk(false);
     try {
-      const payload = {};
-      fields.forEach(f => { if (values[f.key]) payload[f.key] = values[f.key]; });
-      const cfg = await updateIntegrationConfig(connectorId, payload);
+      const cfg = await updateIntegrationConfig(connectorId, buildPayload());
       setOk(true);
       const cleared = { ...values };
       fields.filter(f => f.secret).forEach(f => { cleared[f.key] = ""; });
       setValues(cleared);
-      if (onSaved) onSaved(cfg);
+      if (onSaved) await Promise.resolve(onSaved(cfg));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveAndEnable = async () => {
+    setSaving(true); setError(null); setOk(false);
+    try {
+      const cfg = await updateIntegrationConfig(connectorId, buildPayload());
+      await enableIntegration(connectorId);
+      setOk(true);
+      const cleared = { ...values };
+      fields.filter(f => f.secret).forEach(f => { cleared[f.key] = ""; });
+      setValues(cleared);
+      if (onSaved) await Promise.resolve(onSaved(cfg));
     } catch (e) {
       setError(e.message);
     } finally {
@@ -140,6 +179,11 @@ function ConfigForm({ connectorId, currentConfig, onSaved }) {
       <div style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-2)", marginBottom: 10 }}>
         {t("integrations.config.title")}
       </div>
+      {connectorId === "slack" && (
+        <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 10, lineHeight: 1.45 }}>
+          {t("integrations.slack.hint_health")}
+        </div>
+      )}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {fields.map(f => (
           <div key={f.key}>
@@ -173,14 +217,24 @@ function ConfigForm({ connectorId, currentConfig, onSaved }) {
         <div style={{ marginTop: 8, fontSize: 12, color: "var(--green, #22c55e)" }}>{t("integrations.config.saved")}</div>
       )}
 
-      <button
-        className="btn btn-primary btn-sm"
-        style={{ marginTop: 10 }}
-        onClick={handleSave}
-        disabled={saving}
-      >
-        {saving ? t("integrations.config.saving") : t("integrations.config.save")}
-      </button>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={handleSave}
+          disabled={saving}
+        >
+          {saving ? t("integrations.config.saving") : t("integrations.config.save")}
+        </button>
+        {connectorId === "slack" && (
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={handleSaveAndEnable}
+            disabled={saving}
+          >
+            {saving ? t("integrations.config.saving") : t("integrations.config.save_enable")}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -188,7 +242,7 @@ function ConfigForm({ connectorId, currentConfig, onSaved }) {
 // ── Connector card ────────────────────────────────────────────────────────────
 
 function ConnectorCard({ summary, onAction }) {
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const [expanded,  setExpanded]  = useState(false);
   const [detail,    setDetail]    = useState(null);
   const [actions,   setActions]   = useState(null);
@@ -219,7 +273,7 @@ function ConnectorCard({ summary, onAction }) {
     try {
       const status = await runHealthCheck(summary.connector_id);
       setDetail(status);
-      if (onAction) onAction(summary.connector_id, "health", status);
+      if (onAction) await onAction(summary.connector_id, "health", status);
     } catch { /* handled by caller */ }
     finally { setChecking(false); }
   };
@@ -233,7 +287,7 @@ function ConnectorCard({ summary, onAction }) {
       } else {
         await enableIntegration(summary.connector_id);
       }
-      if (onAction) onAction(summary.connector_id, "toggle");
+      if (onAction) await onAction(summary.connector_id, "toggle");
     } catch { /* best-effort */ }
     finally { setToggling(false); }
   };
@@ -306,17 +360,27 @@ function ConnectorCard({ summary, onAction }) {
           {/* Health detail */}
           {detail && (
             <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 12, marginBottom: 8, color: "var(--text-2)" }}>
+                <span style={{ color: detail.health === "ok" ? "var(--green, #22c55e)" : "var(--red, #ef4444)", fontWeight: 600 }}>
+                  {detail.health === "ok" ? "✓ " : "✗ "}
+                  {detail.health === "ok" ? t("integrations.health.connected_ok") : t("integrations.health.connected_fail")}
+                </span>
+                {detail.last_check_message && (
+                  <span style={{ marginLeft: 8, fontFamily: "monospace", fontSize: 11, color: "var(--text-3)" }}>
+                    {detail.last_check_message}
+                  </span>
+                )}
+              </div>
               <div style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-2)", marginBottom: 6 }}>
                 {t("integrations.card.last_check")}
               </div>
               <div style={{ fontSize: 12, color: "var(--text-2)" }}>
+                <span style={{ fontWeight: 500 }}>{t("integrations.card.last_check_relative")}:</span>{" "}
+                {fmtRelative(detail.last_check_at, lang)}
+              </div>
+              <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>
                 {fmtTs(detail.last_check_at)}
               </div>
-              {detail.last_check_message && (
-                <div style={{ fontSize: 12, marginTop: 4, padding: "6px 10px", background: "var(--surface-2, #f8fafc)", borderRadius: 6, fontFamily: "monospace", color: "var(--text-1)" }}>
-                  {detail.last_check_message}
-                </div>
-              )}
             </div>
           )}
 
@@ -344,9 +408,13 @@ function ConnectorCard({ summary, onAction }) {
           <ConfigForm
             connectorId={summary.connector_id}
             currentConfig={config}
-            onSaved={(newCfg) => {
-              setConfig(newCfg);
-              if (onAction) onAction(summary.connector_id, "config", newCfg);
+            onSaved={async () => {
+              try {
+                const st = await getIntegration(summary.connector_id);
+                setDetail(st);
+                setConfig(st.config_summary || null);
+              } catch { /* best-effort */ }
+              if (onAction) await onAction(summary.connector_id, "config");
             }}
           />
         </div>
@@ -378,7 +446,7 @@ export default function IntegrationsPage() {
   useEffect(() => { load(); }, [load]);
 
   const handleAction = useCallback(async (connectorId, type) => {
-    if (type === "toggle") await load();
+    if (type === "toggle" || type === "health" || type === "config") await load();
   }, [load]);
 
   const enabledCount = connectors.filter(c => c.enabled).length;

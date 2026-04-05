@@ -7,6 +7,8 @@ PR-triggered) into the official SQLite store (test_run_repo / data/vanya.db).
 
 This module is called by run_store.save_run() for completed/failed payloads so
 that chat/execute runs appear in GET /test-runs alongside catalog runs.
+After a successful persist, services.alerting may schedule a Slack auto-alert
+for fail/error (same pattern as catalog runs via test_catalog_service._save_run).
 
 Design constraints
 ------------------
@@ -230,6 +232,12 @@ def bridge_run_to_sqlite(payload: Dict[str, Any]) -> bool:
             "run_bridge: persisted run %s → SQLite  source=chat status=%s",
             evidence_id, tr.status,
         )
+        try:
+            from services.alerting import schedule_slack_alert_on_failed_run
+
+            schedule_slack_alert_on_failed_run(tr)
+        except Exception:
+            pass
         return True
 
     except Exception as exc:
