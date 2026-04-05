@@ -46,6 +46,7 @@ from api.routes.github_routes import router as github_router
 from api.routes.analytics_routes import router as analytics_router
 from api.routes.planner_routes import router as planner_router
 from api.routes.evidence_routes import router as evidence_router
+from api.routes.project_routes import router as project_router
 
 logger = logging.getLogger("vanya")
 
@@ -386,6 +387,7 @@ app.include_router(chat_router, tags=["chat"])
 app.include_router(webhooks_router, tags=["webhooks"])  # /webhooks/github
 app.include_router(execute_router, tags=["execute"])
 app.include_router(documents_router, tags=["documents"])
+app.include_router(project_router)        # GET/POST/PATCH/DELETE /projects
 app.include_router(test_catalog_router)   # GET/POST /tests, POST /tests/{id}/run, POST /tests/run-suite
 app.include_router(test_runs_router)      # GET /test-runs, GET /test-runs/{run_id}
 app.include_router(orchestrator_router)   # POST /orchestrator/jobs/single|suite, GET /orchestrator/jobs

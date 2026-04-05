@@ -101,6 +101,7 @@ class TestCase(BaseModel):
     priority:     Literal["low", "medium", "high", "critical"]
     status:       Literal["active", "inactive"] = "active"
     test_type:    Literal["ui", "api", "desktop"] = "ui"   # runner path: ui → Playwright, api → API runner, desktop → Desktop runner
+    project_id:   str = "default"   # catalog scope; matches projects.id slug when defined
     version:      int = 1
     tags:         List[str] = Field(default_factory=list)
     base_url:     Optional[str] = None    # override execution base URL
@@ -129,6 +130,7 @@ class TestCaseCreate(BaseModel):
     version:      int = 1
     tags:         List[str] = Field(default_factory=list)
     base_url:     Optional[str] = None
+    project_id:   str = "default"
     steps:        List[Dict[str, Any]]
     assertions:   List[Dict[str, Any]] = Field(default_factory=list)
 
@@ -145,6 +147,7 @@ class TestCaseSummary(BaseModel):
     priority:     str
     status:       str
     test_type:    str = "ui"
+    project_id:   str = "default"
     version:      int
     tags:         List[str]
     steps_count:  int

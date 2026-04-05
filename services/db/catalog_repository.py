@@ -29,6 +29,7 @@ class TestCaseRow(Base):
     priority      = Column(String)
     status        = Column(String,  default="active", index=True)
     test_type     = Column(String,  default="ui")      # "ui" | "api"
+    project_id    = Column(String,  default="default", index=True)
     version       = Column(Integer, default=1)
     tags_json     = Column(Text,    default="[]")
     base_url      = Column(String)
@@ -57,6 +58,7 @@ def _row_to_model(row: TestCaseRow):
         priority     = row.priority,
         status       = row.status,
         test_type    = row.test_type or "ui",
+        project_id   = getattr(row, "project_id", None) or "default",
         version      = row.version or 1,
         tags         = tags,
         base_url     = row.base_url,
@@ -81,6 +83,7 @@ def _model_to_row(tc) -> Dict[str, Any]:
         priority        = tc.priority,
         status          = tc.status,
         test_type       = getattr(tc, "test_type", "ui") or "ui",
+        project_id      = getattr(tc, "project_id", None) or "default",
         version         = tc.version,
         tags_json       = json.dumps(tc.tags),
         base_url        = tc.base_url,
@@ -116,10 +119,13 @@ class CatalogRepository:
         test_type: Optional[str] = None,
         search: Optional[str] = None,
         tags: Optional[List[str]] = None,
+        project_id: Optional[str] = None,
         limit: int = 200,
     ):
         with get_session() as s:
             q = s.query(TestCaseRow)
+            if project_id is not None and str(project_id).strip():
+                q = q.filter(TestCaseRow.project_id == str(project_id).strip())
             if module:
                 q = q.filter(TestCaseRow.module.ilike(f"%{module}%"))
             if type_:
@@ -164,7 +170,7 @@ class CatalogRepository:
         Overwrite mutable fields of an existing test case row.
 
         *data* keys accepted: name, module, type, priority, status, test_type,
-        steps, assertions, tags, base_url, version.
+        project_id, steps, assertions, tags, base_url, version.
 
         Returns the updated TestCase, or None if not found.
         """
@@ -182,6 +188,8 @@ class CatalogRepository:
             if "priority"  in data and data["priority"]  is not None: row.priority  = data["priority"]
             if "status"    in data and data["status"]    is not None: row.status    = data["status"]
             if "test_type" in data and data["test_type"] is not None: row.test_type = data["test_type"]
+            if "project_id" in data and data["project_id"] is not None:
+                row.project_id = str(data["project_id"]).strip() or "default"
             if "base_url"  in data:                                   row.base_url  = data["base_url"]
             if "version"   in data and data["version"]   is not None: row.version   = data["version"]
             if "steps"      in data and data["steps"]      is not None:
@@ -220,6 +228,15 @@ class CatalogRepository:
         with get_session() as s:
             rows = s.query(TestCaseRow.test_case_id, TestCaseRow.module).all()
         return [(r[0], r[1] or "") for r in rows]
+
+    def count_tests_for_project(self, project_id: str) -> int:
+        pid = (project_id or "").strip() or "default"
+        with get_session() as s:
+            return (
+                s.query(TestCaseRow)
+                .filter(TestCaseRow.project_id == pid)
+                .count()
+            )
 
     def count_by_test_type(self) -> dict:
         """Return {test_type: count} — e.g. {"ui": 40, "api": 5}."""

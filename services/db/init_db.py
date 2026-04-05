@@ -23,6 +23,7 @@ def init_catalog_db() -> None:
     from services.db import orchestrator_job_repository  # noqa: F401 — registers OrchestratorJobRow
     from services.db import draft_repository             # noqa: F401 — registers DraftRow
     from services.db import test_version_repository      # noqa: F401 — registers TestVersionRow
+    from services.db import project_repository             # noqa: F401 — registers ProjectRow
 
     Base.metadata.create_all(bind=engine, checkfirst=True)
     logger.info("db: catalog tables initialized (SQLite)")
@@ -41,6 +42,23 @@ def init_catalog_db() -> None:
                 logger.info("db: migrated test_cases — added test_type column")
     except Exception:
         logger.exception("db: migration for test_type failed (non-fatal)")
+
+    # ── test_cases.project_id (multi-project catalog) ──────────────────────────
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(test_cases)"))
+            existing_cols = {row[1] for row in result.fetchall()}
+            if "project_id" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE test_cases ADD COLUMN project_id TEXT DEFAULT 'default'"
+                    )
+                )
+                conn.commit()
+                logger.info("db: migrated test_cases — added project_id column")
+    except Exception:
+        logger.exception("db: migration for project_id failed (non-fatal)")
 
     # ── orchestrator_jobs: parallel-execution block columns ───────────────────
     try:

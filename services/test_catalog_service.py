@@ -265,11 +265,13 @@ class TestCatalogService:
         test_type: Optional[str] = None,
         search: Optional[str] = None,
         tags: Optional[List[str]] = None,
+        project_id: Optional[str] = None,
         limit: int = 200,
     ) -> List[TestCase]:
         return catalog_repo.list_test_cases(
             module=module, type_=type_, priority=priority,
-            status=status, test_type=test_type, search=search, tags=tags, limit=limit,
+            status=status, test_type=test_type, search=search, tags=tags,
+            project_id=project_id, limit=limit,
         )
 
     def get_test_case(self, test_case_id: str) -> Optional[TestCase]:
@@ -298,6 +300,7 @@ class TestCatalogService:
             version      = payload.version,
             tags         = payload.tags,
             base_url     = payload.base_url,
+            project_id   = getattr(payload, "project_id", None) or "default",
             steps        = [TestStep(**s) for s in payload.steps],
             assertions   = [TestAssertion(**a) for a in payload.assertions],
         )
@@ -323,7 +326,7 @@ class TestCatalogService:
         """
         Update mutable fields of an existing test case and create a new version snapshot.
 
-        *data* keys: name, module, type, priority, status, test_type,
+        *data* keys: name, module, type, priority, status, test_type, project_id,
                      steps, assertions, tags, base_url.
 
         Returns the updated TestCase, or None if not found.

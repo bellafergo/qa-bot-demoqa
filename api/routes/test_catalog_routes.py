@@ -73,6 +73,7 @@ def list_test_cases(
     test_type: Optional[str] = Query(None),
     search:    Optional[str] = Query(None),
     tags:      Optional[List[str]] = Query(None),
+    project_id: Optional[str] = Query(None, description="When set, return only tests in this project"),
     limit:     int = Query(200, ge=1, le=1000),
 ):
     """
@@ -89,6 +90,7 @@ def list_test_cases(
         test_type=test_type or None,
         search=search or None,
         tags=tags,
+        project_id=project_id,
         limit=limit,
     )
     def _case_has_fragile_selectors(tc: TestCase) -> bool:
@@ -112,6 +114,7 @@ def list_test_cases(
             priority=c.priority,
             status=c.status,
             test_type=getattr(c, "test_type", "ui") or "ui",
+            project_id=getattr(c, "project_id", None) or "default",
             version=c.version,
             tags=c.tags,
             steps_count=len(c.steps),
