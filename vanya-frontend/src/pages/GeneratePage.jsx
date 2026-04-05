@@ -18,7 +18,6 @@ import {
   exploreApp,
   generateDraftsFromPages,
   approveDrafts,
-  batchSaveDrafts,
 } from "../api";
 import PlannerPage    from "./PlannerPage";
 import PRAnalysisPage from "./PRAnalysisPage";
@@ -98,146 +97,213 @@ const TABS = [
 
 // ── From URL Panel ────────────────────────────────────────────────────────────
 
+const REASON_TO_TYPE = {
+  form_detected: "functional",
+  required_field_detected: "negative",
+  search_button_detected: "functional",
+  links_detected: "smoke",
+};
+
+function tr(t, key, vars) {
+  let s = t(key);
+  Object.entries(vars || {}).forEach(([k, v]) => {
+    s = s.split(`{{${k}}}`).join(String(v));
+  });
+  return s;
+}
+
+function defaultModuleFromUrl(urlStr) {
+  try {
+    const seg = new URL(urlStr).pathname.split("/").filter(Boolean)[0];
+    return seg || "explorer";
+  } catch {
+    return "explorer";
+  }
+}
+
+function draftTypeLabel(reason) {
+  return REASON_TO_TYPE[reason] || "smoke";
+}
+
 function PriorityBadge({ p }) {
   if (p === "high" || p === "critical") return <span className="badge badge-red">{p}</span>;
   if (p === "medium")                   return <span className="badge badge-orange">{p}</span>;
   return <span className="badge badge-gray">{p || "low"}</span>;
 }
 
+function TypeBadge({ typeLabel }) {
+  return <span className="badge badge-blue">{typeLabel}</span>;
+}
+
+const EXPLORE_TIMEOUT_MS = 30_000;
+
 function FromUrlPanel() {
   const { t } = useLang();
   const navigate = useNavigate();
 
-  // Explore state
-  const [url, setUrl]           = useState("");
-  const [maxPages, setMax]      = useState(5);
-  const [exploring, setExpl]    = useState(false);
-  const [exploreErr, setExpErr] = useState("");
-  const [pages, setPages]       = useState([]);
+  const [url, setUrl] = useState("");
+  const [maxPagesStr, setMaxPagesStr] = useState("5");
+  /** @type {Array<{ key: string, sourceDraft: object, name: string, module: string }>} */
+  const [draftRows, setDraftRows] = useState([]);
+  const [selectedKeys, setSelectedKeys] = useState(() => new Set());
+  const [loadingPipeline, setLoadingPipeline] = useState(false);
+  const [pipelineHint, setPipelineHint] = useState("");
+  const [loadingApprove, setLoadingApprove] = useState(false);
+  const [error, setError] = useState("");
+  const [successResult, setSuccessResult] = useState(null);
+  const [expandedKey, setExpandedKey] = useState(null);
 
-  // Page selection
-  const [selPages, setSelPages] = useState(new Set());
+  function parseMaxPages() {
+    const raw = String(maxPagesStr).trim();
+    if (raw === "") return 5;
+    const n = parseInt(raw, 10);
+    if (!Number.isFinite(n)) return 5;
+    return Math.min(20, Math.max(1, n));
+  }
 
-  // Draft generation state
-  const [generating, setGen]   = useState(false);
-  const [genErr, setGenErr]     = useState("");
-  const [drafts, setDrafts]     = useState([]);
-  const [selDrafts, setSelD]    = useState(new Set());
-  const [expanded, setExpanded] = useState(null);
+  function discardAll() {
+    setDraftRows([]);
+    setSelectedKeys(new Set());
+    setError("");
+    setSuccessResult(null);
+    setPipelineHint("");
+    setExpandedKey(null);
+    setLoadingPipeline(false);
+    setLoadingApprove(false);
+  }
 
-  // Save / approve state
-  const [saving, setSaving]         = useState(false);
-  const [saveResult, setSaveResult] = useState(null);
-  const [approving, setApproving]   = useState(false);
-  const [approveResult, setApproveResult] = useState(null);
+  function toggleKey(key) {
+    setSelectedKeys(prev => {
+      const s = new Set(prev);
+      if (s.has(key)) s.delete(key);
+      else s.add(key);
+      return s;
+    });
+  }
 
-  const allPagesSelected = pages.length > 0 && pages.every(p => selPages.has(p.url));
-  const allDraftsSelected = drafts.length > 0 && selDrafts.size === drafts.length;
+  function updateRow(key, patch) {
+    setDraftRows(rows => rows.map(r => (r.key === key ? { ...r, ...patch } : r)));
+  }
+
+  const allSelected = draftRows.length > 0 && draftRows.every(r => selectedKeys.has(r.key));
 
   async function handleExplore() {
     const trimmed = url.trim();
-    if (!trimmed) return;
-    setExpl(true);
-    setExpErr("");
-    setPages([]);
-    setSelPages(new Set());
-    setDrafts([]);
-    setSelD(new Set());
-    setSaveResult(null);
-    setApproveResult(null);
-    try {
-      const res = await exploreApp(trimmed, maxPages);
-      const found = res?.pages || [];
-      setPages(found);
-      setSelPages(new Set(found.map(p => p.url)));
-    } catch (e) {
-      setExpErr(e?.message || t("gen.url.explore_error"));
-    } finally {
-      setExpl(false);
+    if (!trimmed) {
+      setError(t("gen.url.err_url_required"));
+      return;
     }
-  }
+    const maxPages = parseMaxPages();
 
-  async function handleGenerateDrafts() {
-    const chosen = pages.filter(p => selPages.has(p.url));
-    if (!chosen.length) return;
-    setGen(true);
-    setGenErr("");
-    setDrafts([]);
-    setSelD(new Set());
-    setSaveResult(null);
-    setApproveResult(null);
+    setDraftRows([]);
+    setSelectedKeys(new Set());
+    setError("");
+    setSuccessResult(null);
+    setExpandedKey(null);
+    setPipelineHint(tr(t, "gen.url.exploring_detail", { url: trimmed }));
+    setLoadingPipeline(true);
+
     try {
-      const res = await generateDraftsFromPages(chosen);
-      const generated = res?.drafts || [];
-      setDrafts(generated);
-      setSelD(new Set(generated.map(d => d.test_name)));
-    } catch (e) {
-      setGenErr(e?.message || t("gen.url.gen_error"));
-    } finally {
-      setGen(false);
-    }
-  }
+      const explorePromise = exploreApp(trimmed, maxPages);
+      const timeoutPromise = new Promise((_, rej) => {
+        setTimeout(() => rej(new Error("EXPLORE_TIMEOUT")), EXPLORE_TIMEOUT_MS);
+      });
+      let res;
+      try {
+        res = await Promise.race([explorePromise, timeoutPromise]);
+      } catch (e) {
+        if (e?.message === "EXPLORE_TIMEOUT") {
+          setError(t("gen.url.explore_failed_timeout"));
+        } else {
+          setError(e?.message || t("gen.url.explore_error"));
+        }
+        return;
+      }
 
-  function togglePage(pageUrl) {
-    setSelPages(prev => {
-      const s = new Set(prev);
-      s.has(pageUrl) ? s.delete(pageUrl) : s.add(pageUrl);
-      return s;
-    });
-  }
+      const found = Array.isArray(res?.pages) ? res.pages : [];
+      if (!found.length) {
+        setError(t("gen.url.explore_no_pages"));
+        return;
+      }
 
-  function toggleDraft(name) {
-    setSelD(prev => {
-      const s = new Set(prev);
-      s.has(name) ? s.delete(name) : s.add(name);
-      return s;
-    });
-  }
+      setPipelineHint(tr(t, "gen.url.pages_then_generate", { n: found.length }));
 
-  async function handleSaveDrafts() {
-    const toSave = drafts.filter(d => selDrafts.has(d.test_name));
-    if (!toSave.length || saving) return;
-    setSaving(true);
-    setSaveResult(null);
-    try {
-      const payload = toSave.map(d => ({
-        test_name:   d.test_name,
-        steps:       d.steps || [],
-        priority:    d.priority || "medium",
-        description: d.reason || "",
-        module:      (() => {
-          try { return new URL(url).pathname.split("/").filter(Boolean)[0] || "explorer"; }
-          catch { return "explorer"; }
-        })(),
+      let genRes;
+      try {
+        genRes = await generateDraftsFromPages(found);
+      } catch (e) {
+        setError(e?.message || t("gen.url.gen_error"));
+        return;
+      }
+
+      const generated = Array.isArray(genRes?.drafts) ? genRes.drafts : [];
+      if (!generated.length) {
+        setError(t("gen.url.no_flows"));
+        return;
+      }
+
+      const modDefault = defaultModuleFromUrl(trimmed);
+      const rows = generated.map((d, i) => ({
+        key: `d-${i}`,
+        sourceDraft: d,
+        name: d.test_name || `test_${i}`,
+        module: modDefault,
       }));
-      const res = await batchSaveDrafts(payload);
-      setSaveResult(res);
-    } catch (e) {
-      setSaveResult({ error: e?.message || "Save failed" });
+      setDraftRows(rows);
+      setSelectedKeys(new Set(rows.map(r => r.key)));
     } finally {
-      setSaving(false);
+      setLoadingPipeline(false);
+      setPipelineHint("");
     }
   }
 
   async function handleApprove() {
-    const toApprove = drafts.filter(d => selDrafts.has(d.test_name));
-    if (!toApprove.length || approving) return;
-    setApproving(true);
-    setApproveResult(null);
+    if (selectedKeys.size === 0 || loadingApprove) return;
+    const byKey = Object.fromEntries(draftRows.map(r => [r.key, r]));
+    const trimmedUrl = url.trim();
+    const fallbackMod = trimmedUrl ? defaultModuleFromUrl(trimmedUrl) : "discovered";
+
+    const toApprove = [...selectedKeys].map(k => {
+      const row = byKey[k];
+      if (!row) return null;
+      const d = { ...row.sourceDraft };
+      d.test_name = row.name.trim() || row.sourceDraft.test_name;
+      d.module = row.module.trim() || fallbackMod;
+      return d;
+    }).filter(Boolean);
+
+    if (!toApprove.length) return;
+
+    setLoadingApprove(true);
+    setError("");
     try {
-      const res = await approveDrafts(toApprove);
-      setApproveResult({ ok: true, ...res });
+      const res = await approveDrafts(toApprove, { activate: true });
+      const saved = Array.isArray(res?.saved) ? res.saved : [];
+      const skipped = Array.isArray(res?.skipped) ? res.skipped : [];
+      setSuccessResult({
+        totalCreated: saved.length,
+        totalSkipped: skipped.length,
+        saved,
+        skipped,
+      });
+      setDraftRows([]);
+      setSelectedKeys(new Set());
     } catch (e) {
-      setApproveResult({ ok: false, error: e?.message || "Approve failed" });
+      setError(e?.message || t("gen.url.approve_error"));
     } finally {
-      setApproving(false);
+      setLoadingApprove(false);
     }
   }
+
+  const showEmpty =
+    !loadingPipeline &&
+    draftRows.length === 0 &&
+    !error &&
+    !successResult;
 
   return (
     <div className="page-wrap">
 
-      {/* ── URL + config ─────────────────────────────────────────────────── */}
       <div className="card" style={{ marginBottom: 20 }}>
         <div className="section-title" style={{ marginBottom: 12 }}>{t("gen.url.section_title")}</div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
@@ -247,180 +313,116 @@ function FromUrlPanel() {
             placeholder="https://example.com"
             value={url}
             onChange={e => setUrl(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && handleExplore()}
-            disabled={exploring}
+            onKeyDown={e => e.key === "Enter" && !loadingPipeline && handleExplore()}
+            disabled={loadingPipeline}
           />
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
             <span style={{ fontSize: 12, color: "var(--text-3)", whiteSpace: "nowrap" }}>{t("gen.url.max_pages")}:</span>
             <input
               type="number"
               className="input"
-              style={{ width: 60 }}
-              value={maxPages}
+              style={{ width: 72 }}
+              value={maxPagesStr}
               min={1}
               max={20}
-              onChange={e => setMax(Math.max(1, Math.min(20, Number(e.target.value))))}
-              disabled={exploring}
+              placeholder="5"
+              onChange={e => setMaxPagesStr(e.target.value)}
+              disabled={loadingPipeline}
             />
           </div>
           <button
             className="btn btn-primary"
             onClick={handleExplore}
-            disabled={exploring || !url.trim()}
+            disabled={loadingPipeline || !url.trim()}
             style={{ flexShrink: 0 }}
           >
-            {exploring ? t("gen.url.exploring") : t("gen.url.explore_btn")}
+            {loadingPipeline ? t("gen.url.exploring") : t("gen.url.explore_btn")}
           </button>
         </div>
-        {exploreErr && (
-          <div className="alert alert-error" style={{ marginTop: 12 }}>{exploreErr}</div>
-        )}
       </div>
 
-      {/* ── Page map ─────────────────────────────────────────────────────── */}
-      {pages.length > 0 && !drafts.length && (
-        <div className="card" style={{ marginBottom: 20 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
-            <div className="section-title" style={{ margin: 0 }}>
-              {pages.length} {t("gen.url.pages_found")}
-            </div>
-            <button
-              className="btn btn-secondary btn-sm"
-              onClick={() => allPagesSelected ? setSelPages(new Set()) : setSelPages(new Set(pages.map(p => p.url)))}
-            >
-              {allPagesSelected ? t("gen.url.deselect_all") : t("gen.url.select_all")}
-            </button>
-            {selPages.size > 0 && (
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={handleGenerateDrafts}
-                disabled={generating}
-                style={{ marginLeft: "auto" }}
-              >
-                {generating ? t("gen.url.generating") : `${t("gen.url.generate_btn")} (${selPages.size})`}
-              </button>
-            )}
+      {successResult && (
+        <div className="card" style={{ marginBottom: 16, borderColor: "rgba(34,197,94,0.35)", background: "rgba(34,197,94,0.06)" }}>
+          <div className="alert alert-success" style={{ margin: 0, fontSize: 13 }}>
+            {tr(t, "gen.url.success_catalog", {
+              created: successResult.totalCreated,
+              skipped: successResult.totalSkipped,
+            })}
           </div>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            style={{ marginTop: 10 }}
+            onClick={() => navigate("/catalog")}
+          >
+            {t("gen.url.view_catalog_arrow")}
+          </button>
+        </div>
+      )}
 
-          {genErr && <div className="alert alert-error" style={{ marginBottom: 12 }}>{genErr}</div>}
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {pages.map(page => (
-              <div
-                key={page.url}
-                className="card"
-                style={{
-                  padding: "10px 14px",
-                  borderColor: selPages.has(page.url) ? "var(--accent)" : undefined,
-                  background:  selPages.has(page.url) ? "var(--accent-light)" : undefined,
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-                  <input
-                    type="checkbox"
-                    checked={selPages.has(page.url)}
-                    onChange={() => togglePage(page.url)}
-                    style={{ marginTop: 3, flexShrink: 0 }}
-                  />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: 13 }}>{page.title || "(no title)"}</div>
-                    <div style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-3)", wordBreak: "break-all", marginTop: 2 }}>
-                      {page.url}
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", gap: 4, flexShrink: 0, flexWrap: "wrap" }}>
-                    {page.inputs?.length > 0   && <span className="badge badge-blue">{page.inputs.length} {t("gen.url.badge_inputs")}</span>}
-                    {page.buttons?.length > 0  && <span className="badge badge-blue">{page.buttons.length} {t("gen.url.badge_buttons")}</span>}
-                    {page.forms?.length > 0    && <span className="badge badge-green">{page.forms.length} {t("gen.url.badge_forms")}</span>}
-                  </div>
-                </div>
-              </div>
-            ))}
+      {loadingPipeline && (
+        <div className="card" style={{ marginBottom: 20, padding: "24px 20px", textAlign: "center" }}>
+          <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-1)", marginBottom: 6 }}>
+            {t("gen.url.exploring")}
+          </div>
+          <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.6 }}>
+            {pipelineHint}
           </div>
         </div>
       )}
 
-      {/* ── Draft results ─────────────────────────────────────────────────── */}
-      {drafts.length > 0 && (
+      {error && !loadingPipeline && (
+        <div className="alert alert-error" style={{ marginBottom: 16 }}>{error}</div>
+      )}
+
+      {draftRows.length > 0 && (
         <>
-          {/* Action bar */}
           <div className="card" style={{
             marginBottom: 12, padding: "10px 16px",
             display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
-            background: selDrafts.size > 0 ? "var(--accent-light)" : undefined,
-            borderColor: selDrafts.size > 0 ? "var(--accent-border)" : undefined,
+            background: selectedKeys.size > 0 ? "var(--accent-light)" : undefined,
+            borderColor: selectedKeys.size > 0 ? "var(--accent-border)" : undefined,
           }}>
             <button
+              type="button"
               className="btn btn-secondary btn-sm"
-              onClick={() => allDraftsSelected ? setSelD(new Set()) : setSelD(new Set(drafts.map(d => d.test_name)))}
+              onClick={() => (allSelected
+                ? setSelectedKeys(new Set())
+                : setSelectedKeys(new Set(draftRows.map(r => r.key))))}
             >
-              {allDraftsSelected ? t("gen.url.deselect_all") : `${t("gen.url.select_all")} (${drafts.length})`}
+              {allSelected ? t("gen.url.deselect_all") : t("gen.url.select_all")}
             </button>
-            {selDrafts.size > 0 && (
+            {selectedKeys.size > 0 && (
               <span style={{ fontSize: 13, fontWeight: 600, color: "var(--accent)" }}>
-                {selDrafts.size} {t("gen.url.selected")}
+                {selectedKeys.size} {t("gen.url.selected")}
               </span>
             )}
             <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {selDrafts.size > 0 && !saveResult?.saved_count && !saveResult?.error && (
-                <button
-                  className="btn btn-secondary btn-sm"
-                  onClick={handleSaveDrafts}
-                  disabled={saving}
-                >
-                  {saving ? t("gen.url.saving") : `${t("gen.url.save_btn")} (${selDrafts.size})`}
-                </button>
-              )}
-              {selDrafts.size > 0 && !approveResult && (
-                <button
-                  className="btn btn-primary btn-sm"
-                  onClick={handleApprove}
-                  disabled={approving}
-                >
-                  {approving ? t("gen.url.approving") : `${t("gen.url.approve_btn")} (${selDrafts.size})`}
-                </button>
-              )}
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={handleApprove}
+                disabled={loadingApprove || selectedKeys.size === 0}
+              >
+                {loadingApprove
+                  ? t("gen.url.approving")
+                  : tr(t, "gen.url.approve_selected", { n: selectedKeys.size })}
+              </button>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={discardAll}>
+                {t("gen.url.discard_btn")}
+              </button>
             </div>
-
-            {saveResult && (
-              <div style={{ display: "flex", gap: 8, alignItems: "center", width: "100%", marginTop: 6 }}>
-                <div className={`alert ${saveResult.error ? "alert-error" : "alert-success"}`} style={{ margin: 0, fontSize: 12 }}>
-                  {saveResult.error
-                    ? `✗ ${saveResult.error}`
-                    : `✓ ${saveResult.saved_count ?? 0} ${t("gen.url.saved_count")}`}
-                </div>
-                {!saveResult.error && (
-                  <button className="btn btn-secondary btn-sm" style={{ fontSize: 11 }} onClick={() => navigate("/catalog")}>
-                    {t("gen.url.open_drafts")}
-                  </button>
-                )}
-              </div>
-            )}
-
-            {approveResult && (
-              <div style={{ display: "flex", gap: 8, alignItems: "center", width: "100%", marginTop: 6 }}>
-                <div className={`alert ${approveResult.ok ? "alert-success" : "alert-error"}`} style={{ margin: 0, fontSize: 12 }}>
-                  {approveResult.ok
-                    ? `✓ ${(approveResult.saved || []).length} ${t("gen.url.added_to_catalog")}`
-                    : `✗ ${approveResult.error}`}
-                </div>
-                {approveResult.ok && (
-                  <button className="btn btn-secondary btn-sm" style={{ fontSize: 11 }} onClick={() => navigate("/catalog")}>
-                    {t("gen.url.open_catalog")}
-                  </button>
-                )}
-              </div>
-            )}
           </div>
 
-          {/* Draft cards */}
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {drafts.map(d => {
-              const isSel = selDrafts.has(d.test_name);
-              const isExp = expanded === d.test_name;
+            {draftRows.map(row => {
+              const d = row.sourceDraft;
+              const isSel = selectedKeys.has(row.key);
+              const isExp = expandedKey === row.key;
+              const nSteps = d.steps?.length ?? 0;
               return (
                 <div
-                  key={d.test_name}
+                  key={row.key}
                   className="card"
                   style={{
                     borderColor: isSel ? "var(--accent)" : undefined,
@@ -431,22 +433,40 @@ function FromUrlPanel() {
                     <input
                       type="checkbox"
                       checked={isSel}
-                      onChange={() => toggleDraft(d.test_name)}
+                      onChange={() => toggleKey(row.key)}
                       style={{ marginTop: 3, flexShrink: 0 }}
                     />
-                    <div style={{ flex: 1 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ marginBottom: 8 }}>
+                        <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 4 }}>{t("gen.url.field_name")}</div>
+                        <input
+                          className="input"
+                          style={{ width: "100%", fontFamily: "monospace", fontSize: 13 }}
+                          value={row.name}
+                          onChange={e => updateRow(row.key, { name: e.target.value })}
+                        />
+                      </div>
+                      <div style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 4 }}>{t("gen.url.field_module")}</div>
+                        <input
+                          className="input"
+                          style={{ width: "100%", fontSize: 13 }}
+                          value={row.module}
+                          onChange={e => updateRow(row.key, { module: e.target.value })}
+                        />
+                      </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
-                        <span style={{ fontWeight: 600, fontSize: 14, fontFamily: "monospace", color: "var(--text-1)" }}>
-                          {d.test_name}
-                        </span>
+                        <TypeBadge typeLabel={draftTypeLabel(d.reason)} />
                         <PriorityBadge p={d.priority} />
-                        <span className="badge badge-gray">{t("gen.url.badge_draft")}</span>
+                        <span className="badge badge-gray">
+                          {nSteps} {nSteps === 1 ? t("gen.url.step_one") : t("gen.url.steps")}
+                        </span>
                       </div>
                       <div style={{ display: "flex", gap: 16, fontSize: 11, color: "var(--text-3)", alignItems: "center" }}>
-                        <span>{d.steps?.length ?? 0} {t("gen.url.steps")}</span>
                         <button
+                          type="button"
                           style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: 11, padding: 0, fontWeight: 600 }}
-                          onClick={() => setExpanded(isExp ? null : d.test_name)}
+                          onClick={() => setExpandedKey(isExp ? null : row.key)}
                         >
                           {isExp ? t("gen.url.hide_steps") : t("gen.url.show_steps")}
                         </button>
@@ -484,12 +504,11 @@ function FromUrlPanel() {
         </>
       )}
 
-      {/* ── Empty state ──────────────────────────────────────────────────── */}
-      {!exploring && pages.length === 0 && !exploreErr && (
+      {showEmpty && (
         <div className="card" style={{ padding: "48px 32px", textAlign: "center" }}>
           <div style={{ fontSize: 32, marginBottom: 12 }}>⊞</div>
           <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)", marginBottom: 8 }}>{t("gen.url.empty_title")}</div>
-          <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.8, maxWidth: 380, margin: "0 auto" }}>
+          <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.8, maxWidth: 420, margin: "0 auto" }}>
             {t("gen.url.empty_desc")}
           </div>
         </div>

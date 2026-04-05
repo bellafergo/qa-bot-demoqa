@@ -91,7 +91,7 @@ def draft_to_catalog_test(draft: Any) -> Optional[Dict[str, Any]]:
         "status":   "active",
         "priority": priority,
         "type":     _map_type(reason),
-        "module":   "discovered",
+        "module":   _s(draft.get("module")) or "discovered",
         "source":   "draft_generator",
         "reason":   reason,
         "steps":    list(steps),

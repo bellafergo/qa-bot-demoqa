@@ -91,6 +91,12 @@ class TestDraftToCatalogTestContract:
         ct = draft_to_catalog_test(_VALID_DRAFT)
         assert ct["module"] == "discovered"
 
+    def test_module_override_from_draft(self):
+        d = dict(_VALID_DRAFT)
+        d["module"] = "checkout"
+        ct = draft_to_catalog_test(d)
+        assert ct["module"] == "checkout"
+
     def test_source_is_draft_generator(self):
         ct = draft_to_catalog_test(_VALID_DRAFT)
         assert ct["source"] == "draft_generator"
