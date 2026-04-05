@@ -6,6 +6,7 @@ import logging
 import re
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.settings import settings
@@ -19,6 +20,7 @@ from core.step_validator import validate_steps
 from core.step_normalizer import normalize_steps_to_target as _normalize_steps_to_target
 
 from services.evidence_pipeline import process_evidence
+from services.chat_run_test_name import fallback_test_name_from_prompt, resolve_chat_run_test_name
 from services.step_llm_generator import generate_steps_llm
 
 logger = logging.getLogger("vanya.execute_engine")
@@ -374,11 +376,16 @@ def handle_execute_mode(
         [{"i": i, "action": s.get("action"), "sel": s.get("selector")} for i, s in enumerate(steps)],
     )
 
-    # 3) Ejecutar runner
+    # 3) Ejecutar runner (nombre semántico en paralelo: solo depende del prompt)
     runner_any: Any = {}
     runner: Dict[str, Any] = {}
+    chat_test_name: str = fallback_test_name_from_prompt(prompt)
+    executor: Optional[ThreadPoolExecutor] = None
+    name_future = None
 
     try:
+        executor = ThreadPoolExecutor(max_workers=1)
+        name_future = executor.submit(resolve_chat_run_test_name, prompt)
         runner_any = execute_test(
             base_url=base_url,
             steps=steps,
@@ -388,6 +395,8 @@ def handle_execute_mode(
         )
         runner = runner_any if isinstance(runner_any, dict) else {}
     except Exception as e:
+        if executor is not None:
+            executor.shutdown(wait=False)
         logger.exception("Runner execution failed")
         answer = (
             "No pude ejecutar la prueba en este momento.\n\n"
@@ -419,6 +428,26 @@ def handle_execute_mode(
             "steps_count": len(steps) if isinstance(steps, list) else 0,
             **_confidence("execute", prompt, base_url),
         }
+
+    # Solo aceptar LLM si ya terminó (0s) o tras espera mínima; sin bloqueos largos
+    _NAME_RESULT_MAX_WAIT_S = 0.35
+    try:
+        fut = name_future  # type: ignore[union-attr]
+        if fut.done():
+            chat_test_name = fut.result()
+        else:
+            chat_test_name = fut.result(timeout=_NAME_RESULT_MAX_WAIT_S)
+    except FuturesTimeout:
+        logger.debug("chat_run test_name not ready within %ss; using fallback", _NAME_RESULT_MAX_WAIT_S)
+        chat_test_name = fallback_test_name_from_prompt(prompt)
+    except Exception:
+        chat_test_name = fallback_test_name_from_prompt(prompt)
+    finally:
+        if executor is not None:
+            executor.shutdown(wait=False)
+
+    if not (chat_test_name or "").strip():
+        chat_test_name = fallback_test_name_from_prompt(prompt)
 
     ok = bool(runner.get("ok", True))
     status = str(runner.get("status") or ("passed" if ok else "failed")).strip().lower()
@@ -500,9 +529,10 @@ def handle_execute_mode(
             "status": status,
             "status_label": status_label,
         }
+        run_payload.setdefault("meta", {})
+        run_payload["meta"] = dict(run_payload.get("meta") or {})
+        run_payload["meta"]["test_name"] = chat_test_name
         if correlation_id or client_id or workspace_id:
-            run_payload.setdefault("meta", {})
-            run_payload["meta"] = dict(run_payload.get("meta") or {})
             if correlation_id:
                 run_payload["meta"]["correlation_id"] = correlation_id
             if client_id:
