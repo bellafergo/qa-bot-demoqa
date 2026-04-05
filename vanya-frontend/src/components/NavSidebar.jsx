@@ -2,11 +2,13 @@
 import React from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/LangContext";
+import ProjectSwitcher from "./ProjectSwitcher";
 
 const NAV_SECTIONS_DEF = [
   {
     labelKey: "nav.core",
     items: [
+      { to: "/projects", icon: "▤", labelKey: "nav.projects" },
       { to: "/dashboard", icon: "⊞", labelKey: "nav.dashboard" },
       { to: "/catalog",   icon: "☰", labelKey: "nav.catalog"   },
       { to: "/runs",      icon: "◈", labelKey: "nav.runs"      },
@@ -77,6 +79,11 @@ export default function NavSidebar() {
           <div style={{ fontSize: 15, fontWeight: 600, color: "var(--nav-text-active)", letterSpacing: "-0.02em", lineHeight: 1.2 }}>Vanya</div>
           <div style={{ fontSize: 10, color: "rgba(148, 163, 184, 0.65)", lineHeight: 1.2, marginTop: 1 }}>QA Intelligence</div>
         </div>
+      </div>
+
+      {/* Current project scope */}
+      <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--nav-border)", flexShrink: 0 }}>
+        <ProjectSwitcher />
       </div>
 
       {/* Quick action */}

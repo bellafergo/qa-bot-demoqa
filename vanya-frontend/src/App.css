@@ -635,3 +635,224 @@ code {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* ═══════════════════════════════════════════════════════
+   Project switcher (nav rail)
+   ═══════════════════════════════════════════════════════ */
+
+.project-switcher {
+  position: relative;
+  font-size: 11px;
+}
+
+.project-switcher-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 4px 2px;
+}
+
+.project-switcher-row--muted,
+.project-switcher-row--warn {
+  color: rgba(148, 163, 184, 0.75);
+  font-size: 10px;
+}
+
+.project-switcher-row--warn {
+  color: rgba(251, 191, 36, 0.9);
+}
+
+.project-switcher-row--static {
+  color: var(--nav-text-active);
+}
+
+.project-switcher-name {
+  font-weight: 500;
+  color: var(--nav-text-active);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.project-switcher-loading {
+  font-size: 10px;
+  color: rgba(148, 163, 184, 0.65);
+}
+
+.project-switcher-cta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--r-xs);
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  background: transparent;
+  color: var(--nav-text-hover);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  text-align: left;
+}
+
+.project-switcher-cta:hover {
+  background: var(--nav-item-hover);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.project-switcher-single {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.project-switcher-subactions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  padding-left: 18px;
+}
+
+.project-switcher-sep {
+  color: rgba(148, 163, 184, 0.45);
+  font-size: 10px;
+}
+
+.project-switcher-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 10px;
+  color: rgba(148, 163, 184, 0.85);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.project-switcher-link:hover {
+  color: var(--nav-text-active);
+}
+
+.project-switcher-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--r-xs);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--nav-text-active);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  text-align: left;
+}
+
+.project-switcher-trigger:hover {
+  background: var(--nav-item-hover);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.project-switcher-chevron {
+  margin-left: auto;
+  font-size: 9px;
+  color: rgba(148, 163, 184, 0.8);
+}
+
+.project-switcher-dropdown {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 50;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--nav-border);
+  background: #0f172a;
+  box-shadow: var(--shadow-2);
+  padding: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.project-switcher-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--nav-text-hover);
+  font-size: 11px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s ease;
+}
+
+.project-switcher-option:hover {
+  background: var(--nav-item-hover);
+}
+
+.project-switcher-option--active {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--nav-text-active);
+}
+
+.project-switcher-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--nav-border);
+}
+
+/* ═══════════════════════════════════════════════════════
+   Project modal
+   ═══════════════════════════════════════════════════════ */
+
+.project-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.project-modal {
+  width: 100%;
+  max-width: 440px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 20px 22px;
+}
+
+.project-modal-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+  margin-bottom: 14px;
+}
+
+.project-modal-label .input {
+  width: 100%;
+  margin-top: 6px;
+}
+
+.project-modal-hint {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-4);
+  margin-top: 4px;
+  line-height: 1.35;
+}

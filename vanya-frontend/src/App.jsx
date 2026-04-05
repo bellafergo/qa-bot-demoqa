@@ -23,6 +23,7 @@ import RiskSelectionPage        from "./pages/RiskSelectionPage";
 import EvidencePage            from "./pages/EvidencePage";
 import GeneratePage            from "./pages/GeneratePage";
 import InsightsPage            from "./pages/InsightsPage";
+import ProjectsPage            from "./pages/ProjectsPage";
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -56,6 +57,7 @@ export default function App() {
           <Route index element={<Navigate to="/dashboard" replace />} />
 
           {/* ── Primary nav routes ───────────────────────────────────── */}
+          <Route path="projects"   element={<ProjectsPage />} />
           <Route path="dashboard"  element={<DashboardPage />} />
           <Route path="catalog"    element={<CatalogPage />} />
           <Route path="runs"       element={<RunsPage />} />

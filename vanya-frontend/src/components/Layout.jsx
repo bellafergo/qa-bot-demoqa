@@ -7,6 +7,7 @@ import { useLang } from "../i18n/LangContext";
 // null → page manages its own hero header (e.g. Dashboard)
 const ROUTE_META = {
   "/dashboard":    null,
+  "/projects":     { titleKey: "layout.projects.title", subtitleKey: "layout.projects.subtitle" },
   "/chat":         { titleKey: "layout.chat.title",          subtitleKey: "layout.chat.subtitle"          },
   "/planner":      { titleKey: "layout.planner.title",       subtitleKey: "layout.planner.subtitle"       },
   "/documents":    { titleKey: "layout.documents.title",     subtitleKey: "layout.documents.subtitle"     },

@@ -4,55 +4,6 @@ const API_BASE =
   (import.meta.env.VITE_API_BASE || "").trim() ||
   "https://qa-bot-demoqa.onrender.com"; // fallback seguro
 
-async function safeReadBody(res) {
-  const text = await res.text();
-  if (!text) return { text: "", json: null };
-  try {
-    return { text, json: JSON.parse(text) };
-  } catch {
-    return { text, json: null };
-  }
-}
-
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-// Retry solo para errores típicos de cold start / gateway
-async function fetchWithRetry(url, options, retries = 2) {
-  let lastErr;
-  for (let i = 0; i <= retries; i++) {
-    try {
-      const res = await fetch(url, options);
-      if ([502, 503, 504].includes(res.status) && i < retries) {
-        await sleep(600 * (i + 1));
-        continue;
-      }
-      return res;
-    } catch (e) {
-      lastErr = e;
-      if (i < retries) {
-        await sleep(600 * (i + 1));
-        continue;
-      }
-      throw lastErr;
-    }
-  }
-  throw lastErr || new Error("fetch failed");
-}
-
-async function handleJsonOrThrow(res) {
-  const { text, json } = await safeReadBody(res);
-  if (!res.ok) {
-    const detail =
-      (json && (json.detail || json.message)) ||
-      text ||
-      `${res.status} ${res.statusText}`;
-    throw new Error(detail);
-  }
-  return json;
-}
-
 export async function apiGet(path) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "GET",
@@ -74,7 +25,13 @@ export async function apiDelete(path) {
     const txt = await res.text();
     throw new Error(txt || res.statusText);
   }
-  return res.json();
+  const txt = await res.text();
+  if (!txt) return null;
+  try {
+    return JSON.parse(txt);
+  } catch {
+    return null;
+  }
 }
 
 export async function apiPut(path, body) {
@@ -88,6 +45,38 @@ export async function apiPut(path, body) {
     throw new Error(txt || res.statusText);
   }
   return res.json();
+}
+
+export async function apiPatch(path, body) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(txt || res.statusText);
+  }
+  return res.json();
+}
+
+/** Human-readable message from fetch errors (FastAPI JSON detail or plain text). */
+export function apiErrorMessage(err) {
+  const raw = err?.message ?? String(err);
+  if (!raw) return "Request failed";
+  try {
+    const j = JSON.parse(raw);
+    if (typeof j.detail === "string") return j.detail;
+    if (Array.isArray(j.detail)) {
+      return j.detail
+        .map((d) => (typeof d === "string" ? d : d.msg || JSON.stringify(d)))
+        .join(" ");
+    }
+    if (j.message) return String(j.message);
+  } catch {
+    /* plain text */
+  }
+  return raw;
 }
 
 export async function apiPost(path, body) {
@@ -243,3 +232,10 @@ export const alertingReady            = ()          => apiGet(`/integrations/ale
 export const sendAlert                = (body)      => apiPost(`/integrations/send-alert`, body);
 export const integrationsReadiness    = ()          => apiGet(`/integrations/readiness`);
 export const createItsmTicket         = (body)      => apiPost(`/integrations/create-ticket`, body);
+
+// ========= Projects (multi-project catalog scope) =========
+export const listProjects   = ()                    => apiGet("/projects");
+export const getProject     = (projectId)           => apiGet(`/projects/${encodeURIComponent(projectId)}`);
+export const createProject  = (payload)           => apiPost("/projects", payload);
+export const updateProject  = (projectId, payload) => apiPatch(`/projects/${encodeURIComponent(projectId)}`, payload);
+export const deleteProject  = (projectId)           => apiDelete(`/projects/${encodeURIComponent(projectId)}`);

@@ -25,16 +25,25 @@ export function LangProvider({ children }) {
   const setLang = useCallback((l) => {
     if (!SUPPORTED_LANGS.includes(l)) return;
     setLangState(l);
-    try { localStorage.setItem(STORAGE_KEY, l); } catch {}
+    try {
+      localStorage.setItem(STORAGE_KEY, l);
+    } catch {
+      void 0;
+    }
   }, []);
 
-  // t(key) — returns translation for current lang, falls back to EN, then key itself
-  const t = useCallback((key) => {
-    return (
+  // t(key, vars?) — optional {{placeholders}} replaced from vars
+  const t = useCallback((key, vars) => {
+    let s =
       (translations[lang] || {})[key] ||
       (translations[DEFAULT_LANG] || {})[key] ||
-      key
-    );
+      key;
+    if (vars && typeof s === "string") {
+      for (const [k, v] of Object.entries(vars)) {
+        s = s.split(`{{${k}}}`).join(String(v));
+      }
+    }
+    return s;
   }, [lang]);
 
   return (
@@ -44,6 +53,7 @@ export function LangProvider({ children }) {
   );
 }
 
+/* eslint-disable react-refresh/only-export-components -- hook is tied to LangProvider in this module */
 export function useLang() {
   const ctx = useContext(LangContext);
   if (!ctx) throw new Error("useLang must be used inside LangProvider");
