@@ -72,7 +72,7 @@ export default function ProjectsPage() {
   }
 
   return (
-    <div className="page-wrap" style={{ maxWidth: 960, paddingBottom: 48 }}>
+    <div className="page-wrap" style={{ width: "100%", maxWidth: "none", paddingBottom: 48 }}>
       <div className="page-header">
         <h1 className="page-title">{t("projects.page_title")}</h1>
         <p className="page-subtitle">{t("projects.page_subtitle")}</p>
@@ -112,22 +112,46 @@ export default function ProjectsPage() {
       </div>
 
       {loading && !projects.length && (
-        <div className="card" style={{ textAlign: "center", padding: 32, color: "var(--text-3)" }}>
+        <div
+          className="card"
+          style={{
+            width: "100%",
+            boxSizing: "border-box",
+            textAlign: "center",
+            padding: "40px 36px",
+            color: "var(--text-3)",
+          }}
+        >
           {t("projects.loading_list")}
         </div>
       )}
 
       {!loading && !projects.length && !error && (
-        <div className="card" style={{ textAlign: "center", padding: 40 }}>
+        <div
+          className="card"
+          style={{
+            width: "100%",
+            boxSizing: "border-box",
+            padding: "48px 40px",
+            minHeight: "min(52vh, 400px)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            textAlign: "center",
+            gap: 20,
+            background: "var(--surface)",
+          }}
+        >
           <div
             aria-hidden
             style={{
               width: 56,
               height: 56,
               borderRadius: 14,
-              margin: "0 auto 16px",
+              flexShrink: 0,
               border: "1px dashed var(--border)",
-              background: "var(--surface-2, rgba(0,0,0,0.04))",
+              background: "var(--surface-2)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -137,11 +161,26 @@ export default function ProjectsPage() {
           >
             ◇
           </div>
-          <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>{t("projects.empty_title")}</div>
-          <p style={{ fontSize: 14, color: "var(--text-2)", marginBottom: 20 }}>{t("projects.empty_hint")}</p>
-          <button type="button" className="btn btn-primary" onClick={openCreate}>
-            {t("projects.create_first")}
-          </button>
+          <div style={{ fontSize: 16, fontWeight: 600, color: "var(--text-1)", lineHeight: 1.35 }}>
+            {t("projects.empty_title")}
+          </div>
+          <p
+            style={{
+              fontSize: 14,
+              color: "var(--text-2)",
+              margin: 0,
+              lineHeight: 1.6,
+              maxWidth: "42rem",
+              padding: "0 12px",
+            }}
+          >
+            {t("projects.empty_hint")}
+          </p>
+          <div style={{ paddingTop: 4 }}>
+            <button type="button" className="btn btn-primary" onClick={openCreate}>
+              {t("projects.create_first")}
+            </button>
+          </div>
         </div>
       )}
 

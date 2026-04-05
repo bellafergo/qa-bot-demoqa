@@ -98,6 +98,76 @@ def _extract_error(e: Exception) -> str:
     return _clip(msg, 300)
 
 
+def _classify_supabase_exception(e: BaseException) -> str:
+    """
+    Coarse bucket for logs (no secrets). Helps triage health-check failures.
+    """
+    msg = (str(e) or "").lower()
+    name = (type(e).__name__ or "").lower()
+    blob = f"{name} {msg}"
+
+    if any(
+        x in msg
+        for x in (
+            "401",
+            "403",
+            "jwt",
+            "invalid api key",
+            "invalid authentication",
+            "unauthorized",
+            "not allowed",
+        )
+    ):
+        return "auth"
+    if "password authentication failed" in msg or "28p01" in msg:
+        return "auth"
+
+    if any(x in msg for x in ("certificate", "ssl", "tls", "handshake")):
+        return "ssl"
+
+    if any(
+        x in blob
+        for x in (
+            "timeout",
+            "timed out",
+            "connection refused",
+            "connection reset",
+            "econnrefused",
+            "network is unreachable",
+            "nodename nor servname",
+            "name or service not known",
+            "getaddrinfo",
+            "dns",
+        )
+    ):
+        return "network_or_dns"
+
+    if any(
+        x in msg
+        for x in (
+            "42p01",
+            "does not exist",
+            "pgrst205",
+            "pgrst204",
+            "relation",
+            "could not find the table",
+            "schema cache",
+        )
+    ):
+        return "schema_or_table"
+
+    if "invalid url" in msg or "failed to parse" in msg or "malformed" in msg:
+        return "config_or_url"
+
+    if "json" in msg and ("decode" in msg or "parse" in msg or "unexpected" in msg):
+        return "json_parse"
+
+    if "importerror" in blob or "modulenotfound" in blob or "create_client" in blob:
+        return "client_or_dependency"
+
+    return "unknown"
+
+
 # ============================================================
 # Client
 # ============================================================
@@ -119,7 +189,16 @@ def supabase_client():
         _supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
         return _supabase
     except Exception as e:
-        logger.exception("Failed to create Supabase client: %s", _extract_error(e))
+        cat = _classify_supabase_exception(e)
+        logger.error(
+            "Failed to create Supabase client: category=%s type=%s msg=%s",
+            cat,
+            type(e).__name__,
+            _extract_error(e),
+            exc_info=SUPABASE_DEBUG,
+        )
+        if not SUPABASE_DEBUG:
+            logger.debug("Failed to create Supabase client (set SUPABASE_DEBUG=1 for traceback)", exc_info=True)
         return None
 
 
@@ -154,8 +233,14 @@ def check_supabase_health() -> Dict[str, Any]:
         }
 
     try:
-        # Query mínima: si falla aquí, casi siempre es KEY incorrecta o RLS/policies
+        # Query mínima: falla si la tabla no existe, la key es inválida, o PostgREST no alcanzable.
         sb.table("threads").select("id").limit(1).execute()
+        logger.info(
+            "supabase_health: probe OK (table=threads, op=select limit 1) url_host=%s",
+            _clip(SUPABASE_URL.replace("https://", "").replace("http://", "").split("/")[0], 80)
+            if SUPABASE_URL
+            else "n/a",
+        )
         return {
             "ok": True,
             "configured": True,
@@ -164,12 +249,39 @@ def check_supabase_health() -> Dict[str, Any]:
             "error": None,
         }
     except Exception as e:
+        err_msg = _extract_error(e)
+        cat = _classify_supabase_exception(e)
+        # URL: solo host, nunca query ni fragmentos
+        host_hint = ""
+        if SUPABASE_URL:
+            try:
+                from urllib.parse import urlparse
+
+                host_hint = (urlparse(SUPABASE_URL).hostname or "")[:120]
+            except Exception:
+                host_hint = "unparseable"
+        logger.warning(
+            "supabase_health: probe FAILED category=%s type=%s msg=%s host=%s "
+            "(hint: missing table `threads` in public schema is schema_or_table; "
+            "401/JWT/auth messages are auth; timeouts/DNS are network_or_dns)",
+            cat,
+            type(e).__name__,
+            err_msg,
+            host_hint or "n/a",
+            exc_info=SUPABASE_DEBUG,
+        )
+        if not SUPABASE_DEBUG:
+            logger.debug(
+                "supabase_health: probe exception detail (set SUPABASE_DEBUG=1 for traceback on WARNING)",
+                exc_info=True,
+            )
         return {
             "ok": False,
             "configured": True,
             "client": True,
             "reachable": False,
-            "error": _extract_error(e),
+            "error": err_msg,
+            "error_category": cat,
         }
 
 
