@@ -19,6 +19,9 @@ os.environ["VANYA_SQLITE_PATH"] = os.path.join(_tmpdir, "test_vanya.db")
 # Auth middleware would break TestClient unless disabled for the suite.
 os.environ["VANYA_AUTH_ENABLED"] = "0"
 
+# Rate limit middleware off by default (tests enable it explicitly when needed).
+os.environ.setdefault("RATE_LIMIT_ENABLED", "0")
+
 
 def pytest_configure(config):
     """Create tables once, before any test collection begins."""

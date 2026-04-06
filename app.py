@@ -15,6 +15,7 @@ import html
 
 from core.settings import settings
 from core.auth_middleware import VanyaAuthMiddleware
+from core.rate_limit_middleware import RateLimitMiddleware
 from core.vanya_auth import (
     auth_enforcement_enabled,
     docs_allowed_in_this_deployment,
@@ -138,6 +139,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# After auth (outer): VanyaAuth → RateLimit → CORS → routes (so request.state is set).
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(VanyaAuthMiddleware)
 
 # OpenAPI UI — only in non-prod-style deployments (see core.vanya_auth.docs_allowed_in_this_deployment).
@@ -216,6 +219,11 @@ def on_startup():
         logger.warning(
             "Vanya auth enforcement: DISABLED — set SUPABASE_URL and VANYA_AUTH_ENABLED=1 for production (JWKS / ES256)"
         )
+
+    if (os.getenv("RATE_LIMIT_ENABLED") or "").strip().lower() in ("1", "true", "yes", "on"):
+        logger.info("Rate limiting: ENABLED (in-memory; not shared across workers)")
+    else:
+        logger.info("Rate limiting: disabled (set RATE_LIMIT_ENABLED=1 to enable)")
 
     # Initialize catalog / runs / jobs SQLite DB
     try:
