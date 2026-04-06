@@ -25,6 +25,7 @@ from core.nl_selector_inference import (
     make_min_target,
 )
 from core.schemas import RUNNER_ACTIONS
+from core.site_profiles import resolve_site_profile
 from core.semantic_step_builder import build_semantic_target
 from core.semantic_intent_extractor import (
     extract_intent as _extract_semantic_intent,
@@ -73,10 +74,6 @@ _DSL_ACTIONS: frozenset = frozenset({
     "assert_text",
     "assert_cart_count",
 })
-
-
-def _is_saucedemo(url: Optional[str]) -> bool:
-    return url is not None and "saucedemo.com" in url.lower()
 
 
 def _is_heb(url: Optional[str]) -> bool:
@@ -396,6 +393,29 @@ def _strip_quotes(s: str) -> str:
     return ss
 
 
+def _semantic_selector_variants(base_url: str, kind: str, name: str) -> frozenset:
+    """Primary + css fallbacks from semantic target (profile-aware)."""
+    t = build_semantic_target(kind, name, base_url)
+    sels: set = set()
+    p = t.get("primary")
+    if p:
+        sels.add(str(p))
+    for fb in t.get("fallbacks") or []:
+        if isinstance(fb, dict) and fb.get("type") == "css" and fb.get("value"):
+            sels.add(str(fb["value"]))
+    return frozenset(sels)
+
+
+def _looks_like_login_flow(steps: List[Dict[str, Any]], base_url: str) -> bool:
+    uv = _semantic_selector_variants(base_url, "input", "username")
+    pv = _semantic_selector_variants(base_url, "input", "password")
+    bv = _semantic_selector_variants(base_url, "button", "login")
+    did_u = any(s.get("action") == "fill" and str(s.get("selector") or "") in uv for s in steps)
+    did_p = any(s.get("action") == "fill" and str(s.get("selector") or "") in pv for s in steps)
+    did_c = any(s.get("action") == "click" and str(s.get("selector") or "") in bv for s in steps)
+    return (did_u or did_p) and did_c
+
+
 def ensure_has_assert(steps: List[Dict[str, Any]], base_url: str) -> List[Dict[str, Any]]:
     """Añade assert si el flujo no tiene ninguno."""
     if not steps:
@@ -403,30 +423,17 @@ def ensure_has_assert(steps: List[Dict[str, Any]], base_url: str) -> List[Dict[s
     if any(str(s.get("action", "")).startswith("assert_") for s in steps):
         return steps
 
-    did_fill_user = any(
-        s.get("action") == "fill"
-        and str(s.get("selector") or "") in ("#user-name", "input[name='user-name']")
-        for s in steps
-    )
-    did_fill_pass = any(
-        s.get("action") == "fill"
-        and str(s.get("selector") or "") in ("#password", "input[name='password']")
-        for s in steps
-    )
-    did_click_login = any(
-        s.get("action") == "click"
-        and str(s.get("selector") or "") in ("#login-button", "button[type='submit']")
-        for s in steps
-    )
-    looks_like_login_flow = (did_fill_user or did_fill_pass) and did_click_login
+    prof = resolve_site_profile(base_url)
+    login_flow = _looks_like_login_flow(steps, base_url)
 
-    if _is_saucedemo(base_url):
-        if looks_like_login_flow:
+    if prof and prof.enable_nl_login_parse and prof.login_error_selector and prof.post_login_url_contains:
+        if login_flow:
             steps.append({"action": "wait_ms", "ms": 450})
-            steps.append({"action": "assert_not_visible", "selector": "[data-test='error']"})
-            steps.append({"action": "assert_url_contains", "value": "inventory.html"})
+            steps.append({"action": "assert_not_visible", "selector": prof.login_error_selector})
+            steps.append({"action": "assert_url_contains", "value": prof.post_login_url_contains})
             return steps
-        steps.append({"action": "assert_visible", "selector": "#user-name"})
+        user_pri = build_semantic_target("input", "username", base_url)["primary"]
+        steps.append({"action": "assert_visible", "selector": user_pri})
         return steps
 
     steps.append({"action": "assert_visible", "selector": "body"})
@@ -437,13 +444,30 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
     """Parseo determinístico de prompt natural a steps. Usado por chat/execute."""
     p = (prompt or "").strip()
     low = p.lower()
+    prof = resolve_site_profile(base_url)
     if not p:
         return None
 
+    _TLD_LIKE_CLASSES = frozenset({".com", ".org", ".net", ".mx", ".edu", ".io", ".co", ".app", ".gov"})
+
     def _extract_selectors_anywhere(text: str) -> List[str]:
         out: List[str] = []
+
+        def _keep(sel: str) -> bool:
+            if not sel:
+                return False
+            s = sel.lower()
+            if sel.startswith(".") and s in _TLD_LIKE_CLASSES:
+                return False  # avoid ".com" from URLs like demoqa.com
+            return True
+
         for _, sel in re.findall(r'(["\']?)(#[-\w]+|\.[-\w]+|\[[^\]]+\])\1', text):
-            if sel and sel not in out:
+            if _keep(sel) and sel not in out:
+                out.append(sel)
+        # Unquoted #id / #userName (common in NL prompts; quoted regex above misses them)
+        for m in re.finditer(r"#[-\w]+", text):
+            sel = m.group(0)
+            if _keep(sel) and sel not in out:
                 out.append(sel)
         for m in re.finditer(r'(["\'])([a-zA-Z][a-zA-Z0-9_-]*)\1', text):
             sel = m.group(2)
@@ -463,7 +487,7 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
         ("visible" in low or "visibles" in low)
         and not any(k in low for k in ["inicia", "iniciar", "fill", "llena", "escribe", "ingresa", "teclea"])
     )
-    if _is_saucedemo(base_url) and not _only_visibility_check and any(
+    if prof and prof.enable_nl_login_parse and not _only_visibility_check and any(
         k in low for k in [
             "login", "inicia sesión", "iniciar sesion", "usuario", "username",
             "password", "contraseña", "contrasena",
@@ -486,24 +510,30 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
         if m_p:
             pw = _strip_quotes(m_p.group(1))
 
+        u_sel = build_semantic_target("input", "username", base_url)["primary"]
+        p_sel = build_semantic_target("input", "password", base_url)["primary"]
+        b_sel = build_semantic_target("button", "login", base_url)["primary"]
+        err_sel = prof.login_error_selector or "[data-test='error']"
+        success_path = prof.post_login_url_contains or ""
+
         steps: List[Dict[str, Any]] = [
             {"action": "goto", "url": base_url},
             {"action": "wait_ms", "ms": 250},
-            {"action": "assert_visible", "selector": "#user-name"},
-            {"action": "assert_visible", "selector": "#password"},
-            {"action": "assert_visible", "selector": "#login-button"},
+            {"action": "assert_visible", "selector": u_sel},
+            {"action": "assert_visible", "selector": p_sel},
+            {"action": "assert_visible", "selector": b_sel},
         ]
         if u is not None:
             steps.append({
                 "action": "fill",
-                "selector": "#user-name",
+                "selector": u_sel,
                 "target": build_semantic_target("input", "username", base_url),
                 "value": u,
             })
         if pw is not None:
             steps.append({
                 "action": "fill",
-                "selector": "#password",
+                "selector": p_sel,
                 "target": build_semantic_target("input", "password", base_url),
                 "value": pw,
             })
@@ -512,7 +542,7 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
         ):
             steps.append({
                 "action": "click",
-                "selector": "#login-button",
+                "selector": b_sel,
                 "target": build_semantic_target("button", "login", base_url),
             })
             steps.append({"action": "wait_ms", "ms": 450})
@@ -521,10 +551,11 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
                     if s.get("action"):
                         s["expected"] = "fail"
                         break
-                steps.append({"action": "assert_visible", "selector": "[data-test='error']"})
+                steps.append({"action": "assert_visible", "selector": err_sel})
             else:
-                steps.append({"action": "assert_not_visible", "selector": "[data-test='error']"})
-                steps.append({"action": "assert_url_contains", "value": "inventory.html"})
+                steps.append({"action": "assert_not_visible", "selector": err_sel})
+                if success_path:
+                    steps.append({"action": "assert_url_contains", "value": success_path})
         return steps
 
     steps = [
@@ -552,23 +583,35 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
         )
         if _tv:
             found_text = _tv.group(1).strip()
-            if _is_saucedemo(base_url):
+            if prof and prof.inject_demo_credentials:
                 _login_texts_tv = {"accepted usernames", "password", "login"}
                 if not any(t in found_text.lower() for t in _login_texts_tv):
+                    uv = _semantic_selector_variants(base_url, "input", "username")
+                    pv = _semantic_selector_variants(base_url, "input", "password")
+                    bv = _semantic_selector_variants(base_url, "button", "login")
+                    u_pri = build_semantic_target("input", "username", base_url)["primary"]
+                    p_pri = build_semantic_target("input", "password", base_url)["primary"]
+                    b_pri = build_semantic_target("button", "login", base_url)["primary"]
                     _has_login_tv = (
-                        any(s.get("action") == "fill" and s.get("selector") == "#user-name" for s in steps)
-                        and any(s.get("action") == "fill" and s.get("selector") == "#password" for s in steps)
-                        and any(s.get("action") == "click" and s.get("selector") == "#login-button" for s in steps)
+                        any(s.get("action") == "fill" and str(s.get("selector") or "") in uv for s in steps)
+                        and any(s.get("action") == "fill" and str(s.get("selector") or "") in pv for s in steps)
+                        and any(s.get("action") == "click" and str(s.get("selector") or "") in bv for s in steps)
                     )
                     if not _has_login_tv:
                         steps.extend([
-                            {"action": "fill", "selector": "#user-name", "target": build_semantic_target("input", "username", base_url), "value": "standard_user"},
-                            {"action": "fill", "selector": "#password", "target": build_semantic_target("input", "password", base_url), "value": "secret_sauce"},
-                            {"action": "click", "selector": "#login-button", "target": build_semantic_target("button", "login", base_url)},
+                            {"action": "fill", "selector": u_pri, "target": build_semantic_target("input", "username", base_url), "value": prof.demo_username},
+                            {"action": "fill", "selector": p_pri, "target": build_semantic_target("input", "password", base_url), "value": prof.demo_password},
+                            {"action": "click", "selector": b_pri, "target": build_semantic_target("button", "login", base_url)},
                         ])
             steps.append({"action": "wait_ms", "ms": 300})
             steps.append({"action": "assert_text_contains", "selector": "body", "text": found_text})
             return steps
+
+        seen = _extract_selectors_anywhere(p)
+        if seen:
+            for sel in seen:
+                steps.append({"action": "assert_visible", "selector": sel})
+            return ensure_has_assert(steps, base_url)
 
         _si = _extract_semantic_intent(p)
         if _si:
@@ -577,30 +620,17 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
             return ensure_has_assert(steps, base_url)
 
         seen = _extract_selectors_anywhere(p)
-        if _is_saucedemo(base_url):
+        if prof and prof.inject_demo_credentials:
+            u_pri = build_semantic_target("input", "username", base_url)["primary"]
+            p_pri = build_semantic_target("input", "password", base_url)["primary"]
+            b_pri = build_semantic_target("button", "login", base_url)["primary"]
             if "username" in low or "user name" in low or "user-name" in low:
-                seen = ["#user-name"]
+                seen = [u_pri]
             elif not seen:
-                seen = ["#user-name", "#password", "#login-button"]
+                seen = [u_pri, p_pri, b_pri]
         for sel in seen:
             steps.append({"action": "assert_visible", "selector": sel})
         return ensure_has_assert(steps, base_url)
-
-    if not any(c in p for c in '#.[]()"'):
-        _ai = _extract_semantic_action(p)
-        if _ai:
-            _a = _ai["action"]
-            if _a == "click":
-                _st = build_semantic_target(_ai["target"]["kind"], _ai["target"]["name"], base_url)
-                steps.append({"action": "assert_visible", "selector": _st["primary"]})
-                steps.append({"action": "click", "selector": _st["primary"], "target": _st})
-            elif _a == "fill":
-                _st = build_semantic_target(_ai["target"]["kind"], _ai["target"]["name"], base_url)
-                steps.append({"action": "fill", "selector": _st["primary"], "target": _st, "value": _ai["value"]})
-            elif _a == "assert_text_contains":
-                steps.append({"action": "wait_ms", "ms": 300})
-                steps.append({"action": "assert_text_contains", "selector": "body", "text": _ai["text"]})
-            return ensure_has_assert(steps, base_url)
 
     _CSS_CHARS = set("#.[]:>+~=\"'()")
     fill_patterns = [
@@ -662,6 +692,23 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
                         steps.append({"action": "assert_visible", "selector": sel})
                     steps.append({"action": "click", "selector": sel})
 
+    _acts = [s.get("action") for s in steps]
+    if "fill" not in _acts and "click" not in _acts and not any(c in p for c in '#.[]()"'): 
+        _ai = _extract_semantic_action(p)
+        if _ai:
+            _a = _ai["action"]
+            if _a == "click":
+                _st = build_semantic_target(_ai["target"]["kind"], _ai["target"]["name"], base_url)
+                steps.append({"action": "assert_visible", "selector": _st["primary"]})
+                steps.append({"action": "click", "selector": _st["primary"], "target": _st})
+            elif _a == "fill":
+                _st = build_semantic_target(_ai["target"]["kind"], _ai["target"]["name"], base_url)
+                steps.append({"action": "fill", "selector": _st["primary"], "target": _st, "value": _ai["value"]})
+            elif _a == "assert_text_contains":
+                steps.append({"action": "wait_ms", "ms": 300})
+                steps.append({"action": "assert_text_contains", "selector": "body", "text": _ai["text"]})
+            return ensure_has_assert(steps, base_url)
+
     if re.search(r"\b(enter|intro|presiona\s+enter|presiona\s+intro)\b", low):
         last_sel = None
         for s in reversed(steps):
@@ -685,20 +732,26 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
             if found_text:
                 break
     if found_text:
-        if _is_saucedemo(base_url):
+        if prof and prof.inject_demo_credentials:
             _login_texts = {"accepted usernames", "password", "login"}
             _is_login_text = any(t in found_text.lower() for t in _login_texts)
             if not _is_login_text:
+                uv = _semantic_selector_variants(base_url, "input", "username")
+                pv = _semantic_selector_variants(base_url, "input", "password")
+                bv = _semantic_selector_variants(base_url, "button", "login")
+                u_pri = build_semantic_target("input", "username", base_url)["primary"]
+                p_pri = build_semantic_target("input", "password", base_url)["primary"]
+                b_pri = build_semantic_target("button", "login", base_url)["primary"]
                 _has_login = (
-                    any(s.get("action") == "fill" and s.get("selector") == "#user-name" for s in steps)
-                    and any(s.get("action") == "fill" and s.get("selector") == "#password" for s in steps)
-                    and any(s.get("action") == "click" and s.get("selector") == "#login-button" for s in steps)
+                    any(s.get("action") == "fill" and str(s.get("selector") or "") in uv for s in steps)
+                    and any(s.get("action") == "fill" and str(s.get("selector") or "") in pv for s in steps)
+                    and any(s.get("action") == "click" and str(s.get("selector") or "") in bv for s in steps)
                 )
                 if not _has_login:
                     steps.extend([
-                        {"action": "fill", "selector": "#user-name", "target": build_semantic_target("input", "username", base_url), "value": "standard_user"},
-                        {"action": "fill", "selector": "#password", "target": build_semantic_target("input", "password", base_url), "value": "secret_sauce"},
-                        {"action": "click", "selector": "#login-button", "target": build_semantic_target("button", "login", base_url)},
+                        {"action": "fill", "selector": u_pri, "target": build_semantic_target("input", "username", base_url), "value": prof.demo_username},
+                        {"action": "fill", "selector": p_pri, "target": build_semantic_target("input", "password", base_url), "value": prof.demo_password},
+                        {"action": "click", "selector": b_pri, "target": build_semantic_target("button", "login", base_url)},
                     ])
         steps.append({"action": "wait_ms", "ms": 300})
         steps.append({"action": "assert_text_contains", "selector": "body", "text": found_text})

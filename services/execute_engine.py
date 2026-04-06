@@ -329,6 +329,12 @@ def handle_execute_mode(
             **_confidence("execute", prompt, base_url),
         }
 
+    # Site-specific LLM hints (registered profiles) — keep generic prompt until base_url is known
+    if messages and (messages[0].get("role") or "").strip() == "system":
+        from core.prompts import build_execute_system_prompt
+
+        messages[0] = {**messages[0], "content": build_execute_system_prompt(base_url=base_url)}
+
     # 1) Compilación determinística (login resolver + parser)
     try:
         steps = compile_steps_from_prompt(prompt, base_url)

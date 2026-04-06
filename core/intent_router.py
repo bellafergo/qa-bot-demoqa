@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import re
 
+from core.site_profiles import collect_intent_markers_from_profiles
+
 # --- URL detector (más robusto que "http" in text) ---
 _URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 
@@ -15,9 +17,7 @@ _PURCHASE_TOKEN_RE = re.compile(rf"(^|\W){_PURCHASE_TOKEN}(\W|$)", re.IGNORECASE
 _SITE_MARKERS = [
     # e-commerce targets
     "heb", "h-e-b", "heb.com.mx", "heb mexico",
-    # demo / test sites
-    "saucedemo", "saucedemo.com",
-    # puedes agregar más: "walmart", "amazon", etc.
+    *collect_intent_markers_from_profiles(),
 ]
 
 

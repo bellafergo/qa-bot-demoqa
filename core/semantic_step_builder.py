@@ -12,7 +12,7 @@ Supported kinds:  "input", "button", "text"
 Supported names (MVP): "username", "password", "login", "error"
 
 Resolution priority:
-  1. site_override   — site-specific primary selector (e.g. SauceDemo #user-name)
+  1. site_profile    — registered demo/customer profile (see core/site_profiles.py)
   2. well_known      — generic form patterns via selector_resolver
   3. minimal_fallback — [name=X] with no fallbacks (confidence=low → caller warned)
 """
@@ -22,6 +22,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from core.selector_resolver import build_well_known_form_target
+from core.site_profiles import semantic_override_for_url
 
 logger = logging.getLogger("vanya.semantic_step_builder")
 
@@ -31,49 +32,6 @@ _KIND_ACTION: Dict[str, str] = {
     "button": "click",
     "text":   "assert_visible",
 }
-
-# ── Site-specific overrides ───────────────────────────────────────────────────
-# Key: (domain_fragment, kind, name)
-# Value: partial target dict (primary + fallbacks) — confidence always "high"
-_SITE_OVERRIDES: Dict[tuple, Dict[str, Any]] = {
-    # SauceDemo uses non-standard id "user-name" (with hyphen)
-    ("saucedemo.com", "input", "username"): {
-        "primary": "#user-name",
-        "fallbacks": [
-            {"type": "css",         "value": "input[name='user-name']"},
-            {"type": "css",         "value": "input[data-test='username']"},
-            {"type": "name",        "value": "user-name"},
-            {"type": "placeholder", "value": "Username"},
-            {"type": "label",       "value": "Username"},
-        ],
-    },
-    ("saucedemo.com", "input", "password"): {
-        "primary": "#password",
-        "fallbacks": [
-            {"type": "css",         "value": "input[name='password']"},
-            {"type": "css",         "value": "input[type='password']"},
-            {"type": "placeholder", "value": "Password"},
-            {"type": "label",       "value": "Password"},
-        ],
-    },
-    ("saucedemo.com", "button", "login"): {
-        "primary": "#login-button",
-        "fallbacks": [
-            {"type": "css",  "value": "button[type='submit']"},
-            {"type": "css",  "value": "input[type='submit']"},
-            {"type": "text", "value": "Login"},
-            {"type": "role", "value": {"role": "button", "name": "Login"}},
-        ],
-    },
-    ("saucedemo.com", "text", "error"): {
-        "primary": "[data-test='error']",
-        "fallbacks": [
-            {"type": "css", "value": ".error-message-container"},
-            {"type": "css", "value": "[data-testid='error']"},
-        ],
-    },
-}
-
 
 def build_semantic_target(
     kind: str,
@@ -95,18 +53,17 @@ def build_semantic_target(
     """
     kind = (kind or "").strip().lower()
     name = (name or "").strip().lower()
-    domain = (context_url or "").lower()
 
-    # 1. Site-specific override — highest confidence
-    for (site, ok, on), spec in _SITE_OVERRIDES.items():
-        if site in domain and ok == kind and on == name:
-            return {
-                **spec,
-                "kind": kind,
-                "name": name,
-                "confidence": "high",
-                "resolved_by": "semantic_step_builder.site_override",
-            }
+    # 1. Registered site profile (demo or customer)
+    spec = semantic_override_for_url(context_url, kind, name)
+    if spec:
+        return {
+            **spec,
+            "kind": kind,
+            "name": name,
+            "confidence": "high",
+            "resolved_by": "semantic_step_builder.site_profile",
+        }
 
     # 2. Generic well-known form target (selector_resolver)
     action = _KIND_ACTION.get(kind, "fill")

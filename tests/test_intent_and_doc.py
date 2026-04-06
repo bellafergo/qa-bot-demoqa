@@ -35,11 +35,11 @@ def test_intent_doc_artifact():
     assert intent == "doc"
 
 
-def test_intent_advise_invest():
+def test_intent_doc_when_invest_keyword():
     prompt = 'Analiza esta historia con INVEST, riesgos y preguntas: "Como cliente quiero guardar productos en wishlist para revisarlos después"'
     intent = _detect_intent(prompt)
-    # advise se mapea desde "chat"
-    assert intent == "chat"
+    # "invest" está en doc_kw de chat_service → modo DOC (artefacto), no chat genérico
+    assert intent == "doc"
 
 
 # ============================================================

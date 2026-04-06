@@ -1,6 +1,8 @@
 # core/prompts.py
 from __future__ import annotations
 
+from typing import Optional
+
 # ============================================================
 # ADVISE (default mode)
 # ============================================================
@@ -250,38 +252,6 @@ ASSERTIONS (RESULT)
 - For SUCCESS login: expected="pass" and assert success condition.
 - For FAILED login/negative: expected="fail" and assert the error is visible.
 
-SAUCEDEMO RULE OVERRIDE
-When domain includes "saucedemo.com", ALWAYS use these stable selectors:
-
-LOGIN:
-- username field:       #user-name
-- password field:       #password
-- login button:         #login-button
-- login error:          [data-test="error"]
-- login success:        .inventory_list
-
-ADD TO CART (CRITICAL — "Add to cart" appears multiple times; NEVER use text alone):
-- Sauce Labs Backpack:  [data-test="add-to-cart-sauce-labs-backpack"]
-- Sauce Labs Bike Light: [data-test="add-to-cart-sauce-labs-bike-light"]
-- Sauce Labs Bolt T-Shirt: [data-test="add-to-cart-sauce-labs-bolt-t-shirt"]
-- Sauce Labs Fleece Jacket: [data-test="add-to-cart-sauce-labs-fleece-jacket"]
-- Generic add-to-cart (last resort): .btn_inventory  (only when product is unambiguous)
-- NEVER use get_by_text("Add to cart") when multiple products exist.
-
-CART / NAVIGATION:
-- Cart icon:            .shopping_cart_link
-- Cart badge (count):   .shopping_cart_badge
-
-CHECKOUT FLOW:
-- Checkout button (cart page):  [data-test="checkout"]
-- First name field:             [data-test="firstName"]
-- Last name field:              [data-test="lastName"]
-- Postal code field:            [data-test="postalCode"]
-- Continue button:              [data-test="continue"]
-- Finish button:                [data-test="finish"]
-- Checkout summary container:   .checkout_summary_container
-- Order complete message:       .complete-header or [data-test="complete-header"]
-
 OUTPUT FORMAT (TOOL-CALL)
 - Return a single tool-call run_qa_test with:
   {
@@ -292,6 +262,19 @@ OUTPUT FORMAT (TOOL-CALL)
     "expected": "pass|fail"
   }
 """
+
+
+def build_execute_system_prompt(base_url: Optional[str] = None) -> str:
+    """
+    EXECUTE system prompt: generic core plus optional site appendix from
+    core/site_profiles.py when base_url matches a registered profile.
+    """
+    from core.site_profiles import profile_llm_appendix
+
+    extra = profile_llm_appendix(base_url)
+    if extra:
+        return SYSTEM_PROMPT_EXECUTE + "\n\n" + extra
+    return SYSTEM_PROMPT_EXECUTE
 
 
 # ============================================================
@@ -359,7 +342,7 @@ def language_style_header(lang: str, *, introduced: bool = False, mode: str = "a
 def pick_system_prompt(mode: str, lang: str = "es", introduce: bool = False) -> str:
     m = (mode or "").lower().strip()
 
-    # EXECUTE nunca lleva header
+    # EXECUTE nunca lleva header (site-specific rules added in execute_engine once base_url is known)
     if m == "execute":
         return SYSTEM_PROMPT_EXECUTE
 
