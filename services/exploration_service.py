@@ -25,6 +25,7 @@ from collections import deque
 from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import urljoin, urlparse
 
+from core.target_url_validation import TargetURLNotAllowed, validate_target_url
 from models.exploration_models import (
     DiscoveredAction,
     DiscoveredFlow,
@@ -278,6 +279,14 @@ class ExplorationService:
         """
         notes: List[str] = []
         try:
+            validate_target_url(req.start_url)
+        except TargetURLNotAllowed:
+            return ExplorationResult(
+                start_url=req.start_url,
+                notes=["Target URL not allowed"],
+            )
+
+        try:
             from playwright.sync_api import sync_playwright  # noqa
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
@@ -356,7 +365,11 @@ class ExplorationService:
                     if req.include_external_links or _same_domain(
                         href, req.start_url, req.allowed_domain
                     ):
-                        queue.append((href, depth + 1))
+                        try:
+                            safe_href = validate_target_url(href)
+                        except TargetURLNotAllowed:
+                            continue
+                        queue.append((safe_href, depth + 1))
 
         return pages
 
@@ -369,6 +382,12 @@ class ExplorationService:
         notes:   List[str],
     ) -> Optional[PageData]:
         """Navigate to a URL and capture page data."""
+        try:
+            url = validate_target_url(url)
+        except TargetURLNotAllowed:
+            notes.append("Target URL not allowed")
+            return None
+
         try:
             page = browser.new_page()
             try:

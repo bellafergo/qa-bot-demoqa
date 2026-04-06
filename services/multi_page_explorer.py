@@ -28,6 +28,7 @@ from urllib.parse import urljoin, urlparse, urlunparse
 
 # Import at module level so tests can patch services.multi_page_explorer.explore_page.
 # Playwright is only invoked when explore_page() is actually called — no I/O at import time.
+from core.target_url_validation import TargetURLNotAllowed, validate_target_url
 from services.application_explorer import explore_page  # noqa: E402
 
 
@@ -147,7 +148,17 @@ def explore_app(start_url: str, max_pages: int = 5) -> Dict[str, Any]:
             "errors":        [{"url": ..., "error": ...}, ...],
         }
     """
-    start = normalize_url(start_url)
+    try:
+        vstart = validate_target_url(start_url)
+    except TargetURLNotAllowed as exc:
+        return {
+            "start_url":     start_url,
+            "visited_count": 0,
+            "pages":         [],
+            "errors":        [{"url": start_url, "error": str(exc)}],
+        }
+
+    start = normalize_url(vstart)
     if not start:
         return {
             "start_url":     start_url,

@@ -15,7 +15,6 @@ import logging
 import os
 import threading
 from typing import Any, Dict, FrozenSet, Optional, Tuple
-from urllib.parse import urlparse
 
 logger = logging.getLogger("vanya.auth")
 
@@ -82,64 +81,12 @@ def auth_enforcement_enabled() -> bool:
     """
     raw = os.getenv("VANYA_AUTH_ENABLED")
     enabled = str(raw or "").strip().lower()
-    print("AUTH ENABLED RAW:", repr(_AUTH_ENABLED_RAW))
-    print("AUTH ENABLED NORMALIZED:", enabled)
     supabase_url = os.getenv("SUPABASE_URL")
-    print("SUPABASE_URL SNAPSHOT:", repr(_SUPABASE_URL))
-    print("SUPABASE_URL GETENV:", repr(supabase_url))
     if enabled in ("0", "false", "no", "off"):
         return False
     if enabled in ("1", "true", "yes", "on"):
         return bool(str(supabase_url or "").strip())
     return False
-
-
-def debug_auth_state_endpoint_allowed() -> bool:
-    """
-    TEMP: gate GET /debug/auth-state. Open in dev-style deploys, or when
-    VANYA_DEBUG_AUTH_STATE=1 (temporary prod diagnostics).
-    """
-    if docs_allowed_in_this_deployment():
-        return True
-    flag = str(os.getenv("VANYA_DEBUG_AUTH_STATE") or "").strip().lower()
-    return flag in ("1", "true", "yes", "on")
-
-
-def _supabase_url_host_hint(url: str) -> Optional[str]:
-    u = (url or "").strip()
-    if not u:
-        return None
-    try:
-        h = urlparse(u).hostname
-        return (h[:120] if h else None) or None
-    except Exception:
-        return None
-
-
-def debug_auth_state_public_dict() -> Dict[str, Any]:
-    """TEMP: safe JSON for GET /debug/auth-state (no secret values)."""
-    raw_auth = os.getenv("VANYA_AUTH_ENABLED")
-    enabled_norm = str(raw_auth or "").strip().lower()
-    getenv_url = os.getenv("SUPABASE_URL")
-    return {
-        "path_public_example_tests": is_public_path("/tests"),
-        "auth_enabled_raw_snapshot": _AUTH_ENABLED_RAW,
-        "auth_enabled_getenv": raw_auth,
-        "auth_enabled_normalized": enabled_norm,
-        "supabase_url_snapshot_present": bool(str(_SUPABASE_URL or "").strip()),
-        "supabase_url_getenv_present": bool(str(getenv_url or "").strip()),
-        "supabase_url_snapshot_host": _supabase_url_host_hint(_SUPABASE_URL),
-        "supabase_url_getenv_host": _supabase_url_host_hint(str(getenv_url or "")),
-        "auth_enforcement_enabled_result": auth_enforcement_enabled(),
-        "docs_allowed_in_this_deployment": docs_allowed_in_this_deployment(),
-        "current_process_pid": os.getpid(),
-        "secrets_configured": {
-            "openai_api_key": bool(str(os.getenv("OPENAI_API_KEY") or "").strip()),
-            "github_token": bool(str(os.getenv("GITHUB_TOKEN") or "").strip()),
-            "vanya_service_token": bool(_SERVICE_TOKEN),
-            "supabase_service_role_key": bool(str(os.getenv("SUPABASE_SERVICE_ROLE_KEY") or "").strip()),
-        },
-    }
 
 
 def allowed_email_domains() -> FrozenSet[str]:
@@ -178,8 +125,7 @@ PUBLIC_PATH_PREFIXES: Tuple[str, ...] = (
     "/favicon.ico",
 )
 
-# TEMP: allow unauthenticated access so /debug/auth-state is reachable when JWT enforcement is on.
-PUBLIC_PATHS_EXACT: FrozenSet[str] = frozenset({"/debug/auth-state", "/debug/build-info"})
+PUBLIC_PATHS_EXACT: FrozenSet[str] = frozenset()
 
 
 def is_public_path(path: str) -> bool:

@@ -16,6 +16,11 @@ from runner import execute_test
 
 from core.redaction import redact_secrets, redact_steps
 from core.step_compiler import compile_steps_from_prompt, ensure_has_assert
+from core.target_url_validation import (
+    TargetURLNotAllowed,
+    validate_steps_navigation_urls,
+    validate_target_url,
+)
 from core.step_validator import validate_steps
 from core.step_normalizer import normalize_steps_to_target as _normalize_steps_to_target
 from core.nl_selector_inference import enrich_nl_steps_from_prompt
@@ -300,8 +305,55 @@ def handle_execute_mode(
             **_confidence("execute", prompt, None),
         }
 
+    try:
+        validate_target_url(base_url)
+    except TargetURLNotAllowed:
+        answer = (
+            "La URL base no está permitida por políticas de seguridad (SSRF). "
+            "Indica solo http(s) hacia un host público permitido."
+        )
+        store.add_message(
+            thread_id,
+            "assistant",
+            answer,
+            meta={"mode": "execute", "persona": persona, "error": "target_url_not_allowed"},
+        )
+        return {
+            "mode": "execute",
+            "persona": persona,
+            "session_id": session_id,
+            "thread_id": thread_id,
+            "answer": answer,
+            "correlation_id": correlation_id,
+            "steps_count": 0,
+            **_confidence("execute", prompt, base_url),
+        }
+
     # 1) Compilación determinística (login resolver + parser)
-    steps = compile_steps_from_prompt(prompt, base_url)
+    try:
+        steps = compile_steps_from_prompt(prompt, base_url)
+    except TargetURLNotAllowed:
+        answer = (
+            "La URL de destino no está permitida por políticas de seguridad (SSRF). "
+            "Usa solo http(s) hacia hosts públicos permitidos para esta instancia."
+        )
+        store.add_message(
+            thread_id,
+            "assistant",
+            answer,
+            meta={"mode": "execute", "persona": persona, "base_url": base_url, "error": "target_url_not_allowed"},
+        )
+        return {
+            "mode": "execute",
+            "persona": persona,
+            "session_id": session_id,
+            "thread_id": thread_id,
+            "answer": answer,
+            "correlation_id": correlation_id,
+            "steps_count": 0,
+            **_confidence("execute", prompt, base_url),
+        }
+
     if steps:
         logger.info("Step compiler produced deterministic steps")
 
@@ -312,6 +364,31 @@ def handle_execute_mode(
             logger.info("Step LLM generator produced fallback steps")
 
     steps = enrich_nl_steps_from_prompt(prompt, steps)
+
+    if steps:
+        try:
+            validate_steps_navigation_urls(steps, base_url)
+        except TargetURLNotAllowed:
+            answer = (
+                "La URL de destino no está permitida por políticas de seguridad (SSRF). "
+                "Usa solo http(s) hacia hosts públicos permitidos para esta instancia."
+            )
+            store.add_message(
+                thread_id,
+                "assistant",
+                answer,
+                meta={"mode": "execute", "persona": persona, "base_url": base_url, "error": "target_url_not_allowed"},
+            )
+            return {
+                "mode": "execute",
+                "persona": persona,
+                "session_id": session_id,
+                "thread_id": thread_id,
+                "answer": answer,
+                "correlation_id": correlation_id,
+                "steps_count": 0,
+                **_confidence("execute", prompt, base_url),
+            }
 
     if not steps:
         # Conversational guidance instead of a rigid "tell me selector" checklist.

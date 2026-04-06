@@ -30,6 +30,7 @@ from core.semantic_intent_extractor import (
     extract_intent as _extract_semantic_intent,
     extract_action_intent as _extract_semantic_action,
 )
+from core.target_url_validation import TargetURLNotAllowed, validate_target_url
 
 
 class CompileError(Exception):
@@ -330,7 +331,18 @@ def compile_to_runner_steps(
         # Resolver {base_url} en goto
         if action == "goto":
             url = _resolve_url(step.get("url") or step.get("path"), resolved_base)
-            result.append({"action": "goto", "url": url or resolved_base})
+            final_u = url or resolved_base
+            if (final_u or "").strip():
+                try:
+                    final_u = validate_target_url(final_u, base_url=resolved_base or None)
+                except TargetURLNotAllowed as e:
+                    raise CompileError(
+                        str(e),
+                        step_index=i,
+                        action="goto",
+                        error_type="target_url_not_allowed",
+                    ) from e
+            result.append({"action": "goto", "url": final_u})
             continue
 
         if action in _PASSTHROUGH_ACTIONS:
@@ -713,10 +725,14 @@ def compile_steps_from_prompt(
     Retorna None si no puede deducir steps suficientes.
     """
     from core.login_intent_resolver import build_login_steps
+    from core.target_url_validation import validate_steps_navigation_urls
+
     steps = build_login_steps(base_url=base_url, prompt=prompt)
+    if not steps:
+        steps = _parse_steps_from_prompt(prompt, base_url)
     if steps:
-        return steps
-    return _parse_steps_from_prompt(prompt, base_url)
+        validate_steps_navigation_urls(steps, base_url)
+    return steps
 
 
 # Alias público para tests que necesitan el parser directo (sin login resolver)

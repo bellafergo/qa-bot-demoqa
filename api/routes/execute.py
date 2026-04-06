@@ -49,6 +49,12 @@ class ExecuteStepsRequest(BaseModel):
             raise ValueError(f"base_url exceeds maximum length of {_MAX_URL_LEN} characters")
         if not _URL_RE.match(v):
             raise ValueError("base_url must start with http:// or https://")
+        from core.target_url_validation import TargetURLNotAllowed, validate_target_url
+
+        try:
+            validate_target_url(v)
+        except TargetURLNotAllowed:
+            raise ValueError("Target URL not allowed") from None
         return v
 
     @field_validator("timeout_s")

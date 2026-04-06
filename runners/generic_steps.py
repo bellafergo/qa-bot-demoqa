@@ -32,6 +32,7 @@ from services.failure_classifier import classify_failure
 from services.memory_store import save_memory, load_memory  # ✅ fix real
 
 from core.settings import settings
+from core.target_url_validation import TargetURLNotAllowed, validate_steps_navigation_urls
 from core.dom_analyzer import extract_dom_inventory
 from core.selector_resolver import (
     resolve_intent,
@@ -134,6 +135,31 @@ def execute_test(
             "meta": {
                 "headless": headless,
                 "steps_count": 0,
+                "base_url": base_url,
+                "timeout_ms": None,
+            },
+            "resolution_log": [],
+            "failure_context": None,
+            "page_context": None,
+        }
+
+    try:
+        validate_steps_navigation_urls(steps, base_url)
+    except TargetURLNotAllowed as e:
+        return {
+            "ok": False,
+            "status": "failed",
+            "expected": "pass",
+            "outcome": "fail",
+            "reason": str(e),
+            "evidence_id": evidence_id,
+            "steps": [],
+            "logs": [f"Runner error: {e}"],
+            "screenshot_b64": None,
+            "duration_ms": int((time.time() - t0) * 1000),
+            "meta": {
+                "headless": headless,
+                "steps_count": len(steps),
                 "base_url": base_url,
                 "timeout_ms": None,
             },

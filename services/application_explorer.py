@@ -73,6 +73,10 @@ def explore_page(url: str) -> Dict[str, Any]:
     Requires playwright to be installed (`pip install playwright` +
     `playwright install chromium`).
     """
+    from core.target_url_validation import validate_target_url
+
+    url = validate_target_url(url)
+
     from playwright.sync_api import sync_playwright  # lazy import — not required for pure usage
 
     with sync_playwright() as p:
