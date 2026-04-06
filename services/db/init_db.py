@@ -60,6 +60,35 @@ def init_catalog_db() -> None:
     except Exception:
         logger.exception("db: migration for project_id failed (non-fatal)")
 
+    # ── test_cases.created_from / source_run_id (persist tests from runs) ─────
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(test_cases)"))
+            existing_cols = {row[1] for row in result.fetchall()}
+            if "created_from" not in existing_cols:
+                conn.execute(text("ALTER TABLE test_cases ADD COLUMN created_from TEXT"))
+                logger.info("db: migrated test_cases — added created_from column")
+            if "source_run_id" not in existing_cols:
+                conn.execute(text("ALTER TABLE test_cases ADD COLUMN source_run_id TEXT"))
+                logger.info("db: migrated test_cases — added source_run_id column")
+            conn.commit()
+    except Exception:
+        logger.exception("db: migration for created_from/source_run_id failed (non-fatal)")
+
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_test_cases_source_run_id "
+                    "ON test_cases(source_run_id) WHERE source_run_id IS NOT NULL"
+                )
+            )
+            conn.commit()
+    except Exception:
+        logger.exception("db: unique index uq_test_cases_source_run_id failed (non-fatal)")
+
     # ── orchestrator_jobs: parallel-execution block columns ───────────────────
     try:
         from sqlalchemy import text

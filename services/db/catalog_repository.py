@@ -32,6 +32,8 @@ class TestCaseRow(Base):
     project_id    = Column(String,  default="default", index=True)
     version       = Column(Integer, default=1)
     tags_json     = Column(Text,    default="[]")
+    created_from  = Column(String)   # "run" when persisted from an execution run
+    source_run_id = Column(String, index=True)  # evidence_id or run_id — dedupe key
     base_url      = Column(String)
     steps_json      = Column(Text, nullable=False, default="[]")
     assertions_json = Column(Text, nullable=False, default="[]")
@@ -66,6 +68,8 @@ def _row_to_model(row: TestCaseRow):
         assertions   = [TestAssertion(**a) for a in assertions_data],
         created_at   = row.created_at,
         updated_at   = row.updated_at,
+        created_from = getattr(row, "created_from", None) or None,
+        source_run_id = getattr(row, "source_run_id", None) or None,
     )
 
 
@@ -86,6 +90,8 @@ def _model_to_row(tc) -> Dict[str, Any]:
         project_id      = getattr(tc, "project_id", None) or "default",
         version         = tc.version,
         tags_json       = json.dumps(tc.tags),
+        created_from    = getattr(tc, "created_from", None),
+        source_run_id   = getattr(tc, "source_run_id", None),
         base_url        = tc.base_url,
         steps_json      = json.dumps(steps_data),
         assertions_json = json.dumps(assertions_data),
@@ -105,6 +111,20 @@ class CatalogRepository:
     def get_test_case(self, test_case_id: str):
         with get_session() as s:
             row = s.query(TestCaseRow).filter_by(test_case_id=test_case_id).first()
+            if row is None:
+                return None
+            return _row_to_model(row)
+
+    def get_test_case_by_source_run_id(self, source_run_id: str):
+        sid = (source_run_id or "").strip()
+        if not sid:
+            return None
+        with get_session() as s:
+            row = (
+                s.query(TestCaseRow)
+                .filter(TestCaseRow.source_run_id == sid)
+                .first()
+            )
             if row is None:
                 return None
             return _row_to_model(row)

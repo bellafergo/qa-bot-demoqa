@@ -13,6 +13,7 @@ import {
 import Sidebar from "../components/Sidebar";
 import Chat from "../chat";
 import { useLang } from "../i18n/LangContext";
+import { useProject } from "../context/ProjectContext.jsx";
 
 // ---- API guardrails ----
 const safeFn = (fn, name) => {
@@ -43,6 +44,7 @@ const shortId = (id) => (id ? `${String(id).slice(0, 8)}…` : "");
 
 export default function ChatPage() {
   const { t } = useLang();
+  const { currentProject } = useProject();
   const [messages, setMessages] = useState([]);
   const [input, setInput]       = useState("");
   const [uiError, setUiError]   = useState("");
@@ -328,6 +330,7 @@ export default function ChatPage() {
             threadId={threadId}
             formatText={formatText}
             chatEndRef={chatEndRef}
+            projectId={currentProject?.id || "default"}
           />
         </div>
       </div>

@@ -112,6 +112,9 @@ class TestCase(BaseModel):
     # Lifecycle management (Block 16) — optional, defaults preserve backward compat
     lifecycle_state: LifecycleState        = LifecycleState.active
     version_history: List[TestCaseVersionInfo] = Field(default_factory=list)
+    # Provenance when a catalog test was created from an executed run (POST /tests/from-run)
+    created_from:   Optional[Literal["run"]] = None
+    source_run_id:  Optional[str] = None
 
     model_config = {"extra": "ignore"}
 

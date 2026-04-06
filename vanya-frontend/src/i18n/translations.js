@@ -1238,6 +1238,13 @@ export const translations = {
     "planner.run.duration":      "Duration",
     "planner.run.view":          "View ↗",
 
+    "catalog.from_run.save_btn":    "Save to catalog",
+    "catalog.from_run.saving":      "Saving…",
+    "catalog.from_run.prompt_name": "Name for the catalog test",
+    "catalog.from_run.name_required": "Enter a test name.",
+    "catalog.from_run.success":     "Saved to catalog.",
+    "catalog.from_run.open_catalog": "Open catalog",
+
     // ── Documents page ───────────────────────────────────────────────────────
     "docs.title":                "Documents",
     "docs.subtitle":             "Upload PDF, TXT, or DOCX files as RAG context for chat conversations",
@@ -2549,6 +2556,13 @@ export const translations = {
     "planner.run.evidence":      "Evidencia",
     "planner.run.duration":      "Duración",
     "planner.run.view":          "Ver ↗",
+
+    "catalog.from_run.save_btn":    "Guardar en catálogo",
+    "catalog.from_run.saving":      "Guardando…",
+    "catalog.from_run.prompt_name": "Nombre del test en el catálogo",
+    "catalog.from_run.name_required": "Indica un nombre para el test.",
+    "catalog.from_run.success":     "Guardado en el catálogo.",
+    "catalog.from_run.open_catalog": "Abrir catálogo",
 
     // ── Documents page ───────────────────────────────────────────────────────
     "docs.title":                "Documentos",

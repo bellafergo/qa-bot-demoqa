@@ -3,8 +3,11 @@
  * PlannerPage — Natural-language test generation and execution.
  * POST /plan_from_text  |  POST /execute_text
  */
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/LangContext";
+import { useProject } from "../context/ProjectContext.jsx";
+import { createTestFromRun, apiErrorMessage } from "../api";
 
 const API_BASE = (
   import.meta?.env?.VITE_API_BASE || "https://qa-bot-demoqa.onrender.com"
@@ -12,6 +15,10 @@ const API_BASE = (
 
 export default function PlannerPage({ embedded = false }) {
   const { t } = useLang();
+  const navigate = useNavigate();
+  const { currentProject } = useProject();
+  const [saveCatalogBusy, setSaveCatalogBusy] = useState(false);
+  const [saveCatalogOk, setSaveCatalogOk]     = useState(false);
   const [text, setText]       = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [appHint, setAppHint] = useState("");
@@ -22,6 +29,43 @@ export default function PlannerPage({ embedded = false }) {
   const [error, setError]     = useState("");
   const [loading, setLoading] = useState(false);
   const [mode, setMode]       = useState("plan"); // "plan" | "execute"
+
+  useEffect(() => {
+    if (!saveCatalogOk) return;
+    const id = setTimeout(() => setSaveCatalogOk(false), 5000);
+    return () => clearTimeout(id);
+  }, [saveCatalogOk]);
+
+  const handleSaveToCatalog = async () => {
+    if (!run) return;
+    const rid = run.evidence_id || run.run_id;
+    if (!rid) return;
+    const defaultName =
+      (plan?.title && String(plan.title).trim()) ||
+      (plan?.name && String(plan.name).trim()) ||
+      `Test ${String(rid).slice(0, 10)}`;
+    const name = window.prompt(t("catalog.from_run.prompt_name"), defaultName);
+    if (name == null) return;
+    const trimmed = String(name).trim();
+    if (!trimmed) {
+      window.alert(t("catalog.from_run.name_required"));
+      return;
+    }
+    setSaveCatalogBusy(true);
+    setSaveCatalogOk(false);
+    try {
+      await createTestFromRun({
+        run_id: rid,
+        name: trimmed,
+        project_id: (currentProject?.id || "default").trim() || "default",
+      });
+      setSaveCatalogOk(true);
+    } catch (e) {
+      window.alert(apiErrorMessage(e));
+    } finally {
+      setSaveCatalogBusy(false);
+    }
+  };
 
   const handlePlan = async () => {
     if (!text.trim()) return;
@@ -332,6 +376,28 @@ export default function PlannerPage({ embedded = false }) {
                 <span>{run.duration_ms}ms</span>
               </div>
             )}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", marginTop: 6 }}>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={saveCatalogBusy}
+                onClick={handleSaveToCatalog}
+              >
+                {saveCatalogBusy ? t("catalog.from_run.saving") : t("catalog.from_run.save_btn")}
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => navigate("/catalog")}
+              >
+                {t("catalog.from_run.open_catalog")}
+              </button>
+              {saveCatalogOk ? (
+                <span style={{ fontSize: 13, color: "var(--green-text)", fontWeight: 600 }}>
+                  {t("catalog.from_run.success")}
+                </span>
+              ) : null}
+            </div>
           </div>
         </div>
       )}

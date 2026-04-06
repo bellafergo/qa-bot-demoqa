@@ -153,6 +153,14 @@ export function listTests(params = {}) {
   return apiGet(`/tests${qs ? "?" + qs : ""}`);
 }
 export const getTest      = (tc_id)            => apiGet(`/tests/${tc_id}`);
+/** Persist a catalog test from an executed run (planner/chat/run_store). */
+export function createTestFromRun(body) {
+  return apiPost("/tests/from-run", {
+    run_id: body.run_id,
+    name: body.name,
+    project_id: body.project_id,
+  });
+}
 export const previewAutoFix = (body)           => apiPost("/tests/auto-fix-preview", body);
 export const runTest      = (tc_id, body = {}) => apiPost(`/tests/${tc_id}/run`, body);
 export const runSuite     = (body)             => apiPost("/tests/run-suite", body);

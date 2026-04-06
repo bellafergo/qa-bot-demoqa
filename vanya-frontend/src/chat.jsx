@@ -1,7 +1,8 @@
 // vanya-frontend/src/chat.jsx
-import React, { useMemo, useCallback, useState } from "react";
+import React, { useMemo, useCallback, useState, useEffect } from "react";
 import DocArtifactTabs from "./components/DocArtifactTabs";
 import { useLang } from "./i18n/LangContext";
+import { createTestFromRun, apiErrorMessage } from "./api";
 
 const getRunnerContract = (m) => {
   const meta = getMeta(m);
@@ -293,6 +294,7 @@ export default function Chat(props) {
     threadId = null,
     formatText = (fmt) => (typeof fmt === "string" ? fmt : ""),
     chatEndRef = null,
+    projectId = "default",
   } = props || {};
 
   const safeMessages = useMemo(() => (Array.isArray(messages) ? messages : []), [messages]);
@@ -412,7 +414,7 @@ export default function Chat(props) {
           {showReport ? <ReportBlock reportUrl={reportUrl} /> : null}
 
           {/* Debug */}
-          {showRunDebug ? <RunDebugBlock runner={runner} /> : null}
+          {showRunDebug ? <RunDebugBlock runner={runner} projectId={projectId} /> : null}
         </div>
       </div>
     );
@@ -560,12 +562,48 @@ function EvidenceBlock({ evidenceUrl }) {
   );
 }
 
-function RunDebugBlock({ runner }) {
+function RunDebugBlock({ runner, projectId = "default" }) {
   const { t } = useLang();
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [saveOk, setSaveOk] = useState(false);
+
+  useEffect(() => {
+    if (!saveOk) return;
+    const id = setTimeout(() => setSaveOk(false), 5000);
+    return () => clearTimeout(id);
+  }, [saveOk]);
+
   if (!runner || typeof runner !== "object") return null;
 
   const steps = Array.isArray(runner.steps) ? runner.steps : [];
   const logs = Array.isArray(runner.logs) ? runner.logs : [];
+  const runIdForCatalog = runner.evidence_id || runner.run_id;
+
+  const saveToCatalog = async () => {
+    if (!runIdForCatalog) return;
+    const defaultName = `Chat ${String(runIdForCatalog).slice(0, 12)}`;
+    const name = window.prompt(t("catalog.from_run.prompt_name"), defaultName);
+    if (name == null) return;
+    const trimmed = String(name).trim();
+    if (!trimmed) {
+      window.alert(t("catalog.from_run.name_required"));
+      return;
+    }
+    setSaveBusy(true);
+    setSaveOk(false);
+    try {
+      await createTestFromRun({
+        run_id: runIdForCatalog,
+        name: trimmed,
+        project_id: String(projectId || "default").trim() || "default",
+      });
+      setSaveOk(true);
+    } catch (e) {
+      window.alert(apiErrorMessage(e));
+    } finally {
+      setSaveBusy(false);
+    }
+  };
 
   const copyJson = async () => {
     try {
@@ -601,6 +639,32 @@ function RunDebugBlock({ runner }) {
             >
               Copy JSON
             </button>
+
+            {runIdForCatalog ? (
+              <button
+                type="button"
+                onClick={saveToCatalog}
+                disabled={saveBusy}
+                style={{
+                  padding: "5px 10px",
+                  borderRadius: 6,
+                  border: "1px solid var(--accent-border)",
+                  background: "var(--accent-light)",
+                  color: "var(--accent)",
+                  cursor: saveBusy ? "wait" : "pointer",
+                  fontWeight: 600,
+                  fontSize: 12,
+                  fontFamily: "inherit",
+                }}
+              >
+                {saveBusy ? t("catalog.from_run.saving") : t("catalog.from_run.save_btn")}
+              </button>
+            ) : null}
+            {saveOk ? (
+              <span style={{ fontSize: 12, color: "var(--green-text)", fontWeight: 600 }}>
+                {t("catalog.from_run.success")}
+              </span>
+            ) : null}
 
             {runner?.evidence_id && <span style={{ fontSize: 11, color: "var(--text-3)", fontFamily: "monospace" }}>id: {runner.evidence_id}</span>}
             {runner?.status     && <span style={{ fontSize: 11, color: "var(--text-3)" }}>status: {String(runner.status)}</span>}

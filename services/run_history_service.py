@@ -118,6 +118,31 @@ class RunHistoryService:
             return None
         return run_from_catalog_testrun(run)
 
+    def get_run_unified(self, run_id: str) -> Optional[CanonicalRun]:
+        """
+        Resolve a run from SQLite history first, then the in-memory run_store
+        (evidence_id or alternate run_id index). Used to persist catalog tests
+        from planner/chat/execute flows that may only exist in run_store.
+        """
+        from services.run_mapper import normalize_run
+        from services.run_store import get_run, get_run_by_id
+
+        rid = (run_id or "").strip()
+        if not rid:
+            return None
+        cr = self.get_run(rid)
+        if cr is not None:
+            return cr
+        raw = get_run(rid) or get_run_by_id(rid)
+        if raw is None:
+            logger.debug("run_history_service: unified run_id %r not found", run_id)
+            return None
+        try:
+            return normalize_run(raw)
+        except Exception:
+            logger.exception("run_history_service: normalize_run failed for %r", run_id)
+            return None
+
     # ── Aggregate read helpers (delegated from existing services) ─────────────
 
     def count_by_status(self) -> dict:

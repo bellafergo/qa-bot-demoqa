@@ -139,6 +139,52 @@ def create_test_case(payload: TestCaseCreate):
         raise HTTPException(status_code=409, detail=str(e))
 
 
+class CreateTestFromRunRequest(BaseModel):
+    run_id:     str = Field(..., min_length=1)
+    name:       str = Field(..., min_length=1)
+    project_id: str = Field(..., min_length=1)
+
+
+@router.post("/from-run", response_model=TestCase, status_code=201)
+def create_test_from_run(body: CreateTestFromRunRequest):
+    """
+    Create a catalog test from a completed execution run (history or in-memory run_store).
+
+    `run_id` may be a SQLite test_runs.run_id or an evidence_id from planner/chat execute.
+    """
+    try:
+        return catalog_service.create_test_from_run(
+            run_id=body.run_id.strip(),
+            name=body.name.strip(),
+            project_id=body.project_id.strip(),
+        )
+    except ValueError as e:
+        msg = str(e)
+        if msg == "NAME_REQUIRED":
+            raise HTTPException(status_code=400, detail="name is required")
+        if msg == "RUN_ID_REQUIRED":
+            raise HTTPException(status_code=400, detail="run_id is required")
+        if msg == "RUN_NOT_FOUND":
+            raise HTTPException(status_code=404, detail="Run not found")
+        if msg == "RUN_HAS_NO_STEPS":
+            raise HTTPException(status_code=400, detail="Run has no steps to save")
+        if msg == "NO_STEPS_NORMALIZED":
+            raise HTTPException(
+                status_code=400,
+                detail="Could not normalize run steps into catalog format",
+            )
+        if msg.startswith("DUPLICATE_SOURCE_RUN:"):
+            existing_id = msg.split(":", 1)[1]
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"A catalog test already exists for this run "
+                    f"(test_case_id={existing_id})"
+                ),
+            )
+        raise HTTPException(status_code=400, detail=msg)
+
+
 # ── Auto-fix preview (stateless) ─────────────────────────────────────────────
 
 class AutoFixPreviewRequest(BaseModel):

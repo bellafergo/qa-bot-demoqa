@@ -236,4 +236,14 @@ def execute_text_endpoint(req: ExecuteTextRequest, request: Request) -> Dict[str
         run,
         correlation_id=correlation_id,
     )
+    # Persist to run_store so POST /tests/from-run can resolve steps by evidence_id/run_id
+    try:
+        from services.run_store import save_run
+
+        payload = dict(run) if isinstance(run, dict) else {}
+        if payload.get("evidence_id"):
+            save_run(payload)
+    except Exception:
+        logger.warning("execute_text: save_run failed (non-fatal)", exc_info=True)
+
     return {"plan": plan, "run": run}

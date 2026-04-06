@@ -118,6 +118,78 @@ def _step_to_runner(step: Dict[str, Any]) -> Dict[str, Any]:
     return s
 
 
+def _runner_step_to_catalog_dict(step: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Map one runner / steps_result dict to a catalog TestStep-compatible dict."""
+    raw_action = (step.get("raw_action") or step.get("action") or "").strip().lower()
+    if not raw_action:
+        return None
+    action = _normalize_action(raw_action)
+    d: Dict[str, Any] = {"action": action}
+
+    if action == "goto":
+        url = step.get("url") or step.get("resolved_url") or step.get("value")
+        if url is not None:
+            d["url"] = str(url)
+        elif step.get("target"):
+            d["url"] = str(step["target"])
+    elif action in ("fill", "click", "press", "assert_visible", "assert_not_visible"):
+        sel = step.get("selector") or step.get("resolved_selector")
+        if sel:
+            d["selector"] = str(sel)
+        elif step.get("target"):
+            d["target"] = str(step["target"])
+        if action in ("fill", "press") and step.get("value") is not None:
+            d["value"] = str(step["value"])
+        if action == "click" and step.get("value") is not None:
+            d["value"] = str(step["value"])
+    elif action == "assert_text_contains":
+        if step.get("text"):
+            d["text"] = str(step["text"])
+        sel = step.get("selector") or step.get("resolved_selector") or "body"
+        d["selector"] = str(sel)
+    elif action == "assert_url_contains":
+        if step.get("value") is not None:
+            d["value"] = str(step["value"])
+        elif step.get("url"):
+            d["value"] = str(step["url"])
+    elif action == "wait_ms":
+        ms = step.get("ms")
+        if ms is None and step.get("value") is not None:
+            try:
+                ms = int(step["value"])
+            except (TypeError, ValueError):
+                ms = None
+        if ms is not None:
+            d["ms"] = int(ms)
+    else:
+        for key in ("selector", "url", "value", "text", "key", "target"):
+            if step.get(key) is not None and key not in d:
+                v = step[key]
+                if isinstance(v, (str, int, float, bool)):
+                    d[key] = v
+                else:
+                    d[key] = str(v)
+        ms = step.get("ms")
+        if ms is not None and "ms" not in d:
+            try:
+                d["ms"] = int(ms)
+            except (TypeError, ValueError):
+                pass
+    return d
+
+
+def runner_steps_to_catalog_steps(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Convert runner step_result list to catalog step dicts."""
+    out: List[Dict[str, Any]] = []
+    for raw in steps or []:
+        if not isinstance(raw, dict):
+            continue
+        conv = _runner_step_to_catalog_dict(raw)
+        if conv:
+            out.append(conv)
+    return out
+
+
 def _assertion_to_step(assertion: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Convert a TestCase assertion dict to a runner step dict."""
     atype  = _normalize_action(str(assertion.get("type") or ""))
@@ -313,6 +385,84 @@ class TestCatalogService:
         except Exception:
             logger.warning("test_catalog: failed to snapshot v1 for %s (non-fatal)", tc.test_case_id)
         logger.info("test_catalog: created %s — %s", tc.test_case_id, tc.name)
+        return tc
+
+    def create_test_from_run(self, run_id: str, name: str, project_id: str) -> TestCase:
+        """
+        Persist a new catalog test from an executed run (SQLite history or run_store).
+
+        Raises ValueError with code-like messages: NAME_REQUIRED, RUN_ID_REQUIRED,
+        RUN_NOT_FOUND, RUN_HAS_NO_STEPS, DUPLICATE_SOURCE_RUN:{id}, NO_STEPS_NORMALIZED.
+        """
+        from services.run_history_service import run_history_service
+
+        nm = (name or "").strip()
+        if not nm:
+            raise ValueError("NAME_REQUIRED")
+        pid = (project_id or "").strip() or "default"
+        rid_in = (run_id or "").strip()
+        if not rid_in:
+            raise ValueError("RUN_ID_REQUIRED")
+
+        canonical = run_history_service.get_run_unified(rid_in)
+        if canonical is None:
+            raise ValueError("RUN_NOT_FOUND")
+
+        steps_src = list(canonical.steps or [])
+        if not steps_src:
+            raise ValueError("RUN_HAS_NO_STEPS")
+
+        ev = (canonical.evidence_id or "").strip()
+        rn = (canonical.run_id or "").strip()
+        stable = ev or rn or rid_in
+
+        for key in {stable, rid_in}:
+            if not key:
+                continue
+            existing = catalog_repo.get_test_case_by_source_run_id(key)
+            if existing is not None:
+                raise ValueError(f"DUPLICATE_SOURCE_RUN:{existing.test_case_id}")
+
+        catalog_step_dicts = runner_steps_to_catalog_steps(steps_src)
+        if not catalog_step_dicts:
+            raise ValueError("NO_STEPS_NORMALIZED")
+
+        tc_id = f"TC-RUN-{uuid.uuid4().hex[:12]}"
+        while catalog_repo.get_test_case(tc_id) is not None:
+            tc_id = f"TC-RUN-{uuid.uuid4().hex[:12]}"
+
+        now = _now_utc()
+        tc = TestCase(
+            test_case_id=tc_id,
+            name=nm,
+            module="from_run",
+            type="functional",
+            priority="medium",
+            status="active",
+            test_type="ui",
+            project_id=pid,
+            version=1,
+            tags=["from-run"],
+            base_url=None,
+            steps=[TestStep(**s) for s in catalog_step_dicts],
+            assertions=[],
+            created_at=now,
+            updated_at=now,
+            created_from="run",
+            source_run_id=stable,
+        )
+        catalog_repo.create_test_case(tc)
+        try:
+            from services.db.test_version_repository import test_version_repo
+            test_version_repo.snapshot(
+                tc,
+                version_number=1,
+                source="from_run",
+                change_note="Saved from executed run",
+            )
+        except Exception:
+            logger.warning("test_catalog: failed to snapshot v1 for %s (from_run)", tc_id)
+        logger.info("test_catalog: created from run %s → %s", stable, tc_id)
         return tc
 
     def update_test_case(
