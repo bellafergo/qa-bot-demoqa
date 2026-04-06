@@ -2,6 +2,7 @@
 import React from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/LangContext";
+import { useAuth } from "../auth/AuthContext.jsx";
 import ProjectSwitcher from "./ProjectSwitcher";
 
 const NAV_SECTIONS_DEF = [
@@ -56,6 +57,7 @@ function NavItem({ to, icon, label }) {
 
 export default function NavSidebar() {
   const { lang, setLang, t } = useLang();
+  const { signOut, user } = useAuth();
   const navigate = useNavigate();
 
   return (
@@ -145,6 +147,19 @@ export default function NavSidebar() {
           ))}
         </div>
 
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          style={{ width: "calc(100% - 20px)", margin: "10px 10px 6px", justifyContent: "center" }}
+          onClick={() => signOut()}
+        >
+          {t("auth.logout")}
+        </button>
+        {user?.email ? (
+          <div style={{ padding: "0 12px 6px", fontSize: 10, color: "rgba(148, 163, 184, 0.55)", wordBreak: "break-all" }}>
+            {user.email}
+          </div>
+        ) : null}
         <div style={{ marginTop: 2, padding: "0 10px", fontSize: 10, color: "rgba(148, 163, 184, 0.4)" }}>
           v1.0 · QA Platform
         </div>

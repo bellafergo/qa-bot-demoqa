@@ -1,14 +1,50 @@
 // src/api.js
-const API_BASE =
+export const API_BASE =
   (import.meta.env.VITE_API_BASE_URL || "").trim() ||
   (import.meta.env.VITE_API_BASE || "").trim() ||
   "https://qa-bot-demoqa.onrender.com"; // fallback seguro
 
+let accessTokenGetter = () => null;
+let unauthorizedHandler = null;
+
+/** Register how to read the current Supabase access_token (e.g. () => session?.access_token ?? null). */
+export function setAccessTokenGetter(fn) {
+  accessTokenGetter = typeof fn === "function" ? fn : () => null;
+}
+
+/** Called on 401 after optional token was sent — e.g. signOut + redirect to login. */
+export function setUnauthorizedHandler(fn) {
+  unauthorizedHandler = typeof fn === "function" ? fn : null;
+}
+
+function mergeAuthHeaders(headersInit, body) {
+  const h = new Headers(headersInit || {});
+  const t = accessTokenGetter?.();
+  if (t) h.set("Authorization", `Bearer ${t}`);
+  if (body instanceof FormData) h.delete("Content-Type");
+  return h;
+}
+
+/**
+ * Low-level fetch to the API with Bearer token when available.
+ * On 401, invokes unauthorizedHandler (then caller still sees non-ok response).
+ */
+export async function apiFetch(path, options = {}) {
+  const { headers: ho, ...rest } = options;
+  const headers = mergeAuthHeaders(ho, rest.body);
+  const res = await fetch(`${API_BASE}${path}`, { ...rest, headers });
+  if (res.status === 401 && unauthorizedHandler && accessTokenGetter?.()) {
+    try {
+      unauthorizedHandler();
+    } catch {
+      /* ignore */
+    }
+  }
+  return res;
+}
+
 export async function apiGet(path) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: "GET",
-    headers: { "Content-Type": "application/json" },
-  });
+  const res = await apiFetch(path, { method: "GET", headers: { "Content-Type": "application/json" } });
   if (!res.ok) {
     const txt = await res.text();
     throw new Error(txt || res.statusText);
@@ -17,10 +53,7 @@ export async function apiGet(path) {
 }
 
 export async function apiDelete(path) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-  });
+  const res = await apiFetch(path, { method: "DELETE", headers: { "Content-Type": "application/json" } });
   if (!res.ok) {
     const txt = await res.text();
     throw new Error(txt || res.statusText);
@@ -35,7 +68,7 @@ export async function apiDelete(path) {
 }
 
 export async function apiPut(path, body) {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await apiFetch(path, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body || {}),
@@ -48,7 +81,7 @@ export async function apiPut(path, body) {
 }
 
 export async function apiPatch(path, body) {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await apiFetch(path, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body ?? {}),
@@ -80,7 +113,7 @@ export function apiErrorMessage(err) {
 }
 
 export async function apiPost(path, body) {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await apiFetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body || {}),
@@ -319,17 +352,14 @@ export const disableIntegration       = (id)        => apiPost(`/integrations/${
 export const updateIntegrationConfig  = (id, body)  => apiPost(`/integrations/${id}/config`,       body);
 export const getIntegrationActions    = (id)        => apiGet(`/integrations/${id}/actions`);
 export const alertingReady            = ()          => apiGet(`/integrations/alerting/ready`);
-export const sendAlert                = (body)      => apiPost(`/integrations/send-alert`, body);
+export const sendAlert                = (body)      => apiPost("/integrations/send-alert", body);
 export const integrationsReadiness    = ()          => apiGet(`/integrations/readiness`);
-export const createItsmTicket         = (body)      => apiPost(`/integrations/create-ticket`, body);
+export const createItsmTicket         = (body)      => apiPost("/integrations/create-ticket", body);
 
 // ========= Projects (multi-project catalog scope) =========
 /** GET /projects — 200 + [] or empty body must be success (never throw from JSON parse). */
 export async function listProjects() {
-  const res = await fetch(`${API_BASE}/projects`, {
-    method: "GET",
-    headers: { "Content-Type": "application/json" },
-  });
+  const res = await apiFetch("/projects", { method: "GET", headers: { "Content-Type": "application/json" } });
   if (!res.ok) {
     const txt = await res.text();
     throw new Error(txt || res.statusText);

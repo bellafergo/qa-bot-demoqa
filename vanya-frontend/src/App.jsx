@@ -3,7 +3,10 @@ import React from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import "./App.css";
 
+import PrivateRoute   from "./auth/PrivateRoute.jsx";
 import Layout         from "./components/Layout";
+import LoginPage      from "./pages/LoginPage.jsx";
+import AuthCallbackPage from "./pages/AuthCallbackPage.jsx";
 import DashboardPage  from "./pages/DashboardPage";
 import ChatPage       from "./pages/ChatPage";
 import PlannerPage    from "./pages/PlannerPage";
@@ -53,7 +56,9 @@ export default function App() {
   return (
     <ErrorBoundary>
       <Routes>
-        <Route path="/" element={<Layout />}>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/auth/callback" element={<AuthCallbackPage />} />
+        <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
           <Route index element={<Navigate to="/dashboard" replace />} />
 
           {/* ── Primary nav routes ───────────────────────────────────── */}

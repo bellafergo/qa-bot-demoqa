@@ -5,10 +5,7 @@
  */
 import React, { useState, useCallback } from "react";
 import { useLang } from "../i18n/LangContext";
-
-const API_BASE = (
-  import.meta?.env?.VITE_API_BASE || "https://qa-bot-demoqa.onrender.com"
-).replace(/\/$/, "");
+import { apiFetch } from "../api.js";
 
 export default function DocumentsPage() {
   const { t } = useLang();
@@ -42,7 +39,7 @@ export default function DocumentsPage() {
       formData.append("file", file);
       if (threadId.trim()) formData.append("thread_id", threadId.trim());
       if (tags.trim())     formData.append("tags", tags.trim());
-      const res = await fetch(`${API_BASE}/documents/upload`, { method: "POST", body: formData });
+      const res = await apiFetch("/documents/upload", { method: "POST", body: formData });
       const data = await res.json();
       if (!res.ok) {
         setUploadError(data?.detail || data?.error || `HTTP ${res.status}`);
@@ -65,7 +62,7 @@ export default function DocumentsPage() {
     try {
       const params = new URLSearchParams({ query: query.trim() });
       if (queryThreadId.trim()) params.append("thread_id", queryThreadId.trim());
-      const res = await fetch(`${API_BASE}/documents/query?${params}`, { method: "GET" });
+      const res = await apiFetch(`/documents/query?${params}`, { method: "GET" });
       const data = await res.json();
       if (!res.ok) {
         setQueryError(data?.detail || data?.error || `HTTP ${res.status}`);

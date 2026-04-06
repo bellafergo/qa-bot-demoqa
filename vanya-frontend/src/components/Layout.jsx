@@ -3,6 +3,7 @@ import React from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import NavSidebar from "./NavSidebar";
 import { useLang } from "../i18n/LangContext";
+import { ProjectProvider } from "../context/ProjectContext.jsx";
 
 // null → page manages its own hero header (e.g. Dashboard)
 const ROUTE_META = {
@@ -31,6 +32,7 @@ export default function Layout() {
   const showHeader = meta !== null;
 
   return (
+    <ProjectProvider>
     <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
       {/* ── Left navigation rail ────────────────────────── */}
       <NavSidebar />
@@ -65,5 +67,6 @@ export default function Layout() {
         </main>
       </div>
     </div>
+    </ProjectProvider>
   );
 }

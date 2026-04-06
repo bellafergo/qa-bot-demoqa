@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import os
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
@@ -14,6 +15,14 @@ from fastapi.responses import HTMLResponse, JSONResponse
 import html
 
 from core.settings import settings
+from core.auth_middleware import VanyaAuthMiddleware
+from core.vanya_auth import (
+    auth_enforcement_enabled,
+    debug_auth_state_endpoint_allowed,
+    debug_auth_state_public_dict,
+    docs_allowed_in_this_deployment,
+    log_auth_startup_warnings,
+)
 from db import init_db
 from services.run_store import get_run
 from services.run_history_service import run_history_service
@@ -132,6 +141,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.add_middleware(VanyaAuthMiddleware)
+
+# OpenAPI UI — only in non-prod-style deployments (see core.vanya_auth.docs_allowed_in_this_deployment).
+if not docs_allowed_in_this_deployment():
+    app.openapi_url = None
+    app.docs_url = None
+    app.redoc_url = None
+
 
 # ============================================================
 # REQUEST ID (correlation) — trazabilidad end-to-end
@@ -179,6 +196,42 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 
 # ============================================================
+# TEMP: debug auth state (remove after prod auth is verified)
+# ============================================================
+@app.get("/debug/auth-state")
+def debug_auth_state():
+    """
+    Dev / temporary prod diagnostics (no secret values).
+    Production: set VANYA_DEBUG_AUTH_STATE=1 on the host, or rely on docs_allowed deploys.
+    """
+    if not debug_auth_state_endpoint_allowed():
+        raise HTTPException(status_code=404, detail="Not found")
+    return debug_auth_state_public_dict()
+
+
+@app.get("/debug/build-info")
+def debug_build_info():
+    """TEMP: deployment fingerprint (no secrets). Remove after verifying Render runs the expected revision."""
+    sha = (
+        (os.getenv("RENDER_GIT_COMMIT") or "").strip()
+        or (os.getenv("GITHUB_SHA") or "").strip()
+        or (os.getenv("GIT_COMMIT") or "").strip()
+        or (os.getenv("COMMIT_SHA") or "").strip()
+        or (os.getenv("SOURCE_VERSION") or "").strip()
+        or None
+    )
+    if sha:
+        sha = sha[:40]
+    return {
+        "app_name": app.title,
+        "current_time_utc": datetime.now(timezone.utc).isoformat(),
+        "git_sha": sha,
+        "has_debug_auth_state_endpoint": True,
+        "auth_module_version": "debug-auth-state-v1",
+    }
+
+
+# ============================================================
 # STARTUP
 # ============================================================
 @app.on_event("startup")
@@ -195,6 +248,13 @@ def on_startup():
         logger.info("DB disabled: DATABASE_URL not set")
 
     logger.info("CORS allow_origins = %s", cors_origins)
+    log_auth_startup_warnings()
+    if auth_enforcement_enabled():
+        logger.info("Vanya auth enforcement: ENABLED (Supabase JWT + optional service token)")
+    else:
+        logger.warning(
+            "Vanya auth enforcement: DISABLED — set SUPABASE_URL and VANYA_AUTH_ENABLED=1 for production (JWKS / ES256)"
+        )
 
     # Initialize catalog / runs / jobs SQLite DB
     try:

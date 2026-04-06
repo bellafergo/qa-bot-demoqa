@@ -35,6 +35,14 @@ export const translations = {
     "nav.insights":          "Insights",
     "nav.quick_generate":    "Generate Test",
 
+    // ── Auth (Supabase / Google) ────────────────────────────────────────────
+    "auth.subtitle":         "Sign in with your corporate account",
+    "auth.google":           "Continue with Google",
+    "auth.redirecting":      "Redirecting…",
+    "auth.hint":             "Your organization controls who can access Vanya.",
+    "auth.logout":           "Sign out",
+    "auth.config_missing":   "Supabase URL and anon key are not configured for this build.",
+
     // ── Generate Tests page ──────────────────────────────────────────────────
     "gen.title":            "Generate Tests",
     "gen.subtitle":         "Create tests from text descriptions, URLs, PRs and API specs",
@@ -1360,6 +1368,14 @@ export const translations = {
     "nav.generate":          "Generar pruebas",
     "nav.insights":          "Insights",
     "nav.quick_generate":    "Generar Prueba",
+
+    // ── Auth (Supabase / Google) ────────────────────────────────────────────
+    "auth.subtitle":         "Accede con tu cuenta corporativa",
+    "auth.google":           "Continuar con Google",
+    "auth.redirecting":      "Redirigiendo…",
+    "auth.hint":             "Tu organización controla quién puede acceder a Vanya.",
+    "auth.logout":           "Cerrar sesión",
+    "auth.config_missing":   "No hay URL ni clave anónima de Supabase en este build.",
 
     // ── Generate Tests page ──────────────────────────────────────────────────
     "gen.title":            "Generar Pruebas",

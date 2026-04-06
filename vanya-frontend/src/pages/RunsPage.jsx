@@ -5,13 +5,17 @@
  */
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { listTestRuns, getTestRun, analyzeRCA, analyzeRisk, getRunClusters, enqueueSingle } from "../api";
+import {
+  listTestRuns,
+  getTestRun,
+  analyzeRCA,
+  analyzeRisk,
+  getRunClusters,
+  enqueueSingle,
+  apiFetch,
+} from "../api";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
-
-const API_BASE = (
-  import.meta?.env?.VITE_API_BASE || "https://qa-bot-demoqa.onrender.com"
-).replace(/\/$/, "");
 
 // Tab identifiers — rendered via t() in the component
 const TAB_KEYS = ["runs.tab.history", "runs.tab.lookup"];
@@ -520,7 +524,7 @@ function EvidenceLookupTab() {
     setError("");
     setRun(null);
     try {
-      const res = await fetch(`${API_BASE}/runs/${id}?format=json`, {
+      const res = await apiFetch(`/runs/${encodeURIComponent(id)}?format=json`, {
         method: "GET",
         headers: { Accept: "application/json" },
       });

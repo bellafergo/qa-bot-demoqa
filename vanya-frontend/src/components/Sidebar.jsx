@@ -1,17 +1,15 @@
 // src/components/Sidebar.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLang } from "../i18n/LangContext";
+import { apiFetch } from "../api.js";
 
 /**
  * Thread history sidebar — light panel, dark-chat compatible.
  * Auto-fetches from /threads when no threads prop is supplied.
  */
 
-const API_BASE =
-  (import.meta?.env?.VITE_API_BASE || "https://qa-bot-demoqa.onrender.com").replace(/\/$/, "");
-
 async function fetchThreads(limit = 80, signal) {
-  const res = await fetch(`${API_BASE}/threads?limit=${limit}`, {
+  const res = await apiFetch(`/threads?limit=${limit}`, {
     method: "GET",
     headers: { "Content-Type": "application/json" },
     signal,

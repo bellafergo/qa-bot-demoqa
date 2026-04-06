@@ -16,6 +16,9 @@ import tempfile
 _tmpdir = tempfile.mkdtemp(prefix="vanya_test_")
 os.environ["VANYA_SQLITE_PATH"] = os.path.join(_tmpdir, "test_vanya.db")
 
+# Auth middleware would break TestClient unless disabled for the suite.
+os.environ["VANYA_AUTH_ENABLED"] = "0"
+
 
 def pytest_configure(config):
     """Create tables once, before any test collection begins."""

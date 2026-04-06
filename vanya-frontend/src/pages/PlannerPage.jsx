@@ -7,11 +7,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
-import { createTestFromRun, apiErrorMessage } from "../api";
-
-const API_BASE = (
-  import.meta?.env?.VITE_API_BASE || "https://qa-bot-demoqa.onrender.com"
-).replace(/\/$/, "");
+import { createTestFromRun, apiErrorMessage, apiFetch } from "../api";
 
 export default function PlannerPage({ embedded = false }) {
   const { t } = useLang();
@@ -71,15 +67,15 @@ export default function PlannerPage({ embedded = false }) {
     if (!text.trim()) return;
     setLoading(true); setError(""); setPlan(null); setRun(null);
     try {
-      const res = await fetch(`${API_BASE}/plan_from_text`, {
+      const res = await apiFetch("/plan_from_text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: text.trim(), base_url: baseUrl.trim() || null, app_hint: appHint.trim() || null, max_steps: 25 }),
       });
-      const data = await res.json();
-      if (!res.ok) setError(data?.detail || `HTTP ${res.status}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) setError(typeof data?.detail === "string" ? data.detail : `HTTP ${res.status}`);
       else setPlan(data?.plan || data);
-    } catch (e) { setError(e?.message || "Network error"); }
+    } catch (e) { setError(apiErrorMessage(e) || "Network error"); }
     finally { setLoading(false); }
   };
 
@@ -87,12 +83,12 @@ export default function PlannerPage({ embedded = false }) {
     if (!text.trim()) return;
     setLoading(true); setError(""); setPlan(null); setRun(null);
     try {
-      const res = await fetch(`${API_BASE}/execute_text`, {
+      const res = await apiFetch("/execute_text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: text.trim(), base_url: baseUrl.trim() || null, app_hint: appHint.trim() || null, max_steps: 25, confirm, headless: true }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       const toStringSafe = (v) => {
         if (v == null) return "";
         if (typeof v === "string") return v;

@@ -1,6 +1,7 @@
 // src/pages/SettingsPage.jsx
 import React, { useEffect, useState } from "react";
 import { useLang } from "../i18n/LangContext";
+import { apiGet, apiErrorMessage, API_BASE } from "../api.js";
 
 function InfoRow({ label, value, mono = false, badge }) {
   return (
@@ -17,7 +18,7 @@ function InfoRow({ label, value, mono = false, badge }) {
 
 export default function SettingsPage() {
   const { t } = useLang();
-  const apiBase = import.meta?.env?.VITE_API_BASE || "https://qa-bot-demoqa.onrender.com";
+  const apiBase = API_BASE;
   const mode = import.meta?.env?.MODE || "production";
 
   const [meta, setMeta] = useState(null);
@@ -30,20 +31,10 @@ export default function SettingsPage() {
       setMetaLoading(true);
       setMetaError("");
       try {
-        const res = await fetch(`${apiBase.replace(/\/$/, "")}/meta`);
-        const txt = await res.text();
-        if (!res.ok) {
-          throw new Error(txt || `HTTP ${res.status}`);
-        }
-        let data;
-        try {
-          data = txt ? JSON.parse(txt) : null;
-        } catch {
-          data = null;
-        }
+        const data = await apiGet("/meta");
         if (!cancelled) setMeta(data || {});
       } catch (e) {
-        if (!cancelled) setMetaError(e?.message || "Failed to load platform diagnostics.");
+        if (!cancelled) setMetaError(apiErrorMessage(e) || "Failed to load platform diagnostics.");
       } finally {
         if (!cancelled) setMetaLoading(false);
       }
