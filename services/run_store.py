@@ -1,4 +1,5 @@
 # services/run_store.py
+# In-memory run cache + indexes. For new callers, prefer services.run_access.persist_run_payload.
 from __future__ import annotations
 
 import os

@@ -7,7 +7,7 @@ import time
 import traceback
 from typing import Any, Dict, Optional
 
-from services.run_store import save_run
+from services.run_access import persist_run_payload
 from services.failure_intelligence import classify_failure as _classify_failure
 
 from runner import execute_test
@@ -80,7 +80,7 @@ def run_execute_steps_job(evidence_id: str, payload: Dict[str, Any], meta: Dict[
     cid = (meta or {}).get("correlation_id")
     if cid:
         logger.info("[JOBS] run_execute_steps_job evidence_id=%s rid=%s", evidence_id, cid)
-    save_run({
+    persist_run_payload({
         "evidence_id": evidence_id,
         "status": "running",
         "started_at": int(t0 * 1000),
@@ -117,7 +117,7 @@ def run_execute_steps_job(evidence_id: str, payload: Dict[str, Any], meta: Dict[
         if run.get("status") in ("failed", "error"):
             run["failure_analysis"] = _classify_failure(run)
 
-        save_run(run)
+        persist_run_payload(run)
         return run
 
     except Exception as e:
@@ -135,7 +135,7 @@ def run_execute_steps_job(evidence_id: str, payload: Dict[str, Any], meta: Dict[
             "meta": meta or {},
         }
         run["failure_analysis"] = _classify_failure(run)
-        save_run(run)
+        persist_run_payload(run)
         logger.exception("steps job failed evidence_id=%s", evidence_id)
         return run
 
@@ -147,7 +147,7 @@ def run_suite_job(evidence_id: str, payload: Dict[str, Any], meta: Dict[str, Any
     The result is saved under evidence_id so /runs/{evidence_id} works.
     """
     t0 = time.time()
-    save_run({
+    persist_run_payload({
         "evidence_id": evidence_id,
         "status": "running",
         "started_at": int(t0 * 1000),
@@ -173,7 +173,7 @@ def run_suite_job(evidence_id: str, payload: Dict[str, Any], meta: Dict[str, Any
         t1 = time.time()
         run.setdefault("finished_at", int(t1 * 1000))
 
-        save_run(run)
+        persist_run_payload(run)
         return run
 
     except Exception as e:
@@ -190,6 +190,6 @@ def run_suite_job(evidence_id: str, payload: Dict[str, Any], meta: Dict[str, Any
             "kind": "suite",
             "meta": meta or {},
         }
-        save_run(run)
+        persist_run_payload(run)
         logger.exception("suite job failed evidence_id=%s", evidence_id)
         return run

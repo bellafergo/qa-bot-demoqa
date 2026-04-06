@@ -9,10 +9,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from services.pr_agent import PRContext, update_pr_comment
-from services.run_store import (
-    save_run,
-    list_runs_for_pr,
-)
+from services.run_access import persist_run_payload
+from services.run_store import list_runs_for_pr
 
 logger = logging.getLogger("vanya.pr_runs")
 
@@ -370,7 +368,7 @@ def _format_runs_block(runs: List[Dict[str, Any]]) -> str:
 
 def _save_run_safe(*, evidence_id: str, run_payload: Dict[str, Any]) -> None:
     """
-    Guarda un run de forma segura en run_store.
+    Guarda un run vía la capa unificada (run_store + bridge).
     - Fuerza evidence_id (compat runner)
     - Normaliza meta para index por PR y tags
     """
@@ -406,8 +404,8 @@ def _save_run_safe(*, evidence_id: str, run_payload: Dict[str, Any]) -> None:
                 "sha": ctx.get("sha"),
             })
 
-        save_run(payload)
+        persist_run_payload(payload)
 
     except Exception:
-        logger.exception("save_run failed for evidence_id=%s", evidence_id)
+        logger.exception("persist_run_payload failed for evidence_id=%s", evidence_id)
 

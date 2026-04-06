@@ -589,9 +589,9 @@ def handle_execute_mode(
     pdf_error = evidence_result["pdf_error"]
     screenshot_data_url = evidence_result["screenshot_data_url"]
 
-    # 6) save_run
+    # 6) persist run (unified pipeline: run_store + bridge → SQLite)
     try:
-        from services.run_store import save_run
+        from services.run_access import persist_run_payload
 
         run_payload: Dict[str, Any] = {
             **(runner if isinstance(runner, dict) else {}),
@@ -619,9 +619,9 @@ def handle_execute_mode(
                 run_payload["meta"]["client_id"] = client_id
             if workspace_id:
                 run_payload["meta"]["workspace_id"] = workspace_id
-        save_run(run_payload)
+        persist_run_payload(run_payload)
     except Exception:
-        logger.exception("save_run failed (continuing)")
+        logger.exception("persist_run_payload failed (continuing)")
 
     # 7) respuesta
     answer = _render_execute_answer(

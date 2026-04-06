@@ -10,7 +10,8 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, field_validator
 
-from services.run_store import save_run, get_run
+from services.run_access import persist_run_payload
+from services.run_store import get_run
 from services.queue import get_queue
 from workers.jobs import run_execute_steps_job, run_suite_job
 
@@ -83,9 +84,9 @@ def _enqueue(kind: str, fn, payload: Dict[str, Any], meta: Optional[Dict[str, An
     }
 
     try:
-        save_run(run)
+        persist_run_payload(run)
     except Exception as e:
-        logger.warning("save_run(queued) failed (best-effort): %s: %s", type(e).__name__, e)
+        logger.warning("persist_run_payload(queued) failed (best-effort): %s: %s", type(e).__name__, e)
 
     # Encolar el job
     q = get_queue("vanya")

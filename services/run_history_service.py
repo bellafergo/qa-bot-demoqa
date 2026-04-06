@@ -1,47 +1,40 @@
 # services/run_history_service.py
 """
-Run History Service — Official Source of Truth
-===============================================
+Run History Service — canonical read facade for persisted run history
+======================================================================
 
-This is THE single authoritative layer for querying Vanya's test run history.
-
-Architecture decision
----------------------
-Layer                  | Role                             | Technology
------------------------|----------------------------------|-------------------
-run_history_service    | Official read API (this file)    | delegates to SQLite
-test_run_repo          | Official persistent store        | SQLite / SQLAlchemy
-run_store              | Short-term evidence cache        | in-memory TTL (24h)
-Supabase               | Optional cloud backup / analytics| best-effort, async
+Architecture (writes vs reads)
+------------------------------
+Layer                  | Role                              | Technology
+-----------------------|-----------------------------------|-------------------
+run_access.persist_*   | Preferred entry for new writes    | → run_store.save_run
+run_store.save_run     | Write pipeline (memory + bridge)  | in-memory TTL + hooks
+run_bridge             | Chat/execute/API → SQLite         | best-effort, on save_run
+test_run_repo          | Durable rows + list_runs          | SQLite / SQLAlchemy
+run_history_service    | Canonical reads (this module)     | SQLite + optional run_store
+Supabase               | Optional mirror                     | best-effort from save_run
 
 Rules
 -----
-• test_run_repo (SQLite) is the ONLY source for run history listings and lookups.
-  All TestCase catalog runs are persisted there automatically by catalog_service.
-  Dashboard, failure-intelligence, and coverage services already use this layer.
+• **Listings** (dashboard, ``GET /test-runs``, analytics): SQLite via
+  ``list_runs`` → ``CanonicalRun``.
 
-• run_store (in-memory) is a short-term cache for:
-  – Real-time polling of async execute/chat runs (GET /runs/{evidence_id}).
-  – PR-triggered runs and tag-indexed lookups.
-  – It is NOT consulted here; it serves the evidence-lookup endpoint only.
+• **get_run(run_id)**: SQLite only. Use **get_run_unified** when the id might be
+  ``evidence_id`` from chat/planner before or without a SQLite row.
 
-• Supabase (if configured) receives best-effort copies via run_store.save_run().
-  It is neither read nor depended on here.
+• **Evidence HTML** ``GET /runs/{id}``: still checks ``run_store`` first (freshest
+  blobs), then SQLite via this service — see ``app.get_run_evidence``.
 
-Known limitation (documented here, not hidden)
-----------------------------------------------
-Runs produced by the chat / POST /execute_steps paths are persisted to run_store
-only — they do NOT currently appear in the SQLite history or in GET /test-runs.
-Those runs are accessible via GET /runs/{evidence_id} (evidence lookup).
-A future bridge could write them to test_run_repo on completion, but that change
-is intentionally out of scope for this consolidation.
+• New code should persist via ``services.run_access.persist_run_payload`` so all
+  writes share one entry point.
 
 Usage
 -----
     from services.run_history_service import run_history_service
 
-    runs  = run_history_service.list_runs(limit=50)                  # List[CanonicalRun]
-    run   = run_history_service.get_run("some-run-uuid")             # CanonicalRun | None
+    runs  = run_history_service.list_runs(limit=50)       # List[CanonicalRun]
+    run   = run_history_service.get_run("uuid")         # SQLite only
+    one   = run_history_service.get_run_unified("id")   # SQLite + run_store fallback
 """
 from __future__ import annotations
 
@@ -108,9 +101,9 @@ class RunHistoryService:
         """
         Return a single run record by its run_id from SQLite.
 
-        Returns None if the run_id is not found in the official store.
-        Note: runs produced by the chat/execute paths are NOT stored here;
-        use GET /runs/{evidence_id} for those (evidence lookup path).
+        Returns None if the run_id is not found in SQLite. For chat/planner ids
+        that may exist only in ``run_store`` until bridged, use ``get_run_unified``
+        or ``GET /runs/{evidence_id}``.
         """
         run = test_run_repo.get_run(run_id)
         if run is None:

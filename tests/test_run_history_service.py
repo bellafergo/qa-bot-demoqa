@@ -7,7 +7,7 @@ These tests verify that RunHistoryService:
   2. Returns CanonicalRun objects — the canonical mapper is applied at the service level.
   3. Handles "not found" cleanly.
   4. Passes filters and limit through to the repository.
-  5. Applies status normalisation (pass→passed, fail→failed, error→failed).
+  5. Applies status normalisation (pass→passed, fail→failed; error stays error).
   6. Populates artifacts and meta correctly.
 
 All tests patch test_run_repo so no real DB or Playwright execution is needed.
@@ -93,11 +93,13 @@ class TestListRuns(unittest.TestCase):
 
     def test_passes_limit_to_repo(self):
         result, mock_list = self._run_list([], limit=42)
-        mock_list.assert_called_once_with(test_case_id=None, limit=42)
+        mock_list.assert_called_once_with(test_case_id=None, project_id=None, limit=42)
 
     def test_passes_test_case_id_filter(self):
         result, mock_list = self._run_list([], test_case_id="TC-LOGIN-001")
-        mock_list.assert_called_once_with(test_case_id="TC-LOGIN-001", limit=100)
+        mock_list.assert_called_once_with(
+            test_case_id="TC-LOGIN-001", project_id=None, limit=100
+        )
 
     def test_limit_clamped_to_500(self):
         result, mock_list = self._run_list([], limit=9999)
@@ -117,9 +119,9 @@ class TestListRuns(unittest.TestCase):
         result, _ = self._run_list([_tr(status="fail")])
         self.assertEqual(result[0].status, "failed")
 
-    def test_status_error_normalised_to_failed(self):
+    def test_status_error_preserved_as_error(self):
         result, _ = self._run_list([_tr(status="error")])
-        self.assertEqual(result[0].status, "failed")
+        self.assertEqual(result[0].status, "error")
 
     def test_test_id_mapped_from_test_case_id(self):
         result, _ = self._run_list([_tr(test_case_id="TC-CART-003")])
@@ -258,25 +260,27 @@ class TestArchitectureInvariants(unittest.TestCase):
     It must never access run_store directly.
     """
 
-    def test_service_does_not_import_run_store(self):
-        import ast, pathlib
-        src = pathlib.Path(
-            "/Users/bellafergo/PRIMEROS PASOS/qa-bot-demoqa/services/run_history_service.py"
-        ).read_text()
+    def test_service_does_not_import_run_store_at_module_level(self):
+        """Lazy imports inside methods (e.g. get_run_unified) are allowed."""
+        import ast
+        from pathlib import Path
+
+        src = (Path(__file__).resolve().parent.parent / "services/run_history_service.py").read_text()
         tree = ast.parse(src)
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.Import, ast.ImportFrom)):
-                # Flatten all names imported
-                names = []
-                if isinstance(node, ast.ImportFrom) and node.module:
-                    names.append(node.module)
-                if isinstance(node, ast.Import):
-                    names += [alias.name for alias in node.names]
-                for name in names:
-                    self.assertNotIn(
-                        "run_store", name,
-                        f"run_history_service should NOT import run_store — found: {name}",
-                    )
+        for node in tree.body:
+            if not isinstance(node, (ast.Import, ast.ImportFrom)):
+                continue
+            names = []
+            if isinstance(node, ast.ImportFrom) and node.module:
+                names.append(node.module)
+            if isinstance(node, ast.Import):
+                names += [alias.name for alias in node.names]
+            for name in names:
+                self.assertNotIn(
+                    "run_store",
+                    name,
+                    f"run_history_service should not top-level import run_store — found: {name}",
+                )
 
     def test_list_runs_returns_only_canonical_run_instances(self):
         with patch(
