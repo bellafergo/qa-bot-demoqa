@@ -12,7 +12,9 @@ import {
   analyzeRisk,
   getRunClusters,
   enqueueSingle,
-  apiFetch,
+  apiGet,
+  apiErrorMessage,
+  ApiHttpError,
 } from "../api";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
@@ -516,33 +518,27 @@ function EvidenceLookupTab() {
   const [loading, setLoading]       = useState(false);
   const [run, setRun]               = useState(null);
   const [error, setError]           = useState("");
+  const fetchInFlightRef = useRef(false);
 
   const handleFetch = useCallback(async () => {
     const id = evidenceId.trim();
-    if (!id) return;
+    if (!id || fetchInFlightRef.current) return;
+    fetchInFlightRef.current = true;
     setLoading(true);
     setError("");
     setRun(null);
     try {
-      const res = await apiFetch(`/runs/${encodeURIComponent(id)}?format=json`, {
-        method: "GET",
-        headers: { Accept: "application/json" },
-      });
-      if (!res.ok) {
-        if (res.status === 404) {
-          setError(`Run not found: ${id}`);
-        } else {
-          const data = await res.json().catch(() => ({}));
-          setError(data?.detail || `HTTP ${res.status}`);
-        }
-      } else {
-        const data = await res.json();
-        setRun(data);
-      }
+      const data = await apiGet(`/runs/${encodeURIComponent(id)}?format=json`);
+      setRun(data);
     } catch (e) {
-      setError(e?.message || "Network error");
+      if (e instanceof ApiHttpError && e.status === 404) {
+        setError(`Run not found: ${id}`);
+      } else {
+        setError(apiErrorMessage(e) || "Network error");
+      }
     } finally {
       setLoading(false);
+      fetchInFlightRef.current = false;
     }
   }, [evidenceId]);
 
@@ -847,7 +843,7 @@ function RunHistoryTab({ initialRunId }) {
       const data = await listTestRuns(opts);
       setRuns(Array.isArray(data) ? data : (data?.runs ?? []));
     } catch (e) {
-      setError(e?.message || t("runs.history.error"));
+      setError(apiErrorMessage(e) || t("runs.history.error"));
     } finally {
       setLoading(false);
     }
@@ -883,7 +879,7 @@ function RunHistoryTab({ initialRunId }) {
       const d = await getTestRun(run_id);
       setDetail(d);
     } catch (e) {
-      setDetail({ error: e?.message });
+      setDetail({ error: apiErrorMessage(e) });
     } finally {
       setDetailLoading(false);
     }
@@ -897,7 +893,7 @@ function RunHistoryTab({ initialRunId }) {
       const res = await analyzeRCA({ run_id: selected, run: detail });
       setRcaResult(res);
     } catch (e) {
-      setRcaResult({ error: e?.message });
+      setRcaResult({ error: apiErrorMessage(e) });
     } finally {
       setRcaLoading(false);
     }
@@ -911,7 +907,7 @@ function RunHistoryTab({ initialRunId }) {
       const res = await analyzeRisk({ run_id: selected, run: detail, rca: rcaResult });
       setRiskResult(res);
     } catch (e) {
-      setRiskResult({ error: e?.message });
+      setRiskResult({ error: apiErrorMessage(e) });
     } finally {
       setRiskLoading(false);
     }

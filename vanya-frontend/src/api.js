@@ -6,15 +6,21 @@ export const API_BASE =
 
 let accessTokenGetter = () => null;
 let unauthorizedHandler = null;
+let apiErrorNotifier = null;
 
 /** Register how to read the current Supabase access_token (e.g. () => session?.access_token ?? null). */
 export function setAccessTokenGetter(fn) {
   accessTokenGetter = typeof fn === "function" ? fn : () => null;
 }
 
-/** Called on 401 after optional token was sent — e.g. signOut + redirect to login. */
+/** Called on 401 — e.g. signOut + redirect to login. */
 export function setUnauthorizedHandler(fn) {
   unauthorizedHandler = typeof fn === "function" ? fn : null;
+}
+
+/** Toast for 403 / 429 / 5xx — set by ToastProvider. Payload: { status, detail } */
+export function setApiErrorNotifier(fn) {
+  apiErrorNotifier = typeof fn === "function" ? fn : null;
 }
 
 function mergeAuthHeaders(headersInit, body) {
@@ -25,41 +31,104 @@ function mergeAuthHeaders(headersInit, body) {
   return h;
 }
 
+/** Parse FastAPI-style JSON error body into a single string (or plain text). */
+export function parseResponseDetail(text) {
+  if (text == null || String(text).trim() === "") return null;
+  try {
+    const j = JSON.parse(text);
+    if (typeof j.detail === "string") return j.detail;
+    if (Array.isArray(j.detail)) {
+      return j.detail
+        .map((d) => (typeof d === "string" ? d : d?.msg || JSON.stringify(d)))
+        .join(" ");
+    }
+    if (j.message) return String(j.message);
+  } catch {
+    /* plain text */
+  }
+  const s = String(text).trim();
+  return s.length > 800 ? `${s.slice(0, 800)}…` : s;
+}
+
+export class ApiHttpError extends Error {
+  constructor(status, message, rawBody) {
+    super(message || `HTTP ${status}`);
+    this.name = "ApiHttpError";
+    this.status = status;
+    this.rawBody = rawBody;
+  }
+}
+
 /**
- * Low-level fetch to the API with Bearer token when available.
- * On 401, invokes unauthorizedHandler (then caller still sees non-ok response).
+ * Throw ApiHttpError if !res.ok. Invokes unauthorizedHandler on 401.
+ * Fires apiErrorNotifier for 403 / 429 / 5xx (not 401).
  */
-export async function apiFetch(path, options = {}) {
-  const { headers: ho, ...rest } = options;
-  const headers = mergeAuthHeaders(ho, rest.body);
-  const res = await fetch(`${API_BASE}${path}`, { ...rest, headers });
-  if (res.status === 401 && unauthorizedHandler && accessTokenGetter?.()) {
+export function throwIfNotOk(res, text) {
+  if (res.ok) return;
+  const status = res.status;
+  const detail = parseResponseDetail(text);
+
+  if (status === 401 && unauthorizedHandler) {
     try {
       unauthorizedHandler();
     } catch {
       /* ignore */
     }
+    throw new ApiHttpError(status, detail || "Session expired. Please sign in again.", text);
   }
-  return res;
+
+  const notify = apiErrorNotifier && (status === 403 || status === 429 || status >= 500);
+  if (notify) {
+    try {
+      apiErrorNotifier({ status, detail });
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (status >= 500) {
+    try {
+      console.error("[api] HTTP", status, detail || text?.slice?.(0, 500) || "");
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const msg =
+    detail ||
+    (status === 403
+      ? "Access denied."
+      : status === 429
+        ? "Too many requests. Please try again later."
+        : status >= 500
+          ? "Server error. Please try again later."
+          : `Request failed (${status})`);
+
+  throw new ApiHttpError(status, msg, text);
+}
+
+/**
+ * Low-level fetch to the API with Bearer token when available.
+ */
+export async function apiFetch(path, options = {}) {
+  const { headers: ho, ...rest } = options;
+  const headers = mergeAuthHeaders(ho, rest.body);
+  return fetch(`${API_BASE}${path}`, { ...rest, headers });
 }
 
 export async function apiGet(path) {
   const res = await apiFetch(path, { method: "GET", headers: { "Content-Type": "application/json" } });
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(txt || res.statusText);
-  }
-  return res.json();
+  const txt = await res.text();
+  throwIfNotOk(res, txt);
+  if (!txt || !txt.trim()) return null;
+  return JSON.parse(txt);
 }
 
 export async function apiDelete(path) {
   const res = await apiFetch(path, { method: "DELETE", headers: { "Content-Type": "application/json" } });
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(txt || res.statusText);
-  }
   const txt = await res.text();
-  if (!txt) return null;
+  throwIfNotOk(res, txt);
+  if (!txt || !txt.trim()) return null;
   try {
     return JSON.parse(txt);
   } catch {
@@ -73,11 +142,10 @@ export async function apiPut(path, body) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body || {}),
   });
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(txt || res.statusText);
-  }
-  return res.json();
+  const txt = await res.text();
+  throwIfNotOk(res, txt);
+  if (!txt || !txt.trim()) return null;
+  return JSON.parse(txt);
 }
 
 export async function apiPatch(path, body) {
@@ -86,30 +154,19 @@ export async function apiPatch(path, body) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body ?? {}),
   });
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(txt || res.statusText);
-  }
-  return res.json();
+  const txt = await res.text();
+  throwIfNotOk(res, txt);
+  if (!txt || !txt.trim()) return null;
+  return JSON.parse(txt);
 }
 
 /** Human-readable message from fetch errors (FastAPI JSON detail or plain text). */
 export function apiErrorMessage(err) {
+  if (err instanceof ApiHttpError) return err.message || "Request failed";
   const raw = err?.message ?? String(err);
   if (!raw) return "Request failed";
-  try {
-    const j = JSON.parse(raw);
-    if (typeof j.detail === "string") return j.detail;
-    if (Array.isArray(j.detail)) {
-      return j.detail
-        .map((d) => (typeof d === "string" ? d : d.msg || JSON.stringify(d)))
-        .join(" ");
-    }
-    if (j.message) return String(j.message);
-  } catch {
-    /* plain text */
-  }
-  return raw;
+  const parsed = parseResponseDetail(raw);
+  return parsed || raw;
 }
 
 export async function apiPost(path, body) {
@@ -118,11 +175,19 @@ export async function apiPost(path, body) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body || {}),
   });
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(txt || res.statusText);
-  }
-  return res.json();
+  const txt = await res.text();
+  throwIfNotOk(res, txt);
+  if (!txt || !txt.trim()) return null;
+  return JSON.parse(txt);
+}
+
+/** JSON request + JSON response with centralized error handling. */
+export async function apiFetchJson(path, options = {}) {
+  const res = await apiFetch(path, options);
+  const txt = await res.text();
+  throwIfNotOk(res, txt);
+  if (!txt || !txt.trim()) return null;
+  return JSON.parse(txt);
 }
 
 // ========= Convenience =========
@@ -360,17 +425,14 @@ export const createItsmTicket         = (body)      => apiPost("/integrations/cr
 /** GET /projects — 200 + [] or empty body must be success (never throw from JSON parse). */
 export async function listProjects() {
   const res = await apiFetch("/projects", { method: "GET", headers: { "Content-Type": "application/json" } });
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(txt || res.statusText);
-  }
   const text = await res.text();
+  throwIfNotOk(res, text);
   if (text == null || text.trim() === "") return [];
   try {
     const data = JSON.parse(text);
     return Array.isArray(data) ? data : [];
   } catch {
-    throw new Error(text.slice(0, 200) || "Invalid JSON response");
+    throw new ApiHttpError(res.status, text.slice(0, 200) || "Invalid JSON response", text);
   }
 }
 export const getProject     = (projectId)           => apiGet(`/projects/${encodeURIComponent(projectId)}`);

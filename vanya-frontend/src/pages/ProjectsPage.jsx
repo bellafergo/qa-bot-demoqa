@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useLang } from "../i18n/LangContext.jsx";
 import { useProject } from "../context/ProjectContext.jsx";
 import ProjectModal from "../components/ProjectModal.jsx";
+import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import { apiErrorMessage } from "../api.js";
 
 export default function ProjectsPage() {
@@ -12,13 +13,14 @@ export default function ProjectsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const openCreateFromQuery = searchParams.get("new") === "1";
 
-  const { projects, currentProject, setCurrentProject, deleteProject, reloadProjects, loading, error } =
-    useProject();
+  const { projects, setCurrentProject, deleteProject, reloadProjects, loading, error } = useProject();
 
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState("create");
   const [editTarget, setEditTarget] = useState(null);
   const [deleteErr, setDeleteErr] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   function clearNewQuery() {
     if (!openCreateFromQuery) return;
@@ -55,19 +57,22 @@ export default function ProjectsPage() {
     navigate("/dashboard");
   }
 
-  async function handleDelete(p) {
+  function requestDeleteProject(p) {
     setDeleteErr("");
-    const ok = window.confirm(
-      t("projects.confirm_delete", { name: p.name }),
-    );
-    if (!ok) return;
+    setDeleteTarget(p);
+  }
+
+  async function confirmDeleteProject() {
+    if (!deleteTarget || deleteBusy) return;
+    setDeleteBusy(true);
     try {
-      await deleteProject(p.id);
-      if (currentProject?.id === p.id) {
-        /* context reloadProjects inside deleteProject updates selection */
-      }
+      await deleteProject(deleteTarget.id);
+      setDeleteTarget(null);
     } catch (e) {
       setDeleteErr(apiErrorMessage(e));
+      setDeleteTarget(null);
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -230,7 +235,7 @@ export default function ProjectsPage() {
                 <button type="button" className="btn btn-secondary btn-sm" onClick={() => openEdit(p)}>
                   {t("projects.edit")}
                 </button>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleDelete(p)}>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => requestDeleteProject(p)}>
                   {t("projects.delete")}
                 </button>
               </div>
@@ -244,6 +249,17 @@ export default function ProjectsPage() {
         mode={effectiveModalMode}
         project={effectiveModalMode === "edit" ? editTarget : null}
         onClose={closeModal}
+      />
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title={t("projects.delete_dialog_title")}
+        description={deleteTarget ? t("projects.confirm_delete", { name: deleteTarget.name }) : ""}
+        confirmLabel={t("common.delete")}
+        danger
+        busy={deleteBusy}
+        onCancel={() => !deleteBusy && setDeleteTarget(null)}
+        onConfirm={confirmDeleteProject}
       />
     </div>
   );

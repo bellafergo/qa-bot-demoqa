@@ -3,6 +3,8 @@ import React, { useMemo, useCallback, useState, useEffect } from "react";
 import DocArtifactTabs from "./components/DocArtifactTabs";
 import { useLang } from "./i18n/LangContext";
 import { createTestFromRun, apiErrorMessage } from "./api";
+import { useToast } from "./context/ToastContext.jsx";
+import PromptDialog from "./components/PromptDialog.jsx";
 
 const getRunnerContract = (m) => {
   const meta = getMeta(m);
@@ -564,8 +566,11 @@ function EvidenceBlock({ evidenceUrl }) {
 
 function RunDebugBlock({ runner, projectId = "default" }) {
   const { t } = useLang();
+  const { showToast } = useToast();
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveOk, setSaveOk] = useState(false);
+  const [promptOpen, setPromptOpen] = useState(false);
+  const [defaultCatalogName, setDefaultCatalogName] = useState("");
 
   useEffect(() => {
     if (!saveOk) return;
@@ -579,16 +584,14 @@ function RunDebugBlock({ runner, projectId = "default" }) {
   const logs = Array.isArray(runner.logs) ? runner.logs : [];
   const runIdForCatalog = runner.evidence_id || runner.run_id;
 
-  const saveToCatalog = async () => {
+  const openSavePrompt = () => {
     if (!runIdForCatalog) return;
-    const defaultName = `Chat ${String(runIdForCatalog).slice(0, 12)}`;
-    const name = window.prompt(t("catalog.from_run.prompt_name"), defaultName);
-    if (name == null) return;
-    const trimmed = String(name).trim();
-    if (!trimmed) {
-      window.alert(t("catalog.from_run.name_required"));
-      return;
-    }
+    setDefaultCatalogName(`Chat ${String(runIdForCatalog).slice(0, 12)}`);
+    setPromptOpen(true);
+  };
+
+  const saveToCatalogWithName = async (trimmed) => {
+    if (!runIdForCatalog) return;
     setSaveBusy(true);
     setSaveOk(false);
     try {
@@ -598,8 +601,9 @@ function RunDebugBlock({ runner, projectId = "default" }) {
         project_id: String(projectId || "default").trim() || "default",
       });
       setSaveOk(true);
+      showToast(t("catalog.from_run.success"), "success");
     } catch (e) {
-      window.alert(apiErrorMessage(e));
+      showToast(apiErrorMessage(e), "error");
     } finally {
       setSaveBusy(false);
     }
@@ -608,9 +612,9 @@ function RunDebugBlock({ runner, projectId = "default" }) {
   const copyJson = async () => {
     try {
       await navigator.clipboard.writeText(JSON.stringify(runner, null, 2));
-      alert("✅ Run JSON copiado");
+      showToast(t("chat.copy_json_ok"), "success");
     } catch {
-      alert("No se pudo copiar (permisos del navegador).");
+      showToast(t("chat.copy_json_fail"), "error");
     }
   };
 
@@ -643,7 +647,7 @@ function RunDebugBlock({ runner, projectId = "default" }) {
             {runIdForCatalog ? (
               <button
                 type="button"
-                onClick={saveToCatalog}
+                onClick={openSavePrompt}
                 disabled={saveBusy}
                 style={{
                   padding: "5px 10px",
@@ -714,6 +718,25 @@ function RunDebugBlock({ runner, projectId = "default" }) {
           ) : null}
         </div>
       </details>
+
+      <PromptDialog
+        key={promptOpen ? `chat-cat-${runIdForCatalog}` : "chat-cat-closed"}
+        open={promptOpen}
+        title={t("planner.save_catalog_prompt_title")}
+        label={t("catalog.from_run.prompt_name")}
+        defaultValue={defaultCatalogName}
+        submitLabel={t("catalog.from_run.save_btn")}
+        busy={saveBusy}
+        onCancel={() => setPromptOpen(false)}
+        onSubmit={(trimmed) => {
+          if (!trimmed) {
+            showToast(t("catalog.from_run.name_required"), "warning");
+            return;
+          }
+          setPromptOpen(false);
+          saveToCatalogWithName(trimmed);
+        }}
+      />
     </div>
   );
 }

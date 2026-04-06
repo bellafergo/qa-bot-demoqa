@@ -292,6 +292,7 @@ export const translations = {
     "projects.open":                  "Open",
     "projects.edit":                  "Edit",
     "projects.delete":                "Delete",
+    "projects.delete_dialog_title":   "Delete project",
     "projects.confirm_delete":        "Delete project \"{{name}}\"? This cannot be undone if the server allows deletion.",
     "projects.no_description":        "No description",
     "projects.retry":                 "Retry",
@@ -537,6 +538,7 @@ export const translations = {
     "catalog.versions.col.source":      "Source",
     "catalog.versions.col.note":        "Note",
     "catalog.versions.rollback_btn":    "Rollback",
+    "catalog.versions.rollback_confirm_title": "Rollback version",
     "catalog.versions.rollback_confirm":"Rollback creates a new version based on v{v}. History is preserved. Continue?",
     "catalog.versions.rollback_ok":     "Rolled back — new version is v{v}",
     "catalog.versions.rollback_err":    "Rollback failed",
@@ -1029,6 +1031,7 @@ export const translations = {
     "chat.toolbar.hide_history": "Hide history",
     "chat.toolbar.show_history": "Show history",
     "chat.toolbar.no_thread":    "no thread selected",
+    "chat.delete_confirm_title": "Delete chat",
     "chat.delete_confirm":       "Delete this chat? This cannot be undone.",
     "chat.error.load_threads":   "Failed to load threads.",
     "chat.error.load_chat":      "Failed to load chat.",
@@ -1334,8 +1337,21 @@ export const translations = {
     "common.production": "Production",
     "common.confirm":   "Confirm",
     "common.cancel":    "Cancel",
+    "common.delete":    "Delete",
     "common.working":   "Working…",
     "common.unknown":  "(unknown)",
+
+    // ── HTTP / API (global error toasts) ────────────────────────────────────
+    "http.forbidden":    "Access denied. You don't have permission for this action.",
+    "http.rate_limit":   "Too many requests. Please wait a moment and try again.",
+    "http.server_error": "Something went wrong on the server. Please try again later.",
+    "http.error":        "Request failed ({{status}}).",
+
+    // ── Chat extras ─────────────────────────────────────────────────────────
+    "chat.copy_json_ok":   "Run JSON copied to clipboard.",
+    "chat.copy_json_fail": "Could not copy (browser permissions).",
+    "planner.save_catalog_prompt_title": "Save test to catalog",
+    "planner.run_done_toast":            "Execution finished. You can open Runs to see history.",
   },
 
   es: {
@@ -1624,6 +1640,7 @@ export const translations = {
     "projects.open":                  "Abrir",
     "projects.edit":                  "Editar",
     "projects.delete":                "Eliminar",
+    "projects.delete_dialog_title":   "Eliminar proyecto",
     "projects.confirm_delete":        "¿Eliminar el proyecto \"{{name}}\"? Esta acción no se puede deshacer si el servidor permite el borrado.",
     "projects.no_description":        "Sin descripción",
     "projects.retry":                 "Reintentar",
@@ -1865,6 +1882,7 @@ export const translations = {
     "catalog.versions.col.source":      "Fuente",
     "catalog.versions.col.note":        "Nota",
     "catalog.versions.rollback_btn":    "Rollback",
+    "catalog.versions.rollback_confirm_title": "Volver a versión anterior",
     "catalog.versions.rollback_confirm":"Rollback crea una nueva versión basada en v{v}. El historial se conserva. ¿Continuar?",
     "catalog.versions.rollback_ok":     "Rollback aplicado — nueva versión: v{v}",
     "catalog.versions.rollback_err":    "Rollback fallido",
@@ -2356,6 +2374,7 @@ export const translations = {
     "chat.toolbar.hide_history": "Ocultar historial",
     "chat.toolbar.show_history": "Mostrar historial",
     "chat.toolbar.no_thread":    "sin conversación activa",
+    "chat.delete_confirm_title": "Eliminar conversación",
     "chat.delete_confirm":       "¿Eliminar esta conversación? Esta acción no se puede deshacer.",
     "chat.error.load_threads":   "Error al cargar conversaciones.",
     "chat.error.load_chat":      "Error al cargar el chat.",
@@ -2661,8 +2680,21 @@ export const translations = {
     "common.production": "Producción",
     "common.confirm":   "Confirmar",
     "common.cancel":    "Cancelar",
+    "common.delete":    "Eliminar",
     "common.working":   "Procesando…",
     "common.unknown":  "(desconocido)",
+
+    // ── HTTP / API (toasts globales) ───────────────────────────────────────
+    "http.forbidden":    "Acceso denegado. No tienes permiso para esta acción.",
+    "http.rate_limit":   "Demasiadas solicitudes. Espera un momento e inténtalo de nuevo.",
+    "http.server_error": "Error en el servidor. Inténtalo más tarde.",
+    "http.error":        "La solicitud falló ({{status}}).",
+
+    // ── Chat extras ─────────────────────────────────────────────────────────
+    "chat.copy_json_ok":   "JSON del run copiado al portapapeles.",
+    "chat.copy_json_fail": "No se pudo copiar (permisos del navegador).",
+    "planner.save_catalog_prompt_title": "Guardar test en el catálogo",
+    "planner.run_done_toast":            "Ejecución finalizada. Puedes abrir Runs para ver el historial.",
   },
 };
 

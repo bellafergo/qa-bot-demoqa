@@ -5,9 +5,10 @@
  */
 import React, { useState, useEffect, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { listTests, getTest, runTest, runBatch, updateTest, listVersions, rollbackTest, diffVersions, previewAutoFix } from "../api";
+import { listTests, getTest, runTest, runBatch, updateTest, listVersions, rollbackTest, diffVersions, previewAutoFix, apiErrorMessage } from "../api";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
+import ConfirmDialog from "../components/ConfirmDialog.jsx";
 
 const API_BASE = (import.meta?.env?.VITE_API_BASE || "https://qa-bot-demoqa.onrender.com").replace(/\/$/, "");
 
@@ -171,6 +172,7 @@ export default function CatalogPage() {
   const [versionsLoading, setVersionsLoading] = useState(false);
   const [versionsError,   setVersionsError]   = useState("");
   const [rollingBack,     setRollingBack]      = useState(null);   // version_number being rolled back
+  const [rollbackDialog,  setRollbackDialog]   = useState(null);   // { tc_id, version_number }
   const [rollbackMsg,     setRollbackMsg]      = useState("");     // success / error message
   const [compareFrom,     setCompareFrom]      = useState("");
   const [compareTo,       setCompareTo]        = useState("");
@@ -195,7 +197,7 @@ export default function CatalogPage() {
       const data = await listTests(params);
       setTests(Array.isArray(data) ? data : []);
     } catch (e) {
-      setError(e?.message || t("catalog.error.load_failed"));
+      setError(apiErrorMessage(e) || t("catalog.error.load_failed"));
     } finally {
       setLoading(false);
     }
@@ -389,22 +391,26 @@ export default function CatalogPage() {
     }
   }
 
-  async function handleRollback(tc_id, version_number, currentVersion) {
-    const confirmMsg = t("catalog.versions.rollback_confirm").replace("{v}", version_number);
-    if (!window.confirm(confirmMsg)) return;
+  function openRollbackDialog(tc_id, version_number) {
+    setRollbackDialog({ tc_id, version_number });
+  }
+
+  async function executeRollback() {
+    if (!rollbackDialog || rollingBack != null) return;
+    const { tc_id, version_number } = rollbackDialog;
     setRollingBack(version_number);
     setRollbackMsg("");
     try {
       const res = await rollbackTest(tc_id, { version: version_number, reason: `Rollback to v${version_number}` });
       const msg = t("catalog.versions.rollback_ok").replace("{v}", res.new_version);
       setRollbackMsg(msg);
-      // Refresh test list to show updated version number
+      setRollbackDialog(null);
       await load();
-      // Refresh version history
       const data = await listVersions(tc_id);
       setVersions(Array.isArray(data) ? data : []);
     } catch (e) {
-      setRollbackMsg(`✗ ${t("catalog.versions.rollback_err")}: ${e?.message || ""}`);
+      setRollbackMsg(`✗ ${t("catalog.versions.rollback_err")}: ${apiErrorMessage(e)}`);
+      setRollbackDialog(null);
     } finally {
       setRollingBack(null);
     }
@@ -921,7 +927,7 @@ export default function CatalogPage() {
                                           className="btn btn-secondary btn-sm"
                                           style={{ fontSize: 11 }}
                                           disabled={!!rollingBack}
-                                          onClick={() => handleRollback(tc.test_case_id, v.version_number, tc.version)}
+                                          onClick={() => openRollbackDialog(tc.test_case_id, v.version_number)}
                                         >
                                           {rollingBack === v.version_number ? "…" : t("catalog.versions.rollback_btn")}
                                         </button>
@@ -942,6 +948,20 @@ export default function CatalogPage() {
           </table>
         )}
       </div>
+
+      <ConfirmDialog
+        open={!!rollbackDialog}
+        title={t("catalog.versions.rollback_confirm_title")}
+        description={
+          rollbackDialog
+            ? t("catalog.versions.rollback_confirm").replace("{v}", String(rollbackDialog.version_number))
+            : ""
+        }
+        confirmLabel={t("catalog.versions.rollback_btn")}
+        busy={rollingBack != null}
+        onCancel={() => rollingBack == null && setRollbackDialog(null)}
+        onConfirm={executeRollback}
+      />
     </div>
   );
 }

@@ -3,15 +3,17 @@
  * ChatPage — thread sidebar (light) + dark chat canvas (preserves chat.jsx styles)
  */
 import React, {
-  useEffect, useRef, useState, useCallback, useMemo,
+  useEffect, useRef, useState, useCallback,
 } from "react";
 import {
+  apiErrorMessage,
   chatRun, getThread, listThreads,
   createThread as apiCreateThread,
   deleteThread as apiDeleteThread,
 } from "../api";
 import Sidebar from "../components/Sidebar";
 import Chat from "../chat";
+import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
 
@@ -60,6 +62,8 @@ export default function ChatPage() {
   });
   const [threads, setThreads]         = useState([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [deleteThreadId, setDeleteThreadId] = useState(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const chatEndRef = useRef(null);
   const scrollToBottom = useCallback(() => {
@@ -126,7 +130,7 @@ export default function ChatPage() {
     if (!tid) return;
     setUiError("");
     setThreadId(tid);
-    try { localStorage.setItem("vanya_thread_id", tid); } catch {}
+    try { localStorage.setItem("vanya_thread_id", tid); } catch { /* storage unavailable */ }
     setIsThreadsLoading(true);
     try {
       const data = await safeGetThread(tid);
@@ -149,7 +153,7 @@ export default function ChatPage() {
       const id = data?.id || data?.thread_id;
       if (!id) throw new Error("Backend did not return id/thread_id when creating thread.");
       setThreadId(id);
-      try { localStorage.setItem("vanya_thread_id", id); } catch {}
+      try { localStorage.setItem("vanya_thread_id", id); } catch { /* storage unavailable */ }
       setWelcome();
       await refreshThreads().catch(() => {});
     } catch (e) {
@@ -157,12 +161,17 @@ export default function ChatPage() {
     } finally { setIsThreadsLoading(false); }
   }, [refreshThreads, setWelcome, sidebarBusy, t]);
 
-  const handleDelete = useCallback(async (id) => {
+  const requestDeleteThread = useCallback((id) => {
     if (sidebarBusy) return;
     const tid = String(id || "").trim();
     if (!tid) return;
-    const ok = window.confirm(t("chat.delete_confirm"));
-    if (!ok) return;
+    setDeleteThreadId(tid);
+  }, [sidebarBusy]);
+
+  const confirmDeleteThread = useCallback(async () => {
+    const tid = deleteThreadId;
+    if (!tid || deleteBusy) return;
+    setDeleteBusy(true);
     setUiError("");
     setIsThreadsLoading(true);
     try {
@@ -170,13 +179,17 @@ export default function ChatPage() {
       await refreshThreads();
       if (String(tid) === String(threadId)) {
         setThreadId(null);
-        try { localStorage.removeItem("vanya_thread_id"); } catch {}
+        try { localStorage.removeItem("vanya_thread_id"); } catch { /* storage unavailable */ }
         setWelcome();
       }
+      setDeleteThreadId(null);
     } catch (e) {
-      setUiError(`${t("chat.error.delete_chat")} ${String(e?.message || e)}`);
-    } finally { setIsThreadsLoading(false); }
-  }, [refreshThreads, setWelcome, sidebarBusy, threadId, t]);
+      setUiError(`${t("chat.error.delete_chat")} ${apiErrorMessage(e)}`);
+    } finally {
+      setDeleteBusy(false);
+      setIsThreadsLoading(false);
+    }
+  }, [deleteBusy, deleteThreadId, refreshThreads, setWelcome, threadId, t]);
 
   const handleSelect = useCallback(async (id) => {
     if (sidebarBusy) return;
@@ -196,11 +209,11 @@ export default function ChatPage() {
       const newSessionId = resp?.session_id || resp?.sessionId || sessionId || null;
       if (newThreadId && String(newThreadId) !== String(threadId)) {
         setThreadId(newThreadId);
-        try { localStorage.setItem("vanya_thread_id", newThreadId); } catch {}
+        try { localStorage.setItem("vanya_thread_id", newThreadId); } catch { /* storage unavailable */ }
       }
       if (newSessionId && String(newSessionId) !== String(sessionId)) {
         setSessionId(newSessionId);
-        try { localStorage.setItem("vanya_session_id", newSessionId); } catch {}
+        try { localStorage.setItem("vanya_session_id", newSessionId); } catch { /* storage unavailable */ }
       }
       const answer =
         typeof resp?.answer === "string" ? resp.answer :
@@ -247,7 +260,7 @@ export default function ChatPage() {
             activeId={threadId}
             onNew={handleNew}
             onSelect={handleSelect}
-            onDelete={handleDelete}
+            onDelete={requestDeleteThread}
             isLoading={sidebarBusy}
           />
         )}
@@ -334,6 +347,17 @@ export default function ChatPage() {
           />
         </div>
       </div>
+
+      <ConfirmDialog
+        open={!!deleteThreadId}
+        title={t("chat.delete_confirm_title")}
+        description={t("chat.delete_confirm")}
+        confirmLabel={t("common.delete")}
+        danger
+        busy={deleteBusy}
+        onCancel={() => !deleteBusy && setDeleteThreadId(null)}
+        onConfirm={confirmDeleteThread}
+      />
     </div>
   );
 }

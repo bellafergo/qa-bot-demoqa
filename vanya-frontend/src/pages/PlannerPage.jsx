@@ -7,14 +7,18 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
-import { createTestFromRun, apiErrorMessage, apiFetch } from "../api";
+import { createTestFromRun, apiErrorMessage, apiFetchJson } from "../api";
+import { useToast } from "../context/ToastContext.jsx";
+import PromptDialog from "../components/PromptDialog.jsx";
 
 export default function PlannerPage({ embedded = false }) {
   const { t } = useLang();
   const navigate = useNavigate();
   const { currentProject } = useProject();
+  const { showToast } = useToast();
   const [saveCatalogBusy, setSaveCatalogBusy] = useState(false);
   const [saveCatalogOk, setSaveCatalogOk]     = useState(false);
+  const [catalogPrompt, setCatalogPrompt]     = useState(null);
   const [text, setText]       = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [appHint, setAppHint] = useState("");
@@ -32,7 +36,7 @@ export default function PlannerPage({ embedded = false }) {
     return () => clearTimeout(id);
   }, [saveCatalogOk]);
 
-  const handleSaveToCatalog = async () => {
+  const openSaveCatalogPrompt = () => {
     if (!run) return;
     const rid = run.evidence_id || run.run_id;
     if (!rid) return;
@@ -40,13 +44,13 @@ export default function PlannerPage({ embedded = false }) {
       (plan?.title && String(plan.title).trim()) ||
       (plan?.name && String(plan.name).trim()) ||
       `Test ${String(rid).slice(0, 10)}`;
-    const name = window.prompt(t("catalog.from_run.prompt_name"), defaultName);
-    if (name == null) return;
-    const trimmed = String(name).trim();
-    if (!trimmed) {
-      window.alert(t("catalog.from_run.name_required"));
-      return;
-    }
+    setCatalogPrompt({ runId: rid, defaultName });
+  };
+
+  const handleSaveToCatalogNamed = async (trimmed) => {
+    const rid = catalogPrompt?.runId;
+    if (!rid) return;
+    setCatalogPrompt(null);
     setSaveCatalogBusy(true);
     setSaveCatalogOk(false);
     try {
@@ -56,39 +60,40 @@ export default function PlannerPage({ embedded = false }) {
         project_id: (currentProject?.id || "default").trim() || "default",
       });
       setSaveCatalogOk(true);
+      showToast(t("catalog.from_run.success"), "success");
     } catch (e) {
-      window.alert(apiErrorMessage(e));
+      showToast(apiErrorMessage(e), "error");
     } finally {
       setSaveCatalogBusy(false);
     }
   };
 
   const handlePlan = async () => {
-    if (!text.trim()) return;
+    if (!text.trim() || loading) return;
     setLoading(true); setError(""); setPlan(null); setRun(null);
     try {
-      const res = await apiFetch("/plan_from_text", {
+      const data = await apiFetchJson("/plan_from_text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: text.trim(), base_url: baseUrl.trim() || null, app_hint: appHint.trim() || null, max_steps: 25 }),
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) setError(typeof data?.detail === "string" ? data.detail : `HTTP ${res.status}`);
-      else setPlan(data?.plan || data);
-    } catch (e) { setError(apiErrorMessage(e) || "Network error"); }
-    finally { setLoading(false); }
+      setPlan(data?.plan || data);
+    } catch (e) {
+      setError(apiErrorMessage(e) || "Network error");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleExecute = async () => {
-    if (!text.trim()) return;
+    if (!text.trim() || loading) return;
     setLoading(true); setError(""); setPlan(null); setRun(null);
     try {
-      const res = await apiFetch("/execute_text", {
+      const data = await apiFetchJson("/execute_text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: text.trim(), base_url: baseUrl.trim() || null, app_hint: appHint.trim() || null, max_steps: 25, confirm, headless: true }),
       });
-      const data = await res.json().catch(() => ({}));
       const toStringSafe = (v) => {
         if (v == null) return "";
         if (typeof v === "string") return v;
@@ -108,24 +113,20 @@ export default function PlannerPage({ embedded = false }) {
         return parts.length ? `${base} (${parts.join(" · ")})` : base;
       };
 
-      if (!res.ok) {
-        const detail = data?.detail ?? data;
-        if (typeof detail === "string") {
-          setError(detail);
-        } else if (detail && typeof detail === "object") {
-          const base = detail?.reason || detail?.message || "Execution error";
-          setError(enrichReason(base, detail));
-        } else {
-          setError(`HTTP ${res.status}`);
-        }
+      setPlan(data?.plan || null);
+      setRun(data?.run || data);
+      if (data?.reason) {
+        setError(enrichReason(data.reason, data));
+      } else {
+        setError("");
+        const r = data?.run || data;
+        if (r?.evidence_id) showToast(t("planner.run_done_toast"), "success");
       }
-      else {
-        setPlan(data?.plan || null);
-        setRun(data?.run || data);
-        if (data?.reason) setError(enrichReason(data.reason, data));
-      }
-    } catch (e) { setError(e?.message || "Network error"); }
-    finally { setLoading(false); }
+    } catch (e) {
+      setError(apiErrorMessage(e) || "Network error");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const hasPaymentRisk = plan?.risk_flags?.includes("payment");
@@ -377,7 +378,7 @@ export default function PlannerPage({ embedded = false }) {
                 type="button"
                 className="btn btn-primary btn-sm"
                 disabled={saveCatalogBusy}
-                onClick={handleSaveToCatalog}
+                onClick={openSaveCatalogPrompt}
               >
                 {saveCatalogBusy ? t("catalog.from_run.saving") : t("catalog.from_run.save_btn")}
               </button>
@@ -397,6 +398,24 @@ export default function PlannerPage({ embedded = false }) {
           </div>
         </div>
       )}
+
+      <PromptDialog
+        key={catalogPrompt ? `planner-cat-${catalogPrompt.runId}` : "planner-cat-closed"}
+        open={!!catalogPrompt}
+        title={t("planner.save_catalog_prompt_title")}
+        label={t("catalog.from_run.prompt_name")}
+        defaultValue={catalogPrompt?.defaultName || ""}
+        submitLabel={t("catalog.from_run.save_btn")}
+        busy={saveCatalogBusy}
+        onCancel={() => setCatalogPrompt(null)}
+        onSubmit={(trimmed) => {
+          if (!trimmed) {
+            showToast(t("catalog.from_run.name_required"), "warning");
+            return;
+          }
+          handleSaveToCatalogNamed(trimmed);
+        }}
+      />
     </div>
   );
 }
