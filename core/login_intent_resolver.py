@@ -197,11 +197,34 @@ def _extract_creds(prompt: str) -> Tuple[Optional[str], Optional[str]]:
 
 
 # ============================================================
-# Site detection
+# Explicit login NL (dejar que compile_steps_from_prompt / NL haga goto+fill+click)
 # ============================================================
 
-def _is_saucedemo(url: str) -> bool:
-    return "saucedemo.com" in (url or "").lower()
+def has_explicit_login_flow(prompt: str) -> bool:
+    """
+    True cuando el usuario ya describió un flujo concreto (ruta /login, campos email/password, etc.).
+    En ese caso NO debemos inyectar el macro `build_login_steps`.
+    """
+    from core.nl_selector_inference import extract_fill_clauses_from_prompt
+
+    p = prompt or ""
+    low = p.lower()
+    if re.search(
+        r"(?i)(?:ve\s+a|ir\s+a|go\s+to|goto|navega\s+a)\s+/[^\s,\)]+login",
+        p,
+    ):
+        return True
+    fills = extract_fill_clauses_from_prompt(p)
+    sels = {sel for _, sel in fills}
+    if 'input[type="email"]' in sels and 'input[type="password"]' in sels:
+        return True
+    if ("campo de email" in low or "email field" in low) and (
+        "campo de password" in low
+        or "campo de contrase" in low
+        or "password field" in low
+    ):
+        return True
+    return False
 
 
 # ============================================================
@@ -210,61 +233,63 @@ def _is_saucedemo(url: str) -> bool:
 
 def build_login_steps(*, base_url: str, prompt: str) -> Optional[List[Dict[str, object]]]:
     """
-    Retorna steps SOLO si detecta un login “accionable” y seguro (por ahora SauceDemo).
-    Si no aplica, retorna None para que tu flujo normal siga intacto.
+    Macro de login para intención ambigua (“haz login”, “inicia sesión”) en cualquier base_url.
+
+    Si el prompt ya es explícito (Ve a /login, escribe en campo de email…), retorna None
+    para que `compile_steps_from_prompt` use el parser NL normal.
     """
     if not base_url:
+        return None
+
+    if has_explicit_login_flow(prompt):
         return None
 
     if not _has_login_intent(prompt):
         return None
 
-    # Scope: SauceDemo (determinístico)
-    if not _is_saucedemo(base_url):
-        return None
+    from core.generic_login_targets import (
+        make_generic_login_password_target,
+        make_generic_login_submit_target,
+        make_generic_login_user_target,
+    )
 
     neg = _negative_expected(prompt)
     username, password = _extract_creds(prompt)
 
     expected = "fail" if neg else "pass"
 
-    # Siempre validamos que la UI de login está presente
+    ut = make_generic_login_user_target()
+    pt = make_generic_login_password_target()
+    st = make_generic_login_submit_target()
+
     steps: List[Dict[str, object]] = [
-        # expected aquí alimenta al runner (expected_outcome global)
         {"action": "goto", "url": base_url, "expected": expected},
         {"action": "wait_ms", "ms": 250},
-        {"action": "assert_visible", "selector": "#user-name"},
-        {"action": "assert_visible", "selector": "#password"},
-        {"action": "assert_visible", "selector": "#login-button"},
+        {"action": "assert_visible", "selector": ut["primary"], "target": ut},
+        {"action": "assert_visible", "selector": pt["primary"], "target": pt},
+        {"action": "assert_visible", "selector": st["primary"], "target": st},
     ]
 
-    # Si NO hay credenciales, NO forzamos submit.
-    # (Sirve como smoke de la pantalla de login, pero no intenta autenticarse.)
     if not username and not password:
         return steps
 
-    # Fill (usa value, que es lo que tu runner lee)
     if username:
-        steps.append({"action": "fill", "selector": "#user-name", "value": username})
+        steps.append(
+            {"action": "fill", "selector": ut["primary"], "target": ut, "value": username}
+        )
     if password:
-        steps.append({"action": "fill", "selector": "#password", "value": password})
+        steps.append(
+            {"action": "fill", "selector": pt["primary"], "target": pt, "value": password}
+        )
 
-    # Submit
     steps += [
-        {"action": "click", "selector": "#login-button"},
+        {"action": "click", "selector": st["primary"], "target": st},
         {"action": "wait_ms", "ms": 600},
     ]
 
     if neg:
-        # Caso negativo esperado: debe aparecer error
-        steps.append({"action": "assert_visible", "selector": "[data-test='error']"})
+        # Permanece en flujo de login (URL o pantalla típica)
+        steps.append({"action": "assert_url_contains", "value": "login"})
         return steps
 
-    # Caso positivo: NO debe haber error + debe navegar a inventory + debe verse "Products"
-    steps += [
-        {"action": "assert_not_visible", "selector": "[data-test='error']"},
-        {"action": "assert_url_contains", "value": "inventory.html"},
-        # En SauceDemo el título "Products" está en .title
-        {"action": "assert_text_contains", "selector": ".title", "text": "Products"},
-    ]
     return steps

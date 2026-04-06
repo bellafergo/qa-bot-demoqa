@@ -141,8 +141,8 @@ class TestBuildSemanticTarget:
 
 
 # ══════════════════════════════════════════════════════════════
-# 2. Integration: _parse_steps_from_prompt produces steps
-#    with target field for SauceDemo login
+# 2. Integration: compile_steps_from_prompt — login ambiguo usa
+#    macro genérico (targets + fallbacks) en cualquier dominio
 # ══════════════════════════════════════════════════════════════
 
 class TestParseStepsWithSemanticTarget:
@@ -162,16 +162,16 @@ class TestParseStepsWithSemanticTarget:
             'login username: standard_user password: secret_sauce',
             "https://www.saucedemo.com",
         )
-        step = self._find_step(steps, "fill", "#user-name")
-        assert step is not None, "Expected fill #user-name step"
-        assert "target" in step, "fill #user-name must have target field"
+        step = self._find_step(steps, "fill", 'input[type="email"]')
+        assert step is not None, "Expected generic email fill step"
+        assert "target" in step, "fill must have target field"
 
     def test_saucedemo_login_fill_password_has_target(self):
         steps = self._parse(
             'login username: standard_user password: secret_sauce',
             "https://www.saucedemo.com",
         )
-        step = self._find_step(steps, "fill", "#password")
+        step = self._find_step(steps, "fill", 'input[type="password"]')
         assert step is not None
         assert "target" in step
 
@@ -180,24 +180,25 @@ class TestParseStepsWithSemanticTarget:
             'login username: standard_user password: secret_sauce',
             "https://www.saucedemo.com",
         )
-        step = self._find_step(steps, "click", "#login-button")
+        step = self._find_step(steps, "click", 'button[type="submit"]')
         assert step is not None
         assert "target" in step
 
-    def test_target_confidence_high_for_saucedemo(self):
+    def test_generic_login_fill_email_primary_matches_target(self):
         steps = self._parse(
             'login username: standard_user password: secret_sauce',
             "https://www.saucedemo.com",
         )
-        step = self._find_step(steps, "fill", "#user-name")
-        assert step["target"]["confidence"] == "high"
+        step = self._find_step(steps, "fill", 'input[type="email"]')
+        assert step is not None
+        assert step["target"]["primary"] == 'input[type="email"]'
 
     def test_target_has_fallbacks_for_saucedemo(self):
         steps = self._parse(
             'login username: standard_user password: secret_sauce',
             "https://www.saucedemo.com",
         )
-        step = self._find_step(steps, "fill", "#user-name")
+        step = self._find_step(steps, "fill", 'input[type="email"]')
         assert len(step["target"]["fallbacks"]) >= 3
 
     def test_selector_still_present_for_backward_compat(self):
@@ -206,8 +207,8 @@ class TestParseStepsWithSemanticTarget:
             'login username: standard_user password: secret_sauce',
             "https://www.saucedemo.com",
         )
-        step = self._find_step(steps, "fill", "#user-name")
-        assert step["selector"] == "#user-name"
+        step = self._find_step(steps, "fill", 'input[type="email"]')
+        assert step["selector"] == 'input[type="email"]'
 
     def test_auto_login_steps_have_target(self):
         """Auto-injected login steps (assert_text_contains path) also get target."""

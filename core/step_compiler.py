@@ -14,6 +14,11 @@ import re
 from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin
 
+from core.generic_login_targets import (
+    make_generic_login_password_target,
+    make_generic_login_submit_target,
+    make_generic_login_user_target,
+)
 from core.nl_selector_inference import (
     extract_click_clauses_from_prompt,
     extract_fill_clauses_from_prompt,
@@ -92,23 +97,17 @@ def _compile_login(
     step_index: int,
     base_url: Optional[str],
 ) -> List[Dict[str, Any]]:
-    """Expande login a fill/click. Solo SauceDemo implementado de forma segura."""
-    if _is_saucedemo(base_url):
-        email = step.get("email") or step.get("username") or "{EMAIL}"
-        password = step.get("password") or "{PASSWORD}"
-        return [
-            {"action": "fill", "selector": "#user-name", "value": email},
-            {"action": "fill", "selector": "#password", "value": password},
-            {"action": "click", "selector": "#login-button"},
-        ]
-    raise CompileError(
-        f"login expansion only implemented for SauceDemo (base_url has saucedemo.com). "
-        f"Got base_url={base_url!r}",
-        step_index=step_index,
-        action="login",
-        error_type="unsupported_action",
-        details={"supported_site": "saucedemo.com", "got_base_url": base_url},
-    )
+    """Expande DSL `login` a fill/fill/click con selectores genéricos y fallbacks (cualquier dominio)."""
+    email = step.get("email") or step.get("username") or "{EMAIL}"
+    password = step.get("password") or "{PASSWORD}"
+    ut = make_generic_login_user_target()
+    pt = make_generic_login_password_target()
+    st = make_generic_login_submit_target()
+    return [
+        {"action": "fill", "selector": ut["primary"], "target": ut, "value": email},
+        {"action": "fill", "selector": pt["primary"], "target": pt, "value": password},
+        {"action": "click", "selector": st["primary"], "target": st},
+    ]
 
 
 def _compile_search(
@@ -232,6 +231,51 @@ def _compile_assert_cart_count(
     )
 
 
+def _selector_blob_from_step(s: Dict[str, Any]) -> str:
+    parts = [str(s.get("selector") or "")]
+    t = s.get("target")
+    if isinstance(t, dict):
+        parts.append(str(t.get("primary") or ""))
+    return " ".join(parts).lower()
+
+
+def _plan_has_explicit_login_ui_steps(plan_steps: List[Dict[str, Any]]) -> bool:
+    """
+    True si el plan ya trae un flujo login manual (fills + password + click).
+    En ese caso se omiten pasos DSL `login` para no duplicar.
+    """
+    fills = 0
+    has_pw = False
+    has_userish = False
+    clicks = 0
+    for s in plan_steps:
+        if not isinstance(s, dict):
+            continue
+        a = str(s.get("action") or "").strip().lower()
+        if a == "fill":
+            fills += 1
+            b = _selector_blob_from_step(s)
+            if "password" in b or 'type="password"' in b:
+                has_pw = True
+            if any(
+                x in b
+                for x in (
+                    "email",
+                    "user-name",
+                    "username",
+                    "user_name",
+                    'type="email"',
+                    'type="text"',
+                    "[name=\"email\"]",
+                    "autocomplete=\"username\"",
+                )
+            ):
+                has_userish = True
+        elif a == "click":
+            clicks += 1
+    return fills >= 2 and has_pw and has_userish and clicks >= 1
+
+
 def compile_to_runner_steps(
     plan_steps: List[Dict[str, Any]],
     base_url: Optional[str] = None,
@@ -257,9 +301,15 @@ def compile_to_runner_steps(
     context = context or {}
     resolved_base = base_url or context.get("base_url", "")
 
+    working = list(plan_steps)
+    if _plan_has_explicit_login_ui_steps(working):
+        working = [
+            s for s in working if str(s.get("action") or "").strip().lower() != "login"
+        ]
+
     result: List[Dict[str, Any]] = []
 
-    for i, step in enumerate(plan_steps):
+    for i, step in enumerate(working):
         if not isinstance(step, dict):
             raise CompileError(
                 f"Step at index {i} is not a dict (got {type(step).__name__})",
