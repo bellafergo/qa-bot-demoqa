@@ -130,6 +130,12 @@ def _apply_cors_headers_if_needed(request: Request, response: JSONResponse, allo
 cors_origins = _normalize_origins(settings.CORS_ORIGINS)
 cors_origin_regex = settings.CORS_ORIGIN_REGEX or None
 
+# Starlette: last add_middleware = outermost (runs first on the request). Request path must be:
+#   CORS → VanyaAuth (sets request.state) → RateLimit (uses state for per-user buckets) → routes
+# so that 401/403 from auth still pass back through CORS for browser Access-Control-Allow-Origin.
+# Add order (inner → outer): RateLimit, VanyaAuth, CORS.
+app.add_middleware(RateLimitMiddleware)
+app.add_middleware(VanyaAuthMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
@@ -138,10 +144,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# After auth (outer): VanyaAuth → RateLimit → CORS → routes (so request.state is set).
-app.add_middleware(RateLimitMiddleware)
-app.add_middleware(VanyaAuthMiddleware)
 
 # OpenAPI UI — only in non-prod-style deployments (see core.vanya_auth.docs_allowed_in_this_deployment).
 if not docs_allowed_in_this_deployment():

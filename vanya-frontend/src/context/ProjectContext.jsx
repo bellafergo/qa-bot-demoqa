@@ -15,6 +15,7 @@ import {
   deleteProject as apiDeleteProject,
   apiErrorMessage,
 } from "../api.js";
+import { useAuth } from "../auth/AuthContext.jsx";
 import { PROJECT_STORAGE_KEY } from "./projectStorage.js";
 
 /** @typedef {{ id: string, name: string, description?: string, color?: string, base_url?: string|null, created_at?: string, updated_at?: string }} Project */
@@ -39,6 +40,7 @@ function pickCurrentAfterLoad(list, preferId, previousId, storedId) {
 }
 
 export function ProjectProvider({ children }) {
+  const { session, loading: authLoading } = useAuth();
   /** @type {[Project[], function]} */
   const [projects, setProjects] = useState([]);
   /** @type {[Project | null, function]} */
@@ -112,9 +114,17 @@ export function ProjectProvider({ children }) {
   }, [persistId]);
 
   useEffect(() => {
+    if (authLoading) return;
+    if (!session?.access_token) {
+      setLoading(false);
+      setProjects([]);
+      setCurrentProjectState(null);
+      persistId(null);
+      setError(null);
+      return;
+    }
     reloadProjects();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- initial load only
-  }, []);
+  }, [authLoading, session?.access_token, reloadProjects, persistId]);
 
   const createProject = useCallback(
     async (payload) => {

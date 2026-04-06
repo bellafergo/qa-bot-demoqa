@@ -4,6 +4,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -22,6 +23,9 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
   const signingOutRef = useRef(false);
+  /** Always read in api.js token getter — avoids races vs child useEffect (e.g. ProjectProvider). */
+  const sessionRef = useRef(null);
+  sessionRef.current = session;
 
   const handleUnauthorized = useCallback(() => {
     if (signingOutRef.current) return;
@@ -34,12 +38,10 @@ export function AuthProvider({ children }) {
     signingOutRef.current = false;
   }, [navigate]);
 
-  useEffect(() => {
-    setAccessTokenGetter(() => session?.access_token ?? null);
-    return () => {
-      setAccessTokenGetter(() => null);
-    };
-  }, [session]);
+  useLayoutEffect(() => {
+    setAccessTokenGetter(() => sessionRef.current?.access_token ?? null);
+    return () => setAccessTokenGetter(() => null);
+  }, []);
 
   useEffect(() => {
     setUnauthorizedHandler(handleUnauthorized);
