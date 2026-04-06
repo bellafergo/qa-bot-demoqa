@@ -12,7 +12,13 @@ from __future__ import annotations
 
 import re
 from typing import Any, Dict, List, Optional
+from urllib.parse import urljoin
 
+from core.nl_selector_inference import (
+    extract_click_clauses_from_prompt,
+    extract_fill_clauses_from_prompt,
+    make_min_target,
+)
 from core.schemas import RUNNER_ACTIONS
 from core.semantic_step_builder import build_semantic_target
 from core.semantic_intent_extractor import (
@@ -464,6 +470,18 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
         {"action": "wait_ms", "ms": 250},
     ]
 
+    _path_m = re.search(
+        r'(?i)\b(?:ve\s+a|ir\s+a|vaya\s+a|go\s+to|goto|navega\s+a)\s+(/[^,\s\)\]]+)',
+        p,
+    )
+    if _path_m and base_url:
+        rel = _path_m.group(1)
+        root = base_url.rstrip("/")
+        steps[0] = {
+            "action": "goto",
+            "url": urljoin(root + "/", rel.lstrip("/")),
+        }
+
     _has_form_actions = bool(re.search(r'\b(fill|type|llena|escribe|ingresa|teclea|click)\b', low))
     if ("visibles" in low or "visible" in low) and not _has_form_actions:
         _tv = re.search(
@@ -538,19 +556,49 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
                     steps.append({"action": "assert_visible", "selector": sel})
                 steps.append({"action": "fill", "selector": sel, "value": val})
 
-    click_patterns = [
-        r'(?:haz\s+click\s+en|haz\s+clic\s+en|da\s+click\s+en|click\s+on|click)\s+(".*?"|\'.*?\'|#[-\w]+|\.[-\w]+|\[[^\]]+\])',
-        r'(?:haz\s+click\s+en|haz\s+clic\s+en|da\s+click\s+en|click\s+on|click)\s+([\w][\w\s]*?)(?:\s*$)',
-    ]
-    seen_click_sels: set = set()
-    for pat in click_patterns:
-        for m in re.finditer(pat, p, flags=re.IGNORECASE | re.MULTILINE):
-            sel = _strip_quotes(m.group(1)).strip()
-            if sel and sel not in seen_click_sels:
-                seen_click_sels.add(sel)
-                if any(c in sel for c in _CSS_CHARS):
-                    steps.append({"action": "assert_visible", "selector": sel})
-                steps.append({"action": "click", "selector": sel})
+    def _fill_value_exists(val: str) -> bool:
+        v = (val or "").strip()
+        return any(
+            str(s.get("action")) == "fill"
+            and _strip_quotes(str(s.get("value") or "")).strip() == v
+            for s in steps
+        )
+
+    for val, sel in extract_fill_clauses_from_prompt(p):
+        if _fill_value_exists(val):
+            continue
+        steps.append({"action": "assert_visible", "selector": sel})
+        steps.append(
+            {
+                "action": "fill",
+                "selector": sel,
+                "target": make_min_target(sel),
+                "value": val,
+            },
+        )
+
+    # Clicks NL estructurados antes que regex suelta (evita click antes de fills valor-primero)
+    _nl_clicks = extract_click_clauses_from_prompt(p)
+    if _nl_clicks:
+        for csel in _nl_clicks:
+            steps.append({"action": "assert_visible", "selector": csel})
+            steps.append(
+                {"action": "click", "selector": csel, "target": make_min_target(csel)},
+            )
+    else:
+        click_patterns = [
+            r'(?:haz\s+click\s+en|haz\s+clic\s+en|da\s+click\s+en|click\s+on|click)\s+(".*?"|\'.*?\'|#[-\w]+|\.[-\w]+|\[[^\]]+\])',
+            r'(?:haz\s+click\s+en|haz\s+clic\s+en|da\s+click\s+en|click\s+on|click)\s+([\w][\w\s]*?)(?:\s*$)',
+        ]
+        seen_click_sels: set = set()
+        for pat in click_patterns:
+            for m in re.finditer(pat, p, flags=re.IGNORECASE | re.MULTILINE):
+                sel = _strip_quotes(m.group(1)).strip()
+                if sel and sel not in seen_click_sels:
+                    seen_click_sels.add(sel)
+                    if any(c in sel for c in _CSS_CHARS):
+                        steps.append({"action": "assert_visible", "selector": sel})
+                    steps.append({"action": "click", "selector": sel})
 
     if re.search(r"\b(enter|intro|presiona\s+enter|presiona\s+intro)\b", low):
         last_sel = None

@@ -87,10 +87,11 @@ _DOC_WORDS = (
     "pos", "punto de venta", "retail", "ecommerce", "e-commerce",
 )
 
-# Acciones válidas para runner
+# Acciones válidas para runner (subset usado al parsear JSON del LLM en chat)
 _ALLOWED_ACTIONS = {
     "goto", "fill", "click", "press",
-    "assert_visible", "assert_text_contains", "wait_ms",
+    "assert_visible", "assert_not_visible", "assert_text_contains",
+    "assert_url_contains", "wait_ms",
 }
 
 
@@ -441,8 +442,11 @@ def _sanitize_steps(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
         step: Dict[str, Any] = {"action": action}
 
-        # Copia campos permitidos
-        for k in ("url", "selector", "text", "role", "value", "timeout_ms"):
+        # Copia campos permitidos (conserva target/expected del contrato runner)
+        for k in (
+            "url", "path", "selector", "text", "role", "value", "timeout_ms",
+            "target", "expected", "key", "ms",
+        ):
             if k in s and s[k] is not None:
                 step[k] = s[k]
 

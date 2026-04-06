@@ -18,6 +18,7 @@ from core.redaction import redact_secrets, redact_steps
 from core.step_compiler import compile_steps_from_prompt, ensure_has_assert
 from core.step_validator import validate_steps
 from core.step_normalizer import normalize_steps_to_target as _normalize_steps_to_target
+from core.nl_selector_inference import enrich_nl_steps_from_prompt
 
 from services.evidence_pipeline import process_evidence
 from services.chat_run_test_name import fallback_test_name_from_prompt, resolve_chat_run_test_name
@@ -309,6 +310,8 @@ def handle_execute_mode(
         steps = generate_steps_llm(prompt, base_url, messages)
         if steps:
             logger.info("Step LLM generator produced fallback steps")
+
+    steps = enrich_nl_steps_from_prompt(prompt, steps)
 
     if not steps:
         # Conversational guidance instead of a rigid "tell me selector" checklist.

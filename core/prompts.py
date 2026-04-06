@@ -195,6 +195,18 @@ IMPORTANT: TARGET FORMAT (PRODUCT RULE)
 - For ANY step that uses an element (fill/click/press/assert_visible/assert_not_visible/assert_text_contains):
   You MUST provide a "target" object, not a raw selector string.
 
+NATURAL LANGUAGE → SELECTOR (P0 — Spanish and English)
+- Users often say VALUE first, then the field: "escribe user@x.com en el campo de email" or "type pass into the password field".
+- You MUST still output a complete step: every "fill" needs target.primary (or selector) — NEVER omit the locator.
+- Map common phrases to stable CSS:
+  - email / campo de email / correo → input[type="email"]
+  - password / contraseña / campo de password → input[type="password"]
+  - búsqueda / search → input[type="search"]
+  - texto / text field / campo de texto → input[type="text"]
+  - primer campo / first field → input:first-of-type
+- For login submit: prefer button[type="submit"]; if the user names the button ("Sign in", "Iniciar sesión"), add fallbacks with button:has-text("...") in target.fallbacks.
+- If unsure, use the most specific safe CSS you can (never leave fill/click without target.primary).
+
 TARGET schema:
 {
   "primary": "string (css selector OR playwright-ish selector you can map)",
