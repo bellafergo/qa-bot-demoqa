@@ -3,17 +3,13 @@
  * Evidence Library — lean centralized view of all run evidence.
  * GET /evidences  (lean projection — no screenshot_b64, no blobs)
  *
- * Full evidence detail remains at GET /runs/{evidence_id} (HTML report).
- * This page only shows links; no inline images.
+ * Full run payload is loaded in-app via GET /runs/{id}?format=json (authenticated).
+ * This list view stays lean; open "View Evidence" navigates to /evidence/run/:runId.
  */
 import React, { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { listEvidences, enqueueSingle } from "../api";
 import { useLang } from "../i18n/LangContext";
-
-const API_BASE = (
-  import.meta?.env?.VITE_API_BASE || "https://qa-bot-demoqa.onrender.com"
-).replace(/\/$/, "");
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -382,10 +378,6 @@ export default function EvidencePage() {
 // ── row component ─────────────────────────────────────────────────────────────
 
 function EvidenceRow({ row, t, navigate }) {
-  const evidenceHref = row.run_id
-    ? `${API_BASE}/runs/${row.run_id}`
-    : null;
-
   const { evidenceUrl, reportUrl } = getCanonicalEvidenceUrls(row);
   const correlationId = getCorrelationId(row);
   const stepsCount = getStepsCount(row);
@@ -467,15 +459,13 @@ function EvidenceRow({ row, t, navigate }) {
       {/* Actions */}
       <td>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {evidenceHref ? (
-            <a
-              href={evidenceHref}
-              target="_blank"
-              rel="noreferrer"
+          {row.run_id ? (
+            <Link
+              to={`/evidence/run/${encodeURIComponent(row.run_id)}`}
               className="btn btn-secondary btn-sm"
             >
               {t("ev.action.view")}
-            </a>
+            </Link>
           ) : (
             <span style={{ fontSize: 12, color: "var(--text-3)" }}>{t("ev.no_link")}</span>
           )}

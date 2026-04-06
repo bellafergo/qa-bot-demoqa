@@ -510,38 +510,10 @@ function FailureClustersPanel({ clusters, loading }) {
   );
 }
 
-// ── Evidence Lookup tab ───────────────────────────────────────────────────────
+// ── Evidence Lookup: JSON run detail (shared with SPA route /evidence/run/:runId) ──
 
-function EvidenceLookupTab() {
+export function EvidenceLookupResultView({ run }) {
   const { t } = useLang();
-  const [evidenceId, setEvidenceId] = useState("");
-  const [loading, setLoading]       = useState(false);
-  const [run, setRun]               = useState(null);
-  const [error, setError]           = useState("");
-  const fetchInFlightRef = useRef(false);
-
-  const handleFetch = useCallback(async () => {
-    const id = evidenceId.trim();
-    if (!id || fetchInFlightRef.current) return;
-    fetchInFlightRef.current = true;
-    setLoading(true);
-    setError("");
-    setRun(null);
-    try {
-      const data = await apiGet(`/runs/${encodeURIComponent(id)}?format=json`);
-      setRun(data);
-    } catch (e) {
-      if (e instanceof ApiHttpError && e.status === 404) {
-        setError(`Run not found: ${id}`);
-      } else {
-        setError(apiErrorMessage(e) || "Network error");
-      }
-    } finally {
-      setLoading(false);
-      fetchInFlightRef.current = false;
-    }
-  }, [evidenceId]);
-
   const healedEntries = (run?.resolution_log || []).filter(e => e?.fallback_used === true);
   const hasHealing = healedEntries.length > 0;
 
@@ -556,29 +528,6 @@ function EvidenceLookupTab() {
 
   return (
     <>
-      <div className="card" style={{ marginBottom: 24 }}>
-        <div className="page-header" style={{ marginBottom: 16 }}>
-          <h1 className="page-title">{t("runs.lookup.title")}</h1>
-          <p className="page-subtitle">{t("runs.lookup.subtitle")}</p>
-        </div>
-        <div style={{ display: "flex", gap: 10 }}>
-          <input
-            className="input"
-            value={evidenceId}
-            onChange={e => setEvidenceId(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && handleFetch()}
-            placeholder={t("runs.lookup.placeholder")}
-            style={{ flex: 1 }}
-          />
-          <button className="btn btn-primary" onClick={handleFetch} disabled={loading || !evidenceId.trim()}>
-            {loading ? t("runs.lookup.loading") : t("runs.lookup.fetch")}
-          </button>
-        </div>
-        {error && <div className="alert alert-error" style={{ marginTop: 12 }}>{error}</div>}
-      </div>
-
-      {run && (
-        <>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
             <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: "var(--text-1)" }}>{t("runs.detail.title")}</h2>
             <span className={statusBadgeClass(run.status)}>{statusBadgeText(run.status || "unknown")}</span>
@@ -779,8 +728,66 @@ function EvidenceLookupTab() {
               />
             </div>
           )}
-        </>
-      )}
+    </>
+  );
+}
+
+// ── Evidence Lookup tab ───────────────────────────────────────────────────────
+
+function EvidenceLookupTab() {
+  const { t } = useLang();
+  const [evidenceId, setEvidenceId] = useState("");
+  const [loading, setLoading]       = useState(false);
+  const [run, setRun]               = useState(null);
+  const [error, setError]           = useState("");
+  const fetchInFlightRef = useRef(false);
+
+  const handleFetch = useCallback(async () => {
+    const id = evidenceId.trim();
+    if (!id || fetchInFlightRef.current) return;
+    fetchInFlightRef.current = true;
+    setLoading(true);
+    setError("");
+    setRun(null);
+    try {
+      const data = await apiGet(`/runs/${encodeURIComponent(id)}?format=json`);
+      setRun(data);
+    } catch (e) {
+      if (e instanceof ApiHttpError && e.status === 404) {
+        setError(`Run not found: ${id}`);
+      } else {
+        setError(apiErrorMessage(e) || "Network error");
+      }
+    } finally {
+      setLoading(false);
+      fetchInFlightRef.current = false;
+    }
+  }, [evidenceId]);
+
+  return (
+    <>
+      <div className="card" style={{ marginBottom: 24 }}>
+        <div className="page-header" style={{ marginBottom: 16 }}>
+          <h1 className="page-title">{t("runs.lookup.title")}</h1>
+          <p className="page-subtitle">{t("runs.lookup.subtitle")}</p>
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <input
+            className="input"
+            value={evidenceId}
+            onChange={e => setEvidenceId(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleFetch()}
+            placeholder={t("runs.lookup.placeholder")}
+            style={{ flex: 1 }}
+          />
+          <button className="btn btn-primary" onClick={handleFetch} disabled={loading || !evidenceId.trim()}>
+            {loading ? t("runs.lookup.loading") : t("runs.lookup.fetch")}
+          </button>
+        </div>
+        {error && <div className="alert alert-error" style={{ marginTop: 12 }}>{error}</div>}
+      </div>
+
+      {run && <EvidenceLookupResultView run={run} />}
     </>
   );
 }

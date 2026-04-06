@@ -100,7 +100,7 @@ export default function ChatPage() {
       setThreads(normalized);
       return normalized;
     } catch (e) {
-      setUiError(`${t("chat.error.load_threads")} ${String(e?.message || e)}`);
+      setUiError(`${t("chat.error.load_threads")} ${apiErrorMessage(e)}`);
       setThreads([]);
       return [];
     } finally { setIsThreadsLoading(false); }
@@ -139,7 +139,7 @@ export default function ChatPage() {
       if (ui) setMessages(ui); else setWelcome();
       if (refreshSidebar) await refreshThreads().catch(() => {});
     } catch (e) {
-      setUiError(`${t("chat.error.load_chat")} ${String(e?.message || e)}`);
+      setUiError(`${t("chat.error.load_chat")} ${apiErrorMessage(e)}`);
       setWelcome();
     } finally { setIsThreadsLoading(false); }
   }, [mapBackendMessagesToUI, refreshThreads, setWelcome, t]);
@@ -157,7 +157,7 @@ export default function ChatPage() {
       setWelcome();
       await refreshThreads().catch(() => {});
     } catch (e) {
-      setUiError(`${t("chat.error.create_chat")} ${String(e?.message || e)}`);
+      setUiError(`${t("chat.error.create_chat")} ${apiErrorMessage(e)}`);
     } finally { setIsThreadsLoading(false); }
   }, [refreshThreads, setWelcome, sidebarBusy, t]);
 
@@ -225,7 +225,7 @@ export default function ChatPage() {
       }]);
       await refreshThreads().catch(() => {});
     } catch (e) {
-      setUiError(`${t("chat.error.send")} ${String(e?.message || e)}`);
+      setUiError(`${t("chat.error.send")} ${apiErrorMessage(e)}`);
       setMessages(prev => [...prev, {
         role: "bot",
         content: t("chat.error.send_retry"),

@@ -24,6 +24,7 @@ import IntegrationsPage         from "./pages/IntegrationsPage";
 import FailureIntelligencePage  from "./pages/FailureIntelligencePage";
 import RiskSelectionPage        from "./pages/RiskSelectionPage";
 import EvidencePage            from "./pages/EvidencePage";
+import RunEvidenceDetailPage   from "./pages/RunEvidenceDetailPage.jsx";
 import GeneratePage            from "./pages/GeneratePage";
 import InsightsPage            from "./pages/InsightsPage";
 import ProjectsPage            from "./pages/ProjectsPage";
@@ -67,6 +68,7 @@ export default function App() {
           <Route path="catalog"    element={<CatalogPage />} />
           <Route path="runs"       element={<RunsPage />} />
           <Route path="batch"      element={<BatchRunnerPage />} />
+          <Route path="evidence/run/:runId" element={<RunEvidenceDetailPage />} />
           <Route path="evidence"   element={<EvidencePage />} />
           <Route path="generate"   element={<GeneratePage />} />
           <Route path="insights"   element={<InsightsPage />} />
