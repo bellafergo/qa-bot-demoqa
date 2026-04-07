@@ -18,6 +18,7 @@ class ChatRunRequest(BaseModel):
     headless: bool = True
     base_url: Optional[str] = None
     thread_id: Optional[str] = None
+    project_id: Optional[str] = None
 
 
 def _ensure_data_url(obj: Any) -> None:

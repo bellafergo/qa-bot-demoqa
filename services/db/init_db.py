@@ -122,3 +122,16 @@ def init_catalog_db() -> None:
                 logger.info("db: migrated test_runs — added deleted_at column (soft delete)")
     except Exception:
         logger.exception("db: migration for test_runs.deleted_at failed (non-fatal)")
+
+    # ── projects.settings_json (login_profile + variables per project) ───────
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(projects)"))
+            existing_cols = {row[1] for row in result.fetchall()}
+            if "settings_json" not in existing_cols:
+                conn.execute(text("ALTER TABLE projects ADD COLUMN settings_json TEXT"))
+                conn.commit()
+                logger.info("db: migrated projects — added settings_json column")
+    except Exception:
+        logger.exception("db: migration for projects.settings_json failed (non-fatal)")

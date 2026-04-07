@@ -231,12 +231,20 @@ def has_explicit_login_flow(prompt: str) -> bool:
 # Public API
 # ============================================================
 
-def build_login_steps(*, base_url: str, prompt: str) -> Optional[List[Dict[str, object]]]:
+def build_login_steps(
+    *,
+    base_url: str,
+    prompt: str,
+    context: Optional[Dict[str, object]] = None,
+) -> Optional[List[Dict[str, object]]]:
     """
     Macro de login para intención ambigua (“haz login”, “inicia sesión”) en cualquier base_url.
 
     Si el prompt ya es explícito (Ve a /login, escribe en campo de email…), retorna None
     para que `compile_steps_from_prompt` use el parser NL normal.
+
+    Con context.login_profile + variables de proyecto, usa selectores del perfil y
+    resuelve {EMAIL}/{PASSWORD} desde el proyecto antes que el entorno.
     """
     if not base_url:
         return None
@@ -252,11 +260,58 @@ def build_login_steps(*, base_url: str, prompt: str) -> Optional[List[Dict[str, 
         make_generic_login_submit_target,
         make_generic_login_user_target,
     )
+    from core.nl_selector_inference import make_min_target
+    from core.step_compiler import (
+        CompileError,
+        append_login_profile_success_asserts,
+        resolve_interpolated_credentials,
+    )
 
     neg = _negative_expected(prompt)
     username, password = _extract_creds(prompt)
 
     expected = "fail" if neg else "pass"
+
+    ctx = context if isinstance(context, dict) else {}
+    lp = ctx.get("login_profile")
+    if isinstance(lp, dict):
+        es = str(lp.get("email_selector") or "").strip()
+        ps = str(lp.get("password_selector") or "").strip()
+        ss = str(lp.get("submit_selector") or "").strip()
+        if es and ps and ss:
+            raw_email = username if username else "{EMAIL}"
+            raw_pw = password if password else "{PASSWORD}"
+            try:
+                email = resolve_interpolated_credentials(raw_email, ctx, purpose="login_email")
+                pw = resolve_interpolated_credentials(raw_pw, ctx, purpose="login_password")
+            except CompileError:
+                raise
+            if not str(email).strip() or not str(pw).strip():
+                raise CompileError(
+                    "Project login needs EMAIL and PASSWORD in project settings (or credentials in the prompt).",
+                    error_type="missing_project_credentials",
+                )
+            steps_pl: List[Dict[str, object]] = []
+            lu = str(lp.get("login_url") or "").strip()
+            if lu:
+                from urllib.parse import urljoin
+
+                dest = lu if lu.startswith("http") else urljoin(base_url.rstrip("/") + "/", lu.lstrip("/"))
+                steps_pl.append({"action": "goto", "url": dest, "expected": expected})
+            else:
+                steps_pl.append({"action": "goto", "url": base_url, "expected": expected})
+            steps_pl.append({"action": "wait_ms", "ms": 280})
+            et = make_min_target(es)
+            pt_t = make_min_target(ps)
+            st_t = make_min_target(ss)
+            steps_pl.append({"action": "fill", "selector": es, "target": et, "value": email})
+            steps_pl.append({"action": "fill", "selector": ps, "target": pt_t, "value": pw})
+            steps_pl.append({"action": "click", "selector": ss, "target": st_t})
+            steps_pl.append({"action": "wait_ms", "ms": 650})
+            if neg:
+                steps_pl.append({"action": "assert_url_contains", "value": "login"})
+                return steps_pl
+            return append_login_profile_success_asserts(steps_pl, lp)
 
     ut = make_generic_login_user_target()
     pt = make_generic_login_password_target()
@@ -292,4 +347,4 @@ def build_login_steps(*, base_url: str, prompt: str) -> Optional[List[Dict[str, 
         steps.append({"action": "assert_url_contains", "value": "login"})
         return steps
 
-    return steps
+    return append_login_profile_success_asserts(steps, lp if isinstance(lp, dict) else None)

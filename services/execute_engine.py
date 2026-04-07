@@ -17,6 +17,7 @@ from runner import execute_test
 from core.redaction import redact_secrets, redact_steps
 from core.step_compiler import (
     CompileError,
+    append_login_profile_success_asserts,
     augment_steps_with_prompt_assertions,
     compile_steps_from_prompt,
     ensure_has_assert,
@@ -30,7 +31,6 @@ from core.target_url_validation import (
 from core.step_validator import validate_steps
 from core.step_normalizer import normalize_steps_to_target as _normalize_steps_to_target
 from core.nl_selector_inference import enrich_nl_steps_from_prompt
-
 from services.evidence_pipeline import process_evidence
 from services.chat_run_test_name import fallback_test_name_from_prompt, resolve_chat_run_test_name
 from services.step_llm_generator import generate_steps_llm
@@ -296,7 +296,19 @@ def handle_execute_mode(
 
     # ---------------------------------------------------------
     # Base URL es obligatorio para el engine genérico
+    # (si hay project_id, se puede tomar del proyecto)
     # ---------------------------------------------------------
+    if not base_url:
+        project_id_fill = (getattr(req, "project_id", None) or "").strip()
+        if project_id_fill:
+            from services.db.project_repository import project_repo
+
+            _p = project_repo.get_project(project_id_fill.lower())
+            if _p and getattr(_p, "base_url", None):
+                try:
+                    base_url = H.normalize_url(str(_p.base_url))
+                except Exception:
+                    base_url = None
     if not base_url:
         answer = _build_guided_missing_base_url_answer(prompt, persona=persona)
         store.add_message(thread_id, "assistant", answer, meta={"mode": "execute", "persona": persona})
@@ -335,15 +347,56 @@ def handle_execute_mode(
             **_confidence("execute", prompt, base_url),
         }
 
+    # Proyecto opcional: variables de login + perfil de selectores (prioridad sobre env global)
+    exec_ctx: Dict[str, Any] = {}
+    project_id_raw = (getattr(req, "project_id", None) or "").strip()
+    if project_id_raw:
+        from services.db.project_repository import project_repo
+        from services.project_execution_context import execution_context_from_project
+
+        proj = project_repo.get_project(project_id_raw.lower())
+        if proj:
+            exec_ctx = execution_context_from_project(proj)
+
     # Site-specific LLM hints (registered profiles) — keep generic prompt until base_url is known
     if messages and (messages[0].get("role") or "").strip() == "system":
         from core.prompts import build_execute_system_prompt
 
         messages[0] = {**messages[0], "content": build_execute_system_prompt(base_url=base_url)}
 
+    merged_ctx: Dict[str, Any] = {**exec_ctx, "base_url": base_url}
+
     # 1) Compilación determinística (login resolver + parser)
     try:
-        steps = compile_steps_from_prompt(prompt, base_url)
+        steps = compile_steps_from_prompt(prompt, base_url, execution_context=merged_ctx)
+    except CompileError as e:
+        answer = (
+            f"No pude preparar el flujo de login o las variables del proyecto: {e}\n\n"
+            "Revisá la configuración del proyecto (EMAIL / PASSWORD y login) o escribí "
+            "credenciales en el mensaje."
+        )
+        store.add_message(
+            thread_id,
+            "assistant",
+            answer,
+            meta={
+                "mode": "execute",
+                "persona": persona,
+                "base_url": base_url,
+                "error": getattr(e, "error_type", None) or "compile_error",
+                "compile_error": str(e),
+            },
+        )
+        return {
+            "mode": "execute",
+            "persona": persona,
+            "session_id": session_id,
+            "thread_id": thread_id,
+            "answer": answer,
+            "correlation_id": correlation_id,
+            "steps_count": 0,
+            **_confidence("execute", prompt, base_url),
+        }
     except TargetURLNotAllowed:
         answer = (
             "La URL de destino no está permitida por políticas de seguridad (SSRF). "
@@ -378,13 +431,18 @@ def handle_execute_mode(
     steps = enrich_nl_steps_from_prompt(prompt, steps)
 
     if steps:
+        lp0 = merged_ctx.get("login_profile")
+        if isinstance(lp0, dict):
+            steps = append_login_profile_success_asserts(steps, lp0)
+
+    if steps:
         try:
-            steps = resolve_fill_values_in_steps(steps, {"base_url": base_url})
+            steps = resolve_fill_values_in_steps(steps, merged_ctx)
         except CompileError as e:
             answer = (
                 f"No pude resolver variables en los pasos generados: {e}\n\n"
-                "Si el plan usa placeholders como {EMAIL}, define VANYA_TEST_EMAIL y "
-                "VANYA_TEST_PASSWORD (o VANYA_EMAIL / VANYA_PASSWORD) en el entorno, "
+                "Configurá variables en el proyecto (EMAIL / PASSWORD), o definí "
+                "VANYA_TEST_EMAIL / VANYA_TEST_PASSWORD en el entorno, "
                 "o escribe credenciales literales en el mensaje."
             )
             store.add_message(

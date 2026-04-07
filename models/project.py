@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -24,6 +24,8 @@ class Project(BaseModel):
     description: str       = ""
     color:       str       = "#6366f1"
     base_url:    Optional[str] = None
+    # Full settings (secrets included). Prefer masking before sending to clients.
+    settings:    Dict[str, Any] = Field(default_factory=dict)
     created_at:  datetime  = Field(default_factory=_now_utc)
     updated_at:  datetime  = Field(default_factory=_now_utc)
 
@@ -46,6 +48,7 @@ class ProjectCreate(BaseModel):
     description: str = ""
     color:       str = "#6366f1"
     base_url:    Optional[str] = None
+    settings:    Optional[Dict[str, Any]] = None
 
     model_config = {"extra": "ignore"}
 
@@ -65,5 +68,21 @@ class ProjectUpdate(BaseModel):
     description: Optional[str] = None
     color:       Optional[str] = None
     base_url:    Optional[str] = None
+    settings:    Optional[Dict[str, Any]] = None
+
+    model_config = {"extra": "ignore"}
+
+
+class ProjectPublic(BaseModel):
+    """API-safe project (masked settings)."""
+
+    id: str
+    name: str
+    description: str = ""
+    color: str = "#6366f1"
+    base_url: Optional[str] = None
+    settings: Optional[Dict[str, Any]] = None
+    created_at: datetime
+    updated_at: datetime
 
     model_config = {"extra": "ignore"}

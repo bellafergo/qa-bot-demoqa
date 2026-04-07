@@ -49,8 +49,10 @@ def resolve_interpolated_credentials(
     purpose: str = "value",
 ) -> str:
     """
-    Sustituye {VAR} y ${VAR} usando context['credentials'] y variables de entorno
-    VANYA_TEST_<VAR> / VANYA_<VAR>. Valores sin placeholders se devuelven tal cual.
+    Sustituye {VAR} y ${VAR} en orden:
+    1) context['project_variables'] (por proyecto, mayúsculas)
+    2) context['credentials'] (prompt / legado)
+    3) VANYA_TEST_<VAR> / VANYA_<VAR> en entorno
     """
     if raw is None:
         return ""
@@ -70,12 +72,22 @@ def resolve_interpolated_credentials(
         vn = (var or "").strip()
         if not vn:
             return None
+        env_key = vn.upper().replace("-", "_")
         key_l = vn.lower().replace("-", "_")
+
+        pv = ctx.get("project_variables")
+        if isinstance(pv, dict):
+            if env_key in pv and str(pv[env_key]).strip():
+                return str(pv[env_key]).strip()
+            for pk, pval in pv.items():
+                if str(pk).upper().replace("-", "_") == env_key and str(pval).strip():
+                    return str(pval).strip()
+
         if key_l in creds and creds[key_l] is not None:
             vs = str(creds[key_l]).strip()
             if vs:
                 return vs
-        env_key = vn.upper().replace("-", "_")
+
         for prefix in ("VANYA_TEST_", "VANYA_"):
             v = os.getenv(prefix + env_key)
             if v and str(v).strip():
@@ -164,6 +176,61 @@ def _extract_verification_needles_from_prompt(prompt: str) -> List[str]:
             _push(_strip_quotes(mm.group(1)))
 
     return needles
+
+
+def append_login_profile_success_asserts(
+    steps: List[Dict[str, Any]],
+    login_profile: Optional[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Añade assert post-login desde login_profile del proyecto (success_text / URL)."""
+    if not isinstance(login_profile, dict):
+        return steps
+    st = (login_profile.get("success_text") or "").strip()
+    surl = (
+        login_profile.get("success_url_contains")
+        or login_profile.get("success_url")
+        or ""
+    ).strip()
+    if not st and not surl:
+        return steps
+
+    text_norm: set = set()
+    url_norm: set = set()
+    for s in steps:
+        if str(s.get("action") or "") == "assert_text_contains":
+            for k in ("text", "expected"):
+                v = s.get(k)
+                if v:
+                    text_norm.add(_normalize_ws(str(v)).lower())
+        if str(s.get("action") or "") == "assert_url_contains":
+            v = s.get("value") or s.get("text")
+            if v:
+                url_norm.add(str(v).lower())
+
+    out = list(steps)
+    if st:
+        nk = _normalize_ws(st).lower()
+        if nk not in text_norm:
+            out.append({"action": "wait_ms", "ms": 450})
+            out.append(
+                {
+                    "action": "assert_text_contains",
+                    "selector": "body",
+                    "text": st,
+                    "_compiler_meta": {"from_login_profile": True},
+                },
+            )
+    elif surl:
+        if surl.lower() not in url_norm:
+            out.append({"action": "wait_ms", "ms": 450})
+            out.append(
+                {
+                    "action": "assert_url_contains",
+                    "value": surl,
+                    "_compiler_meta": {"from_login_profile": True},
+                },
+            )
+    return out
 
 
 def augment_steps_with_prompt_assertions(
@@ -275,6 +342,84 @@ def _credential_resolution_meta(raw: Any) -> Optional[Dict[str, Any]]:
     return {"kind": "interpolated", "variables": names}
 
 
+def _compile_login_project_profile(
+    step: Dict[str, Any],
+    base_url: Optional[str],
+    context: Dict[str, Any],
+    lp: Dict[str, Any],
+    email: str,
+    password: str,
+    raw_email: Any,
+    raw_pw: Any,
+) -> List[Dict[str, Any]]:
+    es = (lp.get("email_selector") or "").strip()
+    ps = (lp.get("password_selector") or "").strip()
+    ss = (lp.get("submit_selector") or "").strip()
+    meta = {
+        "dsl_expanded": "login",
+        "login_profile": True,
+        "reliable_validation": bool(
+            (lp.get("success_text") or "").strip()
+            or (lp.get("success_url_contains") or lp.get("success_url") or "").strip()
+        ),
+    }
+    fe = _credential_resolution_meta(raw_email)
+    fp = _credential_resolution_meta(raw_pw)
+    out: List[Dict[str, Any]] = []
+    lu = (lp.get("login_url") or "").strip()
+    if lu:
+        final_u = lu if lu.startswith("http") else urljoin((base_url or "").rstrip("/") + "/", lu.lstrip("/"))
+        if (final_u or "").strip():
+            try:
+                final_u = validate_target_url(final_u, base_url=base_url or None)
+            except TargetURLNotAllowed as e:
+                raise CompileError(
+                    str(e),
+                    error_type="target_url_not_allowed",
+                ) from e
+        out.append({"action": "goto", "url": final_u})
+        out.append({"action": "wait_ms", "ms": 280})
+    elif base_url and str(base_url).strip():
+        try:
+            bu = validate_target_url(str(base_url).strip(), base_url=base_url or None)
+        except TargetURLNotAllowed as e:
+            raise CompileError(str(e), error_type="target_url_not_allowed") from e
+        out.append({"action": "goto", "url": bu})
+        out.append({"action": "wait_ms", "ms": 280})
+    else:
+        raise CompileError(
+            "Project login_profile needs base_url or login_url for navigation.",
+            error_type="missing_login_navigation",
+        )
+
+    et = make_min_target(es)
+    pt = make_min_target(ps)
+    st = make_min_target(ss)
+    out.extend(
+        [
+            {
+                "action": "fill",
+                "selector": es,
+                "target": et,
+                "value": email,
+                "_compiler_meta": meta,
+                **({"_value_resolution": fe} if fe else {}),
+            },
+            {
+                "action": "fill",
+                "selector": ps,
+                "target": pt,
+                "value": password,
+                "_compiler_meta": meta,
+                **({"_value_resolution": fp} if fp else {}),
+            },
+            {"action": "click", "selector": ss, "target": st, "_compiler_meta": meta},
+            {"action": "wait_ms", "ms": 650, "_compiler_meta": meta},
+        ]
+    )
+    return append_login_profile_success_asserts(out, lp)
+
+
 def _compile_login(
     step: Dict[str, Any],
     step_index: int,
@@ -283,24 +428,50 @@ def _compile_login(
 ) -> List[Dict[str, Any]]:
     """
     Expande DSL `login` a fill/fill/click + espera breve (navegación / pintado).
-    Credenciales: literales del plan o placeholders {EMAIL}/{PASSWORD} resueltos
-    vía context['credentials'] o VANYA_TEST_*; sin resolución → CompileError.
+    Con login_profile en context (proyecto), usa selectores y URL del perfil.
+    Credenciales: literales del plan o placeholders resueltos (proyecto → creds → env).
     """
+    ctx = context or {}
+    lp = ctx.get("login_profile")
+    if isinstance(lp, dict):
+        es = (lp.get("email_selector") or "").strip()
+        ps = (lp.get("password_selector") or "").strip()
+        ss = (lp.get("submit_selector") or "").strip()
+        if es and ps and ss:
+            raw_email = step.get("email") or step.get("username")
+            raw_pw = step.get("password")
+            if raw_email is None or (isinstance(raw_email, str) and not str(raw_email).strip()):
+                raw_email = "{EMAIL}"
+            if raw_pw is None or (isinstance(raw_pw, str) and not str(raw_pw).strip()):
+                raw_pw = "{PASSWORD}"
+            email = resolve_interpolated_credentials(raw_email, ctx, purpose="login_email")
+            password = resolve_interpolated_credentials(raw_pw, ctx, purpose="login_password")
+            if not str(email).strip() or not str(password).strip():
+                raise CompileError(
+                    "Login requires EMAIL and PASSWORD (project variables, prompt, or env).",
+                    step_index=step_index,
+                    action="login",
+                    error_type="missing_login_credentials",
+                )
+            return _compile_login_project_profile(
+                step, base_url, ctx, lp, email, password, raw_email, raw_pw,
+            )
+
     raw_email = step.get("email") or step.get("username")
     raw_pw = step.get("password")
     if raw_email is None or (isinstance(raw_email, str) and not str(raw_email).strip()):
         raw_email = "{EMAIL}"
     if raw_pw is None or (isinstance(raw_pw, str) and not str(raw_pw).strip()):
         raw_pw = "{PASSWORD}"
-    email = resolve_interpolated_credentials(raw_email, context, purpose="login_email")
-    password = resolve_interpolated_credentials(raw_pw, context, purpose="login_password")
+    email = resolve_interpolated_credentials(raw_email, ctx, purpose="login_email")
+    password = resolve_interpolated_credentials(raw_pw, ctx, purpose="login_password")
     ut = make_generic_login_user_target()
     pt = make_generic_login_password_target()
     st = make_generic_login_submit_target()
     meta = {"dsl_expanded": "login", "reliable_validation": False}
     fe = _credential_resolution_meta(raw_email)
     fp = _credential_resolution_meta(raw_pw)
-    return [
+    generic = [
         {
             "action": "fill",
             "selector": ut["primary"],
@@ -320,6 +491,7 @@ def _compile_login(
         {"action": "click", "selector": st["primary"], "target": st, "_compiler_meta": meta},
         {"action": "wait_ms", "ms": 650, "_compiler_meta": meta},
     ]
+    return append_login_profile_success_asserts(generic, lp if isinstance(lp, dict) else None)
 
 
 def _compile_search(
@@ -1000,6 +1172,7 @@ def _parse_steps_from_prompt(prompt: str, base_url: str) -> Optional[List[Dict[s
 def compile_steps_from_prompt(
     prompt: str,
     base_url: str,
+    execution_context: Optional[Dict[str, Any]] = None,
 ) -> Optional[List[Dict[str, Any]]]:
     """
     Deduce steps desde prompt natural (chat/execute).
@@ -1009,7 +1182,14 @@ def compile_steps_from_prompt(
     from core.login_intent_resolver import build_login_steps
     from core.target_url_validation import validate_steps_navigation_urls
 
-    steps = build_login_steps(base_url=base_url, prompt=prompt)
+    try:
+        steps = build_login_steps(
+            base_url=base_url,
+            prompt=prompt,
+            context=execution_context,
+        )
+    except CompileError:
+        raise
     if not steps:
         steps = _parse_steps_from_prompt(prompt, base_url)
     if steps:

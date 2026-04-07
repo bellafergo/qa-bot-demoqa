@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import Column, String, Text
 
 from services.db.sqlite_db import Base, get_session
+from services.project_settings_service import dump_settings_json, parse_settings_json
 
 logger = logging.getLogger("vanya.db.project")
 
@@ -21,6 +22,7 @@ class ProjectRow(Base):
     description  = Column(Text, default="")
     color        = Column(String, default="#6366f1")
     base_url     = Column(String, nullable=True)
+    settings_json = Column(Text, nullable=True)  # JSON: login_profile + variables
     created_at   = Column(String, nullable=False)
     updated_at   = Column(String, nullable=False)
 
@@ -34,6 +36,7 @@ def _row_to_model(row: ProjectRow):
         description=row.description or "",
         color=row.color or "#6366f1",
         base_url=row.base_url,
+        settings=parse_settings_json(getattr(row, "settings_json", None)),
         created_at=datetime.fromisoformat(row.created_at.replace("Z", "+00:00")),
         updated_at=datetime.fromisoformat(row.updated_at.replace("Z", "+00:00")),
     )
@@ -56,12 +59,20 @@ class ProjectRepository:
 
     def create_project(self, p) -> Any:
         now = datetime.now(timezone.utc).isoformat()
+        settings_dict: Dict[str, Any] = {}
+        if hasattr(p, "model_dump"):
+            sd = p.model_dump().get("settings")
+            if isinstance(sd, dict):
+                settings_dict = sd
+        elif getattr(p, "settings", None) is not None and isinstance(p.settings, dict):
+            settings_dict = p.settings
         row = ProjectRow(
             id=p.id,
             name=p.name,
             description=p.description or "",
             color=p.color or "#6366f1",
             base_url=p.base_url,
+            settings_json=dump_settings_json(settings_dict or {}),
             created_at=now,
             updated_at=now,
         )
@@ -85,6 +96,8 @@ class ProjectRepository:
                 row.color = data["color"]
             if "base_url" in data:
                 row.base_url = data["base_url"]
+            if "settings" in data and data["settings"] is not None:
+                row.settings_json = dump_settings_json(data["settings"])
             row.updated_at = now
             s.flush()
             return _row_to_model(row)

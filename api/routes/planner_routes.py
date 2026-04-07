@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from core.step_compiler import (
     CompileError,
+    append_login_profile_success_asserts,
     augment_steps_with_prompt_assertions,
     compile_to_runner_steps,
     ensure_has_assert,
@@ -95,9 +96,24 @@ class ExecuteTextRequest(BaseModel):
     confirm:     bool           = False
     headless:    bool           = True
     allow_risky: bool           = False
+    project_id:  Optional[str]  = None
 
 
 # Step expansion: use step_compiler (see core/step_compiler.py)
+
+
+def _execution_context_for_planner(req: ExecuteTextRequest, base_url: Optional[str]) -> Dict[str, Any]:
+    ctx: Dict[str, Any] = {"base_url": base_url or "", "app_hint": req.app_hint}
+    pid = (getattr(req, "project_id", None) or "").strip()
+    if not pid:
+        return ctx
+    from services.db.project_repository import project_repo
+    from services.project_execution_context import execution_context_from_project
+
+    proj = project_repo.get_project(pid.lower())
+    if proj:
+        ctx.update(execution_context_from_project(proj))
+    return ctx
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -166,14 +182,27 @@ def execute_text_endpoint(req: ExecuteTextRequest, request: Request) -> Dict[str
         }
 
     base_url = req.base_url or plan.get("base_url")
+    pid = (req.project_id or "").strip()
+    if pid:
+        from services.db.project_repository import project_repo
+
+        _proj = project_repo.get_project(pid.lower())
+        if _proj and getattr(_proj, "base_url", None) and not base_url:
+            base_url = _proj.base_url
+
+    exec_ctx = _execution_context_for_planner(req, base_url)
+    exec_ctx["base_url"] = base_url or ""
 
     # Compile planner DSL → runner steps
     try:
         steps = compile_to_runner_steps(
             plan_steps=steps,
             base_url=base_url,
-            context={"base_url": base_url, "app_hint": req.app_hint},
+            context=exec_ctx,
         )
+        lp = exec_ctx.get("login_profile")
+        if isinstance(lp, dict):
+            steps = append_login_profile_success_asserts(steps, lp)
         steps = augment_steps_with_prompt_assertions(req.text, steps, base_url or "")
         steps = ensure_has_assert(steps, base_url or "")
     except CompileError as e:

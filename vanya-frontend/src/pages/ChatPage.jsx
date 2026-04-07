@@ -204,7 +204,10 @@ export default function ChatPage() {
     setMessages(prev => [...prev, { role: "user", content: prompt, meta: {} }]);
     setInput("");
     try {
-      const resp = await safeChatRun(prompt, threadId || null, { session_id: sessionId });
+      const extra = { session_id: sessionId };
+      if (currentProject?.id) extra.project_id = currentProject.id;
+      if (currentProject?.base_url) extra.base_url = String(currentProject.base_url).trim();
+      const resp = await safeChatRun(prompt, threadId || null, extra);
       const newThreadId  = resp?.thread_id  || resp?.threadId  || threadId  || null;
       const newSessionId = resp?.session_id || resp?.sessionId || sessionId || null;
       if (newThreadId && String(newThreadId) !== String(threadId)) {
@@ -232,7 +235,7 @@ export default function ChatPage() {
         meta: { mode: "error" },
       }]);
     } finally { setIsSending(false); }
-  }, [input, isSending, refreshThreads, sessionId, threadId, t]);
+  }, [input, isSending, refreshThreads, sessionId, threadId, t, currentProject]);
 
   useEffect(() => {
     (async () => {

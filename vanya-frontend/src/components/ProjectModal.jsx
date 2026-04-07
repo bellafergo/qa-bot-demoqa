@@ -16,6 +16,21 @@ const PRESET_COLORS = [
   "#0d9488",
 ];
 
+function readLoginProfile(proj) {
+  const lp = proj?.settings?.login_profile;
+  return lp && typeof lp === "object" ? lp : {};
+}
+
+function variablePresentLabel(proj, key) {
+  const v = proj?.settings?.variables?.[key];
+  if (v && typeof v === "object" && v.present) {
+    if (v.sensitive) return "set";
+    const pr = String(v.preview || "").trim();
+    return pr || "set";
+  }
+  return "";
+}
+
 export default function ProjectModal({ open, mode, project, onClose }) {
   const { t } = useLang();
   const { createProject, updateProject } = useProject();
@@ -25,6 +40,15 @@ export default function ProjectModal({ open, mode, project, onClose }) {
   const [description, setDescription] = useState("");
   const [color, setColor] = useState(PRESET_COLORS[0]);
   const [baseUrl, setBaseUrl] = useState("");
+  const [loginUrl, setLoginUrl] = useState("");
+  const [emailSel, setEmailSel] = useState('input[type="email"]');
+  const [passSel, setPassSel] = useState('input[type="password"]');
+  const [submitSel, setSubmitSel] = useState('button[type="submit"]');
+  const [successText, setSuccessText] = useState("");
+  const [successUrl, setSuccessUrl] = useState("");
+  const [varEmail, setVarEmail] = useState("");
+  const [varPassword, setVarPassword] = useState("");
+  const [varHintEmail, setVarHintEmail] = useState("");
   const [submitErr, setSubmitErr] = useState("");
   const [saving, setSaving] = useState(false);
   const slugEditedRef = useRef(false);
@@ -39,6 +63,16 @@ export default function ProjectModal({ open, mode, project, onClose }) {
       setDescription(project.description || "");
       setColor(project.color || PRESET_COLORS[0]);
       setBaseUrl(project.base_url || "");
+      const lp = readLoginProfile(project);
+      setLoginUrl(lp.login_url || "");
+      setEmailSel(lp.email_selector || 'input[type="email"]');
+      setPassSel(lp.password_selector || 'input[type="password"]');
+      setSubmitSel(lp.submit_selector || 'button[type="submit"]');
+      setSuccessText(lp.success_text || "");
+      setSuccessUrl(lp.success_url_contains || lp.success_url || "");
+      setVarEmail("");
+      setVarHintEmail(variablePresentLabel(project, "EMAIL"));
+      setVarPassword("");
       slugEditedRef.current = true;
     } else {
       setName("");
@@ -46,6 +80,15 @@ export default function ProjectModal({ open, mode, project, onClose }) {
       setDescription("");
       setColor(PRESET_COLORS[0]);
       setBaseUrl("");
+      setLoginUrl("");
+      setEmailSel('input[type="email"]');
+      setPassSel('input[type="password"]');
+      setSubmitSel('button[type="submit"]');
+      setSuccessText("");
+      setSuccessUrl("");
+      setVarEmail("");
+      setVarHintEmail("");
+      setVarPassword("");
     }
   }, [open, mode, project]);
 
@@ -60,6 +103,25 @@ export default function ProjectModal({ open, mode, project, onClose }) {
   const title =
     mode === "create" ? t("projects.modal_create_title") : t("projects.modal_edit_title");
 
+  function buildOptionalSettings() {
+    const login_profile = {};
+    if (loginUrl.trim()) login_profile.login_url = loginUrl.trim();
+    if (emailSel.trim()) login_profile.email_selector = emailSel.trim();
+    if (passSel.trim()) login_profile.password_selector = passSel.trim();
+    if (submitSel.trim()) login_profile.submit_selector = submitSel.trim();
+    if (successText.trim()) login_profile.success_text = successText.trim();
+    if (successUrl.trim()) login_profile.success_url_contains = successUrl.trim();
+
+    const variables = {};
+    if (varEmail.trim()) variables.EMAIL = varEmail.trim();
+    if (varPassword.trim()) variables.PASSWORD = varPassword.trim();
+
+    const settings = {};
+    if (Object.keys(login_profile).length) settings.login_profile = login_profile;
+    if (Object.keys(variables).length) settings.variables = variables;
+    return settings;
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
     setSubmitErr("");
@@ -73,6 +135,7 @@ export default function ProjectModal({ open, mode, project, onClose }) {
       setSubmitErr(t("projects.err_slug_invalid"));
       return;
     }
+    const optSettings = buildOptionalSettings();
     setSaving(true);
     try {
       if (mode === "create") {
@@ -82,6 +145,7 @@ export default function ProjectModal({ open, mode, project, onClose }) {
           description: description.trim() || "",
           color: color || PRESET_COLORS[0],
           base_url: baseUrl.trim() || null,
+          ...(Object.keys(optSettings).length ? { settings: optSettings } : {}),
         });
       } else if (project?.id) {
         await updateProject(project.id, {
@@ -89,6 +153,7 @@ export default function ProjectModal({ open, mode, project, onClose }) {
           description: description.trim() || "",
           color: color || PRESET_COLORS[0],
           base_url: baseUrl.trim() || null,
+          ...(Object.keys(optSettings).length ? { settings: optSettings } : {}),
         });
       }
       onClose();
@@ -179,6 +244,109 @@ export default function ProjectModal({ open, mode, project, onClose }) {
               autoComplete="off"
             />
           </label>
+
+          <fieldset
+            style={{
+              border: "1px solid var(--border)",
+              borderRadius: "var(--r-sm)",
+              padding: "12px 14px",
+              marginTop: 16,
+              marginBottom: 8,
+            }}
+          >
+            <legend style={{ fontSize: 13, fontWeight: 600, padding: "0 6px" }}>
+              {t("projects.login_section")}
+            </legend>
+            <p className="project-modal-hint" style={{ marginBottom: 12 }}>
+              {t("projects.login_section_hint")}
+            </p>
+            <label className="project-modal-label">
+              {t("projects.login_url")}
+              <input
+                className="input"
+                value={loginUrl}
+                onChange={(e) => setLoginUrl(e.target.value)}
+                placeholder="/login"
+                autoComplete="off"
+              />
+            </label>
+            <label className="project-modal-label">
+              {t("projects.login_email_selector")}
+              <input
+                className="input"
+                style={{ fontFamily: "ui-monospace, monospace", fontSize: 13 }}
+                value={emailSel}
+                onChange={(e) => setEmailSel(e.target.value)}
+                autoComplete="off"
+              />
+            </label>
+            <label className="project-modal-label">
+              {t("projects.login_password_selector")}
+              <input
+                className="input"
+                style={{ fontFamily: "ui-monospace, monospace", fontSize: 13 }}
+                value={passSel}
+                onChange={(e) => setPassSel(e.target.value)}
+                autoComplete="off"
+              />
+            </label>
+            <label className="project-modal-label">
+              {t("projects.login_submit_selector")}
+              <input
+                className="input"
+                style={{ fontFamily: "ui-monospace, monospace", fontSize: 13 }}
+                value={submitSel}
+                onChange={(e) => setSubmitSel(e.target.value)}
+                autoComplete="off"
+              />
+            </label>
+            <label className="project-modal-label">
+              {t("projects.login_success_text")}
+              <input
+                className="input"
+                value={successText}
+                onChange={(e) => setSuccessText(e.target.value)}
+                autoComplete="off"
+              />
+            </label>
+            <label className="project-modal-label">
+              {t("projects.login_success_url")}
+              <input
+                className="input"
+                value={successUrl}
+                onChange={(e) => setSuccessUrl(e.target.value)}
+                placeholder="dashboard"
+                autoComplete="off"
+              />
+            </label>
+            <label className="project-modal-label">
+              {t("projects.var_email")}
+              {mode === "edit" && varHintEmail ? (
+                <span className="project-modal-hint" style={{ display: "block", marginBottom: 4 }}>
+                  {t("projects.var_keep_hint", { value: String(varHintEmail) })}
+                </span>
+              ) : null}
+              <input
+                className="input"
+                value={varEmail}
+                onChange={(e) => setVarEmail(e.target.value)}
+                autoComplete="off"
+                placeholder={t("projects.var_leave_blank_keep")}
+              />
+            </label>
+            <label className="project-modal-label">
+              {t("projects.var_password")}
+              <input
+                className="input"
+                type="password"
+                value={varPassword}
+                onChange={(e) => setVarPassword(e.target.value)}
+                autoComplete="new-password"
+                placeholder={mode === "edit" ? t("projects.password_unchanged_hint") : ""}
+              />
+            </label>
+          </fieldset>
+
           {submitErr && (
             <div
               style={{
