@@ -109,3 +109,16 @@ def init_catalog_db() -> None:
             conn.commit()
     except Exception:
         logger.exception("db: migration for orchestrator_jobs parallel-execution columns failed (non-fatal)")
+
+    # ── test_runs.deleted_at (soft-delete placeholder; no auto-purge) ─────────
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(test_runs)"))
+            existing_cols = {row[1] for row in result.fetchall()}
+            if "deleted_at" not in existing_cols:
+                conn.execute(text("ALTER TABLE test_runs ADD COLUMN deleted_at TEXT"))
+                conn.commit()
+                logger.info("db: migrated test_runs — added deleted_at column (soft delete)")
+    except Exception:
+        logger.exception("db: migration for test_runs.deleted_at failed (non-fatal)")

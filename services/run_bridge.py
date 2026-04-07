@@ -12,9 +12,8 @@ for fail/error (same pattern as catalog runs via test_catalog_service._save_run)
 
 Design constraints
 ------------------
-• Best-effort only — bridge_run_to_sqlite() NEVER raises; all exceptions are
-  logged and silently swallowed so the calling run_store.save_run() is not
-  affected in any way.
+• Best-effort only — bridge_run_to_sqlite() NEVER raises; failures return False
+  and are logged at ERROR (run_store also sets meta.durable_persist_failed).
 • Only final states are bridged; queued / running payloads are skipped.
 • Catalog runs already reach test_run_repo via catalog_service._execute() and
   never flow through run_store, so there is no double-write risk.
@@ -143,9 +142,10 @@ def bridge_async_run_to_sqlite(payload: Dict[str, Any]) -> bool:
         return True
 
     except Exception as exc:
-        logger.warning(
+        logger.error(
             "run_bridge: failed to persist async %s — %s: %s",
             payload.get("evidence_id", "?"), type(exc).__name__, exc,
+            exc_info=True,
         )
         return False
 
@@ -241,8 +241,9 @@ def bridge_run_to_sqlite(payload: Dict[str, Any]) -> bool:
         return True
 
     except Exception as exc:
-        logger.warning(
+        logger.error(
             "run_bridge: failed to persist %s — %s: %s",
             payload.get("evidence_id", "?"), type(exc).__name__, exc,
+            exc_info=True,
         )
         return False

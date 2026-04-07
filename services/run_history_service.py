@@ -8,10 +8,10 @@ Architecture (writes vs reads)
 Layer                  | Role                              | Technology
 -----------------------|-----------------------------------|-------------------
 run_access.persist_*   | Preferred entry for new writes    | → run_store.save_run
-run_store.save_run     | Write pipeline (memory + bridge)  | in-memory TTL + hooks
-run_bridge             | Chat/execute/API → SQLite         | best-effort, on save_run
-test_run_repo          | Durable rows + list_runs          | SQLite / SQLAlchemy
-run_history_service    | Canonical reads (this module)     | SQLite + optional run_store
+run_store.save_run     | Hot cache + bridge to SQLite      | optional in-memory TTL (not SQLite)
+run_bridge             | Chat/execute/API → SQLite         | durable rows; failures logged + meta flag
+test_run_repo          | Source of truth for listings      | SQLite / SQLAlchemy (no auto TTL)
+run_history_service    | Canonical reads (this module)     | SQLite first, then run_store fallback
 Supabase               | Optional mirror                     | best-effort from save_run
 
 Rules

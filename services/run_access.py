@@ -9,16 +9,18 @@ Use this module for **new** code paths instead of importing ``run_store`` or
 Architecture (single logical pipeline)
 --------------------------------------
 1. **Writes** — Always go through ``persist_run_payload()`` → ``run_store.save_run``:
-   - In-memory TTL cache (evidence polling, PR indexes).
-   - Best-effort Supabase mirror (if configured).
-   - ``run_bridge`` → SQLite ``test_run_repo`` for terminal states (and async
-     states for cross-worker polling).
+   - In-memory cache (PR/tag indexes, fast ``GET /runs``); optional TTL via
+     ``RUNS_TTL_S`` only trims this cache — **never** SQLite rows.
+   - Optional Supabase mirror (if configured); failures are logged.
+   - ``run_bridge`` → SQLite ``test_run_repo`` for durable history (terminal and
+     async states). Failures are logged at ERROR and ``meta.durable_persist_failed``.
 
-2. **Durable history** — SQLite ``test_run_repo`` is the source for listings
-   (dashboard, analytics, ``GET /test-runs``).
+2. **Durable history** — SQLite ``test_run_repo`` is the source of truth for
+   listings (dashboard, analytics, ``GET /test-runs``). Rows are not TTL-purged
+   by default. Optional future soft-delete uses ``deleted_at`` (no automatic deletes).
 
 3. **Reads (canonical)** — ``get_canonical_run()`` → ``run_history_service.get_run_unified``:
-   SQLite first, then in-memory ``run_store`` (planner/chat before bridge completes).
+   SQLite first, then in-memory ``run_store`` (only while a run is still hot / not yet bridged).
 
 4. **Normalization** — ``CanonicalRun`` (``models/run_contract.py``) + ``run_mapper``.
 

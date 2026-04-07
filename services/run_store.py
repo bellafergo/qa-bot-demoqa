@@ -1,11 +1,19 @@
 # services/run_store.py
 # In-memory run cache + indexes. For new callers, prefer services.run_access.persist_run_payload.
+#
+# Policy (durable history):
+# - SQLite (test_run_repo via run_bridge) is the source of truth for listings and long-term history.
+# - This module is a hot cache + PR/tag indexes only. By default entries are NOT evicted by TTL
+#   (RUNS_TTL_S unset or 0). Set RUNS_TTL_S>0 only to cap process memory; durable rows remain in SQLite.
 from __future__ import annotations
 
+import logging
 import os
 import time
 import threading
 from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger("vanya.run_store")
 
 try:
     from services.run_bridge import bridge_run_to_sqlite, bridge_async_run_to_sqlite
@@ -25,7 +33,10 @@ except Exception:  # pragma: no cover
 # - Thread-safe (Render / Uvicorn puede manejar concurrencia)
 # ============================================================
 
-_RUNS_TTL_S = int((os.getenv("RUNS_TTL_S") or "86400").strip() or "86400")  # 24h
+# 0 or unset = disable in-memory TTL eviction (recommended: history lives in SQLite).
+# Set e.g. RUNS_TTL_S=86400 only to prune the hot cache; does not delete SQLite rows.
+_RUNS_TTL_RAW = (os.getenv("RUNS_TTL_S") or "").strip()
+_RUNS_TTL_S = int(_RUNS_TTL_RAW) if _RUNS_TTL_RAW else 0
 
 _lock = threading.RLock()
 
@@ -155,8 +166,11 @@ def _compute_pr_key(meta: Dict[str, Any]) -> Optional[str]:
 
 def _runs_cleanup_locked() -> None:
     """
-    Limpia runs expirados. Debe llamarse dentro del lock.
+    Optionally evicts expired entries from the in-memory cache only.
+    When _RUNS_TTL_S <= 0, eviction is disabled (no automatic removal from this dict).
     """
+    if _RUNS_TTL_S <= 0:
+        return
     now = _now()
     kill: List[str] = []
     for evid, item in list(_RUNS.items()):
@@ -249,26 +263,54 @@ def save_run(run_payload: Dict[str, Any]) -> Optional[str]:
                     lst.append(evid)
                 _TAG_INDEX[t] = lst
 
-                # Persistencia best-effort a Supabase (no rompe si falla)
+        # Optional mirror to Supabase — failures must be visible in logs.
         try:
             if persist_run_supabase is not None:
                 persist_run_supabase(run_payload)
         except Exception:
-            pass
+            logger.warning(
+                "run_store: Supabase mirror failed evidence_id=%s",
+                evid,
+                exc_info=True,
+            )
 
-        # Bridge best-effort to SQLite for polling consistency:
-        # - queued/running → bridge_async_run_to_sqlite (so /runs/{id} works cross-process)
-        # - completed/failed → bridge_run_to_sqlite (official history)
+        # Durable history: SQLite via bridge (required for reliable GET /test-runs and evidence).
         raw_status = str(run_payload.get("status") or "").strip().lower()
+        bridge_ok: Optional[bool] = None
         try:
             if raw_status in ("queued", "running", "pending"):
                 if bridge_async_run_to_sqlite is not None:
-                    bridge_async_run_to_sqlite(run_payload)
+                    bridge_ok = bool(bridge_async_run_to_sqlite(run_payload))
+                else:
+                    bridge_ok = None
             else:
                 if bridge_run_to_sqlite is not None:
-                    bridge_run_to_sqlite(run_payload)
+                    bridge_ok = bool(bridge_run_to_sqlite(run_payload))
+                else:
+                    bridge_ok = None
         except Exception:
-            pass
+            bridge_ok = False
+            logger.exception(
+                "run_store: SQLite bridge raised evidence_id=%s status=%s",
+                evid,
+                raw_status,
+            )
+
+        if bridge_ok is False:
+            logger.error(
+                "run_store: DURABLE persist failed evidence_id=%s status=%s — "
+                "run is only in process memory until restart; SQLite bridge returned False or raised.",
+                evid,
+                raw_status,
+            )
+            meta.setdefault("durable_persist_failed", True)
+            meta.setdefault(
+                "durable_persist_note",
+                "SQLite bridge failed; history may be missing until retried or replayed.",
+            )
+        elif bridge_ok is True:
+            meta.pop("durable_persist_failed", None)
+            meta.pop("durable_persist_note", None)
 
         return evid
     

@@ -15,16 +15,11 @@ from services.db.sqlite_db import Base, get_session
 logger = logging.getLogger("vanya.db.test_run")
 
 # ============================================================
-# Future maintenance hook (SQLite TTL / cleanup)
+# Retention / soft delete
 # ============================================================
-# Today we rely on run_store.py for in-memory TTL.
-# The SQLite "test_runs" table is not automatically purged.
-#
-# For a future TTL/cleanup job, the safest minimal insertion point is inside
-# this repository (e.g. at the start of list_runs/get_run) because it is the
-# single source for read queries. Prefer a best-effort, non-blocking SQL
-# DELETE based on executed_at age, guarded by an env var (e.g. RUNS_SQLITE_TTL_S).
-# This avoids changing higher layers and keeps cleanup colocated with the data access.
+# SQLite rows are kept until explicitly soft-deleted (``deleted_at`` set) or a
+# future admin tool removes them. There is no automatic TTL on this table.
+# In-memory eviction in run_store.py (RUNS_TTL_S) does not delete SQLite history.
 
 
 # ── ORM row model ─────────────────────────────────────────────────────────────
@@ -45,6 +40,8 @@ class TestRunRow(Base):
     logs_json        = Column(Text, default="[]")
     steps_result_json= Column(Text, default="[]")
     meta_json        = Column(Text, default="{}")
+    # Soft-delete hook (future manual purge); NULL = visible. No automatic writes.
+    deleted_at       = Column(String, nullable=True)
 
 
 # ── Conversion helpers ────────────────────────────────────────────────────────
@@ -89,14 +86,22 @@ class TestRunRepository:
             logs_json         = json.dumps(run.logs),
             steps_result_json = json.dumps(run.steps_result),
             meta_json         = json.dumps(run.meta),
+            deleted_at        = None,
         )
         with get_session() as s:
             s.merge(row)   # upsert — safe if re-persisted
         logger.debug("test_run_repo: saved run %s", run.run_id)
 
+    def _not_deleted(self, q):
+        return q.filter(
+            (TestRunRow.deleted_at.is_(None)) | (TestRunRow.deleted_at == "")
+        )
+
     def get_run(self, run_id: str):
         with get_session() as s:
-            row = s.query(TestRunRow).filter_by(run_id=run_id).first()
+            q = s.query(TestRunRow).filter_by(run_id=run_id)
+            q = self._not_deleted(q)
+            row = q.first()
             return _row_to_model(row) if row else None
 
     def list_runs(
@@ -116,6 +121,7 @@ class TestRunRepository:
 
         with get_session() as s:
             q = s.query(TestRunRow)
+            q = self._not_deleted(q)
             # Async chat/execute runs are stored with test_case_id="_async".
             # By default we exclude them from generic history listings so
             # dashboards/recent runs reflect completed catalog executions.
@@ -139,6 +145,7 @@ class TestRunRepository:
                 s.query(TestRunRow.status, func.count(TestRunRow.run_id))
                 .filter(TestRunRow.test_case_id != "_async")
             )
+            q = self._not_deleted(q)
             if test_case_ids is not None:
                 ids = list(test_case_ids)
                 if len(ids) == 0:
@@ -156,6 +163,7 @@ class TestRunRepository:
                 s.query(func.max(TestRunRow.executed_at))
                 .filter(TestRunRow.test_case_id != "_async")
             )
+            q = self._not_deleted(q)
             if test_case_ids is not None:
                 ids = list(test_case_ids)
                 if len(ids) == 0:
@@ -180,6 +188,7 @@ class TestRunRepository:
                 )
                 .filter(TestRunRow.test_case_id != "_async")
             )
+            q = self._not_deleted(q)
             if test_case_ids is not None:
                 ids = list(test_case_ids)
                 if len(ids) == 0:
