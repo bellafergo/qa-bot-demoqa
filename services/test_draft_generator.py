@@ -3,10 +3,14 @@
 Test Draft Generator for Vanya.
 
     generate_test_drafts(inventory, suggestions) -> list[dict]
+    exploration_fallback_draft(url) -> dict | None
 
 Converts suggested tests (from suggested_tests.py) into structured, human-
 readable draft test cases.  Drafts use descriptive placeholders for fill
 values — nothing is executed.
+
+exploration_fallback_draft() builds a minimal goto + assert_visible(body) draft
+when pages were crawled but no heuristic produced steps (e.g. empty DOM signals).
 
 Output schema per draft:
     {
@@ -96,6 +100,26 @@ def generate_test_drafts(
     return drafts
 
 
+def exploration_fallback_draft(url: str) -> Optional[Dict[str, Any]]:
+    """
+    Minimal smoke when exploration returned page inventories but no buildable
+    heuristic drafts (empty inputs/buttons/links/forms in parsed HTML).
+    """
+    u = _s(url)
+    if not u:
+        return None
+    return {
+        "test_name": "exploration_landing_smoke",
+        "status":    "draft",
+        "priority":  "low",
+        "reason":    "exploration_fallback",
+        "steps":     [
+            {"action": "goto", "url": u},
+            {"action": "assert_visible", "selector": "body"},
+        ],
+    }
+
+
 # ── Step builders (pure) ───────────────────────────────────────────────────────
 
 def _build_draft_steps(
@@ -117,6 +141,15 @@ def _build_draft_steps(
 
     if reason == "links_detected":
         return _draft_navigation_smoke(url)
+
+    if reason == "standalone_inputs_detected":
+        return _draft_standalone_inputs(inventory, url)
+
+    if reason == "spa_nav_button_detected":
+        return _draft_button_probe(test_name, inventory, url, "nav_probe_")
+
+    if reason == "visible_button_detected":
+        return _draft_button_probe(test_name, inventory, url, "ui_probe_")
 
     return []
 
@@ -210,6 +243,54 @@ def _draft_empty_search(
 def _draft_navigation_smoke(url: str) -> List[Dict[str, Any]]:
     return [
         {"action": "goto",           "url":      url},
+        {"action": "assert_visible", "selector": "body"},
+    ]
+
+
+def _draft_standalone_inputs(
+    inventory: Dict[str, Any],
+    url:       str,
+) -> List[Dict[str, Any]]:
+    if not url:
+        return []
+    inputs_list = [
+        inp for inp in (inventory.get("inputs") or [])
+        if isinstance(inp, dict) and _s(inp.get("selector"))
+    ]
+    if not inputs_list:
+        return []
+
+    first  = inputs_list[0]
+    sel    = _s(first.get("selector"))
+    fname  = _s(first.get("name")) or "field"
+    steps: List[Dict[str, Any]] = [{"action": "goto", "url": url}]
+    steps.append({"action": "assert_visible", "selector": sel})
+    steps.append({"action": "fill", "selector": sel, "value": _placeholder(fname)})
+    steps.append({"action": "assert_visible", "selector": "body"})
+    return steps
+
+
+def _draft_button_probe(
+    test_name: str,
+    inventory: Dict[str, Any],
+    url:       str,
+    prefix:    str,
+) -> List[Dict[str, Any]]:
+    if not url or not test_name.startswith(prefix):
+        return []
+    bslug = test_name[len(prefix):]
+    btn_sel: Optional[str] = None
+    for btn in (inventory.get("buttons") or []):
+        if not isinstance(btn, dict):
+            continue
+        if _slug(_s(btn.get("name"))) == bslug:
+            btn_sel = _s(btn.get("selector")) or _fallback_button_selector(_s(btn.get("name")))
+            break
+    if not btn_sel:
+        return []
+    return [
+        {"action": "goto",           "url":      url},
+        {"action": "click",          "selector": btn_sel},
         {"action": "assert_visible", "selector": "body"},
     ]
 

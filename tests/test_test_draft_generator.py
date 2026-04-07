@@ -12,6 +12,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from services.test_draft_generator import (
+    exploration_fallback_draft,
     generate_test_drafts,
     _build_draft_steps,
     _placeholder,
@@ -411,3 +412,48 @@ class TestFallbackSelectors:
         clicks = [s for s in draft["steps"] if s["action"] == "click"]
         assert len(clicks) == 1
         assert clicks[0]["selector"] != ""
+
+
+# ══════════════════════════════════════════════════════════════
+# 10. Modern heuristic drafts
+# ══════════════════════════════════════════════════════════════
+
+class TestExplorationFallbackDraft:
+
+    def test_returns_none_for_empty_url(self):
+        assert exploration_fallback_draft("") is None
+        assert exploration_fallback_draft("   ") is None
+
+    def test_minimal_steps(self):
+        d = exploration_fallback_draft("https://app.example/")
+        assert d["test_name"] == "exploration_landing_smoke"
+        assert d["reason"] == "exploration_fallback"
+        assert d["steps"][0] == {"action": "goto", "url": "https://app.example/"}
+        assert d["steps"][-1] == {"action": "assert_visible", "selector": "body"}
+
+
+class TestStandaloneAndButtonProbeDrafts:
+
+    def test_standalone_inputs_draft(self):
+        inv = {
+            "url": "https://spa.test/",
+            "inputs": [{"name": "search", "selector": "#q"}],
+            "buttons": [], "links": [], "forms": [],
+        }
+        sug = {"test_name": "standalone_inputs_smoke", "reason": "standalone_inputs_detected", "priority": "medium"}
+        drafts = generate_test_drafts(inv, [sug])
+        assert len(drafts) == 1
+        actions = [s["action"] for s in drafts[0]["steps"]]
+        assert actions == ["goto", "assert_visible", "fill", "assert_visible"]
+
+    def test_nav_probe_draft(self):
+        inv = {
+            "url": "https://spa.test/",
+            "buttons": [{"name": "Settings", "selector": "#settings"}],
+            "inputs": [], "links": [], "forms": [],
+        }
+        sug = {"test_name": "nav_probe_settings", "reason": "spa_nav_button_detected", "priority": "low"}
+        drafts = generate_test_drafts(inv, [sug])
+        assert len(drafts) == 1
+        click = next(s for s in drafts[0]["steps"] if s["action"] == "click")
+        assert click["selector"] == "#settings"

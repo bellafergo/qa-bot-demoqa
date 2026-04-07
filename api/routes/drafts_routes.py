@@ -41,6 +41,37 @@ logger = logging.getLogger("vanya.drafts")
 router = APIRouter(prefix="/drafts", tags=["drafts"])
 
 
+def _first_url_from_pages(pages: List[Dict[str, Any]]) -> str:
+    for page in pages or []:
+        if not isinstance(page, dict):
+            continue
+        u = str(page.get("url") or "").strip()
+        if u:
+            return u
+    return ""
+
+
+_WEAK_HEURISTIC_REASONS = frozenset({
+    "standalone_inputs_detected",
+    "spa_nav_button_detected",
+    "visible_button_detected",
+})
+
+
+def _generation_detail(drafts: List[Dict[str, Any]], used_fallback: bool) -> str:
+    """
+    UI hint for From URL: distinguish minimal fallback vs modern-SPA heuristics
+    vs classic form/link-driven drafts.
+    """
+    if used_fallback:
+        return "fallback_smoke"
+    reasons = {str(d.get("reason") or "") for d in drafts}
+    reasons.discard("")
+    if reasons and reasons.issubset(_WEAK_HEURISTIC_REASONS):
+        return "weak_heuristics_only"
+    return "standard"
+
+
 class GenerateRequest(BaseModel):
     url: str
 
@@ -57,23 +88,36 @@ class ApproveRequest(BaseModel):
 def generate_drafts(req: GenerateRequest):
     from services.application_explorer import explore_page
     from services.suggested_tests import suggest_tests_from_inventory
-    from services.test_draft_generator import generate_test_drafts
+    from services.test_draft_generator import exploration_fallback_draft, generate_test_drafts
 
     inventory   = explore_page(req.url)
     suggestions = suggest_tests_from_inventory(inventory)
     drafts      = generate_test_drafts(inventory, suggestions)
-    return {"drafts": drafts, "count": len(drafts)}
+    used_fb     = False
+    if not drafts:
+        fb = exploration_fallback_draft(str(inventory.get("url") or "").strip())
+        if fb:
+            drafts  = [fb]
+            used_fb = True
+    detail = _generation_detail(drafts, used_fb)
+    return {
+        "drafts": drafts,
+        "count": len(drafts),
+        "used_exploration_fallback": used_fb,
+        "generation_detail": detail,
+    }
 
 
 @router.post("/generate-from-pages")
 def generate_drafts_from_pages(req: GenerateFromPagesRequest):
     from services.suggested_tests import suggest_tests_from_inventory
-    from services.test_draft_generator import generate_test_drafts
+    from services.test_draft_generator import exploration_fallback_draft, generate_test_drafts
 
     seen:   set  = set()
     all_drafts   = []
+    pages = req.pages or []
 
-    for page in (req.pages or []):
+    for page in pages:
         if not isinstance(page, dict):
             continue
         suggestions = suggest_tests_from_inventory(page)
@@ -84,7 +128,20 @@ def generate_drafts_from_pages(req: GenerateFromPagesRequest):
                 seen.add(name)
                 all_drafts.append(d)
 
-    return {"drafts": all_drafts, "count": len(all_drafts)}
+    used_fb = False
+    if not all_drafts and pages:
+        fb = exploration_fallback_draft(_first_url_from_pages(pages))
+        if fb:
+            all_drafts.append(fb)
+            used_fb = True
+
+    detail = _generation_detail(all_drafts, used_fb)
+    return {
+        "drafts": all_drafts,
+        "count": len(all_drafts),
+        "used_exploration_fallback": used_fb,
+        "generation_detail": detail,
+    }
 
 
 @router.post("/approve")

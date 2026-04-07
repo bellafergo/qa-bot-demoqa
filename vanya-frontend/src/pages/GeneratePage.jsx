@@ -174,6 +174,8 @@ function FromUrlPanel() {
   const [error, setError] = useState("");
   const [successResult, setSuccessResult] = useState(null);
   const [expandedKey, setExpandedKey] = useState(null);
+  /** Info banner after generate-from-pages (fallback smoke vs weak heuristics). */
+  const [urlGenInfo, setUrlGenInfo] = useState("");
 
   function parseMaxPages() {
     const raw = String(maxPagesStr).trim();
@@ -189,6 +191,7 @@ function FromUrlPanel() {
     setError("");
     setSuccessResult(null);
     setPipelineHint("");
+    setUrlGenInfo("");
     setExpandedKey(null);
     setLoadingPipeline(false);
     setLoadingApprove(false);
@@ -221,6 +224,7 @@ function FromUrlPanel() {
     setSelectedKeys(new Set());
     setError("");
     setSuccessResult(null);
+    setUrlGenInfo("");
     setExpandedKey(null);
     setPipelineHint(tr(t, "gen.url.exploring_detail", { url: trimmed }));
     setLoadingPipeline(true);
@@ -271,6 +275,15 @@ function FromUrlPanel() {
       if (!generated.length) {
         setError(t("gen.url.no_flows"));
         return;
+      }
+
+      const gd = genRes?.generation_detail;
+      if (gd === "fallback_smoke") {
+        setUrlGenInfo(t("gen.url.fallback_smoke_hint"));
+      } else if (gd === "weak_heuristics_only") {
+        setUrlGenInfo(t("gen.url.weak_heuristics_hint"));
+      } else {
+        setUrlGenInfo("");
       }
 
       const modDefault = defaultModuleFromUrl(trimmed);
@@ -409,6 +422,10 @@ function FromUrlPanel() {
 
       {error && !loadingPipeline && (
         <div className="alert alert-error" style={{ marginBottom: 16 }}>{error}</div>
+      )}
+
+      {urlGenInfo && draftRows.length > 0 && !loadingPipeline && (
+        <div className="alert alert-info" style={{ marginBottom: 16, fontSize: 13 }}>{urlGenInfo}</div>
       )}
 
       {draftRows.length > 0 && (

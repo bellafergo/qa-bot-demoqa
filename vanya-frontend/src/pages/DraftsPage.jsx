@@ -1306,6 +1306,7 @@ function AppMapPanel({ onGoToExplorer }) {
   // ── Draft generation ───────────────────────────────────────────────────────
   const [generating, setGenerating]   = useState(false);
   const [genErr, setGenErr]           = useState("");
+  const [appmapGenInfo, setAppmapGenInfo] = useState("");
   const [generatedDrafts, setDrafts]  = useState([]);
 
   // ── Save to persistent drafts ──────────────────────────────────────────────
@@ -1336,6 +1337,7 @@ function AppMapPanel({ onGoToExplorer }) {
     setSelPages(new Set());
     setDrafts([]);
     setGenErr("");
+    setAppmapGenInfo("");
     try {
       const res = await exploreApp(trimmed, maxPages, currentProject?.id);
       if (res?.auth_failed) {
@@ -1373,10 +1375,19 @@ function AppMapPanel({ onGoToExplorer }) {
     if (!chosen.length) return;
     setGenerating(true);
     setGenErr("");
+    setAppmapGenInfo("");
     setDrafts([]);
     try {
       const res = await generateDraftsFromPages(chosen);
       setDrafts(res.drafts || []);
+      const gd = res?.generation_detail;
+      if (gd === "fallback_smoke") {
+        setAppmapGenInfo(t("gen.url.fallback_smoke_hint"));
+      } else if (gd === "weak_heuristics_only") {
+        setAppmapGenInfo(t("gen.url.weak_heuristics_hint"));
+      } else {
+        setAppmapGenInfo("");
+      }
     } catch (e) {
       setGenErr(e?.message || t("drafts.appmap.draft_gen_error"));
     } finally {
@@ -1549,6 +1560,9 @@ function AppMapPanel({ onGoToExplorer }) {
           {/* Generated Drafts */}
           {generatedDrafts.length > 0 && (
             <div>
+              {appmapGenInfo ? (
+                <div className="alert alert-info" style={{ marginBottom: 12, fontSize: 12 }}>{appmapGenInfo}</div>
+              ) : null}
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-2)" }}>
                   {t("drafts.appmap.suggested_scenarios")} ({generatedDrafts.length})

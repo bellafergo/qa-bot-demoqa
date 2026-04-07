@@ -350,3 +350,56 @@ class TestFullInventory:
         # valid_submission + missing_user_name + missing_password + navigation_smoke = 4
         result = suggest_tests_from_inventory(self._SAUCEDEMO_INV)
         assert len(result) == 4
+
+
+# ══════════════════════════════════════════════════════════════
+# 9. Modern SPA / fallback heuristics
+# ══════════════════════════════════════════════════════════════
+
+class TestModernHeuristics:
+
+    def test_standalone_inputs_without_qualifying_form(self):
+        inv = _inv(
+            forms=[],
+            inputs=[{"name": "q", "selector": "#q"}],
+            buttons=[],
+            links=[],
+        )
+        names = [s["test_name"] for s in suggest_tests_from_inventory(inv)]
+        assert "standalone_inputs_smoke" in names
+
+    def test_no_standalone_when_qualifying_form_exists(self):
+        inv = _inv(
+            forms=[_form("login_form", ["user"], ["Go"])],
+            inputs=[{"name": "user", "selector": "#u"}],
+        )
+        names = [s["test_name"] for s in suggest_tests_from_inventory(inv)]
+        assert "standalone_inputs_smoke" not in names
+
+    def test_nav_probe_for_dashboard_button_without_links(self):
+        inv = _inv(
+            forms=[],
+            buttons=[_btn("Dashboard", 'button:has-text("Dashboard")')],
+            links=[],
+        )
+        names = [s["test_name"] for s in suggest_tests_from_inventory(inv)]
+        assert "nav_probe_dashboard" in names
+
+    def test_ui_probe_when_no_links_and_plain_button(self):
+        inv = _inv(
+            forms=[],
+            buttons=[_btn("Continue", 'button:has-text("Continue")')],
+            links=[],
+        )
+        names = [s["test_name"] for s in suggest_tests_from_inventory(inv)]
+        assert "ui_probe_continue" in names
+
+    def test_submit_buttons_in_qualifying_form_skipped_for_probes(self):
+        inv = _inv(
+            forms=[_form("login_form", ["u"], ["Login"])],
+            buttons=[_btn("Login", "#go")],
+            links=[],
+        )
+        names = [s["test_name"] for s in suggest_tests_from_inventory(inv)]
+        assert "nav_probe_login" not in names
+        assert "ui_probe_login" not in names
