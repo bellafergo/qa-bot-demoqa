@@ -15,7 +15,13 @@ from services import store
 from runner import execute_test
 
 from core.redaction import redact_secrets, redact_steps
-from core.step_compiler import compile_steps_from_prompt, ensure_has_assert
+from core.step_compiler import (
+    CompileError,
+    augment_steps_with_prompt_assertions,
+    compile_steps_from_prompt,
+    ensure_has_assert,
+    resolve_fill_values_in_steps,
+)
 from core.target_url_validation import (
     TargetURLNotAllowed,
     validate_steps_navigation_urls,
@@ -373,6 +379,39 @@ def handle_execute_mode(
 
     if steps:
         try:
+            steps = resolve_fill_values_in_steps(steps, {"base_url": base_url})
+        except CompileError as e:
+            answer = (
+                f"No pude resolver variables en los pasos generados: {e}\n\n"
+                "Si el plan usa placeholders como {EMAIL}, define VANYA_TEST_EMAIL y "
+                "VANYA_TEST_PASSWORD (o VANYA_EMAIL / VANYA_PASSWORD) en el entorno, "
+                "o escribe credenciales literales en el mensaje."
+            )
+            store.add_message(
+                thread_id,
+                "assistant",
+                answer,
+                meta={
+                    "mode": "execute",
+                    "persona": persona,
+                    "base_url": base_url,
+                    "error": "unresolved_variable",
+                    "compile_error": str(e),
+                },
+            )
+            return {
+                "mode": "execute",
+                "persona": persona,
+                "session_id": session_id,
+                "thread_id": thread_id,
+                "answer": answer,
+                "correlation_id": correlation_id,
+                "steps_count": 0,
+                **_confidence("execute", prompt, base_url),
+            }
+
+    if steps:
+        try:
             validate_steps_navigation_urls(steps, base_url)
         except TargetURLNotAllowed:
             answer = (
@@ -419,6 +458,7 @@ def handle_execute_mode(
             **_confidence("execute", prompt, base_url),
         }
 
+    steps = augment_steps_with_prompt_assertions(prompt, steps, base_url)
     steps = ensure_has_assert(steps, base_url)
     steps = _normalize_steps_to_target(steps)
 

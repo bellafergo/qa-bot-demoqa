@@ -14,7 +14,12 @@ from fastapi import APIRouter, HTTPException
 from fastapi import Request
 from pydantic import BaseModel
 
-from core.step_compiler import compile_to_runner_steps, CompileError
+from core.step_compiler import (
+    CompileError,
+    augment_steps_with_prompt_assertions,
+    compile_to_runner_steps,
+    ensure_has_assert,
+)
 from core.step_validator import validate_steps
 from services.run_mapper import normalize_run
 
@@ -169,6 +174,8 @@ def execute_text_endpoint(req: ExecuteTextRequest, request: Request) -> Dict[str
             base_url=base_url,
             context={"base_url": base_url, "app_hint": req.app_hint},
         )
+        steps = augment_steps_with_prompt_assertions(req.text, steps, base_url or "")
+        steps = ensure_has_assert(steps, base_url or "")
     except CompileError as e:
         logger.warning("execute_text: compile failed — %s", e)
         compile_dict = e.to_dict() if hasattr(e, "to_dict") else {}

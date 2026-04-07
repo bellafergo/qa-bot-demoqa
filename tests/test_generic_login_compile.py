@@ -2,7 +2,14 @@
 from __future__ import annotations
 
 from core.login_intent_resolver import build_login_steps, has_explicit_login_flow
-from core.step_compiler import compile_to_runner_steps, parse_steps_from_prompt
+import pytest
+
+from core.step_compiler import (
+    CompileError,
+    augment_steps_with_prompt_assertions,
+    compile_to_runner_steps,
+    parse_steps_from_prompt,
+)
 from core.step_validator import validate_steps
 
 
@@ -38,14 +45,45 @@ def test_compile_login_dsl_any_domain_no_saucedemo_error():
         [{"action": "login", "email": "u@x.com", "password": "secret"}],
         base_url=BASE_TALENT,
     )
-    assert len(out) == 3
-    assert [s["action"] for s in out] == ["fill", "fill", "click"]
+    assert len(out) == 4
+    assert [s["action"] for s in out] == ["fill", "fill", "click", "wait_ms"]
     assert out[0]["selector"] == 'input[type="email"]'
     assert out[1]["selector"] == 'input[type="password"]'
     assert out[2]["selector"] == 'button[type="submit"]'
     assert isinstance(out[0].get("target"), dict)
     vr = validate_steps(out)
     assert vr.valid
+
+
+def test_compile_login_unresolved_placeholder_raises():
+    with pytest.raises(CompileError) as ei:
+        compile_to_runner_steps([{"action": "login"}], base_url=BASE_TALENT, context={})
+    assert "Unresolved variable" in str(ei.value)
+
+
+def test_compile_login_resolves_vanya_test_env(monkeypatch):
+    monkeypatch.setenv("VANYA_TEST_EMAIL", "env@user.test")
+    monkeypatch.setenv("VANYA_TEST_PASSWORD", "secret-env")
+    out = compile_to_runner_steps([{"action": "login"}], base_url=BASE_TALENT, context={})
+    assert out[0]["value"] == "env@user.test"
+    assert out[1]["value"] == "secret-env"
+
+
+def test_augment_prompt_adds_text_assertion_spanish():
+    prompt = (
+        "Ve a /login, escribe a@b.com en el campo de email, escribe x en el campo de password, "
+        "haz clic en Sign in, luego verifica que aparece el texto Oportunidades activas"
+    )
+    base = [
+        {"action": "goto", "url": f"{BASE_TALENT}/login"},
+        {"action": "fill", "selector": 'input[type="email"]', "value": "a@b.com"},
+        {"action": "fill", "selector": 'input[type="password"]', "value": "x"},
+        {"action": "click", "selector": 'button[type="submit"]'},
+    ]
+    out = augment_steps_with_prompt_assertions(prompt, base, BASE_TALENT)
+    asserts = [s for s in out if s.get("action") == "assert_text_contains"]
+    assert asserts
+    assert any("Oportunidades activas" in str(s.get("text", "")) for s in asserts)
 
 
 def test_ambiguous_login_builds_generic_steps():

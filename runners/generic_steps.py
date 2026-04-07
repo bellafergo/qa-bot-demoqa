@@ -60,6 +60,66 @@ def _is_submit_click(sel: str, intent: str) -> bool:
     return any(kw in hint for kw in _SUBMIT_KEYWORDS)
 
 
+def _step_is_meaningful_assert(step: Dict[str, Any]) -> bool:
+    """assert_visible sobre body (fallback del compilador) no cuenta como validación fuerte."""
+    a = str(step.get("action") or "")
+    if a == "assert_text_contains":
+        return True
+    if a in ("assert_url_contains", "assert_not_visible"):
+        return True
+    if a == "assert_visible":
+        if str(step.get("selector") or "").strip().lower() == "body":
+            cm = step.get("_compiler_meta") or {}
+            if cm.get("terminal_assert") == "weak_body_fallback":
+                return False
+        return True
+    return False
+
+
+def _collect_html5_validation_messages(page) -> List[str]:
+    try:
+        raw = page.evaluate(
+            """() => {
+              const msgs = [];
+              for (const el of document.querySelectorAll('input,select,textarea')) {
+                try {
+                  if (el.willValidate && el.validity && !el.validity.valid && el.validationMessage)
+                    msgs.push(String(el.validationMessage).trim());
+                } catch (e) {}
+              }
+              return msgs;
+            }""",
+        )
+    except Exception:
+        return []
+    if not raw:
+        return []
+    out: List[str] = []
+    for m in raw:
+        t = _safe_str(m).strip()
+        if t and t not in out:
+            out.append(t)
+    return out[:8]
+
+
+def _fail_if_locator_invalid(locator, phase: str) -> None:
+    try:
+        pair = locator.evaluate(
+            """el => {
+              if (!el || !el.validity) return { ok: true, msg: '' };
+              return { ok: el.validity.valid, msg: (el.validationMessage || '').trim() };
+            }""",
+        )
+    except Exception:
+        return
+    if not isinstance(pair, dict):
+        return
+    if pair.get("ok"):
+        return
+    msg = _safe_str(pair.get("msg")).strip() or "campo inválido"
+    raise AssertionError(f"Validación del navegador ({phase}): {msg}")
+
+
 def _normalize_ws(s: str) -> str:
     """
     Normalize whitespace for text comparison.
@@ -210,6 +270,9 @@ def execute_test(
             "status": st,
             "error": err,
             "ts_ms": _now_ms(),
+            "compiler_meta": step.get("_compiler_meta"),
+            "value_resolution": step.get("_value_resolution"),
+            "assertion_step": str(_normalize_action(step)).startswith("assert_"),
         }
         if extra:
             payload.update(extra)
@@ -478,7 +541,21 @@ def execute_test(
                             locator, used, domain, intent = _resolve(step, page, sel, inferred_base_url, step_index=i)
                             locator.wait_for(state="visible", timeout=timeout_ms)
                             locator.fill(val, timeout=timeout_ms)
-                            _record_step(i, step, "passed", extra={"locator_used": used, "intent": intent, "domain": domain})
+                            try:
+                                locator.evaluate("el => { try { el.blur(); } catch(e) {} }")
+                            except Exception:
+                                pass
+                            try:
+                                page.wait_for_timeout(120)
+                            except Exception:
+                                pass
+                            _fail_if_locator_invalid(locator, "tras fill")
+                            _record_step(
+                                i,
+                                step,
+                                "passed",
+                                extra={"locator_used": used, "intent": intent, "domain": domain},
+                            )
                             cap.capture_step_screenshot(page, i, action)
                             continue
                         except Exception as e:
@@ -514,6 +591,16 @@ def execute_test(
                                     f"url_after={_url_after!r} "
                                     f"navigated={_url_before != _url_after}"
                                 )
+                                try:
+                                    page.wait_for_timeout(200)
+                                except Exception:
+                                    pass
+                                vsubmit = _collect_html5_validation_messages(page)
+                                if vsubmit:
+                                    msg = "; ".join(vsubmit[:4])
+                                    raise AssertionError(
+                                        f"El formulario sigue inválido tras enviar: {msg}"
+                                    )
                             _record_step(i, step, "passed", extra={"locator_used": used, "intent": intent, "domain": domain})
                             cap.capture_step_screenshot(page, i, action)
                             continue
@@ -728,6 +815,12 @@ def execute_test(
 
     ok = status == "passed"
 
+    meaningful_assert = any(_step_is_meaningful_assert(s) for s in (steps or []))
+    validation_quality = (
+        "standard" if meaningful_assert else "passed_without_meaningful_assertion"
+    )
+    reliable_pass = bool(ok and validation_quality == "standard")
+
     return {
         "ok": ok,
         "status": status,
@@ -745,6 +838,8 @@ def execute_test(
             "base_url": base_url,
             "timeout_ms": timeout_ms_global,
             "viewport": {"width": vw, "height": vh},
+            "validation_quality": validation_quality,
+            "reliable_pass": reliable_pass,
             **({"correlation_id": correlation_id} if correlation_id else {}),
         },
         # Observability extensions — all optional, never break existing consumers

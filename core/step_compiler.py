@@ -10,8 +10,9 @@ Si una acción no puede compilarse de forma segura, levanta CompileError.
 """
 from __future__ import annotations
 
+import os
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urljoin
 
 from core.generic_login_targets import (
@@ -32,6 +33,179 @@ from core.semantic_intent_extractor import (
     extract_action_intent as _extract_semantic_action,
 )
 from core.target_url_validation import TargetURLNotAllowed, validate_target_url
+
+
+_PLACEHOLDER_TOKEN = re.compile(r"\$\{(\w+)\}|\{(\w+)\}")
+
+
+def _normalize_ws(s: str) -> str:
+    return " ".join((s or "").split())
+
+
+def resolve_interpolated_credentials(
+    raw: Any,
+    context: Optional[Dict[str, Any]],
+    *,
+    purpose: str = "value",
+) -> str:
+    """
+    Sustituye {VAR} y ${VAR} usando context['credentials'] y variables de entorno
+    VANYA_TEST_<VAR> / VANYA_<VAR>. Valores sin placeholders se devuelven tal cual.
+    """
+    if raw is None:
+        return ""
+    s = str(raw).strip()
+    if not s:
+        return ""
+    if "{" not in s and "${" not in s:
+        return s
+
+    ctx = context or {}
+    creds: Dict[str, Any] = {}
+    c = ctx.get("credentials")
+    if isinstance(c, dict):
+        creds = c
+
+    def _lookup(var: str) -> Optional[str]:
+        vn = (var or "").strip()
+        if not vn:
+            return None
+        key_l = vn.lower().replace("-", "_")
+        if key_l in creds and creds[key_l] is not None:
+            vs = str(creds[key_l]).strip()
+            if vs:
+                return vs
+        env_key = vn.upper().replace("-", "_")
+        for prefix in ("VANYA_TEST_", "VANYA_"):
+            v = os.getenv(prefix + env_key)
+            if v and str(v).strip():
+                return str(v).strip()
+        return None
+
+    def _repl(m: re.Match[str]) -> str:
+        var = (m.group(1) or m.group(2) or "").strip()
+        val = _lookup(var)
+        if val is None:
+            raise CompileError(
+                f"Unresolved variable: {var}",
+                error_type="unresolved_variable",
+                details={"variable": var, "purpose": purpose},
+            )
+        return val
+
+    return _PLACEHOLDER_TOKEN.sub(_repl, s)
+
+
+def resolve_fill_values_in_steps(
+    steps: List[Dict[str, Any]],
+    context: Optional[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Resuelve placeholders en todos los fill; añade _value_resolution para evidencia."""
+    out: List[Dict[str, Any]] = []
+    for s in steps:
+        s2 = dict(s)
+        act = str(s2.get("action") or "").strip().lower()
+        if act == "fill":
+            raw = s2.get("value")
+            raw_s = "" if raw is None else str(raw)
+            if "{" in raw_s or "${" in raw_s:
+                names = [
+                    (m.group(1) or m.group(2) or "").strip().upper()
+                    for m in _PLACEHOLDER_TOKEN.finditer(raw_s)
+                ]
+                s2["value"] = resolve_interpolated_credentials(raw_s, context, purpose="fill_value")
+                s2["_value_resolution"] = {"kind": "interpolated", "variables": names}
+            elif "_value_resolution" not in s2:
+                s2["_value_resolution"] = {"kind": "literal"}
+        out.append(s2)
+    return out
+
+
+def _extract_verification_needles_from_prompt(prompt: str) -> List[str]:
+    """Textos que el usuario pide verificar explícitamente (es/en), sin duplicar ruido."""
+    p = prompt or ""
+    needles: List[str] = []
+    seen: set = set()
+
+    def _push(t: str) -> None:
+        x = (t or "").strip().strip("'\"").strip()
+        x = re.sub(r"^(el\s+texto|the\s+text|texto)\s+", "", x, flags=re.I).strip()
+        if len(x) < 2:
+            return
+        k = _normalize_ws(x).lower()
+        if k in seen:
+            return
+        seen.add(k)
+        needles.append(x)
+
+    patterns: List[Tuple[str, int]] = [
+        (r"(?is)verifica(?:r)?\s+que\s+aparece\s+el\s+texto\s+(.+?)(?=\s*$|\s*[,.;]|\s+luego\b)", 1),
+        (r"(?is)verifica(?:r)?\s+que\s+aparece\s+(.+?)(?=\s*$|\s*[,.;]|\s+luego\b)", 1),
+        (r"(?is)verifica(?:r)?\s+que\s+(?:se\s+muestra|existe)\s+[\"']([^\"']+)[\"']", 1),
+        (r"(?is)comprueba\s+que\s+(?:aparece|se\s+muestra)\s+[\"']([^\"']+)[\"']", 1),
+        (r"(?is)asegúrate\s+de\s+que\s+aparece\s+[\"']([^\"']+)[\"']", 1),
+        (r"(?is)asegurate\s+de\s+que\s+aparece\s+[\"']([^\"']+)[\"']", 1),
+        (r"(?is)\bdebe\s+aparecer\s+[\"']([^\"']+)[\"']", 1),
+        (r"(?is)\bdebe\s+aparecer\s+(.+?)(?=\s*$|\s*[,.;])", 1),
+        (r"(?is)\bverify\s+that\s+(?:the\s+text\s+)?[\"']([^\"']+)[\"']\s+(?:appears|is\s+visible)\b", 1),
+        (r"(?is)\bensure\s+(?:that\s+)?[\"']([^\"']+)[\"']\s+(?:appears|is\s+visible)\b", 1),
+    ]
+    for pat, _gi in patterns:
+        for m in re.finditer(pat, p):
+            _push(m.group(1))
+
+    legacy = [
+        r'(?:valida|validar|verify|assert)\s+.*?(?:texto|text).*?(".*?"|\'.*?\')',
+        r"(?:assert_text_contains)\s+(\".*?\"|'.*?')",
+    ]
+    for pat in legacy:
+        mm = re.search(pat, p, flags=re.IGNORECASE)
+        if mm:
+            _push(_strip_quotes(mm.group(1)))
+
+    return needles
+
+
+def augment_steps_with_prompt_assertions(
+    prompt: str,
+    steps: List[Dict[str, Any]],
+    base_url: str = "",
+) -> List[Dict[str, Any]]:
+    """
+    Añade assert_text_contains cuando el prompt pide verificar texto visible.
+    Idempotente respecto a asserts ya presentes (mismo texto normalizado).
+    """
+    if not steps:
+        return steps
+    needles = _extract_verification_needles_from_prompt(prompt)
+    if not needles:
+        return steps
+
+    existing: set = set()
+    for s in steps:
+        if str(s.get("action") or "") != "assert_text_contains":
+            continue
+        for k in ("text", "expected"):
+            v = s.get(k)
+            if v:
+                existing.add(_normalize_ws(str(v)).lower())
+
+    out = list(steps)
+    for needle in needles:
+        nk = _normalize_ws(needle).lower()
+        if nk in existing:
+            continue
+        out.append({"action": "wait_ms", "ms": 450})
+        out.append(
+            {
+                "action": "assert_text_contains",
+                "selector": "body",
+                "text": needle.strip(),
+                "_compiler_meta": {"from_prompt_verification": True},
+            },
+        )
+        existing.add(nk)
+    return out
 
 
 class CompileError(Exception):
@@ -90,21 +264,61 @@ def _resolve_url(url_val: Optional[str], base_url: Optional[str]) -> str:
     return s
 
 
+def _credential_resolution_meta(raw: Any) -> Optional[Dict[str, Any]]:
+    rs = str(raw or "")
+    if "{" not in rs and "${" not in rs:
+        return None
+    names = [
+        (m.group(1) or m.group(2) or "").strip().upper()
+        for m in _PLACEHOLDER_TOKEN.finditer(rs)
+    ]
+    return {"kind": "interpolated", "variables": names}
+
+
 def _compile_login(
     step: Dict[str, Any],
     step_index: int,
     base_url: Optional[str],
+    context: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
-    """Expande DSL `login` a fill/fill/click con selectores genéricos y fallbacks (cualquier dominio)."""
-    email = step.get("email") or step.get("username") or "{EMAIL}"
-    password = step.get("password") or "{PASSWORD}"
+    """
+    Expande DSL `login` a fill/fill/click + espera breve (navegación / pintado).
+    Credenciales: literales del plan o placeholders {EMAIL}/{PASSWORD} resueltos
+    vía context['credentials'] o VANYA_TEST_*; sin resolución → CompileError.
+    """
+    raw_email = step.get("email") or step.get("username")
+    raw_pw = step.get("password")
+    if raw_email is None or (isinstance(raw_email, str) and not str(raw_email).strip()):
+        raw_email = "{EMAIL}"
+    if raw_pw is None or (isinstance(raw_pw, str) and not str(raw_pw).strip()):
+        raw_pw = "{PASSWORD}"
+    email = resolve_interpolated_credentials(raw_email, context, purpose="login_email")
+    password = resolve_interpolated_credentials(raw_pw, context, purpose="login_password")
     ut = make_generic_login_user_target()
     pt = make_generic_login_password_target()
     st = make_generic_login_submit_target()
+    meta = {"dsl_expanded": "login", "reliable_validation": False}
+    fe = _credential_resolution_meta(raw_email)
+    fp = _credential_resolution_meta(raw_pw)
     return [
-        {"action": "fill", "selector": ut["primary"], "target": ut, "value": email},
-        {"action": "fill", "selector": pt["primary"], "target": pt, "value": password},
-        {"action": "click", "selector": st["primary"], "target": st},
+        {
+            "action": "fill",
+            "selector": ut["primary"],
+            "target": ut,
+            "value": email,
+            "_compiler_meta": meta,
+            **({"_value_resolution": fe} if fe else {}),
+        },
+        {
+            "action": "fill",
+            "selector": pt["primary"],
+            "target": pt,
+            "value": password,
+            "_compiler_meta": meta,
+            **({"_value_resolution": fp} if fp else {}),
+        },
+        {"action": "click", "selector": st["primary"], "target": st, "_compiler_meta": meta},
+        {"action": "wait_ms", "ms": 650, "_compiler_meta": meta},
     ]
 
 
@@ -112,6 +326,7 @@ def _compile_search(
     step: Dict[str, Any],
     step_index: int,
     base_url: Optional[str],
+    context: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Expande search a fill + press Enter.
@@ -140,6 +355,7 @@ def _compile_add_to_cart(
     step: Dict[str, Any],
     step_index: int,
     base_url: Optional[str],
+    context: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """add_to_cart requiere lógica site-specific. Solo HEB con selector best-effort."""
     if not _is_heb(base_url):
@@ -172,6 +388,7 @@ def _compile_screenshot(
     step: Dict[str, Any],
     step_index: int,
     base_url: Optional[str],
+    context: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """screenshot: pausa para que el runner capture al final. No-op explícito."""
     return [{"action": "wait_ms", "ms": 500}]
@@ -181,6 +398,7 @@ def _compile_wait_for_text(
     step: Dict[str, Any],
     step_index: int,
     base_url: Optional[str],
+    context: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """wait_for_text → assert_text_contains en body."""
     text = step.get("text") or step.get("value") or ""
@@ -199,6 +417,7 @@ def _compile_assert_text(
     step: Dict[str, Any],
     step_index: int,
     base_url: Optional[str],
+    context: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """assert_text → assert_text_contains."""
     text = step.get("text") or step.get("value") or step.get("expected") or ""
@@ -218,6 +437,7 @@ def _compile_assert_cart_count(
     step: Dict[str, Any],
     step_index: int,
     base_url: Optional[str],
+    context: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """assert_cart_count: site-specific, no implementado de forma genérica."""
     raise CompileError(
@@ -358,7 +578,7 @@ def compile_to_runner_steps(
             }
             fn = compilers.get(action)
             if fn:
-                compiled = fn(step, i, resolved_base or None)
+                compiled = fn(step, i, resolved_base or None, context)
                 result.extend(compiled)
             else:
                 raise CompileError(
@@ -381,7 +601,7 @@ def compile_to_runner_steps(
             details={"action": action},
         )
 
-    return result
+    return resolve_fill_values_in_steps(result, context)
 
 
 # ── Deducción desde prompt natural (chat/execute) ─────────────────────────────
@@ -436,7 +656,16 @@ def ensure_has_assert(steps: List[Dict[str, Any]], base_url: str) -> List[Dict[s
         steps.append({"action": "assert_visible", "selector": user_pri})
         return steps
 
-    steps.append({"action": "assert_visible", "selector": "body"})
+    steps.append(
+        {
+            "action": "assert_visible",
+            "selector": "body",
+            "_compiler_meta": {
+                "terminal_assert": "weak_body_fallback",
+                "reliable_validation": False,
+            },
+        },
+    )
     return steps
 
 
