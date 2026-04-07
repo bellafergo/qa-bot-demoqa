@@ -1,5 +1,6 @@
 // vanya-frontend/src/chat.jsx
 import React, { useMemo, useCallback, useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import DocArtifactTabs from "./components/DocArtifactTabs";
 import { useLang } from "./i18n/LangContext";
 import { createTestFromRun, apiErrorMessage } from "./api";
@@ -136,6 +137,34 @@ const pickEvidenceId = (m) => {
   ].filter((x) => typeof x === "string" && x.trim());
 
   return candidates.length ? candidates[0].trim() : null;
+};
+
+/** Id for POST /tests/from-run (evidence_id or run_id); backend resolves via run history. */
+const pickRunIdForCatalog = (m) => {
+  const meta = getMeta(m);
+  const runner = pickRunner(m);
+  const candidates = [
+    runner?.evidence_id,
+    runner?.evidenceId,
+    runner?.run_id,
+    runner?.runId,
+    meta?.runner?.evidence_id,
+    meta?.runner?.evidenceId,
+    meta?.runner?.run_id,
+    meta?.runner?.runId,
+    meta?.evidence_id,
+    meta?.evidenceId,
+    meta?.run_id,
+    meta?.runId,
+    m?.evidence_id,
+    m?.evidenceId,
+    m?.run_id,
+    m?.runId,
+  ];
+  for (const x of candidates) {
+    if (typeof x === "string" && x.trim()) return x.trim();
+  }
+  return null;
 };
 
 const pickEvidenceUrl = (m) => {
@@ -327,6 +356,7 @@ export default function Chat(props) {
     const evidenceUrl = isBot ? pickEvidenceUrl(m) : null;
     const reportUrl = isBot ? pickReportUrl(m) : null;
     const evidenceId = isBot ? pickEvidenceId(m) : null;
+    const runIdCatalog = isBot ? pickRunIdForCatalog(m) : null;
     const docJson = isBot ? pickDocJson(m) : null;
 
     const badge = isBot ? pickExecBadge(m) : null;
@@ -415,8 +445,11 @@ export default function Chat(props) {
           {/* Reporte */}
           {showReport ? <ReportBlock reportUrl={reportUrl} /> : null}
 
+          {/* Catálogo (mismo endpoint / flujo que Planner; visible sin abrir Run details) */}
+          {runIdCatalog ? <SaveToCatalogBar runId={runIdCatalog} projectId={projectId} /> : null}
+
           {/* Debug */}
-          {showRunDebug ? <RunDebugBlock runner={runner} projectId={projectId} /> : null}
+          {showRunDebug ? <RunDebugBlock runner={runner} /> : null}
         </div>
       </div>
     );
@@ -564,7 +597,11 @@ function EvidenceBlock({ evidenceUrl }) {
   );
 }
 
-function RunDebugBlock({ runner, projectId = "default" }) {
+/**
+ * Same flow as Planner / generate-from-run: visible CTA when a run id exists
+ * even if runner.steps/logs are empty (those only appear inside Run details).
+ */
+function SaveToCatalogBar({ runId, projectId = "default" }) {
   const { t } = useLang();
   const { showToast } = useToast();
   const [saveBusy, setSaveBusy] = useState(false);
@@ -574,29 +611,24 @@ function RunDebugBlock({ runner, projectId = "default" }) {
 
   useEffect(() => {
     if (!saveOk) return;
-    const id = setTimeout(() => setSaveOk(false), 5000);
+    const id = setTimeout(() => setSaveOk(false), 8000);
     return () => clearTimeout(id);
   }, [saveOk]);
 
-  if (!runner || typeof runner !== "object") return null;
-
-  const steps = Array.isArray(runner.steps) ? runner.steps : [];
-  const logs = Array.isArray(runner.logs) ? runner.logs : [];
-  const runIdForCatalog = runner.evidence_id || runner.run_id;
+  const rid = String(runId || "").trim();
+  if (!rid) return null;
 
   const openSavePrompt = () => {
-    if (!runIdForCatalog) return;
-    setDefaultCatalogName(`Chat ${String(runIdForCatalog).slice(0, 12)}`);
+    setDefaultCatalogName(`Chat ${rid.slice(0, 12)}`);
     setPromptOpen(true);
   };
 
   const saveToCatalogWithName = async (trimmed) => {
-    if (!runIdForCatalog) return;
     setSaveBusy(true);
     setSaveOk(false);
     try {
       await createTestFromRun({
-        run_id: runIdForCatalog,
+        run_id: rid,
         name: trimmed,
         project_id: String(projectId || "default").trim() || "default",
       });
@@ -608,6 +640,66 @@ function RunDebugBlock({ runner, projectId = "default" }) {
       setSaveBusy(false);
     }
   };
+
+  return (
+    <div
+      style={{
+        marginTop: 12,
+        paddingTop: 12,
+        borderTop: "1px solid var(--bubble-bot-border)",
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 10,
+        alignItems: "center",
+      }}
+    >
+      <button
+        type="button"
+        className="btn btn-primary btn-sm"
+        disabled={saveBusy}
+        onClick={openSavePrompt}
+      >
+        {saveBusy ? t("catalog.from_run.saving") : t("catalog.from_run.save_btn")}
+      </button>
+      <Link to="/catalog" className="btn btn-secondary btn-sm">
+        {t("catalog.from_run.open_catalog")}
+      </Link>
+      {saveOk ? (
+        <span style={{ fontSize: 13, color: "var(--green-text)", fontWeight: 600 }}>
+          {t("catalog.from_run.success")}
+        </span>
+      ) : null}
+
+      <PromptDialog
+        key={promptOpen ? `chat-cat-${rid}` : "chat-cat-closed"}
+        open={promptOpen}
+        title={t("planner.save_catalog_prompt_title")}
+        label={t("catalog.from_run.prompt_name")}
+        defaultValue={defaultCatalogName}
+        submitLabel={t("catalog.from_run.save_btn")}
+        busy={saveBusy}
+        onCancel={() => setPromptOpen(false)}
+        onSubmit={(trimmed) => {
+          if (!trimmed) {
+            showToast(t("catalog.from_run.name_required"), "warning");
+            return;
+          }
+          setPromptOpen(false);
+          saveToCatalogWithName(trimmed);
+        }}
+      />
+    </div>
+  );
+}
+
+function RunDebugBlock({ runner }) {
+  const { t } = useLang();
+  const { showToast } = useToast();
+
+  if (!runner || typeof runner !== "object") return null;
+
+  const steps = Array.isArray(runner.steps) ? runner.steps : [];
+  const logs = Array.isArray(runner.logs) ? runner.logs : [];
 
   const copyJson = async () => {
     try {
@@ -628,47 +720,12 @@ function RunDebugBlock({ runner, projectId = "default" }) {
         <div style={{ padding: "10px 12px" }}>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10, alignItems: "center" }}>
             <button
+              type="button"
+              className="btn btn-secondary btn-sm"
               onClick={copyJson}
-              style={{
-                padding: "5px 10px",
-                borderRadius: 6,
-                border: "1px solid var(--border)",
-                background: "var(--surface)",
-                color: "var(--text-2)",
-                cursor: "pointer",
-                fontWeight: 500,
-                fontSize: 12,
-                fontFamily: "inherit",
-              }}
             >
               Copy JSON
             </button>
-
-            {runIdForCatalog ? (
-              <button
-                type="button"
-                onClick={openSavePrompt}
-                disabled={saveBusy}
-                style={{
-                  padding: "5px 10px",
-                  borderRadius: 6,
-                  border: "1px solid var(--accent-border)",
-                  background: "var(--accent-light)",
-                  color: "var(--accent)",
-                  cursor: saveBusy ? "wait" : "pointer",
-                  fontWeight: 600,
-                  fontSize: 12,
-                  fontFamily: "inherit",
-                }}
-              >
-                {saveBusy ? t("catalog.from_run.saving") : t("catalog.from_run.save_btn")}
-              </button>
-            ) : null}
-            {saveOk ? (
-              <span style={{ fontSize: 12, color: "var(--green-text)", fontWeight: 600 }}>
-                {t("catalog.from_run.success")}
-              </span>
-            ) : null}
 
             {runner?.evidence_id && <span style={{ fontSize: 11, color: "var(--text-3)", fontFamily: "monospace" }}>id: {runner.evidence_id}</span>}
             {runner?.status     && <span style={{ fontSize: 11, color: "var(--text-3)" }}>status: {String(runner.status)}</span>}
@@ -718,25 +775,6 @@ function RunDebugBlock({ runner, projectId = "default" }) {
           ) : null}
         </div>
       </details>
-
-      <PromptDialog
-        key={promptOpen ? `chat-cat-${runIdForCatalog}` : "chat-cat-closed"}
-        open={promptOpen}
-        title={t("planner.save_catalog_prompt_title")}
-        label={t("catalog.from_run.prompt_name")}
-        defaultValue={defaultCatalogName}
-        submitLabel={t("catalog.from_run.save_btn")}
-        busy={saveBusy}
-        onCancel={() => setPromptOpen(false)}
-        onSubmit={(trimmed) => {
-          if (!trimmed) {
-            showToast(t("catalog.from_run.name_required"), "warning");
-            return;
-          }
-          setPromptOpen(false);
-          saveToCatalogWithName(trimmed);
-        }}
-      />
     </div>
   );
 }
