@@ -1,9 +1,19 @@
-import React, { useState } from "react";
-
-const MARK = "/logo/zuperio-mark.svg";
-const HORIZONTAL = "/logo/zuperio-horizontal.svg";
+import React, { useEffect, useState } from "react";
+import { useTheme } from "../context/ThemeContext.jsx";
+import { getThemeLogoSrc } from "../lib/themeLogos.js";
 
 export default function ZuperioLogo({ variant = "mark", className = "", alt = "Zuperio" }) {
+  const { resolvedTheme } = useTheme();
+  const paths = getThemeLogoSrc(resolvedTheme);
+  const primary = variant === "horizontal" ? paths.horizontal : paths.mark;
+  const fallback = variant === "horizontal" ? paths.fallbackHorizontal : paths.fallbackMark;
+
+  const [src, setSrc] = useState(primary);
+
+  useEffect(() => {
+    setSrc(primary);
+  }, [primary]);
+
   const [ok, setOk] = useState(true);
 
   if (!ok) {
@@ -14,25 +24,30 @@ export default function ZuperioLogo({ variant = "mark", className = "", alt = "Z
     );
   }
 
+  const onError = () => {
+    if (src !== fallback) setSrc(fallback);
+    else setOk(false);
+  };
+
   if (variant === "horizontal") {
     return (
       <img
-        src={HORIZONTAL}
+        src={src}
         alt={alt}
         className={`zu-logo-horizontal ${className}`.trim()}
-        onError={() => setOk(false)}
+        onError={onError}
       />
     );
   }
 
   return (
     <img
-      src={MARK}
+      src={src}
       alt={alt}
       width={48}
       height={48}
       className={`zu-logo-mark ${className}`.trim()}
-      onError={() => setOk(false)}
+      onError={onError}
     />
   );
 }

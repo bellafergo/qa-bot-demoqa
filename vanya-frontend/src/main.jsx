@@ -7,17 +7,20 @@ import App from "./App.jsx";
 import { LangProvider } from "./i18n/LangContext.jsx";
 import { AuthProvider } from "./auth/AuthContext.jsx";
 import { ToastProvider } from "./context/ToastContext.jsx";
+import { ThemeProvider } from "./context/ThemeContext.jsx";
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>
     <BrowserRouter>
-      <LangProvider>
-        <AuthProvider>
-          <ToastProvider>
-            <App />
-          </ToastProvider>
-        </AuthProvider>
-      </LangProvider>
+      <ThemeProvider>
+        <LangProvider>
+          <AuthProvider>
+            <ToastProvider>
+              <App />
+            </ToastProvider>
+          </AuthProvider>
+        </LangProvider>
+      </ThemeProvider>
     </BrowserRouter>
   </StrictMode>
 );

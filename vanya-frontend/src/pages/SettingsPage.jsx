@@ -1,6 +1,7 @@
 // src/pages/SettingsPage.jsx
 import React, { useEffect, useState } from "react";
 import { useLang } from "../i18n/LangContext";
+import { useTheme } from "../context/ThemeContext.jsx";
 import { apiGet, apiErrorMessage, API_BASE } from "../api.js";
 
 function InfoRow({ label, value, mono = false, badge }) {
@@ -12,6 +13,31 @@ function InfoRow({ label, value, mono = false, badge }) {
           {value}
         </span>
       )}
+    </div>
+  );
+}
+
+function ThemeAppearanceCard() {
+  const { t } = useLang();
+  const { preference, setPreference } = useTheme();
+  return (
+    <div className="card" style={{ marginBottom: 20 }}>
+      <div className="section-title">{t("settings.theme.title")}</div>
+      <p style={{ margin: "0 0 14px", fontSize: 12, color: "var(--text-3)", lineHeight: 1.5 }}>
+        {t("settings.theme.hint")}
+      </p>
+      <div className="zu-action-row" style={{ gap: 8 }}>
+        {["dark", "light", "system"].map((k) => (
+          <button
+            key={k}
+            type="button"
+            className={`btn btn-sm ${preference === k ? "btn-primary" : "btn-secondary"}`}
+            onClick={() => setPreference(k)}
+          >
+            {t(`settings.theme.${k}`)}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -75,6 +101,8 @@ export default function SettingsPage() {
         <h1 className="page-title">{t("settings.title")}</h1>
         <p className="page-subtitle">{t("settings.subtitle")}</p>
       </div>
+
+      <ThemeAppearanceCard />
 
       {/* ── API config card ─────────────────────────────── */}
       <div className="card" style={{ marginBottom: 20 }}>

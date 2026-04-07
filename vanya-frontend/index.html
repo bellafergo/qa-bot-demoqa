@@ -5,6 +5,24 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>vanya-frontend</title>
+    <!-- KEY must match THEME_STORAGE_KEY in src/context/ThemeContext.jsx -->
+    <script>
+      (function () {
+        var KEY = "vanya-theme-preference";
+        var pref = "dark";
+        try {
+          var s = localStorage.getItem(KEY);
+          if (s === "dark" || s === "light" || s === "system") pref = s;
+        } catch (e) {}
+        var resolved =
+          pref === "dark" || pref === "light"
+            ? pref
+            : window.matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light";
+        document.documentElement.setAttribute("data-theme", resolved);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
