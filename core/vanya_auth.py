@@ -7,6 +7,10 @@ Phase 1: Bearer JWT validated with ES256 against Supabase Auth JWKS
   Key selection uses header "kid" (handled by PyJWT PyJWKClient).
 
 Phase 2: Optional X-Service-Token matching VANYA_SERVICE_TOKEN (machine-to-machine).
+
+Corporate access: optional ``ALLOWED_EMAIL_DOMAINS`` (comma-separated, e.g.
+``fahorro.com.mx,zuperio.com.mx``). Empty = no domain restriction.
+User JWTs are checked in middleware; service token bypasses domain rules.
 """
 from __future__ import annotations
 
@@ -22,7 +26,6 @@ logger = logging.getLogger("vanya.auth")
 
 _AUTH_ENABLED_RAW = (os.getenv("VANYA_AUTH_ENABLED") or "").strip().lower()
 _SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").strip()
-_ALLOWED_EMAIL_DOMAINS_RAW = (os.getenv("ALLOWED_EMAIL_DOMAINS") or "").strip()
 _SERVICE_TOKEN = (os.getenv("VANYA_SERVICE_TOKEN") or "").strip()
 # Comma-separated audiences; default "authenticated". Empty env = skip aud verification.
 _JWT_AUDIENCES_RAW = (os.getenv("SUPABASE_JWT_AUDIENCES") or "authenticated").strip()
@@ -90,10 +93,68 @@ def auth_enforcement_enabled() -> bool:
 
 
 def allowed_email_domains() -> FrozenSet[str]:
-    if not _ALLOWED_EMAIL_DOMAINS_RAW:
+    """
+    Domains from ALLOWED_EMAIL_DOMAINS (comma-separated).
+    Empty / unset env → empty frozenset → policy disabled.
+    Entries are trimmed and lowercased for case-insensitive matching.
+
+    Read from the environment on each call so tests and process managers can
+    change policy without importing the module again.
+    """
+    raw = (os.getenv("ALLOWED_EMAIL_DOMAINS") or "").strip()
+    if not raw:
         return frozenset()
-    parts = [p.strip().lower() for p in _ALLOWED_EMAIL_DOMAINS_RAW.split(",")]
+    parts = [p.strip().lower() for p in raw.split(",")]
     return frozenset(p for p in parts if p)
+
+
+def resolve_allowed_email_domains(
+    *,
+    claims: Optional[Dict[str, Any]] = None,
+    workspace_id: Optional[str] = None,
+) -> FrozenSet[str]:
+    """
+    Effective domain allowlist for the current request.
+
+    Today: global policy from ALLOWED_EMAIL_DOMAINS only.
+    Future (multi-tenant): may merge per-workspace or per-tenant lists from DB
+    using ``workspace_id`` / ``claims`` without changing call sites that use
+    :func:`check_email_domain_policy`.
+    """
+    _ = claims
+    _ = workspace_id
+    return allowed_email_domains()
+
+
+def extract_user_email_from_claims(claims: Dict[str, Any]) -> Optional[str]:
+    """
+    Best-effort email from a Supabase access token (Google OAuth, etc.).
+    Tries top-level ``email`` then ``user_metadata.email``.
+    """
+    if not isinstance(claims, dict):
+        return None
+    for key in ("email",):
+        val = claims.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    um = claims.get("user_metadata")
+    if isinstance(um, dict):
+        val = um.get("email")
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return None
+
+
+def _domain_part_from_email(email: str) -> Optional[str]:
+    """Return lowercased domain or None if missing / malformed."""
+    e = email.strip()
+    if "@" not in e:
+        return None
+    local, domain = e.rsplit("@", 1)
+    domain = domain.strip().lower()
+    if not domain or not local.strip():
+        return None
+    return domain
 
 
 def expected_jwt_issuer() -> str:
@@ -205,34 +266,65 @@ def verify_supabase_user_jwt(token: str) -> Dict[str, Any]:
     return payload
 
 
-def email_domain_allowed(email: Optional[str]) -> Tuple[bool, str]:
+def check_email_domain_policy(
+    email: Optional[str],
+    domains: FrozenSet[str],
+) -> Tuple[bool, str]:
     """
-    If ALLOWED_EMAIL_DOMAINS is empty → allow all.
-    Otherwise require email's domain to be in the list.
+    Pure domain gate. If ``domains`` is empty, allow (policy off).
+
+    Matching is **case-insensitive** on the domain (allowlist and email domain
+    are normalized to lowercase). Returns (True, "") or (False, detail_for_403).
     """
-    domains = allowed_email_domains()
     if not domains:
         return True, ""
 
-    if not email or "@" not in email:
-        return False, "Email claim missing; domain policy requires an email."
+    if email is None or not str(email).strip():
+        return (
+            False,
+            "Your sign-in token did not include an email address. "
+            "Corporate access requires an email; try signing in again or contact support.",
+        )
 
-    domain = email.rsplit("@", 1)[-1].strip().lower()
+    domain = _domain_part_from_email(str(email))
+    if domain is None:
+        return (
+            False,
+            "Your sign-in token did not include a valid email address. "
+            "Corporate access requires a valid corporate email.",
+        )
+
     if domain in domains:
-        return True, domain
+        return True, ""
 
-    return False, f"Email domain '{domain}' is not allowed."
+    return (
+        False,
+        f"This email domain is not authorized ({domain}). "
+        "Use your corporate Google account or ask an administrator to add your domain.",
+    )
+
+
+def email_domain_allowed(
+    email: Optional[str],
+    *,
+    claims: Optional[Dict[str, Any]] = None,
+    workspace_id: Optional[str] = None,
+) -> Tuple[bool, str]:
+    """
+    If ALLOWED_EMAIL_DOMAINS is empty → allow all.
+    Otherwise require email's domain to be in the effective allowlist.
+
+    ``claims`` / ``workspace_id`` are reserved for future per-tenant policy;
+    callers should pass them when available so resolution stays centralized.
+    """
+    domains = resolve_allowed_email_domains(claims=claims, workspace_id=workspace_id)
+    return check_email_domain_policy(email, domains)
 
 
 def apply_user_to_state(state: Any, claims: Dict[str, Any]) -> None:
-    email = claims.get("email")
-    if isinstance(email, str):
-        email = email.strip()
-    else:
-        email = None
-    domain = ""
-    if email and "@" in email:
-        domain = email.rsplit("@", 1)[-1].strip().lower()
+    email = extract_user_email_from_claims(claims)
+    domain = _domain_part_from_email(email) if email else None
+    domain = domain or ""
 
     state.user_id = str(claims.get("sub") or "")
     state.email = email

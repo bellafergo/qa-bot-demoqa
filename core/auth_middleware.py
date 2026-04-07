@@ -15,10 +15,12 @@ from core.vanya_auth import (
     apply_service_to_state,
     apply_user_to_state,
     auth_enforcement_enabled,
+    check_email_domain_policy,
     docs_allowed_in_this_deployment,
-    email_domain_allowed,
+    extract_user_email_from_claims,
     is_public_path,
     machine_request_authorized,
+    resolve_allowed_email_domains,
     verify_supabase_user_jwt,
 )
 
@@ -72,15 +74,11 @@ class VanyaAuthMiddleware(BaseHTTPMiddleware):
             logger.info("JWT validation failed: %s", type(e).__name__)
             return _json_401("Invalid or expired token.")
 
-        email = claims.get("email")
-        if isinstance(email, str):
-            email = email.strip()
-        else:
-            email = None
-
-        ok_domain, msg = email_domain_allowed(email)
+        email = extract_user_email_from_claims(claims)
+        domains = resolve_allowed_email_domains(claims=claims)
+        ok_domain, msg = check_email_domain_policy(email, domains)
         if not ok_domain:
-            return _json_403(msg or "Email domain is not allowed for this deployment.")
+            return _json_403(msg or "Email domain policy denied access.")
 
         apply_user_to_state(request.state, claims)
         return await call_next(request)
