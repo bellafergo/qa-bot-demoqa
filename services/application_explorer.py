@@ -93,6 +93,20 @@ def explore_page(url: str) -> Dict[str, Any]:
     return analyze_html(html_content, url=page_url, title=page_title)
 
 
+def explore_page_in_session(page, url: str) -> Dict[str, Any]:
+    """
+    Like explore_page() but uses an existing Playwright page (shared session/cookies).
+    """
+    from core.target_url_validation import validate_target_url
+
+    v = validate_target_url(url)
+    page.goto(str(v), timeout=20_000, wait_until="domcontentloaded")
+    html_content = page.content()
+    page_title = page.title() or ""
+    page_url = page.url or str(v)
+    return analyze_html(html_content, url=page_url, title=page_title)
+
+
 # ── HTML Parser ────────────────────────────────────────────────────────────────
 
 class _PageParser(HTMLParser):

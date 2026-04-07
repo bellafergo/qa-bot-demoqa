@@ -29,7 +29,7 @@ from urllib.parse import urljoin, urlparse, urlunparse
 # Import at module level so tests can patch services.multi_page_explorer.explore_page.
 # Playwright is only invoked when explore_page() is actually called — no I/O at import time.
 from core.target_url_validation import TargetURLNotAllowed, validate_target_url
-from services.application_explorer import explore_page  # noqa: E402
+from services.application_explorer import explore_page, explore_page_in_session  # noqa: E402
 
 
 # ── Pure helpers ──────────────────────────────────────────────────────────────
@@ -189,6 +189,65 @@ def explore_app(start_url: str, max_pages: int = 5) -> Dict[str, Any]:
         pages.append(inventory)
 
         # Enqueue new internal links (skip if already queued or visited)
+        queued = set(queue)
+        for link_url in extract_links(inventory, start):
+            if link_url not in visited and link_url not in queued:
+                queue.append(link_url)
+                queued.add(link_url)
+
+    return {
+        "start_url":     start_url,
+        "visited_count": len(visited),
+        "pages":         pages,
+        "errors":        errors,
+    }
+
+
+def explore_app_in_session(page, start_url: str, max_pages: int = 5) -> Dict[str, Any]:
+    """
+    Same BFS as explore_app but reuses *page* (cookies/session preserved).
+    Caller owns browser lifecycle.
+    """
+    try:
+        vstart = validate_target_url(start_url)
+    except TargetURLNotAllowed as exc:
+        return {
+            "start_url":     start_url,
+            "visited_count": 0,
+            "pages":         [],
+            "errors":        [{"url": start_url, "error": str(exc)}],
+        }
+
+    start = normalize_url(vstart)
+    if not start:
+        return {
+            "start_url":     start_url,
+            "visited_count": 0,
+            "pages":         [],
+            "errors":        [{"url": start_url, "error": "Could not parse start URL"}],
+        }
+
+    max_pages = max(1, int(max_pages))
+
+    visited: set = set()
+    queue: deque = deque([start])
+    pages: List = []
+    errors: List = []
+
+    while queue and len(visited) < max_pages:
+        url = queue.popleft()
+        if url in visited:
+            continue
+        visited.add(url)
+
+        try:
+            inventory = explore_page_in_session(page, url)
+        except Exception as exc:
+            errors.append({"url": url, "error": str(exc)})
+            continue
+
+        pages.append(inventory)
+
         queued = set(queue)
         for link_url in extract_links(inventory, start):
             if link_url not in visited and link_url not in queued:

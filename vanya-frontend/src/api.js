@@ -331,8 +331,13 @@ export const suggestDraftAssertions      = (id) => apiPost(`/drafts/${id}/sugges
 export const suggestDraftAssertionsFromDom = (id) => apiPost(`/drafts/${id}/suggest-assertions-from-dom`, {});
 
 // ========= App Map =========
-export const exploreApp = (url, maxPages = 5) =>
-  apiPost("/app-explorer/explore-app", { url, max_pages: maxPages });
+export const exploreApp = (url, maxPages = 5, projectId = null) => {
+  const body = { url, max_pages: maxPages };
+  if (projectId != null && String(projectId).trim()) {
+    body.project_id = String(projectId).trim();
+  }
+  return apiPost("/app-explorer/explore-app", body);
+};
 
 // ========= PR Analysis =========
 export const analyzePR           = (body) => apiPost("/pr-analysis/analyze",             body);

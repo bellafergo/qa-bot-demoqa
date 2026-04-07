@@ -10,6 +10,7 @@ POST /app-explorer/explore-app   — multi-page BFS exploration (same domain)
 from __future__ import annotations
 
 import logging
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, HttpUrl
@@ -26,6 +27,8 @@ class ExploreRequest(BaseModel):
 class ExploreAppRequest(BaseModel):
     url: str
     max_pages: int = 5
+    # When set, uses project login_profile + variables before multi-page crawl (if configured).
+    project_id: Optional[str] = None
 
 
 # ── Health ─────────────────────────────────────────────────────────────────────
@@ -57,10 +60,24 @@ def explore_app_endpoint(req: ExploreAppRequest):
     """
     BFS-explore up to *max_pages* pages of the same domain starting from *url*.
     Returns aggregated inventory for all visited pages.
+
+    If *project_id* is provided and the project defines a complete login_profile,
+    runs automatic login in the same browser session before crawling (private apps).
     """
+    from services.authenticated_exploration import explore_app_with_optional_project_auth
     from services.multi_page_explorer import explore_app
+
     try:
-        result = explore_app(req.url, max_pages=req.max_pages)
+        pid = (req.project_id or "").strip() or None
+        if pid:
+            result = explore_app_with_optional_project_auth(
+                req.url,
+                req.max_pages,
+                project_id=pid,
+            )
+        else:
+            result = explore_app(req.url, max_pages=req.max_pages)
+            result.setdefault("used_project_login", False)
     except Exception as exc:
         logger.exception("app-explorer/explore-app failed for url=%s", req.url)
         raise HTTPException(status_code=500, detail=f"Multi-page exploration error: {exc}")

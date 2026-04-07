@@ -6,6 +6,7 @@ import { generateTests, approveTests, generateDrafts, generateDraftsFromPages, a
   batchSaveDrafts, suggestDraftAssertions, suggestDraftAssertionsFromDom,
 } from "../api";
 import { useLang } from "../i18n/LangContext";
+import { useProject } from "../context/ProjectContext.jsx";
 
 // ── Shared badge helpers ──────────────────────────────────────────────────────
 
@@ -1291,6 +1292,7 @@ function AppMapDraftCard({ draft }) {
 function AppMapPanel({ onGoToExplorer }) {
   const { t } = useLang();
   const navigate = useNavigate();
+  const { currentProject } = useProject();
   // ── Exploration state ──────────────────────────────────────────────────────
   const [url, setUrl]             = useState("");
   const [maxPages, setMax]        = useState(5);
@@ -1335,7 +1337,15 @@ function AppMapPanel({ onGoToExplorer }) {
     setDrafts([]);
     setGenErr("");
     try {
-      const res = await exploreApp(trimmed, maxPages);
+      const res = await exploreApp(trimmed, maxPages, currentProject?.id);
+      if (res?.auth_failed) {
+        setExpErr(
+          typeof res.auth_error === "string" && res.auth_error.trim()
+            ? res.auth_error.trim()
+            : t("gen.url.explore_auth_failed"),
+        );
+        return;
+      }
       setResult(res);
     } catch (e) {
       setExpErr(e?.message || t("drafts.appmap.explore_error"));

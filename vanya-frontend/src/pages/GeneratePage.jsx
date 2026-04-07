@@ -14,6 +14,7 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/LangContext";
+import { useProject } from "../context/ProjectContext.jsx";
 import { PageHeader, Card, EmptyState } from "../ui";
 import {
   exploreApp,
@@ -134,6 +135,17 @@ function draftTypeLabel(reason) {
   return REASON_TO_TYPE[reason] || "smoke";
 }
 
+/** Masked API shape: login_profile selectors without secrets. */
+function projectHasExplorerLoginHint(project) {
+  const lp = project?.settings?.login_profile;
+  if (!lp || typeof lp !== "object") return false;
+  return Boolean(
+    String(lp.email_selector || "").trim()
+      && String(lp.password_selector || "").trim()
+      && String(lp.submit_selector || "").trim(),
+  );
+}
+
 function PriorityBadge({ p }) {
   if (p === "high" || p === "critical") return <span className="badge badge-red">{p}</span>;
   if (p === "medium")                   return <span className="badge badge-orange">{p}</span>;
@@ -149,6 +161,7 @@ const EXPLORE_TIMEOUT_MS = 30_000;
 function FromUrlPanel() {
   const { t } = useLang();
   const navigate = useNavigate();
+  const { currentProject } = useProject();
 
   const [url, setUrl] = useState("");
   const [maxPagesStr, setMaxPagesStr] = useState("5");
@@ -213,7 +226,7 @@ function FromUrlPanel() {
     setLoadingPipeline(true);
 
     try {
-      const explorePromise = exploreApp(trimmed, maxPages);
+      const explorePromise = exploreApp(trimmed, maxPages, currentProject?.id);
       const timeoutPromise = new Promise((_, rej) => {
         setTimeout(() => rej(new Error("EXPLORE_TIMEOUT")), EXPLORE_TIMEOUT_MS);
       });
@@ -226,6 +239,15 @@ function FromUrlPanel() {
         } else {
           setError(e?.message || t("gen.url.explore_error"));
         }
+        return;
+      }
+
+      if (res?.auth_failed) {
+        setError(
+          typeof res.auth_error === "string" && res.auth_error.trim()
+            ? res.auth_error.trim()
+            : t("gen.url.explore_auth_failed"),
+        );
         return;
       }
 
@@ -315,6 +337,11 @@ function FromUrlPanel() {
 
       <div className="card" style={{ marginBottom: 20 }}>
         <div className="section-title" style={{ marginBottom: 12 }}>{t("gen.url.section_title")}</div>
+        {projectHasExplorerLoginHint(currentProject) ? (
+          <div className="alert alert-info" style={{ marginBottom: 12, fontSize: 13 }}>
+            {t("gen.url.login_hint")}
+          </div>
+        ) : null}
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
           <input
             className="input"
