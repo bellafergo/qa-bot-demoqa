@@ -12,8 +12,9 @@
  * in App.jsx for backward compatibility.
  */
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/LangContext";
+import { PageHeader, Card, EmptyState } from "../ui";
 import {
   exploreApp,
   generateDraftsFromPages,
@@ -54,35 +55,43 @@ const SOURCE_CARDS = [
 
 function SourceCard({ card, active, onClick, t }) {
   return (
-    <div
+    <Card
+      role="button"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={e => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick?.();
+        }
+      }}
+      padding="sm"
+      interactive
+      className="gen-source-card"
       style={{
         flex: "1 1 180px",
         minWidth: 150,
-        padding: "14px 16px",
-        borderRadius: 10,
-        border: active ? "1px solid var(--accent-border)" : "1px solid var(--border)",
-        background: active ? "var(--accent-light)" : "var(--surface)",
-        boxShadow: active ? "var(--shadow-1)" : "none",
-        cursor: "pointer",
-        transition: "border-color 0.15s, background 0.15s",
+        borderColor: active ? "var(--accent-border)" : undefined,
+        background: active ? "var(--accent-light)" : undefined,
+        boxShadow: active ? "var(--shadow-2), var(--shadow-glow)" : undefined,
       }}
     >
       <div style={{
         width: 34, height: 34, borderRadius: 8,
-        background: active ? "var(--accent-light)" : "var(--bg)",
+        background: active ? "var(--zu-brand-muted)" : "rgba(255,255,255,0.04)",
         display: "flex", alignItems: "center", justifyContent: "center",
         fontSize: 16, marginBottom: 10,
+        border: "1px solid var(--border-light)",
       }}>
         {card.icon}
       </div>
-      <div style={{ fontSize: 13, fontWeight: 500, color: active ? "var(--accent)" : "var(--text-1)", marginBottom: 4, letterSpacing: "-0.01em" }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: active ? "var(--accent)" : "var(--text-1)", marginBottom: 4, letterSpacing: "-0.01em" }}>
         {t(card.titleKey)}
       </div>
-      <div style={{ fontSize: 11, fontWeight: 400, color: "var(--text-4)", lineHeight: 1.5 }}>
+      <div style={{ fontSize: 11, fontWeight: 400, color: "var(--text-3)", lineHeight: 1.5 }}>
         {t(card.descKey)}
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -505,13 +514,11 @@ function FromUrlPanel() {
       )}
 
       {showEmpty && (
-        <div className="card" style={{ padding: "48px 32px", textAlign: "center" }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>⊞</div>
-          <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)", marginBottom: 8 }}>{t("gen.url.empty_title")}</div>
-          <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.8, maxWidth: 420, margin: "0 auto" }}>
-            {t("gen.url.empty_desc")}
-          </div>
-        </div>
+        <EmptyState
+          icon="⊞"
+          title={t("gen.url.empty_title")}
+          description={t("gen.url.empty_desc")}
+        />
       )}
     </div>
   );
@@ -527,15 +534,21 @@ export default function GeneratePage() {
     <div>
       {/* ── Header + source cards ─────────────────────────────────────────── */}
       <div style={{ padding: "24px 24px 0", background: "var(--bg)" }}>
-        <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0, color: "var(--text-1)" }}>
-          {t("gen.title")}
-        </h1>
-        <p style={{ fontSize: 13, color: "var(--text-3)", margin: "4px 0 16px" }}>
-          {t("gen.subtitle")}
-        </p>
+        <PageHeader
+          className="gen-page-header"
+          title={t("gen.title")}
+          subtitle={t("gen.subtitle")}
+          actions={
+            <div className="zu-action-row">
+              <Link to="/projects?new=1" className="btn btn-secondary btn-lg">
+                {t("projects.create_new")}
+              </Link>
+            </div>
+          }
+        />
 
         {/* Source cards */}
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
           {SOURCE_CARDS.map(card => (
             <SourceCard
               key={card.tab}

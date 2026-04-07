@@ -598,7 +598,7 @@ export default function DashboardPage() {
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <div className="dash-hero">
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 24, flexWrap: "wrap" }}>
-          <div>
+          <div style={{ flex: "1 1 280px", minWidth: 0 }}>
             <h1 style={{ margin: 0, fontSize: 26, fontWeight: 600, color: "var(--text-1)", letterSpacing: "-0.02em", lineHeight: 1.2 }}>
               {t("dash.title")}
             </h1>
@@ -621,9 +621,19 @@ export default function DashboardPage() {
               )}
             </div>
           </div>
-          <button className="btn btn-secondary btn-sm" onClick={load} disabled={loading} style={{ flexShrink: 0 }}>
-            {loading ? t("dash.refreshing") : t("dash.refresh")}
-          </button>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "stretch", gap: 10, flexShrink: 0 }}>
+            <div className="zu-action-row" style={{ justifyContent: "flex-end" }}>
+              <Link to="/generate" className="btn btn-primary btn-lg">
+                {t("nav.quick_generate")}
+              </Link>
+              <Link to="/projects?new=1" className="btn btn-secondary btn-lg">
+                {t("projects.create_new")}
+              </Link>
+            </div>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={load} disabled={loading} style={{ alignSelf: "flex-end" }}>
+              {loading ? t("dash.refreshing") : t("dash.refresh")}
+            </button>
+          </div>
         </div>
       </div>
 

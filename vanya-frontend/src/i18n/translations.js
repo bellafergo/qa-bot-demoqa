@@ -40,6 +40,7 @@ export const translations = {
     "auth.google":           "Continue with Google",
     "auth.redirecting":      "Redirecting…",
     "auth.hint":             "Your organization controls who can access Vanya.",
+    "auth.brand_stack":      "Vanya · Zuperio QA Platform",
     "auth.logout":           "Sign out",
     "auth.config_missing":   "Supabase URL and anon key are not configured for this build.",
 
@@ -1408,6 +1409,7 @@ export const translations = {
     "auth.google":           "Continuar con Google",
     "auth.redirecting":      "Redirigiendo…",
     "auth.hint":             "Tu organización controla quién puede acceder a Vanya.",
+    "auth.brand_stack":      "Vanya · Plataforma QA Zuperio",
     "auth.logout":           "Cerrar sesión",
     "auth.config_missing":   "No hay URL ni clave anónima de Supabase en este build.",
 

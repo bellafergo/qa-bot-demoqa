@@ -6,6 +6,7 @@ import { useProject } from "../context/ProjectContext.jsx";
 import ProjectModal from "../components/ProjectModal.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import { apiErrorMessage } from "../api.js";
+import { PageHeader, Button, EmptyState } from "../ui";
 
 export default function ProjectsPage() {
   const { t } = useLang();
@@ -78,10 +79,21 @@ export default function ProjectsPage() {
 
   return (
     <div className="page-wrap" style={{ width: "100%", maxWidth: "none", paddingBottom: 48 }}>
-      <div className="page-header">
-        <h1 className="page-title">{t("projects.page_title")}</h1>
-        <p className="page-subtitle">{t("projects.page_subtitle")}</p>
-      </div>
+      <PageHeader
+        className="page-header"
+        title={t("projects.page_title")}
+        subtitle={t("projects.page_subtitle")}
+        actions={
+          <div className="zu-action-row">
+            <Button variant="secondary" size="lg" onClick={() => navigate("/generate")}>
+              {t("nav.quick_generate")}
+            </Button>
+            <Button variant="primary" size="lg" onClick={openCreate}>
+              {t("projects.create_new")}
+            </Button>
+          </div>
+        }
+      />
 
       {error && !loading && (
         <div className="card" style={{ marginBottom: 16, borderColor: "var(--orange-border)" }}>
@@ -110,12 +122,6 @@ export default function ProjectsPage() {
         </div>
       )}
 
-      <div style={{ marginBottom: 20, display: "flex", justifyContent: "flex-end" }}>
-        <button type="button" className="btn btn-primary" onClick={openCreate}>
-          {t("projects.create_new")}
-        </button>
-      </div>
-
       {loading && !projects.length && (
         <div
           className="card"
@@ -132,60 +138,17 @@ export default function ProjectsPage() {
       )}
 
       {!loading && !projects.length && !error && (
-        <div
-          className="card"
-          style={{
-            width: "100%",
-            boxSizing: "border-box",
-            padding: "48px 40px",
-            minHeight: "min(52vh, 400px)",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            textAlign: "center",
-            gap: 20,
-            background: "var(--surface)",
-          }}
-        >
-          <div
-            aria-hidden
-            style={{
-              width: 56,
-              height: 56,
-              borderRadius: 14,
-              flexShrink: 0,
-              border: "1px dashed var(--border)",
-              background: "var(--surface-2)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 22,
-              color: "var(--text-3)",
-            }}
-          >
-            ◇
-          </div>
-          <div style={{ fontSize: 16, fontWeight: 600, color: "var(--text-1)", lineHeight: 1.35 }}>
-            {t("projects.empty_title")}
-          </div>
-          <p
-            style={{
-              fontSize: 14,
-              color: "var(--text-2)",
-              margin: 0,
-              lineHeight: 1.6,
-              maxWidth: "42rem",
-              padding: "0 12px",
-            }}
-          >
-            {t("projects.empty_hint")}
-          </p>
-          <div style={{ paddingTop: 4 }}>
-            <button type="button" className="btn btn-primary" onClick={openCreate}>
-              {t("projects.create_first")}
-            </button>
-          </div>
+        <div className="card" style={{ width: "100%", boxSizing: "border-box", minHeight: "min(52vh, 400px)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <EmptyState
+            icon="◇"
+            title={t("projects.empty_title")}
+            description={t("projects.empty_hint")}
+            action={
+              <Button variant="primary" size="lg" onClick={openCreate}>
+                {t("projects.create_first")}
+              </Button>
+            }
+          />
         </div>
       )}
 

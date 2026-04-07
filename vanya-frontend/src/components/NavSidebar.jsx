@@ -4,6 +4,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/LangContext";
 import { useAuth } from "../auth/AuthContext.jsx";
 import ProjectSwitcher from "./ProjectSwitcher";
+import { SidebarBrand } from "../ui";
 
 const NAV_SECTIONS_DEF = [
   {
@@ -69,18 +70,14 @@ export default function NavSidebar() {
       display: "flex", flexDirection: "column",
       flexShrink: 0, overflow: "hidden",
     }}>
-      {/* Brand */}
+      {/* Brand — logos: /public/logo/zuperio-*.svg */}
       <div style={{
         height: "var(--header-h)", minHeight: "var(--header-h)",
         display: "flex", alignItems: "center",
-        padding: "0 20px", borderBottom: "1px solid var(--nav-border)",
+        padding: "0 16px 0 18px", borderBottom: "1px solid var(--nav-border)",
         gap: 12, flexShrink: 0,
       }}>
-        <div className="nav-sidebar-brand-mark">V</div>
-        <div>
-          <div style={{ fontSize: 15, fontWeight: 600, color: "var(--nav-text-active)", letterSpacing: "-0.02em", lineHeight: 1.2 }}>Vanya</div>
-          <div style={{ fontSize: 10, color: "rgba(148, 163, 184, 0.65)", lineHeight: 1.2, marginTop: 1 }}>QA Intelligence</div>
-        </div>
+        <SidebarBrand productName="Vanya" productTagline="QA Intelligence" />
       </div>
 
       {/* Current project scope */}
@@ -92,7 +89,7 @@ export default function NavSidebar() {
       <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--nav-border)", flexShrink: 0 }}>
         <button
           type="button"
-          className="nav-sidebar-cta"
+          className="nav-sidebar-cta nav-sidebar-cta--primary"
           onClick={() => navigate("/generate")}
         >
           <span style={{ fontSize: 14, lineHeight: 1 }}>⊕</span>

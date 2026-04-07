@@ -1,91 +1,114 @@
 /* ═══════════════════════════════════════════════════════
-   Vanya — Design tokens · Enterprise SaaS (clean, sober)
+   Zuperio / Vanya — tokens · enterprise dark shell
+   Use var(--zu-*) in new code; legacy vars map below for compat.
    ═══════════════════════════════════════════════════════ */
 
 :root {
-  /* ── Navigation rail (navy) ─────────────────────────── */
-  --nav-bg:           #0b1220;
-  --nav-border:       rgba(255, 255, 255, 0.08);
-  --nav-text:         rgba(203, 213, 225, 0.72);
+  /* ── Zuperio semantic ───────────────────────────────── */
+  --zu-canvas:        #0b0d12;
+  --zu-panel:         #12151c;
+  --zu-panel-raised:  #181c26;
+  --zu-border:        rgba(255, 255, 255, 0.08);
+  --zu-border-subtle: rgba(255, 255, 255, 0.05);
+  --zu-text:          #eceff4;
+  --zu-text-muted:    #9aa3b2;
+  --zu-text-faint:    #6b7380;
+  --zu-brand:         #7b8ef0;
+  --zu-brand-hover:   #9aa8ff;
+  --zu-brand-muted:   rgba(123, 142, 240, 0.14);
+  --zu-brand-ring:    rgba(123, 142, 240, 0.38);
+  --zu-radius-xl:     12px;
+  --zu-radius-2xl:    16px;
+  --zu-space-page:    32px;
+  --zu-font-sans:     -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+
+  /* ── Navigation rail ───────────────────────────────── */
+  --nav-bg:           #07090d;
+  --nav-border:       rgba(255, 255, 255, 0.07);
+  --nav-text:         rgba(203, 213, 225, 0.65);
   --nav-text-hover:   rgba(241, 245, 249, 0.92);
-  --nav-text-active:  #f8fafc;
+  --nav-text-active:  #f1f5f9;
   --nav-item-hover:   rgba(255, 255, 255, 0.06);
-  --nav-item-active:  rgba(255, 255, 255, 0.06);
+  --nav-item-active:  rgba(255, 255, 255, 0.07);
   --nav-w:            220px;
 
-  /* ── Surfaces ───────────────────────────────────────── */
-  --bg:               #f7f9fc;
-  --surface:          #ffffff;
-  --surface-2:        #f1f5f9;
-  --surface-3:        #e8edf4;
+  /* ── Surfaces ─────────────────────────────────────── */
+  --bg:               var(--zu-canvas);
+  --surface:          var(--zu-panel);
+  --surface-2:        var(--zu-panel-raised);
+  --surface-3:        #222836;
 
-  /* ── Borders ────────────────────────────────────────── */
-  --border:           #e5e7eb;
-  --border-light:     #eef1f5;
-  --border-focus:     #3b6bc9;
+  /* ── Borders ───────────────────────────────────────── */
+  --border:           var(--zu-border);
+  --border-light:     var(--zu-border-subtle);
+  --border-focus:     var(--zu-brand);
 
   /* ── Typography ─────────────────────────────────────── */
-  --text-1:           #111827;
-  --text-2:           #4b5563;
-  --text-3:           #6b7280;
-  --text-4:           #9ca3af;
+  --text-1:           var(--zu-text);
+  --text-2:           var(--zu-text-muted);
+  --text-3:           #8b939e;
+  --text-4:           var(--zu-text-faint);
 
-  /* ── Brand / accent (corporate blue, not bright) ────── */
-  --accent:           #2563eb;
-  --accent-hover:     #1d4ed8;
-  --accent-light:     rgba(37, 99, 235, 0.08);
-  --accent-border:    rgba(37, 99, 235, 0.22);
+  /* ── Brand ─────────────────────────────────────────── */
+  --accent:           var(--zu-brand);
+  --accent-hover:     var(--zu-brand-hover);
+  --accent-light:     var(--zu-brand-muted);
+  --accent-border:    var(--zu-brand-ring);
 
-  /* ── Status (soft, not neon) ───────────────────────── */
-  --green:            #059669;
-  --green-bg:         rgba(5, 150, 105, 0.08);
-  --green-border:     rgba(5, 150, 105, 0.22);
-  --green-text:       #047857;
+  /* ── Semantic (soft on dark) ───────────────────────── */
+  --green:            #3db88a;
+  --green-bg:         rgba(61, 184, 138, 0.12);
+  --green-border:     rgba(61, 184, 138, 0.28);
+  --green-text:       #7dccb0;
 
-  --red:              #dc2626;
-  --red-bg:           rgba(220, 38, 38, 0.08);
-  --red-border:       rgba(220, 38, 38, 0.2);
-  --red-text:         #b91c1c;
+  --red:              #e85d5d;
+  --red-bg:           rgba(232, 93, 93, 0.12);
+  --red-border:       rgba(232, 93, 93, 0.28);
+  --red-text:         #f0a0a0;
 
-  --orange:           #d97706;
-  --orange-bg:        rgba(217, 119, 6, 0.1);
-  --orange-border:    rgba(217, 119, 6, 0.22);
-  --orange-text:      #b45309;
+  --orange:           #d4a15a;
+  --orange-bg:        rgba(212, 161, 90, 0.12);
+  --orange-border:    rgba(212, 161, 90, 0.28);
+  --orange-text:      #e8c48a;
 
   --blue:             var(--accent);
-  --blue-bg:          rgba(37, 99, 235, 0.08);
-  --blue-border:      rgba(37, 99, 235, 0.2);
+  --blue-bg:          var(--zu-brand-muted);
+  --blue-border:      var(--zu-brand-ring);
   --blue-text:        var(--accent-hover);
 
-  /* ── Shadows: two elevation levels only ──────────────── */
-  --shadow-1:         0 1px 2px rgba(15, 23, 42, 0.05);
-  --shadow-2:         0 2px 8px rgba(15, 23, 42, 0.07);
+  --info-bg:          rgba(96, 165, 250, 0.12);
+  --info-border:      rgba(96, 165, 250, 0.28);
+  --info-text:        #93c5fd;
 
-  /* ── Radius ─────────────────────────────────────────── */
+  /* ── Shadows / radius ───────────────────────────────── */
+  --shadow-1:         0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-2:         0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-glow:      0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+
   --r-xs:             6px;
   --r-sm:             10px;
-  --r:                12px;
+  --r:                var(--zu-radius-xl);
+  --r-xl:             var(--zu-radius-2xl);
 
-  /* ── Charts (dashboard) ─────────────────────────────── */
-  --chart-trend-fill: rgba(37, 99, 235, 0.1);
-  --chart-line:       #2563eb;
-  --chart-donut-ui:   #2563eb;
-  --chart-donut-api:  #059669;
+  /* ── Charts ───────────────────────────────────────── */
+  --chart-trend-fill: rgba(123, 142, 240, 0.12);
+  --chart-line:       var(--zu-brand);
+  --chart-donut-ui:   var(--zu-brand);
+  --chart-donut-api:  var(--green);
 
-  /* ── Layout ─────────────────────────────────────────── */
   --header-h:         52px;
   --thread-w:         280px;
 
-  /* ── Chat ───────────────────────────────────────────── */
-  --chat-bg:          #ffffff;
-  --bubble-bot-bg:    #f7f9fc;
-  --bubble-bot-border: #e5e7eb;
-  --bubble-user-bg:   rgba(37, 99, 235, 0.06);
-  --bubble-user-border: rgba(37, 99, 235, 0.15);
-  --bubble-text:      #111827;
-  --bubble-meta:      #6b7280;
-  --chat-input-bg:    #f7f9fc;
-  --chat-input-border: #e5e7eb;
+  /* ── Chat ──────────────────────────────────────────── */
+  --chat-bg:          var(--surface);
+  --bubble-bot-bg:    var(--surface-2);
+  --bubble-bot-border: var(--border);
+  --bubble-user-bg:   var(--zu-brand-muted);
+  --bubble-user-border: var(--zu-brand-ring);
+  --bubble-text:      var(--text-1);
+  --bubble-meta:      var(--text-3);
+  --chat-input-bg:    var(--surface-2);
+  --chat-input-border: var(--border);
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -96,8 +119,7 @@
 html, body, #root { height: 100%; margin: 0; }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI",
-               "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--zu-font-sans);
   background: var(--bg);
   color: var(--text-1);
   -webkit-font-smoothing: antialiased;
@@ -228,6 +250,11 @@ strong { font-weight: 500; }
   box-shadow: none;
 }
 
+.layout-header.zu-shell-header {
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: saturate(140%) blur(10px);
+}
+
 .layout-header-title {
   font-size: 16px;
   font-weight: 600;
@@ -271,8 +298,8 @@ strong { font-weight: 500; }
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--r);
-  box-shadow: var(--shadow-1);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-1), var(--shadow-glow);
   padding: 26px 28px;
 }
 
@@ -305,7 +332,7 @@ strong { font-weight: 500; }
 .badge-blue   { background: var(--blue-bg);    color: var(--blue-text);   border: 1px solid var(--blue-border);   }
 .badge-accent { background: var(--accent-light); color: var(--accent);    border: 1px solid var(--accent-border); }
 .badge-gray   {
-  background: #f3f4f6;
+  background: rgba(255, 255, 255, 0.06);
   color: var(--text-2);
   border: 1px solid var(--border);
 }
@@ -356,7 +383,7 @@ strong { font-weight: 500; }
 .btn-secondary:hover:not(:disabled) {
   background: var(--surface-2);
   color: var(--text-1);
-  border-color: #d1d5db;
+  border-color: rgba(255, 255, 255, 0.14);
   box-shadow: var(--shadow-2);
 }
 .btn-secondary:active:not(:disabled) {
@@ -373,8 +400,21 @@ strong { font-weight: 500; }
   color: var(--text-2);
 }
 
+.btn-destructive {
+  background: rgba(232, 93, 93, 0.18);
+  color: var(--red-text);
+  border: 1px solid var(--red-border);
+  box-shadow: none;
+}
+.btn-destructive:hover:not(:disabled) {
+  background: rgba(232, 93, 93, 0.28);
+  color: #fff;
+  border-color: rgba(232, 93, 93, 0.45);
+}
+
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .btn-sm { padding: 5px 12px; font-size: 12px; border-radius: 8px; }
+.btn-lg { padding: 11px 22px; font-size: 14px; border-radius: var(--r-sm); }
 
 /* ═══════════════════════════════════════════════════════
    Form controls
@@ -421,8 +461,8 @@ textarea.input { resize: vertical; }
 .kpi-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--r);
-  box-shadow: var(--shadow-1);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-1), var(--shadow-glow);
   padding: 22px 26px;
   display: flex;
   flex-direction: column;
@@ -462,7 +502,7 @@ textarea.input { resize: vertical; }
   letter-spacing: 0.06em;
   color: var(--text-4);
   border-bottom: 1px solid var(--border);
-  background: var(--surface-2);
+  background: rgba(255, 255, 255, 0.03);
   white-space: nowrap;
 }
 .data-table td {
@@ -474,7 +514,7 @@ textarea.input { resize: vertical; }
 }
 .data-table tr:last-child td { border-bottom: none; }
 .data-table tbody tr:hover td {
-  background: #f9fafb;
+  background: rgba(255, 255, 255, 0.04);
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -579,8 +619,8 @@ code {
 .flow-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--r);
-  box-shadow: var(--shadow-1);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-1), var(--shadow-glow);
   padding: 16px 20px;
   display: flex;
   align-items: center;
@@ -590,7 +630,7 @@ code {
 }
 .flow-card:hover {
   box-shadow: var(--shadow-2);
-  border-color: #d1d5db;
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
 .rec-card {
@@ -611,8 +651,8 @@ code {
   padding: 20px 18px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--r);
-  box-shadow: var(--shadow-1);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-1), var(--shadow-glow);
   cursor: pointer;
   text-decoration: none;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
@@ -621,11 +661,198 @@ code {
 }
 .quick-action:hover {
   box-shadow: var(--shadow-2);
-  border-color: #d1d5db;
+  border-color: rgba(255, 255, 255, 0.12);
 }
 .quick-action-icon  { font-size: 20px; line-height: 1; }
 .quick-action-label { font-size: 13px; font-weight: 500; color: var(--text-1); text-align: center; letter-spacing: -0.01em; }
 .quick-action-sub   { font-size: 11px; font-weight: 400; color: var(--text-4); text-align: center; }
+
+/* ═══════════════════════════════════════════════════════
+   Zuperio DS primitives (zu-*)
+   ═══════════════════════════════════════════════════════ */
+
+.zu-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-1), var(--shadow-glow);
+}
+.zu-card--pad-sm { padding: 14px 18px; }
+.zu-card--pad-md { padding: 22px 24px; }
+.zu-card--pad-lg { padding: 28px 32px; }
+.zu-card--interactive {
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  cursor: pointer;
+}
+.zu-card--interactive:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: var(--shadow-2), var(--shadow-glow);
+}
+
+.zu-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 28px;
+}
+.zu-page-header__main { flex: 1; min-width: 0; }
+.zu-page-header__eyebrow {
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-4);
+  margin-bottom: 6px;
+}
+.zu-page-header__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-1);
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+.zu-page-header__subtitle {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--text-3);
+  line-height: 1.55;
+  max-width: 52ch;
+}
+.zu-page-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.zu-section-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.zu-section-header__title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-4);
+}
+.zu-section-header__desc {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-3);
+  max-width: 48ch;
+}
+.zu-section-header__actions { display: flex; align-items: center; gap: 8px; }
+
+.zu-empty-state {
+  text-align: center;
+  padding: 40px 28px;
+  border-radius: var(--r-xl);
+  border: 1px dashed var(--border);
+  background: rgba(255, 255, 255, 0.02);
+}
+.zu-empty-state__icon { font-size: 28px; line-height: 1; margin-bottom: 14px; opacity: 0.85; }
+.zu-empty-state__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-1);
+  margin-bottom: 8px;
+  letter-spacing: -0.01em;
+}
+.zu-empty-state__desc {
+  font-size: 13px;
+  color: var(--text-3);
+  line-height: 1.6;
+  max-width: 400px;
+  margin: 0 auto;
+}
+.zu-empty-state__action { margin-top: 20px; }
+
+.zu-sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.zu-sidebar-brand__mark,
+.zu-sidebar-brand__fallback { flex-shrink: 0; }
+.zu-sidebar-brand__text { min-width: 0; }
+.zu-sidebar-brand__name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--nav-text-active);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+.zu-sidebar-brand__tagline {
+  font-size: 10px;
+  color: rgba(148, 163, 184, 0.65);
+  line-height: 1.2;
+  margin-top: 2px;
+}
+.zu-sidebar-brand--horizontal .zu-sidebar-brand__logo-wide {
+  height: 28px;
+  width: auto;
+  display: block;
+}
+.zu-sidebar-brand__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.zu-logo-mark,
+.zu-logo-horizontal { display: block; }
+.zu-logo-horizontal { height: 32px; width: auto; }
+.zu-logo-fallback {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--r-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-light);
+  border: 1px solid var(--accent-border);
+}
+
+.zu-action-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.zu-action-row .btn { min-height: 38px; }
+.zu-action-row .btn-primary {
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset;
+}
+
+.nav-sidebar-cta--primary {
+  background: linear-gradient(180deg, rgba(123, 142, 240, 0.22) 0%, rgba(123, 142, 240, 0.1) 100%);
+  border-color: var(--zu-brand-ring);
+  color: var(--nav-text-active);
+  font-weight: 600;
+}
+.nav-sidebar-cta--primary:hover {
+  background: linear-gradient(180deg, rgba(123, 142, 240, 0.3) 0%, rgba(123, 142, 240, 0.14) 100%);
+  border-color: rgba(123, 142, 240, 0.5);
+}
 
 /* ═══════════════════════════════════════════════════════
    Scrollbars
@@ -633,8 +860,8 @@ code {
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
 
 /* ═══════════════════════════════════════════════════════
    Project switcher (nav rail)

@@ -1,0 +1,3 @@
+/* Tailwind v4 — utilities; design tokens live in App.css :root */
+@import "tailwindcss";
+@source "../src/**/*.{js,jsx}";

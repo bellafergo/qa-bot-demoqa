@@ -8,6 +8,7 @@ import { ProjectProvider } from "../context/ProjectContext.jsx";
 // null → page manages its own hero header (e.g. Dashboard)
 const ROUTE_META = {
   "/dashboard":    null,
+  "/generate":     null,
   "/projects":     { titleKey: "layout.projects.title", subtitleKey: "layout.projects.subtitle" },
   "/chat":         { titleKey: "layout.chat.title",          subtitleKey: "layout.chat.subtitle"          },
   "/planner":      { titleKey: "layout.planner.title",       subtitleKey: "layout.planner.subtitle"       },
@@ -42,7 +43,7 @@ export default function Layout() {
 
         {/* Top header — hidden on pages that manage their own title (e.g. Dashboard) */}
         {showHeader && (
-          <header className="layout-header">
+          <header className="layout-header zu-shell-header">
             <div style={{ flex: 1 }}>
               <div className="layout-header-title">
                 {t(meta.titleKey)}
