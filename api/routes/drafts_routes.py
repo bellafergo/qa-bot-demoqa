@@ -82,6 +82,8 @@ class GenerateFromPagesRequest(BaseModel):
 
 class ApproveRequest(BaseModel):
     drafts: List[Dict[str, Any]]
+    project_id: Optional[str] = None
+    activate: Optional[bool] = None
 
 
 @router.post("/generate")
@@ -148,9 +150,31 @@ def generate_drafts_from_pages(req: GenerateFromPagesRequest):
 def approve_drafts_endpoint(req: ApproveRequest):
     from services.draft_approval_service import approve_drafts, persist_approved_drafts
 
-    catalog_tests = approve_drafts(req.drafts)
-    result        = persist_approved_drafts(catalog_tests)
-    return result
+    approval = approve_drafts(req.drafts, project_id=req.project_id)
+    approved = approval.get("approved") or []
+    pre_skipped = approval.get("skipped") or []
+
+    persisted = persist_approved_drafts(approved)
+    saved     = persisted.get("saved") or []
+    post_skipped = persisted.get("skipped") or []
+
+    # Provide a stable, UI-friendly summary without breaking legacy keys.
+    skipped_all = [*pre_skipped, *post_skipped]
+    counts: Dict[str, int] = {}
+    for s in skipped_all:
+        code = str((s or {}).get("code") or "SKIPPED")
+        counts[code] = counts.get(code, 0) + 1
+
+    return {
+        "saved": saved,
+        "skipped": skipped_all,
+        "summary": {
+            "saved": len(saved),
+            "skipped": len(skipped_all),
+            "by_code": counts,
+            "project_id": (req.project_id or "").strip() or "default",
+        },
+    }
 
 
 # ── Persistent Drafts — CRUD ──────────────────────────────────────────────────

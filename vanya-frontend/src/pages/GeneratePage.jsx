@@ -176,6 +176,8 @@ function FromUrlPanel() {
   const [expandedKey, setExpandedKey] = useState(null);
   /** Info banner after generate-from-pages (fallback smoke vs weak heuristics). */
   const [urlGenInfo, setUrlGenInfo] = useState("");
+  /** Approval result breakdown (duplicates / invalid / project issues). */
+  const [approveInfo, setApproveInfo] = useState(null);
 
   function parseMaxPages() {
     const raw = String(maxPagesStr).trim();
@@ -192,6 +194,7 @@ function FromUrlPanel() {
     setSuccessResult(null);
     setPipelineHint("");
     setUrlGenInfo("");
+    setApproveInfo(null);
     setExpandedKey(null);
     setLoadingPipeline(false);
     setLoadingApprove(false);
@@ -225,6 +228,7 @@ function FromUrlPanel() {
     setError("");
     setSuccessResult(null);
     setUrlGenInfo("");
+    setApproveInfo(null);
     setExpandedKey(null);
     setPipelineHint(tr(t, "gen.url.exploring_detail", { url: trimmed }));
     setLoadingPipeline(true);
@@ -321,13 +325,19 @@ function FromUrlPanel() {
     setLoadingApprove(true);
     setError("");
     try {
-      const res = await approveDrafts(toApprove, { activate: true });
+      const res = await approveDrafts(toApprove, { activate: true, projectId: currentProject?.id });
       const saved = Array.isArray(res?.saved) ? res.saved : [];
       const skipped = Array.isArray(res?.skipped) ? res.skipped : [];
+      const byCode = res?.summary?.by_code && typeof res.summary.by_code === "object" ? res.summary.by_code : {};
       setSuccessResult({
         totalCreated: saved.length,
         totalSkipped: skipped.length,
         saved,
+        skipped,
+      });
+      setApproveInfo({
+        projectId: res?.summary?.project_id || (currentProject?.id || "default"),
+        byCode,
         skipped,
       });
       setDraftRows([]);
@@ -398,6 +408,18 @@ function FromUrlPanel() {
               skipped: successResult.totalSkipped,
             })}
           </div>
+          {approveInfo?.byCode && Object.keys(approveInfo.byCode).length > 0 && (
+            <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-2)", lineHeight: 1.6 }}>
+              <div style={{ fontWeight: 600, color: "var(--text-1)", marginBottom: 4 }}>
+                {`Project: ${approveInfo.projectId || "default"}`}
+              </div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                {Object.entries(approveInfo.byCode).map(([code, n]) => (
+                  <span key={code} className="badge badge-blue">{code} {n}</span>
+                ))}
+              </div>
+            </div>
+          )}
           <button
             type="button"
             className="btn btn-secondary btn-sm"

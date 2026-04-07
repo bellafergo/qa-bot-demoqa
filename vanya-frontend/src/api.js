@@ -316,8 +316,13 @@ export const approveTests    = (body) => apiPost("/test-generation/approve",  bo
 // ========= Explorer Drafts (legacy) =========
 export const generateDrafts          = (url)    => apiPost("/drafts/generate",            { url });
 export const generateDraftsFromPages = (pages)  => apiPost("/drafts/generate-from-pages", { pages });
-export const approveDrafts = (drafts, { activate = true } = {}) =>
-  apiPost("/drafts/approve", { drafts, activate });
+export const approveDrafts = (drafts, { activate = true, projectId = null } = {}) => {
+  const body = { drafts, activate };
+  if (projectId != null && String(projectId).trim()) {
+    body.project_id = String(projectId).trim();
+  }
+  return apiPost("/drafts/approve", body);
+};
 
 // ========= Persistent Drafts =========
 export const listSavedDrafts     = (status)         => apiGet(`/drafts${status ? `?status=${status}` : ""}`);

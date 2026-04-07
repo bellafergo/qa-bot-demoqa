@@ -77,7 +77,7 @@ class TestDraftToCatalogTestContract:
 
     def test_test_id_equals_test_name(self):
         ct = draft_to_catalog_test(_VALID_DRAFT)
-        assert ct["test_id"] == "login_form_valid_submission"
+        assert ct["test_id"].endswith("__login_form_valid_submission")
 
     def test_name_equals_test_name(self):
         ct = draft_to_catalog_test(_VALID_DRAFT)
@@ -245,29 +245,32 @@ class TestInvalidDrafts:
 class TestApproveDraftsContract:
 
     def test_returns_list(self):
-        assert isinstance(approve_drafts([]), list)
+        assert isinstance(approve_drafts([]), dict)
 
     def test_empty_list_returns_empty(self):
-        assert approve_drafts([]) == []
+        r = approve_drafts([])
+        assert r["approved"] == []
 
     def test_none_input_returns_empty(self):
-        assert approve_drafts(None) == []
+        r = approve_drafts(None)
+        assert r["approved"] == []
 
     def test_non_list_input_returns_empty(self):
-        assert approve_drafts("bad") == []
+        r = approve_drafts("bad")
+        assert r["approved"] == []
 
     def test_valid_draft_approved(self):
         result = approve_drafts([_VALID_DRAFT])
-        assert len(result) == 1
-        assert result[0]["test_id"] == "login_form_valid_submission"
+        assert len(result["approved"]) == 1
+        assert result["approved"][0]["test_id"].endswith("__login_form_valid_submission")
 
     def test_multiple_valid_drafts(self):
         result = approve_drafts([_VALID_DRAFT, _MISSING_FIELD_DRAFT, _NAV_DRAFT])
-        assert len(result) == 3
+        assert len(result["approved"]) == 3
 
     def test_all_approved_have_status_active(self):
         result = approve_drafts([_VALID_DRAFT, _SEARCH_DRAFT, _NAV_DRAFT])
-        assert all(r["status"] == "active" for r in result)
+        assert all(r["status"] == "active" for r in result["approved"])
 
 
 # ══════════════════════════════════════════════════════════════
@@ -278,31 +281,33 @@ class TestDeduplication:
 
     def test_duplicate_test_names_deduplicated(self):
         result = approve_drafts([_VALID_DRAFT, _VALID_DRAFT, _VALID_DRAFT])
-        assert len(result) == 1
+        assert len(result["approved"]) == 1
+        assert any(s.get("code") == "DUPLICATE_IN_BATCH" for s in result["skipped"])
 
     def test_first_occurrence_wins(self):
         draft_a = {**_VALID_DRAFT, "priority": "high"}
         draft_b = {**_VALID_DRAFT, "priority": "low"}
         result = approve_drafts([draft_a, draft_b])
-        assert result[0]["priority"] == "high"
+        assert result["approved"][0]["priority"] == "high"
 
     def test_different_test_names_not_deduplicated(self):
         result = approve_drafts([_VALID_DRAFT, _MISSING_FIELD_DRAFT])
-        assert len(result) == 2
-        ids = {r["test_id"] for r in result}
-        assert "login_form_valid_submission" in ids
-        assert "login_form_missing_password" in ids
+        assert len(result["approved"]) == 2
+        ids = {r["test_id"] for r in result["approved"]}
+        assert any(x.endswith("__login_form_valid_submission") for x in ids)
+        assert any(x.endswith("__login_form_missing_password") for x in ids)
 
     def test_non_dict_items_skipped(self):
         result = approve_drafts([None, "bad", 42, _VALID_DRAFT])
-        assert len(result) == 1
+        assert len(result["approved"]) == 1
 
     def test_invalid_drafts_excluded_from_batch(self):
         no_name  = {**_VALID_DRAFT, "test_name": ""}
         no_steps = {**_VALID_DRAFT, "steps": []}
         result   = approve_drafts([no_name, no_steps, _NAV_DRAFT])
-        assert len(result) == 1
-        assert result[0]["test_id"] == "navigation_smoke"
+        assert len(result["approved"]) == 1
+        assert result["approved"][0]["test_id"].endswith("__navigation_smoke")
+        assert sum(1 for s in result["skipped"] if s.get("code") == "INVALID_DRAFT") == 2
 
 
 # ══════════════════════════════════════════════════════════════
@@ -315,13 +320,13 @@ class TestFullBatch:
 
     def setup_method(self):
         self.result  = approve_drafts(self._ALL)
-        self.by_id   = {r["test_id"]: r for r in self.result}
+        self.by_id   = {r["name"]: r for r in self.result["approved"]}
 
     def test_four_drafts_approved(self):
-        assert len(self.result) == 4
+        assert len(self.result["approved"]) == 4
 
     def test_all_active(self):
-        assert all(r["status"] == "active" for r in self.result)
+        assert all(r["status"] == "active" for r in self.result["approved"])
 
     def test_types_correctly_mapped(self):
         assert self.by_id["login_form_valid_submission"]["type"]  == "functional"
@@ -330,10 +335,10 @@ class TestFullBatch:
         assert self.by_id["navigation_smoke"]["type"]             == "smoke"
 
     def test_all_have_meta_draft_true(self):
-        assert all(r["meta"]["draft"] is True for r in self.result)
+        assert all(r["meta"]["draft"] is True for r in self.result["approved"])
 
     def test_no_draft_status_in_output(self):
-        assert not any(r["status"] == "draft" for r in self.result)
+        assert not any(r["status"] == "draft" for r in self.result["approved"])
 
     def test_steps_non_empty_for_all(self):
-        assert all(len(r["steps"]) > 0 for r in self.result)
+        assert all(len(r["steps"]) > 0 for r in self.result["approved"])

@@ -799,6 +799,7 @@ function SavedDraftsPanel() {
 function ExplorerDraftsPanel({ onGoToCatalog, initialDrafts = [] }) {
   const { t } = useLang();
   const navigate = useNavigate();
+  const { currentProject } = useProject();
   const [url, setUrl]                 = useState("");
   const [loading, setLoading]         = useState(false);
   const [loadError, setLoadError]     = useState("");
@@ -869,7 +870,7 @@ function ExplorerDraftsPanel({ onGoToCatalog, initialDrafts = [] }) {
     setApproving(true);
     setApproveResult(null);
     try {
-      const res = await approveDrafts(toApprove);
+      const res = await approveDrafts(toApprove, { activate: true, projectId: currentProject?.id });
       setApproveResult({ ok: true, ...res });
     } catch (e) {
       setApproveResult({ ok: false, error: e?.message || t("drafts.explorer.approve_error") });
