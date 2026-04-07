@@ -190,6 +190,8 @@ def create_test_from_run(body: CreateTestFromRunRequest):
 class AutoFixPreviewRequest(BaseModel):
     steps:      List[Dict[str, Any]] = Field(default_factory=list)
     assertions: List[Dict[str, Any]] = Field(default_factory=list)
+    # ui → web auto-fix; desktop / api use runner-specific rules
+    test_type:  Optional[str] = Field(default=None, description="ui | desktop | api")
 
 
 @router.post("/auto-fix-preview")
@@ -201,7 +203,11 @@ def auto_fix_preview(body: AutoFixPreviewRequest):
     and a human-readable list of changes made (type: "fix" | "warning").
     """
     from services.test_auto_fixer import auto_fix_test
-    return auto_fix_test(body.steps, body.assertions)
+    return auto_fix_test(
+        body.steps,
+        body.assertions,
+        test_type=body.test_type,
+    )
 
 
 # ── Single test case ──────────────────────────────────────────────────────────

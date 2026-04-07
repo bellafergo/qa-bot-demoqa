@@ -35,37 +35,11 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional
 
+from core.runner_contract import normalize_desktop_action
 from runners.common import _as_int, _now_ms, _safe_str, _final_status
 from runners.desktop_adapter import DesktopAdapter
 
 logger = logging.getLogger("vanya.desktop_runner")
-
-
-# ── Desktop action aliases ────────────────────────────────────────────────────
-
-_DESKTOP_ACTION_ALIASES: Dict[str, str] = {
-    "input":         "input_text",   # catalog alias
-    "fill":          "input_text",   # web-runner alias accepted here too
-    "type":          "input_text",
-    "assert_text":   "assert_text_contains",
-    "exists":        "assert_exists",
-    "wait":          "wait_for",
-    "focus":         "focus_window",
-    "attach":        "attach_window",
-    "launch":        "launch_app",
-    "start":         "launch_app",
-    "open":          "launch_app",
-    "keys":          "type_keys",
-    "sendkeys":      "type_keys",
-    "check_text":    "assert_text_contains",
-    "verify_text":   "assert_text_contains",
-    "sleep":         "wait_ms",
-}
-
-
-def _normalize_desktop_action(raw: str) -> str:
-    a = (raw or "").strip().lower()
-    return _DESKTOP_ACTION_ALIASES.get(a, a)
 
 
 def _target_from_step(step: Dict[str, Any]) -> str:
@@ -190,7 +164,7 @@ def run_desktop_test(
     logs.append(f"[PLAN] {len(steps)} desktop steps — mock={adapter.is_mock}")
     logs.append(
         "[PLAN] " + ", ".join(
-            f"{i}:{_normalize_desktop_action(s.get('action','?'))}"
+            f"{i}:{normalize_desktop_action(s.get('action','?'))}"
             for i, s in enumerate(steps)
         )
     )
@@ -204,7 +178,7 @@ def run_desktop_test(
     ) -> None:
         payload: Dict[str, Any] = {
             "index":  i,
-            "action": _normalize_desktop_action(step.get("action", "")),
+            "action": normalize_desktop_action(step.get("action", "")),
             "target": _target_from_step(step),
             "value":  step.get("value"),
             "status": st,
@@ -229,7 +203,7 @@ def run_desktop_test(
     # ── Step loop ─────────────────────────────────────────────────────────
     for i, step in enumerate(steps):
         raw_action = step.get("action", "")
-        action     = _normalize_desktop_action(raw_action)
+        action     = normalize_desktop_action(raw_action)
         target     = _target_from_step(step)
         value      = _value_from_step(step)
 

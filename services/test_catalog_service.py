@@ -240,10 +240,12 @@ def _build_runner_steps(
 
     runner_steps = [_step_to_runner(s) for s in raw_steps]
 
+    tc_type = getattr(test_case, "test_type", "ui") or "ui"
     has_goto = any(s.get("action") == "goto" for s in runner_steps)
-    if not has_goto and effective_base:
+    # API and desktop lanes do not use Playwright navigation; injecting goto breaks validation.
+    if tc_type not in ("api", "desktop") and not has_goto and effective_base:
         steps.append({"action": "goto", "url": effective_base})
-    elif not has_goto and not effective_base:
+    elif tc_type not in ("api", "desktop") and not has_goto and not effective_base:
         logger.warning("test_catalog: %s has no goto and no base_url", test_case.test_case_id)
 
     steps.extend(runner_steps)
@@ -259,29 +261,10 @@ def _build_runner_steps(
 
 # ── Desktop step builder ──────────────────────────────────────────────────────
 
-_DESKTOP_ALIASES: Dict[str, str] = {
-    "input":      "input_text",
-    "fill":       "input_text",
-    "type":       "input_text",
-    "assert_text": "assert_text_contains",
-    "check_text": "assert_text_contains",
-    "verify_text": "assert_text_contains",
-    "exists":     "assert_exists",
-    "wait":       "wait_for",
-    "focus":      "focus_window",
-    "attach":     "attach_window",
-    "launch":     "launch_app",
-    "start":      "launch_app",
-    "open":       "launch_app",
-    "keys":       "type_keys",
-    "sendkeys":   "type_keys",
-    "sleep":      "wait_ms",
-}
-
-
 def _normalize_desktop_action(action: str) -> str:
-    a = (action or "").strip().lower()
-    return _DESKTOP_ALIASES.get(a, a)
+    from core.runner_contract import normalize_desktop_action
+
+    return normalize_desktop_action(action)
 
 
 def _build_desktop_steps(test_case: TestCase) -> List[Dict[str, Any]]:
@@ -501,17 +484,39 @@ class TestCatalogService:
                 for a in data["assertions"]
             ]
 
-        # Auto-fix deterministic rules (no LLM)
-        from services.test_auto_fixer import auto_fix_test
-        fix_result = auto_fix_test(
-            data.get("steps",      []),
-            data.get("assertions", []),
-        )
-        data["steps"]      = fix_result["steps"]
-        data["assertions"] = fix_result["assertions"]
-        if fix_result["changes"]:
-            fix_summary = "; ".join(c["message"] for c in fix_result["changes"])
-            change_note = f"{change_note} [auto-fix: {fix_summary}]".strip() if change_note else f"[auto-fix: {fix_summary}]"
+        # Auto-fix only when steps/assertions are part of this update (avoid wiping steps on partial PATCH)
+        touches_steps = "steps" in data and data["steps"] is not None
+        touches_assertions = "assertions" in data and data["assertions"] is not None
+        if touches_steps or touches_assertions:
+            from services.test_auto_fixer import auto_fix_test
+
+            eff_tt = (
+                data["test_type"]
+                if "test_type" in data and data["test_type"] is not None
+                else current.test_type
+            ) or "ui"
+            steps_src = (
+                data["steps"]
+                if touches_steps
+                else [s.model_dump() for s in current.steps]
+            )
+            ass_src = (
+                data["assertions"]
+                if touches_assertions
+                else [a.model_dump() for a in current.assertions]
+            )
+            fix_result = auto_fix_test(steps_src, ass_src, test_type=str(eff_tt))
+            if touches_steps:
+                data["steps"] = fix_result["steps"]
+            if touches_assertions:
+                data["assertions"] = fix_result["assertions"]
+            if fix_result["changes"]:
+                fix_summary = "; ".join(c["message"] for c in fix_result["changes"])
+                change_note = (
+                    f"{change_note} [auto-fix: {fix_summary}]".strip()
+                    if change_note
+                    else f"[auto-fix: {fix_summary}]"
+                )
 
         updated = catalog_repo.update_test_case(test_case_id, data)
         if updated is None:
@@ -849,11 +854,47 @@ class TestCatalogService:
                     tc.test_case_id, tc.name, run_id, environment,
                     getattr(tc, "test_type", "ui"))
 
-        steps = _build_runner_steps(tc, base_url=base_url)
-        logger.debug("test_catalog: %s → %d steps: %s",
-                     tc.test_case_id, len(steps), [s.get("action") for s in steps])
-
         tc_test_type = getattr(tc, "test_type", "ui") or "ui"
+        from core.step_validator import validate_steps
+
+        if tc_test_type == "desktop":
+            steps = _build_desktop_steps(tc)
+            vr = validate_steps(steps, runner_kind="desktop")
+        else:
+            steps = _build_runner_steps(tc, base_url=base_url)
+            vr = validate_steps(
+                steps,
+                runner_kind="api" if tc_test_type == "api" else "web",
+            )
+
+        if not vr.valid:
+            err_msgs = "; ".join(
+                f"step {e.step_index + 1} ({e.action}): {e.message}"
+                for e in vr.errors[:8]
+            )
+            run = TestRun(
+                run_id=run_id,
+                test_case_id=tc.test_case_id,
+                test_name=tc.name,
+                environment=environment,
+                status="error",
+                duration_ms=int((time.time() - t0) * 1000),
+                evidence_id=evidence_id,
+                logs=[f"Step validation failed ({tc_test_type}): {err_msgs}"],
+                meta={
+                    "validation_errors": [e.model_dump() for e in vr.errors],
+                    **(extra_meta or {}),
+                },
+            )
+            self._save_run(run)
+            return run
+
+        logger.debug(
+            "test_catalog: %s → %d steps: %s",
+            tc.test_case_id,
+            len(steps),
+            [s.get("action") for s in steps],
+        )
 
         try:
             if tc_test_type == "api":
@@ -868,9 +909,8 @@ class TestCatalogService:
                 )
             elif tc_test_type == "desktop":
                 from runners.desktop_runner import run_desktop_test
-                desktop_steps = _build_desktop_steps(tc)
                 result = run_desktop_test(
-                    steps     = desktop_steps,
+                    steps     = steps,
                     timeout_s = timeout_s,
                 )
             else:

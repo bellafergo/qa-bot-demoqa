@@ -22,6 +22,12 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional
 
+from core.runner_contract import (
+    DESKTOP_RUNNER_ACTIONS,
+    normalize_desktop_action,
+    runner_kind_for_test_type,
+)
+
 # ── Unstable / dynamic selector patterns (React / Radix / RHF, nth-child, hash IDs) ──
 _RE_RADIX_COLON_ID = re.compile(r"#:[A-Za-z0-9]{4,}:-")
 _RE_NTH_CHILD_TAIL = re.compile(r":nth-child\(\d+\)$")
@@ -126,9 +132,15 @@ _DEFAULT_BODY_SEL  = "body"
 def auto_fix_test(
     steps:      List[Dict[str, Any]],
     assertions: List[Dict[str, Any]],
+    *,
+    runner_kind: Optional[str] = None,
+    test_type: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Apply deterministic fixes to *steps* and *assertions*.
+
+    *runner_kind* / *test_type*: when desktop or api, web-only rules (default goto,
+    CSS testid defaults) are not applied; steps are normalized to the desktop/API DSL.
 
     Returns:
         {
@@ -146,8 +158,21 @@ def auto_fix_test(
     assertions = _safe_list(assertions)
     changes: List[Dict[str, str]] = []
 
-    fixed_steps      = _fix_steps(steps, changes)
-    fixed_assertions = _fix_assertions(assertions, changes)
+    rk = (runner_kind or "").strip().lower() if runner_kind else ""
+    if not rk and test_type is not None:
+        rk = runner_kind_for_test_type(test_type)
+    if not rk:
+        rk = "web"
+
+    if rk == "desktop":
+        fixed_steps = _fix_steps_desktop(steps, changes)
+        fixed_assertions = _fix_assertions_desktop(assertions, changes)
+    elif rk == "api":
+        fixed_steps = _fix_steps_api(steps, changes)
+        fixed_assertions = _fix_assertions_api(assertions, changes)
+    else:
+        fixed_steps = _fix_steps(steps, changes)
+        fixed_assertions = _fix_assertions(assertions, changes)
 
     return {
         "steps":      fixed_steps,
@@ -225,6 +250,167 @@ def _fix_steps(
             "message": f"prepended default goto '{_DEFAULT_GOTO_URL}' (no goto at start)",
         })
 
+    return result
+
+
+def _fix_steps_desktop(
+    steps:   List[Dict[str, Any]],
+    changes: List[Dict[str, str]],
+) -> List[Dict[str, Any]]:
+    """Normalize desktop aliases; drop only truly unknown actions. No default goto."""
+    result: List[Dict[str, Any]] = []
+
+    for i, raw in enumerate(steps):
+        if not isinstance(raw, dict):
+            changes.append({"type": "warning", "message": f"step {i + 1}: not a dict — removed"})
+            continue
+
+        step = dict(raw)
+        action_raw = (step.get("action") or "").strip().lower()
+        canonical = normalize_desktop_action(action_raw)
+        if canonical != action_raw and action_raw:
+            changes.append({
+                "type":    "fix",
+                "message": f"step {i + 1}: normalized desktop action '{action_raw}' → '{canonical}'",
+            })
+        step["action"] = canonical
+
+        if canonical not in DESKTOP_RUNNER_ACTIONS:
+            changes.append({
+                "type":    "warning",
+                "message": (
+                    f"step {i + 1}: action {canonical!r} is not in desktop DSL — "
+                    "removed (fix test_type or use a desktop action)"
+                ),
+            })
+            continue
+
+        result.append(step)
+
+    return result
+
+
+_DESKTOP_ASSERT_ALIASES: Dict[str, str] = {
+    "assert_text": "assert_text_contains",
+    "check_text": "assert_text_contains",
+    "verify_text": "assert_text_contains",
+    "visible": "assert_exists",
+    "assert_visible": "assert_exists",
+    "element_visible": "assert_exists",
+    "assert_control_visible": "assert_exists",
+}
+
+
+def _fix_assertions_desktop(
+    assertions: List[Dict[str, Any]],
+    changes:    List[Dict[str, str]],
+) -> List[Dict[str, Any]]:
+    """
+    Keep assertions compatible with _build_desktop_steps (types: assert_text_contains, assert_exists).
+    Does not inject web-style assert_visible + body selector defaults.
+    """
+    result: List[Dict[str, Any]] = []
+
+    for i, raw in enumerate(assertions):
+        if not isinstance(raw, dict):
+            changes.append({"type": "warning", "message": f"assertion {i + 1}: not a dict — removed"})
+            continue
+
+        a = dict(raw)
+        raw_type = (a.get("type") or a.get("action") or "").strip().lower()
+        canonical = _DESKTOP_ASSERT_ALIASES.get(raw_type, raw_type)
+        if canonical != raw_type and raw_type:
+            if "type" in a:
+                a["type"] = canonical
+            else:
+                a["action"] = canonical
+            changes.append({
+                "type":    "fix",
+                "message": f"assertion {i + 1}: normalized type '{raw_type}' → '{canonical}'",
+            })
+
+        eff = (a.get("type") or a.get("action") or "").strip().lower()
+        if eff == "assert_not_visible":
+            changes.append({
+                "type":    "warning",
+                "message": f"assertion {i + 1}: assert_not_visible not supported on desktop runner — removed",
+            })
+            continue
+
+        if eff in ("assert_url_contains", "assert_url"):
+            changes.append({
+                "type":    "warning",
+                "message": f"assertion {i + 1}: URL assertions are web-only — removed",
+            })
+            continue
+
+        if not eff:
+            changes.append({
+                "type":    "warning",
+                "message": f"assertion {i + 1}: missing type — removed (desktop: add assert_text_contains or assert_exists)",
+            })
+            continue
+
+        if eff == "assert_text_contains" and not (a.get("value") or a.get("text")):
+            changes.append({
+                "type":    "warning",
+                "message": f"assertion {i + 1}: assert_text_contains without value — removed",
+            })
+            continue
+
+        if eff == "assert_exists" and not (a.get("target") or a.get("selector")):
+            changes.append({
+                "type":    "warning",
+                "message": f"assertion {i + 1}: assert_exists without target — removed",
+            })
+            continue
+
+        result.append(a)
+
+    return result
+
+
+def _fix_steps_api(
+    steps:   List[Dict[str, Any]],
+    changes: List[Dict[str, str]],
+) -> List[Dict[str, Any]]:
+    from core.runner_contract import API_RUNNER_ACTIONS
+
+    result: List[Dict[str, Any]] = []
+    for i, raw in enumerate(steps):
+        if not isinstance(raw, dict):
+            changes.append({"type": "warning", "message": f"step {i + 1}: not a dict — removed"})
+            continue
+        step = dict(raw)
+        action = (step.get("action") or "").strip().lower()
+        if action not in API_RUNNER_ACTIONS:
+            changes.append({
+                "type":    "warning",
+                "message": f"step {i + 1}: {action!r} is not an API runner action — removed",
+            })
+            continue
+        result.append(step)
+    return result
+
+
+def _fix_assertions_api(
+    assertions: List[Dict[str, Any]],
+    changes:    List[Dict[str, str]],
+) -> List[Dict[str, Any]]:
+    """API assertions are evaluated by api_runner; do not coerce to web assert_visible."""
+    result: List[Dict[str, Any]] = []
+    for i, raw in enumerate(assertions):
+        if not isinstance(raw, dict):
+            changes.append({"type": "warning", "message": f"assertion {i + 1}: not a dict — removed"})
+            continue
+        a = dict(raw)
+        if not (a.get("type") or a.get("action")):
+            changes.append({
+                "type":    "warning",
+                "message": f"assertion {i + 1}: missing type — removed",
+            })
+            continue
+        result.append(a)
     return result
 
 
