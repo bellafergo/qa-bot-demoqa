@@ -22,6 +22,9 @@ os.environ["VANYA_AUTH_ENABLED"] = "0"
 # Rate limit middleware off by default (tests enable it explicitly when needed).
 os.environ.setdefault("RATE_LIMIT_ENABLED", "0")
 
+# Projects: keep isolated SQLite even if .env defines Supabase (avoids hitting real API).
+os.environ.setdefault("VANYA_PROJECTS_BACKEND", "sqlite")
+
 
 def pytest_configure(config):
     """Create tables once, before any test collection begins."""

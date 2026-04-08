@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 
 from models.project import ProjectCreate, ProjectPublic, ProjectUpdate
 from services.db.catalog_repository import catalog_repo
+from services.db.project_errors import ProjectDuplicateIdError
 from services.db.project_repository import project_repo
 from services.project_settings_service import mask_settings_for_api, merge_settings
 
@@ -45,7 +46,7 @@ def create_project(body: ProjectCreate):
     try:
         p = project_repo.create_project(body)
         return _to_public(p)
-    except IntegrityError:
+    except (IntegrityError, ProjectDuplicateIdError):
         logger.info("project create conflict: %s", body.id)
         raise HTTPException(
             status_code=409,

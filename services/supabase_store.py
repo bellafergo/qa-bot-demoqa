@@ -39,6 +39,11 @@ def _is_configured() -> bool:
     return bool(SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)
 
 
+def is_supabase_configured() -> bool:
+    """True when the Supabase REST client can be created (URL + service role key)."""
+    return _is_configured()
+
+
 def _mask(s: str, keep: int = 4) -> str:
     s = s or ""
     if len(s) <= keep:

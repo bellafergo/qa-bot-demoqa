@@ -23,7 +23,7 @@ def init_catalog_db() -> None:
     from services.db import orchestrator_job_repository  # noqa: F401 — registers OrchestratorJobRow
     from services.db import draft_repository             # noqa: F401 — registers DraftRow
     from services.db import test_version_repository      # noqa: F401 — registers TestVersionRow
-    from services.db import project_repository             # noqa: F401 — registers ProjectRow
+    from services.db import project_repository_sqlite       # noqa: F401 — registers ProjectRow on SQLite Base
 
     Base.metadata.create_all(bind=engine, checkfirst=True)
     logger.info("db: catalog tables initialized (SQLite)")

@@ -197,14 +197,18 @@ CREATE TABLE IF NOT EXISTS public.orchestrator_jobs (
 );
 
 CREATE TABLE IF NOT EXISTS public.projects (
-  id           TEXT PRIMARY KEY,
-  name         TEXT NOT NULL,
-  description  TEXT NOT NULL DEFAULT '',
-  color        TEXT NOT NULL DEFAULT '#6366f1',
-  base_url     TEXT,
-  created_at   TEXT NOT NULL,
-  updated_at   TEXT NOT NULL
+  id            TEXT PRIMARY KEY,
+  name          TEXT NOT NULL,
+  description   TEXT NOT NULL DEFAULT '',
+  color         TEXT NOT NULL DEFAULT '#6366f1',
+  base_url      TEXT,
+  settings_json TEXT,
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
 );
+
+-- Existing Supabase projects created before settings_json: add column idempotently
+ALTER TABLE public.projects ADD COLUMN IF NOT EXISTS settings_json TEXT;
 
 CREATE TABLE IF NOT EXISTS public.drafts (
   draft_id         TEXT PRIMARY KEY,
