@@ -16,6 +16,17 @@ _UI_ACTIONS = frozenset({
     "assert_visible", "assert_not_visible", "assert_text_contains",
 })
 
+# Web runner actions that accept a CSS selector and optional structured target.
+# Used to backfill legacy catalog steps that only stored `selector` (no `target`).
+_WEB_TARGET_ACTIONS: frozenset = frozenset({
+    "fill",
+    "click",
+    "press",
+    "assert_visible",
+    "assert_not_visible",
+    "assert_text_contains",
+})
+
 # Compiled patterns for conservative fallback inference
 _RE_ID = re.compile(r'^#([\w-]+)$')
 _RE_NAME = re.compile(r'^\[name=["\']([^"\']+)["\']\]$')
@@ -205,6 +216,52 @@ def normalize_steps_full(
         out.append(ns)
 
     return out
+
+
+def _has_nonempty_target_primary(target: Any) -> bool:
+    return isinstance(target, dict) and bool(str(target.get("primary") or "").strip())
+
+
+def enrich_missing_web_targets(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Backward compatibility for catalog / API steps saved without structured `target`.
+
+    For web UI actions, if `selector` is non-empty but `target.primary` is missing
+    (or empty), attach a minimal target dict. Does not replace steps that already
+    have a non-empty primary.
+
+    Shape (per legacy batch-runner contract):
+      {"primary": <selector>, "fallbacks": [], "timeout_ms": 5000, "state": "visible"}
+    """
+    out: List[Dict[str, Any]] = []
+    for step in steps or []:
+        if not isinstance(step, dict):
+            out.append(step)
+            continue
+        action = str(step.get("action") or "").strip().lower()
+        if action not in _WEB_TARGET_ACTIONS:
+            out.append(step)
+            continue
+        if _has_nonempty_target_primary(step.get("target")):
+            out.append(step)
+            continue
+        selector = str(step.get("selector") or "").strip()
+        if not selector:
+            out.append(step)
+            continue
+        upgraded = dict(step)
+        upgraded["target"] = {
+            "primary": selector,
+            "fallbacks": [],
+            "timeout_ms": 5000,
+            "state": "visible",
+        }
+        out.append(upgraded)
+    return out
+
+
+# Alias for callers that prefer "legacy" naming.
+normalize_legacy_steps = enrich_missing_web_targets
 
 
 def normalize_steps_to_target(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
