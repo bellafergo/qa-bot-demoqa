@@ -624,19 +624,30 @@ export function EvidenceLookupResultView({ run }) {
             );
           })()}
 
-          {(run.error_summary || run.reason || run.message || run.error_message) && (
-            <div className="card" style={{ marginBottom: 20 }}>
-              <div className="section-title">{t("runs.detail.failure_reason")}</div>
-              <div style={{ fontSize: 13, color: "var(--text-1)", lineHeight: 1.6 }}>
-                {run.error_summary || run.reason || run.message || run.error_message}
-              </div>
-              {(run.hint || run.meta?.hint) && (
-                <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-3)", lineHeight: 1.6 }}>
-                  <strong>Hint:</strong> {run.hint || run.meta?.hint}
+          {(run.error_summary || run.reason || run.message || run.error_message) && (() => {
+            const rawErr = run.error_summary ?? run.reason ?? run.message ?? run.error_message;
+            const errText =
+              typeof rawErr === "string"
+                ? rawErr
+                : typeof rawErr?.message === "string"
+                  ? rawErr.message
+                  : rawErr
+                    ? JSON.stringify(rawErr, null, 2)
+                    : "Execution failed";
+            return (
+              <div className="card" style={{ marginBottom: 20 }}>
+                <div className="section-title">{t("runs.detail.failure_reason")}</div>
+                <div style={{ fontSize: 13, color: "var(--text-1)", lineHeight: 1.6 }}>
+                  {errText}
                 </div>
-              )}
-            </div>
-          )}
+                {(run.hint || run.meta?.hint) && (
+                  <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-3)", lineHeight: 1.6 }}>
+                    <strong>Hint:</strong> {run.hint || run.meta?.hint}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           <DebugAccordion detail={run} />
 
