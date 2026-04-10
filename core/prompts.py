@@ -248,6 +248,12 @@ CREDENTIALS FROM USER (CRITICAL)
 - Always generate TWO separate fill steps (username + password).
 - Do NOT invent or change credentials.
 
+USER LITERAL VALUES (CRITICAL)
+- When the user provides exact values to type or use (emails, passwords, URLs, usernames, names, IDs, tokens, codes, or any other literal string), copy them EXACTLY as provided, character by character.
+- Do not paraphrase, normalize, correct, infer, autocomplete, or alter them in any way.
+- Preserve capitalization, punctuation, symbols, dots, hyphens, underscores, @ signs, and domain parts exactly as written.
+- If the user provides an email address, it must be copied verbatim with every character unchanged.
+
 ASSERTIONS (RESULT)
 - For SUCCESS login: expected="pass" and assert success condition.
 - For FAILED login/negative: expected="fail" and assert the error is visible.

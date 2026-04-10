@@ -34,6 +34,7 @@ from core.nl_selector_inference import enrich_nl_steps_from_prompt
 from services.evidence_pipeline import process_evidence
 from services.chat_run_test_name import fallback_test_name_from_prompt, resolve_chat_run_test_name
 from services.step_llm_generator import generate_steps_llm
+from core.user_literal_preservation import restore_user_literals_in_steps
 
 logger = logging.getLogger("vanya.execute_engine")
 
@@ -428,6 +429,7 @@ def handle_execute_mode(
         if steps:
             logger.info("Step LLM generator produced fallback steps")
 
+    steps = restore_user_literals_in_steps(prompt, steps)
     steps = enrich_nl_steps_from_prompt(prompt, steps)
 
     if steps:
