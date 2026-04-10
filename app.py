@@ -22,6 +22,7 @@ from core.vanya_auth import (
     log_auth_startup_warnings,
 )
 from db import init_db
+from services.qa_runs_read import fetch_qa_runs_legacy_payload, supabase_qa_runs_enabled
 from services.run_store import get_run
 from services.run_history_service import run_history_service
 
@@ -257,8 +258,12 @@ def get_run_evidence(evidence_id: str, request: Request, format: str = "html"):
     # 1) short-term in-memory store (chat / execute / async runs)
     run = get_run(evidence_id)
 
-    # 2) fallback: official SQLite history (catalog / orchestrator runs)
-    if not run:
+    # 2) Supabase qa_runs (durable source of truth when configured)
+    if not run and supabase_qa_runs_enabled():
+        run = fetch_qa_runs_legacy_payload(evidence_id)
+
+    # 3) SQLite catalog history (local / legacy when Supabase is not configured)
+    if not run and not supabase_qa_runs_enabled():
         canonical = run_history_service.get_run(evidence_id)
         if canonical:
             # Adapt CanonicalRun → flat dict expected by the HTML renderer and

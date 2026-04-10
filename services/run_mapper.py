@@ -256,7 +256,7 @@ def run_from_legacy_store(payload: Dict[str, Any]) -> CanonicalRun:
         started_at=_to_iso(payload.get("started_at") or payload.get("created_at")),
         finished_at=_to_iso(payload.get("finished_at")),
         duration_ms=int(payload.get("duration_ms") or 0),
-        error_summary=payload.get("error_message"),
+        error_summary=payload.get("error_message") or payload.get("error_summary"),
         steps_count=len(steps),
         evidence_id=payload.get("evidence_id"),
         evidence_url=evidence_url,

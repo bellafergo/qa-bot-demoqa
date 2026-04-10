@@ -11,19 +11,19 @@ run_access.persist_*   | Preferred entry for new writes    | → run_store.save_
 run_store.save_run     | Hot cache + bridge to SQLite      | optional in-memory TTL (not SQLite)
 run_bridge             | Chat/execute/API → SQLite         | durable rows; failures logged + meta flag
 test_run_repo          | Source of truth for listings      | SQLite / SQLAlchemy (no auto TTL)
-run_history_service    | Canonical reads (this module)     | SQLite first, then run_store fallback
+run_history_service    | Canonical reads (this module)     | qa_runs (if Supabase) else SQLite
 Supabase               | Optional mirror                     | best-effort from save_run
 
 Rules
 -----
-• **Listings** (dashboard, ``GET /test-runs``, analytics): SQLite via
-  ``list_runs`` → ``CanonicalRun``.
+• **Listings** (dashboard, ``GET /test-runs``, analytics): when Supabase is
+  configured, ``qa_runs`` via ``qa_runs_read``; otherwise SQLite → ``CanonicalRun``.
 
-• **get_run(run_id)**: SQLite only. Use **get_run_unified** when the id might be
-  ``evidence_id`` from chat/planner before or without a SQLite row.
+• **get_run(run_id)**: Supabase ``qa_runs`` by ``evidence_id`` when configured;
+  else SQLite. Use **get_run_unified** when the id might exist only in memory.
 
-• **Evidence HTML** ``GET /runs/{id}``: still checks ``run_store`` first (freshest
-  blobs), then SQLite via this service — see ``app.get_run_evidence``.
+• **Evidence** ``GET /runs/{id}``: ``run_store`` first, then ``qa_runs`` when
+  Supabase is configured, else SQLite — see ``app.get_run_evidence``.
 
 • New code should persist via ``services.run_access.persist_run_payload`` so all
   writes share one entry point.
@@ -33,8 +33,8 @@ Usage
     from services.run_history_service import run_history_service
 
     runs  = run_history_service.list_runs(limit=50)       # List[CanonicalRun]
-    run   = run_history_service.get_run("uuid")         # SQLite only
-    one   = run_history_service.get_run_unified("id")   # SQLite + run_store fallback
+    run   = run_history_service.get_run("uuid")         # qa_runs or SQLite
+    one   = run_history_service.get_run_unified("id")   # run_store, then persisted
 """
 from __future__ import annotations
 
@@ -43,7 +43,12 @@ from typing import List, Optional
 
 from models.run_contract import CanonicalRun
 from services.db.test_run_repository import test_run_repo
-from services.run_mapper import run_from_catalog_testrun
+from services.qa_runs_read import (
+    fetch_qa_run_canonical,
+    list_qa_runs_canonical,
+    supabase_qa_runs_enabled,
+)
+from services.run_mapper import normalize_run, run_from_catalog_testrun
 
 logger = logging.getLogger("vanya.run_history")
 
@@ -66,8 +71,10 @@ class RunHistoryService:
         limit: int = 100,
     ) -> List[CanonicalRun]:
         """
-        Return recent run records from SQLite (official persistent store),
-        most recent first.
+        Return recent persisted runs, most recent first.
+
+        When Supabase is configured, reads ``public.qa_runs`` only. Otherwise
+        SQLite (catalog ``test_runs``).
 
         Parameters
         ----------
@@ -76,12 +83,19 @@ class RunHistoryService:
         limit        : maximum records to return (default 100, max 500)
         """
         limit = max(1, min(int(limit), 500))
-        runs = test_run_repo.list_runs(
-            test_case_id=test_case_id,
-            project_id=project_id,
-            limit=limit,
-        )
-        mapped = [run_from_catalog_testrun(r) for r in runs]
+        if supabase_qa_runs_enabled():
+            mapped = list_qa_runs_canonical(
+                test_case_id=test_case_id,
+                project_id=project_id,
+                limit=limit,
+            )
+        else:
+            runs = test_run_repo.list_runs(
+                test_case_id=test_case_id,
+                project_id=project_id,
+                limit=limit,
+            )
+            mapped = [run_from_catalog_testrun(r) for r in runs]
         # Strip screenshot_b64 from list payloads — large base64 blobs are only
         # needed for individual evidence views, not for history listings.
         result = []
@@ -99,12 +113,17 @@ class RunHistoryService:
 
     def get_run(self, run_id: str) -> Optional[CanonicalRun]:
         """
-        Return a single run record by its run_id from SQLite.
+        Return a single run by id. With Supabase configured, resolves ``evidence_id``
+        on ``qa_runs``. Otherwise SQLite ``run_id``.
 
-        Returns None if the run_id is not found in SQLite. For chat/planner ids
-        that may exist only in ``run_store`` until bridged, use ``get_run_unified``
-        or ``GET /runs/{evidence_id}``.
+        Returns None if not found. For ids that may exist only in memory, use
+        ``get_run_unified`` or ``GET /runs/{evidence_id}``.
         """
+        if supabase_qa_runs_enabled():
+            cr = fetch_qa_run_canonical((run_id or "").strip())
+            if cr is None:
+                logger.debug("run_history_service: run_id %r not found in qa_runs", run_id)
+            return cr
         run = test_run_repo.get_run(run_id)
         if run is None:
             logger.debug("run_history_service: run_id %r not found in SQLite", run_id)
@@ -117,24 +136,23 @@ class RunHistoryService:
         (evidence_id or alternate run_id index). Used to persist catalog tests
         from planner/chat/execute flows that may only exist in run_store.
         """
-        from services.run_mapper import normalize_run
         from services.run_store import get_run, get_run_by_id
 
         rid = (run_id or "").strip()
         if not rid:
             return None
+        raw = get_run(rid) or get_run_by_id(rid)
+        if raw is not None:
+            try:
+                return normalize_run(raw)
+            except Exception:
+                logger.exception("run_history_service: normalize_run failed for %r", run_id)
+                return None
         cr = self.get_run(rid)
         if cr is not None:
             return cr
-        raw = get_run(rid) or get_run_by_id(rid)
-        if raw is None:
-            logger.debug("run_history_service: unified run_id %r not found", run_id)
-            return None
-        try:
-            return normalize_run(raw)
-        except Exception:
-            logger.exception("run_history_service: normalize_run failed for %r", run_id)
-            return None
+        logger.debug("run_history_service: unified run_id %r not found", run_id)
+        return None
 
     # ── Aggregate read helpers (delegated from existing services) ─────────────
 

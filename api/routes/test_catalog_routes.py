@@ -390,8 +390,7 @@ def list_test_runs(
     """
     Return recent test execution records as CanonicalRun, most recent first.
 
-    Source: run_history_service → SQLite (official persistent store).
-    Only runs produced by the catalog execution path appear here.
+    Source: run_history_service → Supabase ``qa_runs`` when configured, else SQLite.
     Async chat/execute runs are accessible via GET /runs/{evidence_id}.
     """
     return run_history_service.list_runs(
@@ -406,7 +405,7 @@ def get_test_run(run_id: str):
     """
     Return a single execution record as CanonicalRun.
 
-    Source: run_history_service → SQLite (official persistent store).
+    Source: run_history_service → ``qa_runs`` or SQLite (same as list).
     """
     run = run_history_service.get_run(run_id)
     if run is None:

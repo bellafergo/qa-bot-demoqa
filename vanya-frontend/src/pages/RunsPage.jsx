@@ -264,9 +264,31 @@ function inferBackend(run) {
   return run.meta.is_mock ? "mock" : "real";
 }
 
+function stepFieldDisplay(value) {
+  if (value == null || value === "") return null;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (typeof value === "object") {
+    const p = value.primary;
+    if (p != null && p !== "") return String(p);
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return "—";
+    }
+  }
+  return String(value);
+}
+
 function bestStepTarget(step) {
-  return step.target || step.window || step.control ||
-         step.selector || step.url || step.value || "—";
+  if (!step || typeof step !== "object") return "—";
+  const keys = ["target", "window", "control", "selector", "url", "value"];
+  for (let i = 0; i < keys.length; i++) {
+    const rendered = stepFieldDisplay(step[keys[i]]);
+    if (rendered != null) return rendered;
+  }
+  return "—";
 }
 
 // ── Type / backend badges ─────────────────────────────────────────────────────

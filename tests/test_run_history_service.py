@@ -3,7 +3,7 @@
 Unit tests for services/run_history_service.py
 
 These tests verify that RunHistoryService:
-  1. Reads from test_run_repo (SQLite) as the official source.
+  1. Reads from test_run_repo (SQLite) when Supabase is not enabled for reads.
   2. Returns CanonicalRun objects — the canonical mapper is applied at the service level.
   3. Handles "not found" cleanly.
   4. Passes filters and limit through to the repository.
@@ -51,6 +51,11 @@ def _tr(
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _patch_sqlite_reads():
+    """Force SQLite-backed paths (tests must not depend on live Supabase)."""
+    return patch("services.run_history_service.supabase_qa_runs_enabled", return_value=False)
+
+
 def _make_service():
     """Return a fresh RunHistoryService with a mocked test_run_repo."""
     from services.run_history_service import RunHistoryService
@@ -66,7 +71,7 @@ def _make_service():
 class TestListRuns(unittest.TestCase):
 
     def _run_list(self, repo_returns, **kwargs):
-        with patch(
+        with _patch_sqlite_reads(), patch(
             "services.run_history_service.test_run_repo.list_runs",
             return_value=repo_returns,
         ) as mock_list:
@@ -144,7 +149,7 @@ class TestListRuns(unittest.TestCase):
 class TestGetRun(unittest.TestCase):
 
     def _call_get(self, repo_returns, run_id="run-001"):
-        with patch(
+        with _patch_sqlite_reads(), patch(
             "services.run_history_service.test_run_repo.get_run",
             return_value=repo_returns,
         ) as mock_get:
@@ -256,8 +261,8 @@ class TestAggregates(unittest.TestCase):
 
 class TestArchitectureInvariants(unittest.TestCase):
     """
-    Confirm that RunHistoryService ONLY reads from test_run_repo (SQLite).
-    It must never access run_store directly.
+    Confirm that RunHistoryService reads from test_run_repo when Supabase reads
+    are disabled. It must not top-level import run_store.
     """
 
     def test_service_does_not_import_run_store_at_module_level(self):
@@ -283,7 +288,7 @@ class TestArchitectureInvariants(unittest.TestCase):
                 )
 
     def test_list_runs_returns_only_canonical_run_instances(self):
-        with patch(
+        with _patch_sqlite_reads(), patch(
             "services.run_history_service.test_run_repo.list_runs",
             return_value=[_tr("r1"), _tr("r2")],
         ):
@@ -294,7 +299,7 @@ class TestArchitectureInvariants(unittest.TestCase):
 
     def test_get_run_returns_canonical_or_none(self):
         for repo_val in (_tr(), None):
-            with patch(
+            with _patch_sqlite_reads(), patch(
                 "services.run_history_service.test_run_repo.get_run",
                 return_value=repo_val,
             ):
@@ -308,7 +313,7 @@ class TestArchitectureInvariants(unittest.TestCase):
     def test_canonical_run_status_in_valid_set(self):
         valid = {"queued", "planning", "compiled", "running", "passed", "failed", "error", "canceled"}
         for raw_status in ("pass", "fail", "error", "running"):
-            with patch(
+            with _patch_sqlite_reads(), patch(
                 "services.run_history_service.test_run_repo.list_runs",
                 return_value=[_tr(status=raw_status)],
             ):
@@ -317,7 +322,7 @@ class TestArchitectureInvariants(unittest.TestCase):
             self.assertIn(result[0].status, valid, f"Bad status for raw={raw_status!r}")
 
     def test_canonical_run_has_artifacts_and_meta(self):
-        with patch(
+        with _patch_sqlite_reads(), patch(
             "services.run_history_service.test_run_repo.list_runs",
             return_value=[_tr()],
         ):

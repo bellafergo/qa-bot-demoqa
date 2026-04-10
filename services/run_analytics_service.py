@@ -9,7 +9,7 @@ Computes aggregated metrics from the persistent run history:
   - Top failing tests (ranked by failed_runs desc)
 
 No LLM.  No external dependencies.  Pure Python aggregation over
-run_history_service.list_runs(), which reads from SQLite.
+run_history_service.list_runs(), which reads from qa_runs (Supabase) or SQLite.
 
 Usage:
     from services.run_analytics_service import get_runs_dashboard
