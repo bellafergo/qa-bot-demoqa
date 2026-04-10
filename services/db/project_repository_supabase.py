@@ -74,6 +74,24 @@ def _is_unique_violation(exc: BaseException) -> bool:
     return False
 
 
+def _error_blob(exc: BaseException) -> str:
+    parts = [str(exc)]
+    for attr in ("message", "details", "hint", "code"):
+        v = getattr(exc, attr, None)
+        if v is not None:
+            parts.append(str(v))
+    return " ".join(parts).lower()
+
+
+def _is_schema_cache_column_error(exc: BaseException) -> bool:
+    """
+    PostgREST (Supabase) may reject payloads that reference a column not yet in its
+    in-memory schema cache after DDL (e.g. new settings_json).
+    """
+    b = _error_blob(exc)
+    return "schema cache" in b and ("column" in b or "settings_json" in b)
+
+
 class ProjectRepositorySupabase:
 
     def _sb(self):
@@ -113,26 +131,62 @@ class ProjectRepositorySupabase:
         elif getattr(p, "settings", None) is not None and isinstance(p.settings, dict):
             settings_dict = p.settings
 
-        row = {
+        settings_str = dump_settings_json(settings_dict or {})
+        row_full = {
             "id": p.id,
             "name": p.name,
             "description": p.description or "",
             "color": p.color or "#6366f1",
             "base_url": p.base_url,
-            "settings_json": dump_settings_json(settings_dict or {}),
+            "settings_json": settings_str,
             "created_at": now,
             "updated_at": now,
         }
+        row_min = {k: v for k, v in row_full.items() if k != "settings_json"}
         sb = self._sb()
+
         try:
-            sb.table(_TABLE).insert(row).execute()
+            sb.table(_TABLE).insert(row_full).execute()
+            logger.info("project_repo.supabase: created project id=%s (full row)", p.id)
+            return _dict_to_project(row_full)
         except Exception as e:
             if _is_unique_violation(e):
                 raise ProjectDuplicateIdError(str(e)) from e
-            logger.exception("project_repo.supabase: insert failed id=%s", p.id)
+            if not _is_schema_cache_column_error(e):
+                logger.exception("project_repo.supabase: insert failed id=%s", p.id)
+                raise
+
+        # Stale PostgREST schema cache: insert without settings_json, then PATCH settings.
+        logger.warning(
+            "project_repo.supabase: insert hit schema-cache error for settings_json id=%s — "
+            "retrying minimal insert + settings update (or run NOTIFY pgrst, 'reload schema')",
+            p.id,
+        )
+        try:
+            sb.table(_TABLE).insert(row_min).execute()
+        except Exception as e2:
+            if _is_unique_violation(e2):
+                raise ProjectDuplicateIdError(str(e2)) from e2
+            logger.exception("project_repo.supabase: minimal insert failed id=%s", p.id)
             raise
-        logger.info("project_repo.supabase: created project id=%s", p.id)
-        return _dict_to_project(row)
+
+        try:
+            sb.table(_TABLE).update(
+                {"settings_json": settings_str, "updated_at": _utc_iso()},
+            ).eq("id", p.id).execute()
+            logger.info("project_repo.supabase: created project id=%s (minimal + settings patch)", p.id)
+            got = self.get_project(p.id)
+            return got if got is not None else _dict_to_project(row_full)
+        except Exception as e3:
+            if _is_schema_cache_column_error(e3):
+                logger.warning(
+                    "project_repo.supabase: settings_json still not in schema cache for id=%s — "
+                    "returning optimistic response; run NOTIFY pgrst, 'reload schema' in Supabase SQL",
+                    p.id,
+                )
+                return _dict_to_project(row_full)
+            logger.exception("project_repo.supabase: settings patch failed id=%s", p.id)
+            raise
 
     def update_project(self, project_id: str, data: Dict[str, Any]) -> Optional[Any]:
         pid = (project_id or "").strip().lower()
@@ -146,11 +200,25 @@ class ProjectRepositorySupabase:
             payload["color"] = data["color"]
         if "base_url" in data:
             payload["base_url"] = data["base_url"]
+        settings_payload: Optional[str] = None
         if "settings" in data and data["settings"] is not None:
-            payload["settings_json"] = dump_settings_json(data["settings"])
+            settings_payload = dump_settings_json(data["settings"])
+            payload["settings_json"] = settings_payload
 
         sb = self._sb()
-        sb.table(_TABLE).update(payload).eq("id", pid).execute()
+        try:
+            sb.table(_TABLE).update(payload).eq("id", pid).execute()
+        except Exception as e:
+            if settings_payload and _is_schema_cache_column_error(e):
+                logger.warning(
+                    "project_repo.supabase: PATCH settings_json blocked by schema cache id=%s — "
+                    "updating other fields only; run NOTIFY pgrst, 'reload schema'",
+                    pid,
+                )
+                rest = {k: v for k, v in payload.items() if k != "settings_json"}
+                sb.table(_TABLE).update(rest).eq("id", pid).execute()
+            else:
+                raise
         return self.get_project(pid)
 
     def delete_project(self, project_id: str) -> bool:

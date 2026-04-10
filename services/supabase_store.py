@@ -191,7 +191,20 @@ def supabase_client():
 
     try:
         from supabase import create_client  # type: ignore
-        _supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        from supabase.lib.client_options import SyncClientOptions
+
+        # supabase-js supports schema_cache_ttl=0; supabase-py 2.10 has no equivalent — PostgREST
+        # schema cache lives on the Supabase API. After DDL (e.g. ADD COLUMN), run in SQL editor:
+        #   NOTIFY pgrst, 'reload schema';
+        _base = SyncClientOptions()
+        opts = SyncClientOptions(
+            headers={
+                **_base.headers,
+                # Best-effort for intermediaries; does not replace NOTIFY on the server.
+                "Cache-Control": "no-cache",
+            },
+        )
+        _supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, options=opts)
         return _supabase
     except Exception as e:
         cat = _classify_supabase_exception(e)
