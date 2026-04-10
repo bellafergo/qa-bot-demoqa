@@ -58,6 +58,44 @@ def test_fill_without_selector_still_invalid():
     assert any(e.error_type == "missing_selector" for e in vr.errors)
 
 
+def test_legacy_loc_only_fill_click_batch_catalog_path():
+    """
+    Orquestador / POST /execution/run-batch → catalog_service.run_test_case → _execute:
+    mismos pasos que _build_runner_steps + prepare_web_steps_for_execution + validate_steps.
+    JSON antiguo a veces guarda localizador en `loc` / `locator` sin `selector`.
+    """
+    from models.test_case import TestCase, TestStep
+
+    tc = TestCase(
+        test_case_id="TC-BATCH-LEG-001",
+        name="batch legacy loc",
+        module="tos",
+        type="smoke",
+        priority="low",
+        base_url="https://example.com",
+        steps=[
+            TestStep.model_validate({"action": "goto", "url": "https://example.com"}),
+            TestStep.model_validate({"action": "fill", "loc": "#email", "value": "a@b.c"}),
+            TestStep.model_validate({"action": "click", "locator": "#submit"}),
+        ],
+        assertions=[],
+    )
+    from core.step_normalizer import prepare_web_steps_for_execution
+    from core.step_validator import validate_steps
+    from services.test_catalog_service import _build_runner_steps
+
+    built = _build_runner_steps(tc, base_url="https://example.com")
+    prep = prepare_web_steps_for_execution(built)
+    vr = validate_steps(prep)
+    assert vr.valid, [e.message for e in vr.errors]
+    fill_s = next(s for s in prep if s.get("action") == "fill")
+    click_s = next(s for s in prep if s.get("action") == "click")
+    assert fill_s["selector"] == "#email"
+    assert fill_s["target"]["primary"] == "#email"
+    assert click_s["selector"] == "#submit"
+    assert click_s["target"]["primary"] == "#submit"
+
+
 def test_catalog_built_legacy_steps_pass_validation():
     """Simulates historical JSON: fill/click with selector only after _step_to_runner."""
     from models.test_case import TestCase, TestStep

@@ -32,7 +32,7 @@ from services.failure_classifier import classify_failure
 from services.memory_store import save_memory, load_memory  # ✅ fix real
 
 from core.settings import settings
-from core.step_normalizer import enrich_missing_web_targets
+from core.step_normalizer import prepare_web_steps_for_execution
 from core.target_url_validation import TargetURLNotAllowed, validate_steps_navigation_urls
 from core.dom_analyzer import extract_dom_inventory
 from core.selector_resolver import (
@@ -204,7 +204,7 @@ def execute_test(
             "page_context": None,
         }
 
-    steps = enrich_missing_web_targets(list(steps))
+    steps = prepare_web_steps_for_execution(list(steps))
 
     try:
         validate_steps_navigation_urls(steps, base_url)

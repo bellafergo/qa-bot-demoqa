@@ -30,7 +30,7 @@ from models.test_case import TestCase, TestCaseCreate, TestStep, TestAssertion
 from models.test_run import TestRun, SuiteRunResult
 from services.db.catalog_repository import catalog_repo
 from services.db.test_run_repository import test_run_repo
-from core.step_normalizer import enrich_missing_web_targets
+from core.step_normalizer import prepare_web_steps_for_execution
 
 logger = logging.getLogger("vanya.test_catalog")
 
@@ -863,7 +863,7 @@ class TestCatalogService:
             vr = validate_steps(steps, runner_kind="desktop")
         else:
             steps = _build_runner_steps(tc, base_url=base_url)
-            steps = enrich_missing_web_targets(steps)
+            steps = prepare_web_steps_for_execution(steps)
             vr = validate_steps(
                 steps,
                 runner_kind="api" if tc_test_type == "api" else "web",

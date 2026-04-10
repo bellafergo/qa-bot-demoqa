@@ -21,7 +21,7 @@ from core.step_compiler import (
     compile_to_runner_steps,
     ensure_has_assert,
 )
-from core.step_normalizer import enrich_missing_web_targets
+from core.step_normalizer import prepare_web_steps_for_execution
 from core.step_validator import validate_steps
 from services.run_mapper import normalize_run
 
@@ -232,7 +232,7 @@ def execute_text_endpoint(req: ExecuteTextRequest, request: Request) -> Dict[str
             "error_type": "no_compiled_steps",
         }
 
-    steps = enrich_missing_web_targets(steps)
+    steps = prepare_web_steps_for_execution(steps)
     validation = validate_steps(steps)
     if not validation.valid:
         err_msgs = [

@@ -355,6 +355,8 @@ def _run_single_test(
                     }
                 )
 
+            # Catálogo UI: TestCatalogService._execute → prepare_web_steps_for_execution
+            # + validate_steps + execute_test (misma tubería que GET/POST /tests síncronos).
             run = catalog_service.run_test_case(
                 tc_id,
                 environment=job.environment,

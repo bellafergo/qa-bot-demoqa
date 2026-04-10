@@ -27,6 +27,21 @@ _WEB_TARGET_ACTIONS: frozenset = frozenset({
     "assert_text_contains",
 })
 
+# Localizador CSS suelto en JSON legacy (validate_steps solo mira selector / target.primary).
+_LEGACY_LOCATOR_KEYS: tuple = ("loc", "locator", "css", "element")
+
+
+def _resolve_web_step_selector(step: Dict[str, Any]) -> str:
+    """Selector efectivo: `selector` o claves legacy usadas en catálogo antiguo."""
+    s = str(step.get("selector") or "").strip()
+    if s:
+        return s
+    for key in _LEGACY_LOCATOR_KEYS:
+        v = step.get(key)
+        if v is not None and str(v).strip():
+            return str(v).strip()
+    return ""
+
 # Compiled patterns for conservative fallback inference
 _RE_ID = re.compile(r'^#([\w-]+)$')
 _RE_NAME = re.compile(r'^\[name=["\']([^"\']+)["\']\]$')
@@ -226,12 +241,12 @@ def enrich_missing_web_targets(steps: List[Dict[str, Any]]) -> List[Dict[str, An
     """
     Backward compatibility for catalog / API steps saved without structured `target`.
 
-    For web UI actions, if `selector` is non-empty but `target.primary` is missing
-    (or empty), attach a minimal target dict. Does not replace steps that already
-    have a non-empty primary.
+    For web UI actions, if `target.primary` is missing (or empty) but hay un localizador
+    en `selector` **o** en claves legacy (`loc`, `locator`, `css`, `element`):
+      - copia ese valor a `selector` si faltaba (para validate_steps y _selector_from_step)
+      - adjunta `target` mínimo con primary = ese selector.
 
-    Shape (per legacy batch-runner contract):
-      {"primary": <selector>, "fallbacks": [], "timeout_ms": 5000, "state": "visible"}
+    No reemplaza steps que ya tienen `target.primary` no vacío.
     """
     out: List[Dict[str, Any]] = []
     for step in steps or []:
@@ -245,13 +260,15 @@ def enrich_missing_web_targets(steps: List[Dict[str, Any]]) -> List[Dict[str, An
         if _has_nonempty_target_primary(step.get("target")):
             out.append(step)
             continue
-        selector = str(step.get("selector") or "").strip()
-        if not selector:
+        sel = _resolve_web_step_selector(step)
+        if not sel:
             out.append(step)
             continue
         upgraded = dict(step)
+        if not str(upgraded.get("selector") or "").strip():
+            upgraded["selector"] = sel
         upgraded["target"] = {
-            "primary": selector,
+            "primary": sel,
             "fallbacks": [],
             "timeout_ms": 5000,
             "state": "visible",
@@ -262,6 +279,14 @@ def enrich_missing_web_targets(steps: List[Dict[str, Any]]) -> List[Dict[str, An
 
 # Alias for callers that prefer "legacy" naming.
 normalize_legacy_steps = enrich_missing_web_targets
+
+
+def prepare_web_steps_for_execution(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Punto único recomendado antes de ``validate_steps`` / ``execute_test`` para steps web
+    (catálogo, jobs, planner). Equivale a :func:`enrich_missing_web_targets`.
+    """
+    return enrich_missing_web_targets(steps)
 
 
 def normalize_steps_to_target(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
