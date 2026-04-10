@@ -147,12 +147,24 @@ CREATE TABLE IF NOT EXISTS public.test_cases (
   base_url         TEXT,
   steps_json       TEXT NOT NULL DEFAULT '[]',
   assertions_json  TEXT NOT NULL DEFAULT '[]',
+  created_from     TEXT,
+  source_run_id    TEXT,
   created_at       TEXT NOT NULL,
-  updated_at       TEXT NOT NULL
+  updated_at     TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_test_cases_status ON public.test_cases (status);
 CREATE INDEX IF NOT EXISTS idx_test_cases_project_id ON public.test_cases (project_id);
+
+-- Paridad con SQLite: tests creados desde run (dedupe por source_run_id)
+ALTER TABLE public.test_cases ADD COLUMN IF NOT EXISTS created_from TEXT;
+ALTER TABLE public.test_cases ADD COLUMN IF NOT EXISTS source_run_id TEXT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_test_cases_source_run_id
+  ON public.test_cases (source_run_id)
+  WHERE source_run_id IS NOT NULL AND btrim(source_run_id) <> '';
+
+CREATE INDEX IF NOT EXISTS idx_test_cases_source_run_id_lookup ON public.test_cases (source_run_id);
 
 CREATE TABLE IF NOT EXISTS public.test_runs (
   run_id             TEXT PRIMARY KEY,
