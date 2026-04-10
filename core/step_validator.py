@@ -47,7 +47,6 @@ _SELECTOR_REQUIRED: frozenset = frozenset({
     "uncheck",
     "assert_visible",
     "assert_not_visible",
-    "assert_text_contains",
 })
 
 # Actions that require url or value
@@ -58,6 +57,12 @@ _KEY_REQUIRED: frozenset = frozenset({"press"})
 
 # Actions that require ms
 _MS_SUGGESTED: frozenset = frozenset({"wait_ms"})
+
+# Actions that require a text/expected value (not a selector)
+_TEXT_REQUIRED: frozenset = frozenset({
+    "assert_text_contains",
+    "assert_text_not_contains",
+})
 
 # Desktop: steps that need a control/window target (string)
 _DESKTOP_TARGET_ACTIONS: frozenset = frozenset({
@@ -223,7 +228,17 @@ def _validate_web_steps(steps: List[Dict[str, Any]]) -> StepValidationResult:
                     hint="Provide target.primary inside the 'target' dict.",
                 ))
 
-        # ── 6. Key required ────────────────────────────────────────────────
+        # ── 6. Text required ──────────────────────────────────────────────
+        if action in _TEXT_REQUIRED and not step.get("text"):
+            errors.append(StepValidationError(
+                step_index=i, action=action,
+                error_type="missing_required_field",
+                message=f"Action '{action}' requires 'text'.",
+                field="text",
+                hint="Add step['text'] with the string to assert (e.g. 'Welcome').",
+            ))
+
+        # ── 7. Key required ────────────────────────────────────────────────
         if action in _KEY_REQUIRED and not step.get("key"):
             errors.append(StepValidationError(
                 step_index=i, action=action,
