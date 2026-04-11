@@ -163,8 +163,8 @@ def list_qa_runs_canonical(
         from services.db.catalog_repository import catalog_repo
 
         allowed = catalog_repo.list_test_case_ids_for_project(project_id)
-        if not allowed:
-            return []
+        # Do NOT return early when allowed is empty: rows with meta.project_id
+        # or unassigned rows may still qualify for this project.
 
     try:
         from services.supabase_store import supabase_client
@@ -196,8 +196,21 @@ def list_qa_runs_canonical(
         else:
             if tc == "_async":
                 continue
-        if allowed is not None and tc not in allowed:
-            continue
+        if project_id:
+            row_project = meta.get("project_id") if isinstance(meta, dict) else None
+            if row_project:
+                # Row has explicit project association — use it as the authority.
+                if row_project != project_id:
+                    continue  # belongs to a different project
+            else:
+                # No explicit project in meta: fall back to catalog linkage.
+                # If catalog data is available and the test_case_id is known to
+                # belong to a DIFFERENT project (i.e. allowed is non-empty and tc
+                # is not in it), exclude the row.  Otherwise treat as unassigned
+                # and include conservatively — it was dropped only due to missing
+                # project metadata, not because it belongs elsewhere.
+                if allowed and tc and tc not in allowed:
+                    continue
         try:
             cr = canonical_from_qa_row(row)
             if cr.artifacts:

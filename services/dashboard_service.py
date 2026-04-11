@@ -27,6 +27,7 @@ from models.orchestrator_job import OrchestratorJob
 from services.db.catalog_repository import catalog_repo
 from services.db.test_run_repository import test_run_repo
 from services.db.orchestrator_job_repository import orch_job_repo
+from services.qa_runs_read import list_qa_runs_canonical, supabase_qa_runs_enabled
 
 logger = logging.getLogger("vanya.dashboard")
 
@@ -69,16 +70,35 @@ class DashboardService:
             run_by_status = test_run_repo.count_by_status()
             tc_ids: Set[str] = set()
 
-        pass_runs  = run_by_status.get("pass",  0)
-        fail_runs  = run_by_status.get("fail",  0)
-        error_runs = run_by_status.get("error", 0)
-        total_runs = sum(run_by_status.values())
-        if pid and not tc_ids:
+        if supabase_qa_runs_enabled():
+            # Use qa_runs (Supabase) as the source of truth for run counts so
+            # dashboard and the Runs page read from the same table.
+            sb_runs = list_qa_runs_canonical(limit=500, project_id=pid)
+            pass_runs = fail_runs = error_runs = 0
             last_run_at = None
-        elif pid:
-            last_run_at = test_run_repo.get_last_executed_at(test_case_ids=tc_ids)
+            for r in sb_runs:
+                s = (r.status or "").lower()
+                if s in ("pass", "passed", "completed"):
+                    pass_runs += 1
+                elif s in ("fail", "failed"):
+                    fail_runs += 1
+                elif s == "error":
+                    error_runs += 1
+                ts = r.started_at or getattr(r, "created_at", None)
+                if ts and (last_run_at is None or ts > last_run_at):
+                    last_run_at = ts
+            total_runs = pass_runs + fail_runs + error_runs
         else:
-            last_run_at = test_run_repo.get_last_executed_at()
+            pass_runs  = run_by_status.get("pass",  0)
+            fail_runs  = run_by_status.get("fail",  0)
+            error_runs = run_by_status.get("error", 0)
+            total_runs = sum(run_by_status.values())
+            if pid and not tc_ids:
+                last_run_at = None
+            elif pid:
+                last_run_at = test_run_repo.get_last_executed_at(test_case_ids=tc_ids)
+            else:
+                last_run_at = test_run_repo.get_last_executed_at()
 
         # Jobs
         job_by_status = orch_job_repo.count_by_status(project_id=pid)

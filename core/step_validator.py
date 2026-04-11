@@ -62,6 +62,7 @@ _MS_SUGGESTED: frozenset = frozenset({"wait_ms"})
 _TEXT_REQUIRED: frozenset = frozenset({
     "assert_text_contains",
     "assert_text_not_contains",
+    "assert_url_contains",
 })
 
 # Desktop: steps that need a control/window target (string)

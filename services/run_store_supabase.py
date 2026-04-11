@@ -69,7 +69,15 @@ def persist_run_supabase(run_payload: Dict[str, Any]) -> bool:
         return False
 
     meta = run_payload.get("meta") if isinstance(run_payload.get("meta"), dict) else {}
-    meta = meta if isinstance(meta, dict) else {}
+    meta = dict(meta) if isinstance(meta, dict) else {}  # mutable copy — never mutate caller's dict
+
+    # Enrich meta with project association from run_payload top-level keys.
+    # Only write if the key is absent in meta — never overwrite existing values.
+    for _key in ("project_id", "client_id", "workspace_id", "thread_id", "correlation_id"):
+        if not meta.get(_key):
+            _val = _safe_str(run_payload.get(_key))
+            if _val:
+                meta[_key] = _val
 
     # tags: soporta meta.tags/meta.suites/run_payload.tags
     tags = _normalize_tags(meta.get("tags") or meta.get("suites") or run_payload.get("tags"))
