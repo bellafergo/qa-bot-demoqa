@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any, Dict, Optional, List
 
 from supabase import create_client, Client
+
+logger = logging.getLogger(__name__)
 
 
 def _safe_str(x: Any) -> str:
@@ -105,6 +108,8 @@ def persist_run_supabase(run_payload: Dict[str, Any]) -> bool:
     row = {
         "evidence_id": evid,
         "status": status,
+        "test_name": _safe_str(run_payload.get("test_name")) or None,
+        "steps": steps or [],
         "duration_ms": duration_ms,
         "mode": mode or None,
         "persona": persona or None,
@@ -126,5 +131,6 @@ def persist_run_supabase(run_payload: Dict[str, Any]) -> bool:
         # upsert por evidence_id
         sb.table("qa_runs").upsert(row, on_conflict="evidence_id").execute()
         return True
-    except Exception:
+    except Exception as e:
+        logger.error("persist_run_supabase: upsert failed for evidence_id=%r — %s", evid, e)
         return False
