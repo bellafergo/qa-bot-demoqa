@@ -22,6 +22,16 @@ import { useProject } from "../context/ProjectContext.jsx";
 // Tab identifiers — rendered via t() in the component
 const TAB_KEYS = ["runs.tab.history", "runs.tab.lookup"];
 
+/**
+ * Prefer evidence_id for GET /runs/{id} and GET /test-runs/{id} (Supabase qa_runs PK).
+ * Falls back to run_id when evidence_id is absent (older rows).
+ */
+function runPersistedLookupId(run) {
+  if (!run) return "";
+  const ev = run.evidence_id != null ? String(run.evidence_id).trim() : "";
+  return ev || run.run_id || "";
+}
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 function statusBadgeClass(status) {
@@ -834,7 +844,7 @@ function RunHistoryTab({ initialRunId }) {
   const [runs, setRuns]             = useState([]);
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState("");
-  const [selected, setSelected]     = useState(null); // run_id
+  const [selected, setSelected]     = useState(null); // evidence_id || run_id (API lookup)
   const [detail, setDetail]         = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const autoOpenedRef    = useRef(false);
@@ -909,14 +919,14 @@ function RunHistoryTab({ initialRunId }) {
     }
   }, [selected, runs]);
 
-  async function openDetail(run_id) {
-    setSelected(run_id);
+  async function openDetail(lookupId) {
+    setSelected(lookupId);
     setDetail(null);
     setRcaResult(null);
     setRiskResult(null);
     setDetailLoading(true);
     try {
-      const d = await getTestRun(run_id);
+      const d = await getTestRun(lookupId);
       setDetail(d);
     } catch (e) {
       setDetail({ error: apiErrorMessage(e) });
@@ -1090,19 +1100,21 @@ function RunHistoryTab({ initialRunId }) {
                 <th>{t("runs.history.col.created")}</th>
               </tr></thead>
               <tbody>
-                {filteredRuns.map((r, i) => (
+                {filteredRuns.map((r, i) => {
+                  const lookupId = runPersistedLookupId(r);
+                  return (
                   <tr
-                    key={r.run_id || i}
-                    ref={r.run_id === selected ? selectedRowRef : null}
+                    key={lookupId || r.run_id || i}
+                    ref={lookupId === selected ? selectedRowRef : null}
                     style={{
                       cursor: "pointer",
-                      background: selected === r.run_id ? "var(--accent-light)" : undefined,
-                      borderLeft: selected === r.run_id ? "3px solid var(--accent)" : "3px solid transparent",
+                      background: selected === lookupId ? "var(--accent-light)" : undefined,
+                      borderLeft: selected === lookupId ? "3px solid var(--accent)" : "3px solid transparent",
                     }}
-                    onClick={() => openDetail(r.run_id)}
+                    onClick={() => lookupId && openDetail(lookupId)}
                   >
                     <td style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-2)" }}>
-                      {(r.run_id || "").slice(0, 14)}…
+                      {(lookupId || "").slice(0, 14)}…
                     </td>
                     <td style={{ fontWeight: 600, fontSize: 13 }}>
                       <span style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -1159,7 +1171,8 @@ function RunHistoryTab({ initialRunId }) {
                     <td style={{ fontSize: 12, color: "var(--text-3)" }}>{fmtMs(r.duration_ms)}</td>
                     <td style={{ fontSize: 11, color: "var(--text-3)", whiteSpace: "nowrap" }}>{fmtDate(r.started_at || r.created_at)}</td>
                   </tr>
-                ))}
+                );
+                })}
               </tbody>
             </table>
           )}
@@ -1191,7 +1204,10 @@ function RunHistoryTab({ initialRunId }) {
             ) : detail ? (
               <>
                 <div style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-3)", marginBottom: 8, wordBreak: "break-all" }}>
-                  {detail.run_id}
+                  {runPersistedLookupId(detail)}
+                  {detail.run_id && detail.evidence_id && String(detail.run_id) !== String(detail.evidence_id) ? (
+                    <span style={{ color: "var(--text-4)", marginLeft: 6 }} title="run_id">· {detail.run_id}</span>
+                  ) : null}
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
                   <span className={statusBadgeClass(detail.status)}>{statusBadgeText(detail.status)}</span>

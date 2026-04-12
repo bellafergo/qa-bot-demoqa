@@ -4,7 +4,8 @@
  * GET /evidences  (lean projection — no screenshot_b64, no blobs)
  *
  * Full run payload is loaded in-app via GET /runs/{id}?format=json (authenticated).
- * This list view stays lean; open "View Evidence" navigates to /evidence/run/:runId.
+ * This list view stays lean; open "View Evidence" navigates to /evidence/run/:id using
+ * evidence_id when present (GET /runs/{id}), else run_id.
  */
 import React, { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
@@ -352,8 +353,8 @@ export default function EvidencePage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(r => (
-                  <EvidenceRow key={r.run_id} row={r} t={t} navigate={navigate} />
+                {filtered.map((r, idx) => (
+                  <EvidenceRow key={r.evidence_id || r.run_id || idx} row={r} t={t} navigate={navigate} />
                 ))}
               </tbody>
             </table>
@@ -377,7 +378,13 @@ export default function EvidencePage() {
 
 // ── row component ─────────────────────────────────────────────────────────────
 
+function evidenceDetailRouteId(row) {
+  const ev = row?.evidence_id != null ? String(row.evidence_id).trim() : "";
+  return ev || row?.run_id || "";
+}
+
 function EvidenceRow({ row, t, navigate }) {
+  const detailId = evidenceDetailRouteId(row);
   const { evidenceUrl, reportUrl } = getCanonicalEvidenceUrls(row);
   const correlationId = getCorrelationId(row);
   const stepsCount = getStepsCount(row);
@@ -459,9 +466,9 @@ function EvidenceRow({ row, t, navigate }) {
       {/* Actions */}
       <td>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {row.run_id ? (
+          {detailId ? (
             <Link
-              to={`/evidence/run/${encodeURIComponent(row.run_id)}`}
+              to={`/evidence/run/${encodeURIComponent(detailId)}`}
               className="btn btn-secondary btn-sm"
             >
               {t("ev.action.view")}
@@ -490,11 +497,11 @@ function EvidenceRow({ row, t, navigate }) {
               Evidence ↗
             </a>
           )}
-          {row.run_id && navigate && (
+          {detailId && navigate && (
             <button
               className="btn btn-secondary btn-sm"
               style={{ fontSize: 11 }}
-              onClick={() => navigate("/runs", { state: { tab: 0, run_id: row.run_id } })}
+              onClick={() => navigate("/runs", { state: { tab: 0, run_id: detailId } })}
             >
               {t("ev.view_run")}
             </button>

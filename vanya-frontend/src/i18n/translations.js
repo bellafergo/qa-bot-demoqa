@@ -642,8 +642,8 @@ export const translations = {
     "runs.clusters.col.count":  "Count",
 
     "runs.lookup.title":       "Evidence Lookup",
-    "runs.lookup.subtitle":    "Retrieve test execution results by evidence ID",
-    "runs.lookup.placeholder": "Evidence ID (e.g., EV-abc123…)",
+    "runs.lookup.subtitle":    "Enter the evidence ID shown in the app (e.g. TC-…). That is the ID GET /runs/{id} uses. You can also try the run UUID if the row has no evidence ID.",
+    "runs.lookup.placeholder": "Evidence ID (TC-…) or run UUID",
     "runs.lookup.loading":     "Loading…",
     "runs.lookup.fetch":       "Fetch Run",
 
@@ -680,7 +680,7 @@ export const translations = {
     "runs.history.refresh":        "↻ Refresh",
     "runs.history.none":           "No runs recorded yet.",
     "runs.history.error":          "Failed to load runs",
-    "runs.history.col.run_id":     "Run ID",
+    "runs.history.col.run_id":     "Evidence / Run ID",
     "runs.history.col.test_case":  "Test Case",
     "runs.history.col.status":     "Status",
     "runs.history.col.duration":   "Duration",
@@ -2014,8 +2014,8 @@ export const translations = {
     "runs.clusters.col.count":  "Cantidad",
 
     "runs.lookup.title":       "Búsqueda de Evidencia",
-    "runs.lookup.subtitle":    "Recuperar resultados de ejecución por ID de evidencia",
-    "runs.lookup.placeholder": "ID de Evidencia (ej. EV-abc123…)",
+    "runs.lookup.subtitle":    "Usá el ID de evidencia que muestra la app (ej. TC-…); es el que usa GET /runs/{id}. Si no hay evidencia, probá el UUID de ejecución.",
+    "runs.lookup.placeholder": "ID de evidencia (TC-…) o UUID de ejecución",
     "runs.lookup.loading":     "Cargando…",
     "runs.lookup.fetch":       "Buscar Ejecución",
 
@@ -2052,7 +2052,7 @@ export const translations = {
     "runs.history.refresh":        "↻ Actualizar",
     "runs.history.none":           "Sin ejecuciones registradas aún.",
     "runs.history.error":          "Error al cargar ejecuciones",
-    "runs.history.col.run_id":     "ID de Ejecución",
+    "runs.history.col.run_id":     "Evidencia / ID ejecución",
     "runs.history.col.test_case":  "Caso de Prueba",
     "runs.history.col.status":     "Estado",
     "runs.history.col.duration":   "Duración",

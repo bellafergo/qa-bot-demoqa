@@ -588,16 +588,18 @@ export default function ExecutionPage() {
                         <th style={{ width: 80 }}>{t("exec.detail.col.duration")}</th>
                       </tr></thead>
                       <tbody>
-                        {jobDetail.results.map((r, i) => (
+                        {jobDetail.results.map((r, i) => {
+                          const runOpenId = r.evidence_id || r.run_id;
+                          return (
                           <tr
                             key={i}
-                            style={{ cursor: r.run_id ? "pointer" : "default" }}
-                            title={r.run_id ? t("exec.detail.open_run_tip") : undefined}
-                            onClick={() => r.run_id && navigate("/runs", { state: { tab: 0, run_id: r.run_id } })}
+                            style={{ cursor: runOpenId ? "pointer" : "default" }}
+                            title={runOpenId ? t("exec.detail.open_run_tip") : undefined}
+                            onClick={() => runOpenId && navigate("/runs", { state: { tab: 0, run_id: runOpenId } })}
                           >
                             <td style={{ fontFamily: "monospace" }}>
                               {r.test_case_id || "—"}
-                              {r.run_id && (
+                              {runOpenId && (
                                 <span style={{ marginLeft: 6, fontSize: 10, color: "var(--accent)", opacity: 0.7 }}>↗</span>
                               )}
                             </td>
@@ -605,7 +607,8 @@ export default function ExecutionPage() {
                             <td style={{ color: "var(--text-3)" }}>{r.attempt ?? 1}</td>
                             <td style={{ color: "var(--text-3)" }}>{fmtMs(r.duration_ms)}</td>
                           </tr>
-                        ))}
+                        );
+                        })}
                       </tbody>
                     </table>
                   )}
