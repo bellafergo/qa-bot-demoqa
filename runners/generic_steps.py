@@ -319,7 +319,14 @@ def execute_test(
 
         return {"intent": intent, "primary": primary}
 
-    def _resolve(step: Dict[str, Any], page, selector: str, inferred_base_url: Optional[str], step_index: int = -1):
+    def _resolve(
+        step: Dict[str, Any],
+        page,
+        selector: str,
+        inferred_base_url: Optional[str],
+        step_index: int = -1,
+        element_state: str = "visible",
+    ):
         domain = _domain_from_page(page, inferred_base_url)
         target = _build_target(step, selector)
         intent = _safe_str(target.get("intent") or "unknown") or "unknown"
@@ -378,6 +385,8 @@ def execute_test(
             target,
             domain=domain,
             timeout_ms=target.get("timeout_ms"),
+            step=step,
+            element_state=element_state,
         )
 
         logger.debug(
@@ -408,6 +417,10 @@ def execute_test(
             "fallback_index": res_meta.get("fallback_index"),
             "fallback_type": res_meta.get("fallback_type"),
             "attempts": res_meta.get("attempts"),
+            "confidence": res_meta.get("confidence"),
+            "healing_auto_applied": res_meta.get("healing_auto_applied"),
+            "healing_reason": res_meta.get("healing_reason"),
+            "element_state": element_state,
             "url": page_ctx.get("url"),
             "element": elem_ctx,
         })
@@ -421,6 +434,9 @@ def execute_test(
                 "healed_selector":  resolved_selector,
                 "healing_strategy": used,
                 "fallback_index":   res_meta.get("fallback_index"),
+                "confidence":       res_meta.get("confidence"),
+                "healing_auto_applied": res_meta.get("healing_auto_applied"),
+                "healing_reason":   res_meta.get("healing_reason"),
                 "domain":           domain,
                 "timestamp":        _now_ms(),
                 "step_index":       step_index,
@@ -634,12 +650,31 @@ def execute_test(
                             _raise_classified(e, page, inferred_base_url, action, sel, step)
 
                     if action == "assert_not_visible":
-                        loc = page.locator(sel)
-                        if loc.is_visible():
-                            raise AssertionError(f"assert_not_visible falló: se mostró {sel}")
-                        _record_step(i, step, "passed")
-                        cap.capture_step_screenshot(page, i, action)
-                        continue
+                        try:
+                            locator, used, domain, intent = _resolve(
+                                step,
+                                page,
+                                sel,
+                                inferred_base_url,
+                                step_index=i,
+                                element_state="attached",
+                            )
+                            _rs = resolution_log[-1].get("resolved") if resolution_log else sel
+                            if locator.is_visible():
+                                raise AssertionError(
+                                    f"assert_not_visible falló: se mostró elemento "
+                                    f"(used={used!r} resolved={_rs!r})"
+                                )
+                            _record_step(
+                                i,
+                                step,
+                                "passed",
+                                extra={"locator_used": used, "intent": intent, "domain": domain},
+                            )
+                            cap.capture_step_screenshot(page, i, action)
+                            continue
+                        except Exception as e:
+                            _raise_classified(e, page, inferred_base_url, action, sel, step)
 
                     if action == "assert_url_contains":
                         needle = _safe_str(step.get("value") or step.get("text") or step.get("contains") or "").strip()

@@ -30,6 +30,7 @@ def _ok_loc():
     """Locator whose wait_for always succeeds."""
     loc = MagicMock()
     loc.wait_for.return_value = None
+    loc.count = MagicMock(return_value=1)
     loc.first = MagicMock()
     loc.first.wait_for.return_value = None
     return loc
@@ -39,6 +40,7 @@ def _fail_loc():
     """Locator whose wait_for always raises."""
     loc = MagicMock()
     loc.wait_for.side_effect = Exception("element not found")
+    loc.count = MagicMock(return_value=0)
     loc.first = MagicMock()
     loc.first.wait_for.side_effect = Exception("element not found")
     return loc
@@ -302,6 +304,51 @@ def test_only_unsupported_types_classification():
     except Exception as e:
         payload = e.args[0]
         assert payload["classification"] == "unsupported_fallback_type"
+
+
+# ============================================================
+# Conservative auto-heal (after primary + declared fallbacks)
+# ============================================================
+
+def test_auto_heal_data_testid_after_primary_and_fallbacks_fail():
+    page = _page_all_fail()
+    ok = _ok_loc()
+
+    def locator_side(sel):
+        return ok if sel == ".win" else _fail_loc()
+
+    page.locator.side_effect = locator_side
+    page.get_by_test_id.side_effect = lambda tid: ok if tid == "submit" else _fail_loc()
+
+    target = {
+        "primary": "[data-testid=\"submit\"].gone",
+        "fallbacks": [{"type": "css", "value": ".no"}],
+    }
+    _, used, resolved, meta = resolve_locator(page, target, step={"action": "click"})
+    assert used == "auto_data_testid_attr"
+    assert resolved == "testid=submit"
+    assert meta.get("confidence", 0) >= 0.85
+    assert meta.get("healing_auto_applied") is True
+    assert meta.get("attempts") == 3
+
+
+def test_auto_heal_skipped_for_non_allowlisted_action():
+    page = _page_all_fail()
+    called: list = []
+
+    def gbt(tid):
+        called.append(tid)
+        return _ok_loc()
+
+    page.get_by_test_id.side_effect = gbt
+    target = {"primary": "div[data-testid=\"x\"]", "fallbacks": []}
+    try:
+        resolve_locator(page, target, step={"action": "goto"})
+        assert False, "expected locator_not_found"
+    except Exception as e:
+        payload = e.args[0]
+        assert payload.get("reason") == "locator_not_found"
+    assert called == []
 
 
 # ============================================================
