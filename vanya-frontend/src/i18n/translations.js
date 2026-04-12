@@ -426,6 +426,12 @@ export const translations = {
     "dash.no_jobs":             "No jobs yet.",
     "dash.run_batch":           "Run a batch →",
 
+    "dashboard.project_capacity": "Project Capacity",
+    "dashboard.running":          "Running",
+    "dashboard.queued":           "Queued",
+    "dashboard.reserved":         "Reserved",
+    "dashboard.max":              "Max concurrent",
+
     "dash.col.test_case": "Test Case",
     "dash.col.status":    "Status",
     "dash.col.duration":  "Duration",
@@ -1856,6 +1862,12 @@ export const translations = {
     "dash.run_a_test":          "Ejecutar prueba →",
     "dash.no_jobs":             "Sin jobs aún.",
     "dash.run_batch":           "Ejecutar batch →",
+
+    "dashboard.project_capacity": "Capacidad por proyecto",
+    "dashboard.running":          "En ejecución",
+    "dashboard.queued":           "En cola",
+    "dashboard.reserved":         "Reservado",
+    "dashboard.max":              "Máx. concurrentes",
 
     "dash.col.test_case": "Caso de prueba",
     "dash.col.status":    "Estado",

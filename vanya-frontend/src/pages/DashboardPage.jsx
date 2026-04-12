@@ -12,6 +12,7 @@ import {
   getDashboardRecentJobs,
   getFailureIntel,
   getRunsAnalytics,
+  getExecStatus,
 } from "../api";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
@@ -43,6 +44,112 @@ function statusClass(s) {
 
 function isPassStatus(s) {
   return ["pass", "passed", "completed"].includes(String(s || "").toLowerCase());
+}
+
+/**
+ * Merge GET /execution/status orchestrator maps into one row per project.
+ * "reserved" is the backend dispatch slot count (proxy for in-flight jobs per project).
+ */
+function buildProjectCapacityRows(execStatus) {
+  if (!execStatus || typeof execStatus !== "object") return [];
+  const pending = execStatus.orchestrator_pending_by_project;
+  const reserved = execStatus.orchestrator_reserved_by_project;
+  const rawMax = execStatus.max_concurrent_jobs_per_project;
+  const max = typeof rawMax === "number" && rawMax > 0 ? rawMax : 2;
+  const pObj = pending && typeof pending === "object" && !Array.isArray(pending) ? pending : {};
+  const rObj = reserved && typeof reserved === "object" && !Array.isArray(reserved) ? reserved : {};
+  const ids = new Set([...Object.keys(pObj), ...Object.keys(rObj)]);
+  const rows = [];
+  for (const projectId of ids) {
+    const queued = Number(pObj[projectId]) || 0;
+    const res = Number(rObj[projectId]) || 0;
+    if (queued === 0 && res === 0) continue;
+    rows.push({ projectId, queued, reserved: res, max });
+  }
+  rows.sort((a, b) => a.projectId.localeCompare(b.projectId));
+  return rows;
+}
+
+function projectCapacityAccent(reserved, max) {
+  if (max <= 0) return { border: "var(--border)", bar: "var(--text-3)", label: "var(--text-3)" };
+  const ratio = reserved / max;
+  if (ratio >= 1) {
+    return { border: "var(--red)", bar: "var(--red)", label: "var(--red)" };
+  }
+  if (ratio >= 0.75) {
+    return { border: "var(--orange-border)", bar: "var(--orange)", label: "var(--orange-text)" };
+  }
+  return { border: "var(--green)", bar: "var(--green)", label: "var(--green)" };
+}
+
+function ProjectCapacitySection({ execStatus, projects, t }) {
+  const rows = buildProjectCapacityRows(execStatus);
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="card" style={{ padding: "20px 24px", marginBottom: 28 }}>
+      <div className="section-title" style={{ marginBottom: 16 }}>{t("dashboard.project_capacity")}</div>
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+        gap: 16,
+      }}>
+        {rows.map((row) => {
+          const name = Array.isArray(projects)
+            ? (projects.find((p) => p && p.id === row.projectId)?.name || "")
+            : "";
+          const accent = projectCapacityAccent(row.reserved, row.max);
+          const pct = Math.min(100, row.max > 0 ? (row.reserved / row.max) * 100 : 0);
+          return (
+            <div
+              key={row.projectId}
+              style={{
+                borderRadius: "var(--r-sm)",
+                border: `1px solid ${accent.border}`,
+                background: "var(--surface)",
+                padding: "14px 16px",
+                boxSizing: "border-box",
+              }}
+            >
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 600, color: "var(--text-1)" }}>
+                  {row.projectId}
+                </div>
+                {name && name !== row.projectId && (
+                  <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 3 }}>{name}</div>
+                )}
+              </div>
+
+              <div style={{ fontSize: 12, color: "var(--text-2)", marginBottom: 6 }}>
+                <strong style={{ color: "var(--text-3)", fontWeight: 500 }}>{t("dashboard.running")}:</strong>{" "}
+                <span style={{ fontWeight: 600, color: accent.label }}>{row.reserved}</span>
+                {" / "}
+                <span style={{ color: "var(--text-3)" }}>{row.max}</span>
+                <span style={{ color: "var(--text-3)", fontSize: 10, marginLeft: 4 }}>({t("dashboard.max")})</span>
+              </div>
+              <div style={{ height: 6, borderRadius: 3, background: "var(--border)", overflow: "hidden", marginBottom: 10 }}>
+                <div style={{
+                  width: `${pct}%`,
+                  height: "100%",
+                  borderRadius: 3,
+                  background: accent.bar,
+                  transition: "width 0.35s ease",
+                }} />
+              </div>
+              <div style={{ fontSize: 12, color: "var(--text-2)", marginBottom: 4 }}>
+                <strong style={{ color: "var(--text-3)", fontWeight: 500 }}>{t("dashboard.queued")}:</strong>{" "}
+                <span style={{ fontWeight: 600, color: "var(--text-1)" }}>{row.queued}</span>
+              </div>
+              <div style={{ fontSize: 12, color: "var(--text-2)" }}>
+                <strong style={{ color: "var(--text-3)", fontWeight: 500 }}>{t("dashboard.reserved")}:</strong>{" "}
+                <span style={{ fontWeight: 600, color: "var(--text-1)" }}>{row.reserved}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 // ── Visual widget: Pass Rate Trend ────────────────────────────────────────────
@@ -530,7 +637,7 @@ function WidgetCard({ title, subtitle, children }) {
 
 export default function DashboardPage() {
   const { t } = useLang();
-  const { currentProject } = useProject();
+  const { currentProject, projects } = useProject();
   const projectId = currentProject?.id;
 
   const [summary, setSummary]         = useState(null);
@@ -538,6 +645,7 @@ export default function DashboardPage() {
   const [recentJobs, setRecentJobs]   = useState([]);
   const [fi, setFi]                   = useState(null);
   const [analytics, setAnalytics]     = useState(null);
+  const [execStatus, setExecStatus]   = useState(null);
   const [loading, setLoading]         = useState(true);
   const [lastRefresh, setLastRefresh] = useState(null);
 
@@ -545,14 +653,16 @@ export default function DashboardPage() {
     setLoading(true);
     try {
       const pid = projectId;
-      const [s, runs, jobs] = await Promise.all([
+      const [s, runs, jobs, ex] = await Promise.all([
         getDashboardSummary(pid ? { project_id: pid } : {}).catch(() => null),
         getDashboardRecentRuns(10, pid).catch(() => []),
         getDashboardRecentJobs(10, pid).catch(() => []),
+        getExecStatus().catch(() => null),
       ]);
       setSummary(s);
       setRecentRuns(Array.isArray(runs) ? runs : []);
       setRecentJobs(Array.isArray(jobs) ? jobs : []);
+      setExecStatus(ex && typeof ex === "object" ? ex : null);
       setLastRefresh(new Date());
 
       // Non-critical — load separately so they don't block the main render
@@ -650,6 +760,10 @@ export default function DashboardPage() {
           <KpiCard label={t("dash.kpi.api_tests")}      value={loading ? "…" : s.total_api_tests}   sub={t("dash.kpi.in_catalog")}                                                        icon="⌥" />
           {fi && <KpiCard label={t("dash.kpi.flaky_tests")} value={fi.flaky_tests_count ?? 0} sub={`${fi.total_clusters ?? 0} ${t("dash.kpi.clusters")}`} accent={fi.flaky_tests_count > 0 ? "var(--orange)" : undefined} icon="⚠" />}
         </div>
+
+        {!loading && (
+          <ProjectCapacitySection execStatus={execStatus} projects={projects} t={t} />
+        )}
 
         {/* ── Visual row 1: Trend (2/3) + Coverage Donut (1/3) ─────────────── */}
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr)", gap: 24, marginBottom: 24 }}>
