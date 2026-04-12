@@ -135,17 +135,39 @@ def run_api_tests(req: APITestExecutionRequest):
 
     # Mode 2: run drafts directly
     from services.api_runner import run_api_test
+    from services.db.project_repository import project_repo
+    from services.project_execution_context import api_runner_credential_interpolation
 
     results: List[Dict[str, Any]] = []
+    draft_base = ""
+    draft_initial: Dict[str, Any] = {}
+    if req.project_id and str(req.project_id).strip():
+        try:
+            dp = project_repo.get_project(str(req.project_id).strip().lower())
+        except Exception:
+            dp = None
+            logger.debug(
+                "api_testing: draft run project lookup failed project_id=%s",
+                req.project_id,
+                exc_info=True,
+            )
+        else:
+            if dp is not None:
+                draft_initial = api_runner_credential_interpolation(dp)
+                dbu = getattr(dp, "base_url", None)
+                if dbu and str(dbu).strip():
+                    draft_base = str(dbu).strip().rstrip("/")
+
     for draft in (req.drafts or []):
-        base_url = ""
+        base_url = draft_base
         try:
             result = run_api_test(
-                steps       = draft.steps,
-                base_url    = base_url,
-                assertions  = draft.assertions,
-                auth_config = req.auth_config,
-                timeout_s   = 30,
+                steps               = draft.steps,
+                base_url            = base_url,
+                assertions          = draft.assertions,
+                auth_config         = req.auth_config,
+                timeout_s           = 30,
+                initial_variables   = draft_initial,
             )
             results.append({
                 "draft_id":    draft.draft_id,

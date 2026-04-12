@@ -8,7 +8,7 @@ and returns a StepValidationResult with structured errors and warnings.
 Contrato canónico (multi-runner):
   - runner_kind "web" (default): acciones en RUNNER_ACTIONS (Playwright / generic_steps).
   - runner_kind "desktop": acciones en core.runner_contract.DESKTOP_RUNNER_ACTIONS (pywinauto).
-  - runner_kind "api": request, api_request (legacy), wait_ms, assert_*, set_variable.
+  - runner_kind "api": request, api_request (legacy), nextauth_login, wait_ms, assert_*, set_variable.
 
   Acciones DSL alto (login, search, …) deben compilarse antes de validar en modo web.
 
@@ -417,6 +417,15 @@ def _validate_api_steps(steps: List[Dict[str, Any]]) -> StepValidationResult:
                     error_type="missing_required_field",
                     message="method defaults to GET if omitted.",
                     field="method",
+                ))
+
+        if action == "nextauth_login":
+            if step.get("email") is None or step.get("password") is None:
+                errors.append(StepValidationError(
+                    step_index=i, action=action,
+                    error_type="missing_required_field",
+                    message="nextauth_login requires 'email' and 'password' (e.g. {{project_email}}, {{project_password}}).",
+                    field="email",
                 ))
 
         if action == "assert_status" and step.get("expected") is None:

@@ -4,7 +4,10 @@ from __future__ import annotations
 import pytest
 
 from core.step_compiler import CompileError, resolve_interpolated_credentials
-from services.project_execution_context import execution_context_from_project
+from services.project_execution_context import (
+    api_runner_credential_interpolation,
+    execution_context_from_project,
+)
 
 
 class _FakeProject:
@@ -28,6 +31,30 @@ def test_credentials_used_when_no_project_var():
     }
     out = resolve_interpolated_credentials("{EMAIL}", ctx, purpose="t")
     assert out == "only@prompt.com"
+
+
+def test_api_runner_credential_interpolation_from_project():
+    p = _FakeProject({"variables": {"EMAIL": "p@q.co", "PASSWORD": "sec"}})
+    d = api_runner_credential_interpolation(p)
+    assert d["project_email"] == "p@q.co"
+    assert d["project_password"] == "sec"
+
+
+def test_api_runner_credential_interpolation_env_fallback(monkeypatch):
+    monkeypatch.setenv("TOS_TEST_EMAIL", "tos@x.co")
+    monkeypatch.setenv("VANYA_TEST_PASSWORD", "vanya-pw")
+    d = api_runner_credential_interpolation(None)
+    assert d["project_email"] == "tos@x.co"
+    assert d["project_password"] == "vanya-pw"
+
+
+def test_api_runner_credential_interpolation_project_wins_over_env(monkeypatch):
+    monkeypatch.setenv("VANYA_TEST_EMAIL", "env@e.co")
+    monkeypatch.setenv("VANYA_TEST_PASSWORD", "envpw")
+    p = _FakeProject({"variables": {"EMAIL": "proj@e.co", "PASSWORD": "projpw"}})
+    d = api_runner_credential_interpolation(p)
+    assert d["project_email"] == "proj@e.co"
+    assert d["project_password"] == "projpw"
 
 
 def test_execution_context_from_project_builds_maps():

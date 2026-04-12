@@ -971,13 +971,35 @@ class TestCatalogService:
         try:
             if tc_test_type == "api":
                 from runners.api_runner import run_api_test
+                from services.db.project_repository import project_repo
+                from services.project_execution_context import (
+                    api_runner_credential_interpolation,
+                )
+
+                pid = (getattr(tc, "project_id", None) or "default").strip().lower()
+                proj = None
+                try:
+                    proj = project_repo.get_project(pid)
+                except Exception:
+                    logger.debug(
+                        "test_catalog: project lookup failed for api run project_id=%s",
+                        pid,
+                        exc_info=True,
+                    )
+                api_initial = api_runner_credential_interpolation(proj)
+                api_base = (base_url or tc.base_url or "").strip().rstrip("/")
+                if not api_base and proj is not None:
+                    pb = getattr(proj, "base_url", None)
+                    if pb and str(pb).strip():
+                        api_base = str(pb).strip().rstrip("/")
                 assertions_raw = [a.model_dump() for a in tc.assertions]
                 result = run_api_test(
-                    steps      = steps,
-                    base_url   = base_url or tc.base_url or "",
-                    assertions = assertions_raw,
-                    auth_config = auth_config,
-                    timeout_s  = timeout_s or 30,
+                    steps               = steps,
+                    base_url            = api_base,
+                    assertions          = assertions_raw,
+                    auth_config         = auth_config,
+                    timeout_s           = timeout_s or 30,
+                    initial_variables   = api_initial,
                 )
             elif tc_test_type == "desktop":
                 from runners.desktop_runner import run_desktop_test

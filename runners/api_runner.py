@@ -13,7 +13,12 @@ Example flow (catalog steps JSON):
   {"action": "request", "method": "GET", "url": "{{base_url}}/api/candidates/{{first_id}}"}
   {"action": "assert_response_time", "max_ms": 2000}
 
-Legacy: action \"api_request\" with \"endpoint\" is treated like \"request\" with \"url\".
+NextAuth (Credentials) session bootstrap (cookies preserved for following request steps):
+  {"action": "nextauth_login", "email": "{{project_email}}", "password": "{{project_password}}", "base_url": "{{base_url}}"}
+  Optional: csrf_path (default /api/auth/csrf), credentials_path (/api/auth/callback/credentials),
+  callback_url (default {base_url}/).
+
+Legacy: action "api_request" with "endpoint" is treated like "request" with "url".
 After steps, optional catalog-style assertions (status_code_equals, …) are evaluated
 against the last response if provided.
 """
@@ -36,6 +41,18 @@ _ALLOWED_METHODS = frozenset(
 )
 
 _JSON_TYPES = frozenset({"array", "object", "string", "number", "boolean", "null"})
+
+
+def _mask_email_for_log(email: str) -> str:
+    e = (email or "").strip()
+    if not e:
+        return "(empty)"
+    if "@" not in e:
+        return "***"
+    local, _, domain = e.partition("@")
+    if len(local) <= 1:
+        return f"*@{domain}"
+    return f"{local[0]}***@{domain}"
 
 
 def _build_auth_headers(auth_config: Optional[Dict[str, Any]]) -> Dict[str, str]:
@@ -255,10 +272,14 @@ def run_api_test(
     assertions: Optional[List[Dict[str, Any]]] = None,
     auth_config: Optional[Dict[str, Any]] = None,
     timeout_s: int = 30,
+    initial_variables: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Run API catalog steps. Returns dict compatible with catalog execution:
     ok, status, logs, steps, duration_ms, reason, error_summary (on failure).
+
+    *initial_variables* seeds the interpolation context (e.g. project_email, project_password);
+    explicit *base_url* wins when both are set.
     """
     t0 = time.time()
     logs: List[str] = []
@@ -277,7 +298,11 @@ def run_api_test(
             "error_summary": "no steps",
         }
 
-    variables: Dict[str, Any] = {"base_url": (base_url or "").strip().rstrip("/")}
+    iv = dict(initial_variables or {})
+    merged_base = (base_url or "").strip().rstrip("/")
+    if not merged_base:
+        merged_base = str(iv.get("base_url") or "").strip().rstrip("/")
+    variables: Dict[str, Any] = {**iv, "base_url": merged_base}
     last_response: Optional[httpx.Response] = None
     last_response_json: Any = None
     last_response_time_ms: int = 0
@@ -340,7 +365,7 @@ def run_api_test(
                                 f"Unsupported HTTP method: {method!r}. Allowed: {sorted(_ALLOWED_METHODS)}"
                             )
                         url_raw = str(step.get("url") or "")
-                        url = resolve_request_url(base_url, interpolate_value(url_raw, ctx))
+                        url = resolve_request_url(merged_base, interpolate_value(url_raw, ctx))
                         headers = dict(auth_headers)
                         headers.update(interpolate_value(step.get("headers") or {}, ctx))
                         params = interpolate_value(step.get("params"), ctx) if step.get("params") else None
@@ -393,6 +418,90 @@ def run_api_test(
                                 extra={
                                     "status_code": resp.status_code,
                                     "url": url,
+                                },
+                            )
+                        )
+                        logs.append(f"[{i}] {log}")
+                        continue
+
+                    if action == "nextauth_login":
+                        email_i = str(interpolate_value(step.get("email") or "", ctx)).strip()
+                        password_i = str(interpolate_value(step.get("password") or "", ctx)).strip()
+                        if not email_i or not password_i:
+                            raise ValueError(
+                                "nextauth_login: email and password must be non-empty after interpolation "
+                                "(set project variables EMAIL/PASSWORD or env fallbacks)."
+                            )
+                        raw_step_base = step.get("base_url")
+                        if raw_step_base is not None and str(raw_step_base).strip():
+                            step_origin = str(interpolate_value(raw_step_base, ctx)).strip().rstrip(
+                                "/"
+                            )
+                        else:
+                            step_origin = str(variables.get("base_url") or "").strip().rstrip("/")
+                        if not step_origin:
+                            raise ValueError(
+                                "nextauth_login requires base_url on the run, from the project, or on the step."
+                            )
+                        csrf_path = str(
+                            interpolate_value(step.get("csrf_path") or "/api/auth/csrf", ctx)
+                        ).strip()
+                        cred_path = str(
+                            interpolate_value(
+                                step.get("credentials_path") or "/api/auth/callback/credentials",
+                                ctx,
+                            )
+                        ).strip()
+                        raw_cb = step.get("callback_url")
+                        if raw_cb is None or (isinstance(raw_cb, str) and not raw_cb.strip()):
+                            callback_url = f"{step_origin}/"
+                        else:
+                            callback_url = str(interpolate_value(raw_cb, ctx)).strip()
+                        csrf_url = resolve_request_url(step_origin, csrf_path)
+                        csrf_resp = client.get(csrf_url, timeout=default_timeout)
+                        try:
+                            csrf_json = csrf_resp.json()
+                        except Exception as e:
+                            raise ValueError(
+                                f"nextauth_login: CSRF response is not JSON (HTTP {csrf_resp.status_code})"
+                            ) from e
+                        csrf_token = (
+                            csrf_json.get("csrfToken") if isinstance(csrf_json, dict) else None
+                        )
+                        if not csrf_token:
+                            raise ValueError("nextauth_login: missing csrfToken in CSRF response")
+                        login_url = resolve_request_url(step_origin, cred_path)
+                        form: Dict[str, str] = {
+                            "csrfToken": str(csrf_token),
+                            "email": email_i,
+                            "password": password_i,
+                            "callbackUrl": callback_url,
+                            "json": "true",
+                        }
+                        tr = time.time()
+                        post_resp = client.post(login_url, data=form, timeout=default_timeout)
+                        last_response_time_ms = int((time.time() - tr) * 1000)
+                        last_response = post_resp
+                        try:
+                            last_response_json = post_resp.json()
+                        except Exception:
+                            last_response_json = None
+                        dur = int((time.time() - t_step) * 1000)
+                        em = _mask_email_for_log(email_i)
+                        log = (
+                            f"nextauth_login csrf HTTP {csrf_resp.status_code} → "
+                            f"POST credentials HTTP {post_resp.status_code} ({last_response_time_ms}ms) email={em}"
+                        )
+                        steps_result.append(
+                            _step_result(
+                                index=i,
+                                action=action,
+                                status="pass",
+                                duration_ms=dur,
+                                log=log,
+                                extra={
+                                    "status_code": post_resp.status_code,
+                                    "url": login_url,
                                 },
                             )
                         )
@@ -601,7 +710,8 @@ def run_api_test(
 
             duration_ms = int((time.time() - t0) * 1000)
             if last_response is None and not any(
-                str((s or {}).get("action") or "").lower() in ("request", "api_request")
+                str((s or {}).get("action") or "").lower()
+                in ("request", "api_request", "nextauth_login")
                 for s in (steps or [])
             ):
                 return {

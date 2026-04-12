@@ -30,6 +30,12 @@ from models.api_testing_models import (
 
 logger = logging.getLogger("vanya.api_test_generation")
 
+# Suggested NextAuth (Credentials) bootstrap when APIs rely on session cookies.
+NEXTAUTH_LOGIN_STEP_EXAMPLE = (
+    '{"action": "nextauth_login", "email": "{{project_email}}", '
+    '"password": "{{project_password}}", "base_url": "{{base_url}}"}'
+)
+
 
 # ── Module inference ──────────────────────────────────────────────────────────
 
@@ -398,6 +404,14 @@ class APITestGenerationService:
             "api_test_generation: generated %d drafts from %d endpoints",
             len(drafts), len(endpoints),
         )
+
+        if req.include_auth_tests:
+            notes.append(
+                "NextAuth session (cookie) example — prepend to protected routes: "
+                f"{NEXTAUTH_LOGIN_STEP_EXAMPLE}. "
+                "At execution time, project settings EMAIL/PASSWORD supply {{project_email}} / {{project_password}} "
+                "for catalog runs scoped to a project."
+            )
 
         return APITestGenerationResponse(
             discovered_endpoints = len(endpoints),

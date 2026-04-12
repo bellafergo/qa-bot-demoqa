@@ -925,6 +925,67 @@ class TestAuthHandling:
         assert "Authorization" not in headers
 
 
+class TestNextAuthAPIRunner:
+    def test_nextauth_login_posts_credentials(self):
+        from services.api_runner import run_api_test
+
+        csrf_r = _mock_response(200, {"csrfToken": "csrf-abc"})
+        post_r = _mock_response(200, {"ok": True})
+
+        with patch("httpx.Client") as mock_client_cls:
+            mock_client = MagicMock()
+            mock_client_cls.return_value.__enter__.return_value = mock_client
+            mock_client.get.return_value = csrf_r
+            mock_client.post.return_value = post_r
+
+            result = run_api_test(
+                steps=[
+                    {
+                        "action": "nextauth_login",
+                        "email": "{{project_email}}",
+                        "password": "{{project_password}}",
+                        "base_url": "{{base_url}}",
+                    }
+                ],
+                base_url="https://app.example.com",
+                initial_variables={
+                    "project_email": "user@example.com",
+                    "project_password": "secret-pass",
+                },
+            )
+
+        assert result.get("ok") is True
+        assert result.get("status") == "pass"
+        mock_client.get.assert_called_once()
+        mock_client.post.assert_called_once()
+        pdata = mock_client.post.call_args.kwargs.get("data") or {}
+        assert pdata.get("email") == "user@example.com"
+        assert pdata.get("password") == "secret-pass"
+        assert pdata.get("csrfToken") == "csrf-abc"
+        logs = "\n".join(result.get("logs") or [])
+        assert "secret-pass" not in logs
+        assert "user@" not in logs
+
+    def test_nextauth_login_fails_when_password_missing(self):
+        from services.api_runner import run_api_test
+
+        with patch("httpx.Client") as mock_client_cls:
+            mock_client = MagicMock()
+            mock_client_cls.return_value.__enter__.return_value = mock_client
+            result = run_api_test(
+                steps=[
+                    {
+                        "action": "nextauth_login",
+                        "email": "a@b.co",
+                        "password": "{{project_password}}",
+                    }
+                ],
+                base_url="https://app.example.com",
+                initial_variables={"project_email": "a@b.co", "project_password": ""},
+            )
+        assert result.get("ok") is False
+
+
 # ── 14. Dashboard test type counts ───────────────────────────────────────────
 
 class TestDashboardTestTypeCounts:
