@@ -689,6 +689,11 @@ export const translations = {
     "runs.detail.col.orig_sel":    "Original Selector",
     "runs.detail.col.healed_sel":  "Healed Selector",
     "runs.detail.col.strategy":    "Strategy",
+    "runs.detail.col.confidence":  "Confidence",
+    "runs.detail.step_healed_badge": "auto-healed",
+    "runs.detail.healing_kpi":     "Selector healing",
+    "runs.detail.healing_chip_title": "{{count}} step(s): primary selector missed; runner used a fallback or auto-heal.",
+    "runs.detail.healing_subtitle": "Auditable recoveries during this run. Confidence reflects how conservative the recovery was.",
     "runs.detail.logs":            "Execution Logs",
     "runs.detail.screenshot":      "Screenshot",
 
@@ -2111,6 +2116,11 @@ export const translations = {
     "runs.detail.col.orig_sel":    "Selector Original",
     "runs.detail.col.healed_sel":  "Selector Corregido",
     "runs.detail.col.strategy":    "Estrategia",
+    "runs.detail.col.confidence":  "Confianza",
+    "runs.detail.step_healed_badge": "auto-corregido",
+    "runs.detail.healing_kpi":     "Corrección de selectores",
+    "runs.detail.healing_chip_title": "{{count}} paso(s): falló el selector principal; se usó respaldo o autocorrección.",
+    "runs.detail.healing_subtitle": "Recuperaciones auditables en esta ejecución. La confianza indica qué tan conservador fue el recupero.",
     "runs.detail.logs":            "Logs de Ejecución",
     "runs.detail.screenshot":      "Captura de Pantalla",
 

@@ -433,6 +433,97 @@ function getScreenshotSrc(detail) {
   return null;
 }
 
+/** Parse backend confidence: 0–1 ratio, or 0–100 percent, or numeric string. */
+function parseConfidenceNumber(raw) {
+  if (raw == null || raw === "") return null;
+  const n = typeof raw === "number" ? raw : parseFloat(String(raw).replace(/%/g, "").trim());
+  if (!Number.isFinite(n)) return null;
+  if (n >= 0 && n <= 1) return n;
+  if (n > 1 && n <= 100) return n / 100;
+  return null;
+}
+
+/** Display + tier for styling (high / medium / low / none). */
+function formatHealingConfidence(conf) {
+  if (conf == null || !Number.isFinite(conf)) {
+    return { label: "—", detail: null, tier: "none" };
+  }
+  const pct = Math.round(conf * 100);
+  const label = `${pct}%`;
+  const detail = conf.toFixed(2);
+  let tier = "low";
+  if (conf >= 0.85) tier = "high";
+  else if (conf >= 0.5) tier = "medium";
+  return { label, detail, tier };
+}
+
+function healingConfidenceColor(tier) {
+  if (tier === "high") return "var(--green)";
+  if (tier === "medium") return "var(--orange-text)";
+  if (tier === "low") return "var(--text-3)";
+  return "var(--text-3)";
+}
+
+/**
+ * Normalize healing for the Runs detail UI.
+ * Prefers resolution_log (fallback_used); merges healing_log for missing fields or healing-only rows.
+ * stepIndex is 0-based (runner step_index).
+ */
+function collectHealingRows(run) {
+  const res = Array.isArray(run?.resolution_log) ? run.resolution_log : [];
+  const heals = Array.isArray(run?.healing_log) ? run.healing_log : [];
+  const healByStep = new Map();
+  for (const h of heals) {
+    if (h?.selector_healed && typeof h.step_index === "number") {
+      healByStep.set(h.step_index, h);
+    }
+  }
+
+  const raw = [];
+  for (const e of res) {
+    if (!e?.fallback_used) continue;
+    const si = typeof e.step_index === "number" ? e.step_index : null;
+    raw.push({ stepIndex: si, e, h: si != null ? healByStep.get(si) : undefined });
+  }
+  for (const h of heals) {
+    if (!h?.selector_healed || typeof h.step_index !== "number") continue;
+    if (raw.some((r) => r.stepIndex === h.step_index)) continue;
+    raw.push({ stepIndex: h.step_index, e: null, h });
+  }
+
+  const byStep = new Map();
+  const orphans = [];
+  for (const row of raw) {
+    if (row.stepIndex == null) {
+      orphans.push(row);
+    } else {
+      byStep.set(row.stepIndex, row);
+    }
+  }
+
+  const rows = [...byStep.values(), ...orphans].map(({ stepIndex, e, h }) => ({
+    stepIndex,
+    action: e?.action ?? h?.action ?? "—",
+    originalSelector: e?.original_selector ?? e?.primary ?? h?.original_selector ?? h?.selector ?? "—",
+    healedSelector: e?.resolved ?? h?.healed_selector ?? "—",
+    strategy: e?.fallback_type ?? e?.used ?? h?.healing_strategy ?? h?.strategy ?? "—",
+    confidenceRaw: e?.confidence ?? h?.confidence ?? null,
+    healingReason: e?.healing_reason ?? h?.healing_reason ?? null,
+  }));
+
+  rows.sort((a, b) => {
+    if (a.stepIndex == null && b.stepIndex == null) return 0;
+    if (a.stepIndex == null) return 1;
+    if (b.stepIndex == null) return -1;
+    return a.stepIndex - b.stepIndex;
+  });
+
+  return rows.map((r) => ({
+    ...r,
+    confidence: parseConfidenceNumber(r.confidenceRaw),
+  }));
+}
+
 function EvidenceCard({ detail, runType }) {
   const { t } = useLang();
   if (!detail) return null;
@@ -623,8 +714,11 @@ function FailureClustersPanel({ clusters, loading }) {
 
 export function EvidenceLookupResultView({ run }) {
   const { t } = useLang();
-  const healedEntries = (run?.resolution_log || []).filter(e => e?.fallback_used === true);
-  const hasHealing = healedEntries.length > 0;
+  const healedRows = collectHealingRows(run);
+  const hasHealing = healedRows.length > 0;
+  const healedIndexSet = new Set(
+    healedRows.map((r) => r.stepIndex).filter((i) => typeof i === "number")
+  );
 
   const passedSteps = run?.steps?.filter(s => String(s.status || "").toLowerCase().includes("pass")).length ?? 0;
   const failedSteps = run?.steps?.filter(s => {
@@ -651,8 +745,12 @@ export function EvidenceLookupResultView({ run }) {
             )}
             <CorrelationIdChip value={run.correlation_id || run.meta?.correlation_id} />
             {hasHealing && (
-              <span className="badge badge-orange" title={`${healedEntries.length} selector(s) auto-healed`}>
-                ⚡ {healedEntries.length} {t("runs.detail.auto_healed")}
+              <span
+                className="badge badge-orange"
+                style={{ fontWeight: 600, letterSpacing: "0.02em" }}
+                title={t("runs.detail.healing_chip_title", { count: healedRows.length })}
+              >
+                ⚡ {healedRows.length} {t("runs.detail.auto_healed")}
               </span>
             )}
           </div>
@@ -704,6 +802,19 @@ export function EvidenceLookupResultView({ run }) {
             {totalSteps > 0 && <div className="kpi-card"><div className="kpi-label">{t("runs.detail.total_steps")}</div><div className="kpi-value">{totalSteps}</div></div>}
             {totalSteps > 0 && <div className="kpi-card"><div className="kpi-label">{t("runs.detail.passed")}</div><div className="kpi-value" style={{ color: "var(--green)" }}>{passedSteps}</div></div>}
             {totalSteps > 0 && failedSteps > 0 && <div className="kpi-card"><div className="kpi-label">{t("runs.detail.failed")}</div><div className="kpi-value" style={{ color: "var(--red)" }}>{failedSteps}</div></div>}
+            {hasHealing && (
+              <div
+                className="kpi-card"
+                style={{
+                  borderLeft: "3px solid var(--orange-border)",
+                  background: "var(--orange-bg)",
+                }}
+                title={t("runs.detail.healing_chip_title", { count: healedRows.length })}
+              >
+                <div className="kpi-label">{t("runs.detail.healing_kpi")}</div>
+                <div className="kpi-value" style={{ color: "var(--orange-text)" }}>{healedRows.length}</div>
+              </div>
+            )}
             {run.expected && <div className="kpi-card"><div className="kpi-label">{t("runs.detail.expected")}</div><div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", marginTop: 4 }}>{run.expected}</div></div>}
             {run.outcome && <div className="kpi-card"><div className="kpi-label">{t("runs.detail.outcome")}</div><div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", marginTop: 4 }}>{run.outcome}</div></div>}
           </div>
@@ -764,6 +875,55 @@ export function EvidenceLookupResultView({ run }) {
 
           <DesktopContextCard run={run} />
 
+          {hasHealing && (
+            <div className="card" style={{ marginBottom: 20, padding: 0, overflow: "hidden" }}>
+              <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <div className="section-title" style={{ margin: 0 }}>{t("runs.detail.selector_healing")}</div>
+                  <span className="badge badge-orange" style={{ fontWeight: 600 }}>⚡ {healedRows.length} {t("runs.detail.auto_healed")}</span>
+                </div>
+                <p style={{ margin: "10px 0 0", fontSize: 12, color: "var(--text-3)", lineHeight: 1.55, maxWidth: 720 }}>
+                  {t("runs.detail.healing_subtitle")}
+                </p>
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <table className="data-table">
+                  <thead><tr>
+                    <th style={{ width: 44 }}>{t("runs.detail.col.step")}</th>
+                    <th>{t("runs.detail.col.action")}</th>
+                    <th>{t("runs.detail.col.orig_sel")}</th>
+                    <th>{t("runs.detail.col.healed_sel")}</th>
+                    <th style={{ minWidth: 120 }}>{t("runs.detail.col.strategy")}</th>
+                    <th style={{ width: 96, textAlign: "right" }}>{t("runs.detail.col.confidence")}</th>
+                  </tr></thead>
+                  <tbody>
+                    {healedRows.map((row, i) => {
+                      const fd = formatHealingConfidence(row.confidence);
+                      const cColor = healingConfidenceColor(fd.tier);
+                      return (
+                        <tr key={`${row.stepIndex ?? "x"}-${i}`}>
+                          <td style={{ color: "var(--text-3)", fontWeight: 600 }}>
+                            {row.stepIndex != null ? row.stepIndex + 1 : "—"}
+                          </td>
+                          <td><code style={{ fontSize: 12 }}>{row.action || "—"}</code></td>
+                          <td style={{ fontSize: 12, color: "var(--red)", wordBreak: "break-all", maxWidth: 220 }}>{row.originalSelector}</td>
+                          <td style={{ fontSize: 12, color: "var(--green)", wordBreak: "break-all", maxWidth: 220 }}>{row.healedSelector}</td>
+                          <td><span className="badge badge-gray" style={{ fontSize: 10, fontFamily: "monospace" }}>{row.strategy}</span></td>
+                          <td style={{ textAlign: "right", fontSize: 13, fontWeight: 600, color: cColor }} title={row.healingReason || (fd.detail ? `${fd.detail} (ratio)` : "")}>
+                            <span style={{ display: "block" }}>{fd.label}</span>
+                            {fd.detail != null && fd.tier !== "none" && (
+                              <span style={{ display: "block", fontSize: 10, fontWeight: 500, color: "var(--text-3)", marginTop: 2 }}>{fd.detail}</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           {run.steps?.length > 0 && (
             <div className="card" style={{ marginBottom: 20, padding: 0, overflow: "hidden" }}>
               <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)" }}>
@@ -781,46 +941,34 @@ export function EvidenceLookupResultView({ run }) {
                     <th>{t("runs.detail.col.duration")}</th>
                   </tr></thead>
                   <tbody>
-                    {run.steps.map((step, i) => (
-                      <tr key={i}>
-                        <td style={{ color: "var(--text-3)", fontWeight: 600 }}>{step.index ?? i + 1}</td>
-                        <td><code style={{ fontSize: 12 }}>{step.action || "—"}</code></td>
-                        <td style={{ maxWidth: 320, wordBreak: "break-all", fontSize: 12, color: "var(--text-2)" }}>{bestStepTarget(step)}</td>
-                        <td><span style={{ fontSize: 11, fontWeight: 500, color: stepStatusColor(step.status), textTransform: "uppercase", letterSpacing: "0.03em" }}>{step.status || "—"}</span></td>
-                        <td style={{ color: "var(--text-3)", fontSize: 12, whiteSpace: "nowrap" }}>{step.duration_ms ? `${step.duration_ms}ms` : "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {hasHealing && (
-            <div className="card" style={{ marginBottom: 20, padding: 0, overflow: "hidden" }}>
-              <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 10 }}>
-                <div className="section-title" style={{ margin: 0 }}>{t("runs.detail.selector_healing")}</div>
-                <span className="badge badge-orange">⚡ {healedEntries.length} {t("runs.detail.auto_healed")}</span>
-              </div>
-              <div style={{ overflowX: "auto" }}>
-                <table className="data-table">
-                  <thead><tr>
-                    <th style={{ width: 44 }}>{t("runs.detail.col.step")}</th>
-                    <th>{t("runs.detail.col.action")}</th>
-                    <th>{t("runs.detail.col.orig_sel")}</th>
-                    <th>{t("runs.detail.col.healed_sel")}</th>
-                    <th style={{ width: 110 }}>{t("runs.detail.col.strategy")}</th>
-                  </tr></thead>
-                  <tbody>
-                    {healedEntries.map((e, i) => (
-                      <tr key={i}>
-                        <td style={{ color: "var(--text-3)", fontWeight: 600 }}>{e.step_index != null ? e.step_index + 1 : "—"}</td>
-                        <td><code style={{ fontSize: 12 }}>{e.action || "—"}</code></td>
-                        <td style={{ fontSize: 12, color: "var(--red)", wordBreak: "break-all", maxWidth: 200 }}>{e.original_selector || e.primary || "—"}</td>
-                        <td style={{ fontSize: 12, color: "var(--green)", wordBreak: "break-all", maxWidth: 200 }}>{e.resolved || "—"}</td>
-                        <td><span className="badge badge-gray" style={{ fontSize: 11 }}>{e.fallback_type || e.used || "—"}</span></td>
-                      </tr>
-                    ))}
+                    {run.steps.map((step, i) => {
+                      const idx0 = typeof step.index === "number" ? step.index : i;
+                      const isHealed = healedIndexSet.has(idx0);
+                      return (
+                        <tr
+                          key={i}
+                          style={{
+                            background: isHealed ? "var(--orange-bg)" : undefined,
+                            boxShadow: isHealed ? "inset 3px 0 0 var(--orange-border)" : undefined,
+                          }}
+                        >
+                          <td style={{ color: "var(--text-3)", fontWeight: 600 }}>{step.index ?? i + 1}</td>
+                          <td>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                              <code style={{ fontSize: 12 }}>{step.action || "—"}</code>
+                              {isHealed && (
+                                <span className="badge badge-orange" style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                  {t("runs.detail.step_healed_badge")}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td style={{ maxWidth: 320, wordBreak: "break-all", fontSize: 12, color: "var(--text-2)" }}>{bestStepTarget(step)}</td>
+                          <td><span style={{ fontSize: 11, fontWeight: 500, color: stepStatusColor(step.status), textTransform: "uppercase", letterSpacing: "0.03em" }}>{step.status || "—"}</span></td>
+                          <td style={{ color: "var(--text-3)", fontSize: 12, whiteSpace: "nowrap" }}>{step.duration_ms ? `${step.duration_ms}ms` : "—"}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
