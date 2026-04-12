@@ -934,6 +934,12 @@ class TestCatalogService:
                     **(extra_meta or {}),
                 },
             )
+            logger.info(
+                "test_catalog: catalog run finished (validation error) test_case_id=%s run_id=%s evidence_id=%s — calling _save_run",
+                tc.test_case_id,
+                run_id,
+                evidence_id,
+            )
             self._save_run(run)
             return run
 
@@ -1042,11 +1048,40 @@ class TestCatalogService:
                 meta=extra_meta or {},
             )
 
+        logger.info(
+            "test_catalog: catalog run finished (runner path) test_case_id=%s run_id=%s evidence_id=%s status=%s — calling _save_run",
+            tc.test_case_id,
+            run.run_id,
+            run.evidence_id,
+            run.status,
+        )
         self._save_run(run)
         return run
 
     def _save_run(self, run: TestRun) -> None:
-        test_run_repo.create_run(run)
+        logger.info(
+            "catalog _save_run invoked run_id=%s evidence_id=%s test_case_id=%s status=%s",
+            run.run_id,
+            run.evidence_id,
+            run.test_case_id,
+            run.status,
+        )
+        try:
+            test_run_repo.create_run(run)
+        except Exception:
+            logger.exception(
+                "catalog sqlite save failed run_id=%s evidence_id=%s test_case_id=%s",
+                run.run_id,
+                run.evidence_id,
+                run.test_case_id,
+            )
+            raise
+        logger.info(
+            "catalog sqlite save ok run_id=%s evidence_id=%s test_case_id=%s",
+            run.run_id,
+            run.evidence_id,
+            run.test_case_id,
+        )
 
         payload = _testrun_to_qa_runs_payload(run)
         pevid = str(payload.get("evidence_id") or "").strip()
@@ -1094,6 +1129,13 @@ class TestCatalogService:
             schedule_slack_alert_on_failed_run(run)
         except Exception:
             pass
+
+        logger.info(
+            "catalog _save_run completed run_id=%s evidence_id=%s test_case_id=%s",
+            run.run_id,
+            run.evidence_id,
+            run.test_case_id,
+        )
 
 
 # Module-level singleton — all routes import this instance
