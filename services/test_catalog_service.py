@@ -4,15 +4,15 @@ Test Catalog Service
 ====================
 Manages the test case catalog and drives test execution.
 
-Persistence is backed by SQLite via repository classes.
-In-memory caching is not used — the DB is the single source of truth.
+Persistence: SQLite via TestRunRepository (canonical catalog history), plus a best-effort
+mirror to Supabase ``qa_runs`` via ``persist_run_supabase`` after each catalog run.
 
 Architecture:
   TestCatalogService
       ↓  converts steps
-  execute_test()            ← existing Playwright runner
+  execute_test() / API runner / desktop runner
       ↓  produces runner result
-  TestRun record            ← persisted via TestRunRepository
+  TestRun record            ← ``test_run_repo.create_run`` + ``persist_run_supabase`` payload
 
 Thread-safe: repository sessions use per-operation commits.
 
@@ -33,6 +33,52 @@ from services.db.test_run_repository import test_run_repo
 from core.step_normalizer import prepare_web_steps_for_execution
 
 logger = logging.getLogger("vanya.test_catalog")
+
+
+def _testrun_to_qa_runs_payload(run: TestRun) -> Dict[str, Any]:
+    """
+    Map a catalog TestRun to the dict expected by persist_run_supabase (qa_runs upsert).
+
+    evidence_id is required for Supabase on_conflict; fall back to run_id, then a new UUID.
+    """
+    rid = str(run.run_id or "").strip()
+    evid = str(run.evidence_id or "").strip() or rid
+    if not evid:
+        evid = str(uuid.uuid4())
+    if not rid:
+        rid = evid
+
+    meta = dict(run.meta or {})
+    meta.setdefault("test_case_id", run.test_case_id)
+    meta.setdefault("source", "catalog")
+    meta.setdefault("trigger_source", "catalog")
+
+    err_sum: Optional[str] = None
+    if run.status in ("fail", "error"):
+        err_sum = meta.get("runner_reason")
+        if not err_sum and run.logs:
+            err_sum = str(run.logs[0])[:2000]
+
+    try:
+        started = run.executed_at.isoformat() if run.executed_at else None
+    except Exception:
+        started = None
+
+    return {
+        "evidence_id": evid,
+        "run_id": rid,
+        "status": run.status,
+        "test_name": run.test_name or run.test_case_id,
+        "duration_ms": run.duration_ms,
+        "steps": list(run.steps_result or []),
+        "logs": list(run.logs or []),
+        "meta": meta,
+        "evidence_url": run.evidence_url,
+        "report_url": run.report_url,
+        "error_summary": err_sum,
+        "started_at": started,
+        "created_at": started,
+    }
 
 
 def _now_utc() -> datetime:
@@ -1001,6 +1047,47 @@ class TestCatalogService:
 
     def _save_run(self, run: TestRun) -> None:
         test_run_repo.create_run(run)
+
+        payload = _testrun_to_qa_runs_payload(run)
+        pevid = str(payload.get("evidence_id") or "").strip()
+        prid = str(payload.get("run_id") or "").strip()
+        if not pevid and not prid:
+            logger.warning(
+                "catalog run persistence skipped: missing evidence_id and run_id test_case_id=%s",
+                getattr(run, "test_case_id", "?"),
+            )
+        else:
+            logger.info(
+                "catalog run persistence start run_id=%s evidence_id=%s test_case_id=%s",
+                prid,
+                pevid,
+                run.test_case_id,
+            )
+            try:
+                from services.run_store_supabase import persist_run_supabase
+
+                ok = bool(persist_run_supabase(payload))
+            except Exception:
+                logger.exception(
+                    "catalog run persistence failed run_id=%s evidence_id=%s",
+                    prid,
+                    pevid,
+                )
+                ok = False
+            if ok:
+                logger.info(
+                    "catalog run persisted to qa_runs run_id=%s evidence_id=%s",
+                    prid,
+                    pevid,
+                )
+            else:
+                logger.warning(
+                    "catalog run qa_runs mirror not written run_id=%s evidence_id=%s "
+                    "(Supabase not configured, upsert failed, or invalid payload — see prior logs)",
+                    prid,
+                    pevid,
+                )
+
         try:
             from services.alerting import schedule_slack_alert_on_failed_run
 

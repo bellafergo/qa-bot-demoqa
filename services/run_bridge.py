@@ -15,8 +15,9 @@ Design constraints
 • Best-effort only — bridge_run_to_sqlite() NEVER raises; failures return False
   and are logged at ERROR (run_store also sets meta.durable_persist_failed).
 • Only final states are bridged; queued / running payloads are skipped.
-• Catalog runs already reach test_run_repo via catalog_service._execute() and
-  never flow through run_store, so there is no double-write risk.
+• Catalog runs reach test_run_repo via catalog_service._save_run() and are mirrored
+  to Supabase ``qa_runs`` there (not via run_store), so there is no double SQLite row
+  from the bridge for the same catalog execution.
 • test_case_id is required by the SQLite schema.  For chat/execute runs it
   defaults to "_chat" unless one is provided in meta.
 
