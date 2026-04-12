@@ -204,13 +204,18 @@ def list_qa_runs_canonical(
                     continue  # belongs to a different project
             else:
                 # No explicit project in meta: fall back to catalog linkage.
-                # If catalog data is available and the test_case_id is known to
-                # belong to a DIFFERENT project (i.e. allowed is non-empty and tc
-                # is not in it), exclude the row.  Otherwise treat as unassigned
-                # and include conservatively — it was dropped only due to missing
-                # project metadata, not because it belongs elsewhere.
-                if allowed and tc and tc not in allowed:
+                # IMPORTANT: only compare proper catalog IDs (meta.test_case_id /
+                # meta.test_id) against the allowed set.  Do NOT use test_name as
+                # a catalog key — test_name is a display label, not an ID, and
+                # will never appear in catalog_repo results, causing valid runs to
+                # be incorrectly excluded.
+                catalog_tc = (
+                    (meta.get("test_case_id") or meta.get("test_id") or "").strip()
+                    if isinstance(meta, dict) else ""
+                )
+                if allowed and catalog_tc and catalog_tc not in allowed:
                     continue
+                # No catalog_tc, empty allowed, or catalog match → include conservatively.
         try:
             cr = canonical_from_qa_row(row)
             if cr.artifacts:
