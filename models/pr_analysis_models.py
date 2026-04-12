@@ -64,9 +64,16 @@ class PRAnalysisResult(BaseModel):
     inferred_risk_level:    Literal["low", "medium", "high"] = "low"
     risk_reasons:           List[str]      = Field(default_factory=list)
 
+    # Changed-file surface: UI paths, API/backend paths, or both (heuristic)
+    change_surface:         Literal["ui", "api", "mixed"] = "mixed"
+
     # Matched catalog tests
     matched_test_case_ids:  List[str]      = Field(default_factory=list)
     matched_tests_count:    int            = 0
+
+    # Same matches as above, split by catalog test_type (api vs ui/desktop)
+    recommended_api_tests:  List[str]      = Field(default_factory=list)
+    recommended_ui_tests:   List[str]      = Field(default_factory=list)
 
     # Draft suggestions (populated when generate_draft_tests=True)
     suggested_new_tests:    List[DraftTestSuggestion] = Field(default_factory=list)

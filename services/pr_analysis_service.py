@@ -94,6 +94,85 @@ _LOW_RISK_PATHS = [
     r"docs/", r"\.txt$", r"\.rst$",
 ]
 
+# PR change surface — classify changed paths as UI vs API/backend (substring/regex)
+_UI_SURFACE_PATTERNS = [
+    r"vanya-frontend",
+    r"(?:^|/)src/components/",
+    r"(?:^|/)components/",
+    r"(?:^|/)src/pages/",
+    r"(?:^|/)pages/",
+    r"(?:^|/)styles?/",
+    r"(?:^|/)frontend/",
+    r"(?:^|/)public/",
+    r"\.tsx$",
+    r"\.jsx$",
+    r"\.vue$",
+    r"(?:^|/)ui/",
+    r"\.css$",
+    r"\.scss$",
+    r"tailwind",
+]
+
+_API_SURFACE_PATTERNS = [
+    r"(?:^|/)api/",
+    r"(?:^|/)routes/",
+    r"(?:^|/)controllers?/",
+    r"(?:^|/)middleware/",
+    r"(?:^|/)services/",
+    r"(?:^|/)backend/",
+    r"(?:^|/)server/",
+    r"graphql",
+    r"openapi",
+    r"swagger",
+    r"\.controller\.",
+    r"_routes?\.",
+]
+
+
+def _classify_change_surface(req: PRAnalysisRequest) -> str:
+    """
+    Infer whether the PR primarily touches UI, API/backend, or both, from paths.
+    Falls back to \"mixed\" when there are no path signals or both kinds appear.
+    """
+    any_ui = False
+    any_api = False
+    for path in req.changed_files or []:
+        p = path.replace("\\", "/")
+        if any(re.search(pat, p, re.IGNORECASE) for pat in _UI_SURFACE_PATTERNS):
+            any_ui = True
+        if any(re.search(pat, p, re.IGNORECASE) for pat in _API_SURFACE_PATTERNS):
+            any_api = True
+    if any_ui and any_api:
+        return "mixed"
+    if any_ui:
+        return "ui"
+    if any_api:
+        return "api"
+    return "mixed"
+
+
+def _split_recommendations_by_test_type(
+    matched_ids: List[str],
+    types_by_id: Dict[str, str],
+) -> Tuple[List[str], List[str]]:
+    """API tests first list; second list is ui + desktop (non-api). Preserves matched_ids order within each bucket."""
+    api_ids: List[str] = []
+    ui_ids: List[str] = []
+    for tc_id in matched_ids:
+        tt = (types_by_id.get(tc_id) or "ui").strip().lower()
+        if tt == "api":
+            api_ids.append(tc_id)
+        else:
+            ui_ids.append(tc_id)
+    return api_ids, ui_ids
+
+
+def _order_enqueue_test_ids(matched_ids: List[str], types_by_id: Dict[str, str]) -> List[str]:
+    """API catalog tests first, then UI/desktop, preserving score order within each group."""
+    api_ids, ui_ids = _split_recommendations_by_test_type(matched_ids, types_by_id)
+    return api_ids + ui_ids
+
+
 # Diff patterns
 _DELETION_HEAVY_RATIO = 0.6   # if >60% of diff lines are deletions → high risk
 _MANY_FILES_THRESHOLD  = 15   # more than this many changed files → high risk
@@ -313,18 +392,33 @@ class PRAnalysisService:
 
     def analyze(self, req: PRAnalysisRequest) -> PRAnalysisResult:
         """Full impact analysis: infer modules, score risk, match tests, optionally draft."""
-        modules      = self._infer_modules(req)
+        modules       = self._infer_modules(req)
         risk, reasons = self._score_risk(req, modules)
-        matched_ids, match_reasons = self._match_tests(modules, req)
+        change_surface = _classify_change_surface(req)
+        matched_ids, match_reasons, types_by_id = self._match_tests(modules, req)
+        rec_api, rec_ui = _split_recommendations_by_test_type(matched_ids, types_by_id)
         drafts: List[DraftTestSuggestion] = []
         if req.generate_draft_tests:
             drafts = self._generate_drafts(modules, req)
 
         job_id: Optional[str] = None
         if req.auto_enqueue and matched_ids:
-            job_id = self._enqueue(matched_ids, req)
+            ordered = _order_enqueue_test_ids(matched_ids, types_by_id)
+            job_id = self._enqueue(ordered, req)
 
-        return self._build_result(req, modules, risk, reasons, matched_ids, match_reasons, drafts, job_id)
+        return self._build_result(
+            req,
+            modules,
+            risk,
+            reasons,
+            matched_ids,
+            match_reasons,
+            drafts,
+            job_id,
+            change_surface=change_surface,
+            recommended_api_tests=rec_api,
+            recommended_ui_tests=rec_ui,
+        )
 
     # ── Module inference ──────────────────────────────────────────────────────
 
@@ -459,7 +553,7 @@ class PRAnalysisService:
 
     def _match_tests(
         self, modules: List[str], req: PRAnalysisRequest,
-    ) -> Tuple[List[str], Dict[str, str]]:
+    ) -> Tuple[List[str], Dict[str, str], Dict[str, str]]:
         """
         Match active catalog test cases relevant to inferred modules.
 
@@ -469,13 +563,14 @@ class PRAnalysisService:
           +2  test name keyword match
           +1  type=smoke or priority=critical/high (boost for coverage priorities)
 
-        Returns (test_case_ids sorted by descending score, per-id reason dict).
+        Returns (test_case_ids sorted by descending score, per-id reason dict,
+        test_case_id → catalog test_type for bucketing).
         """
         from services.test_catalog_service import catalog_service
 
         all_tests = catalog_service.list_test_cases(status="active", limit=500)
         if not all_tests or not modules:
-            return [], {}
+            return [], {}, {}
 
         # Build a flat set of all keywords associated with the inferred domains
         domain_kws: Set[str] = set()
@@ -485,6 +580,7 @@ class PRAnalysisService:
 
         scored:  List[Tuple[int, str]] = []
         reasons: Dict[str, str]        = {}
+        types_by_id: Dict[str, str]    = {}
 
         for tc in all_tests:
             score = 0
@@ -547,9 +643,12 @@ class PRAnalysisService:
 
                 scored.append((score, tc.test_case_id))
                 reasons[tc.test_case_id] = reason or f"relevant to {modules[0]} and related functionality"
+                types_by_id[tc.test_case_id] = (
+                    getattr(tc, "test_type", None) or "ui"
+                ).strip().lower()
 
         scored.sort(key=lambda x: -x[0])
-        return [tc_id for _, tc_id in scored], reasons
+        return [tc_id for _, tc_id in scored], reasons, types_by_id
 
     # ── Draft generation ──────────────────────────────────────────────────────
 
@@ -621,6 +720,10 @@ class PRAnalysisService:
         match_reasons: Dict[str, str],
         drafts:        List[DraftTestSuggestion],
         job_id:        Optional[str],
+        *,
+        change_surface: str = "mixed",
+        recommended_api_tests: Optional[List[str]] = None,
+        recommended_ui_tests: Optional[List[str]] = None,
     ) -> PRAnalysisResult:
         n = len(matched_ids)
 
@@ -648,13 +751,20 @@ class PRAnalysisService:
         else:
             confidence = "low"
 
+        rec_api = list(recommended_api_tests or [])
+        rec_ui = list(recommended_ui_tests or [])
+        cs = change_surface if change_surface in ("ui", "api", "mixed") else "mixed"
+
         return PRAnalysisResult(
             pr_id               = req.pr_id,
             inferred_modules    = modules,
             inferred_risk_level = risk,
             risk_reasons        = reasons,
+            change_surface       = cs,
             matched_test_case_ids = matched_ids,
             matched_tests_count = n,
+            recommended_api_tests = rec_api,
+            recommended_ui_tests = rec_ui,
             test_match_reasons  = match_reasons,
             suggested_new_tests = drafts,
             orchestrator_job_id = job_id,

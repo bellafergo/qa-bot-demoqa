@@ -273,6 +273,16 @@ def select_suites(changed_files: List[Dict[str, Any]]) -> SuiteSelection:
 # Comment rendering (LIVE)
 # ============================================================
 
+def _pr_comment_bullet_test_list(ids: List[str], *, limit: int = 40) -> str:
+    if not ids:
+        return "- _(none)_"
+    shown = ids[:limit]
+    body = "\n".join(f"- `{x}`" for x in shown)
+    if len(ids) > limit:
+        body += f"\n- _(+{len(ids) - limit} more)_"
+    return body
+
+
 def format_pr_qa_analysis_comment(
     ctx: PRContext,
     analysis: Any,
@@ -299,6 +309,12 @@ def format_pr_qa_analysis_comment(
     else:
         tests_txt = "_No direct test matches found_ — broaden the catalog or PR description for better mapping."
 
+    surface = getattr(analysis, "change_surface", None) or "mixed"
+    if surface not in ("ui", "api", "mixed"):
+        surface = "mixed"
+    rec_api = list(getattr(analysis, "recommended_api_tests", None) or [])
+    rec_ui = list(getattr(analysis, "recommended_ui_tests", None) or [])
+
     risk = getattr(analysis, "inferred_risk_level", None) or "unknown"
     sha_short = (ctx.sha or "n/a")[:7] if ctx.sha else "n/a"
 
@@ -309,9 +325,22 @@ def format_pr_qa_analysis_comment(
         f"**PR #:** [{ctx.pr_number}]({ctx.html_url}) · **Commit:** `{sha_short}`",
         f"**Files changed:** {file_count}",
         f"**Modules affected:** {modules_txt}",
-        f"**Recommended tests:** {tests_txt}",
-        f"**Risk level:** **{risk}**",
+        f"**Change surface:** {surface}",
     ]
+    if matched:
+        lines.extend(
+            [
+                "",
+                "**Recommended API tests:**",
+                _pr_comment_bullet_test_list(rec_api),
+                "",
+                "**Recommended UI tests:**",
+                _pr_comment_bullet_test_list(rec_ui),
+            ]
+        )
+    else:
+        lines.append(f"**Recommended tests:** {tests_txt}")
+    lines.append(f"**Risk level:** **{risk}**")
 
     reasons = getattr(analysis, "risk_reasons", None) or []
     if reasons:

@@ -16,7 +16,12 @@ from models.pr_analysis_models import (
     DraftTestSuggestion,
 )
 from models.test_case import TestCaseCreate
-from services.pr_analysis_service import PRAnalysisService, _match_domain_keywords
+from services.pr_analysis_service import (
+    PRAnalysisService,
+    _classify_change_surface,
+    _match_domain_keywords,
+    _order_enqueue_test_ids,
+)
 from services.test_catalog_service import TestCatalogService, _reset_for_testing
 from services.catalog_orchestrator import _reset_for_testing as _orch_reset
 
@@ -29,9 +34,20 @@ def _fresh_svc() -> PRAnalysisService:
     return PRAnalysisService()
 
 
-def _add_tc(tc_id: str, module: str, tags=None, name: str = None,
-            type_: str = "smoke", priority: str = "medium") -> None:
+def _add_tc(
+    tc_id: str,
+    module: str,
+    tags=None,
+    name: str = None,
+    type_: str = "smoke",
+    priority: str = "medium",
+    *,
+    test_type: str = "ui",
+    steps=None,
+) -> None:
     svc = TestCatalogService()
+    if steps is None:
+        steps = [{"action": "goto", "value": "https://example.com"}]
     try:
         svc.create_test_case(TestCaseCreate(
             test_case_id=tc_id,
@@ -39,7 +55,8 @@ def _add_tc(tc_id: str, module: str, tags=None, name: str = None,
             module=module,
             type=type_,
             priority=priority,
-            steps=[{"action": "goto", "value": "https://example.com"}],
+            test_type=test_type,
+            steps=steps,
             assertions=[],
             tags=tags or [],
         ))
@@ -112,6 +129,38 @@ class TestModuleInference:
         svc = _fresh_svc()
         result = svc._infer_modules(_req(changed_files=["README.md"]))
         assert result == []
+
+
+# ── Change surface (UI vs API paths) ──────────────────────────────────────────
+
+class TestChangeSurfaceClassification:
+    def test_components_path_is_ui(self):
+        assert _classify_change_surface(_req(changed_files=["src/components/Button.tsx"])) == "ui"
+
+    def test_vanya_frontend_is_ui(self):
+        assert _classify_change_surface(_req(changed_files=["vanya-frontend/src/App.jsx"])) == "ui"
+
+    def test_routes_path_is_api(self):
+        assert _classify_change_surface(_req(changed_files=["routes/users.ts"])) == "api"
+
+    def test_services_backend_is_api(self):
+        assert _classify_change_surface(_req(changed_files=["services/auth_service.py"])) == "api"
+
+    def test_mixed_paths(self):
+        assert _classify_change_surface(_req(changed_files=[
+            "src/pages/Home.tsx",
+            "api/handlers.go",
+        ])) == "mixed"
+
+    def test_no_files_defaults_mixed(self):
+        assert _classify_change_surface(_req()) == "mixed"
+
+
+def test_order_enqueue_puts_api_first():
+    assert _order_enqueue_test_ids(
+        ["TC-B", "TC-A"],
+        {"TC-A": "api", "TC-B": "ui"},
+    ) == ["TC-A", "TC-B"]
 
 
 # ── Module inference from title/description ───────────────────────────────────
@@ -235,31 +284,33 @@ class TestCatalogMatching:
 
     def test_no_tests_no_match(self):
         svc = _fresh_svc()
-        matched = svc._match_tests(["auth"], _req())
+        matched, _, types = svc._match_tests(["auth"], _req())
         assert matched == []
+        assert types == {}
 
     def test_exact_module_match(self):
         _add_tc("TC-AUTH-001", module="auth-service", tags=["login"])
         svc = PRAnalysisService()
-        matched = svc._match_tests(["auth"], _req())
+        matched, _, types = svc._match_tests(["auth"], _req())
         assert "TC-AUTH-001" in matched
+        assert types.get("TC-AUTH-001") == "ui"
 
     def test_tag_match(self):
         _add_tc("TC-TAG-001", module="generic", tags=["login", "smoke"])
         svc = PRAnalysisService()
-        matched = svc._match_tests(["auth"], _req())
+        matched, _, _ = svc._match_tests(["auth"], _req())
         assert "TC-TAG-001" in matched
 
     def test_name_keyword_match(self):
         _add_tc("TC-NAME-001", module="generic", name="Login valid user", tags=[])
         svc = PRAnalysisService()
-        matched = svc._match_tests(["auth"], _req())
+        matched, _, _ = svc._match_tests(["auth"], _req())
         assert "TC-NAME-001" in matched
 
     def test_no_module_overlap_no_match(self):
         _add_tc("TC-UNREL-001", module="unrelated-module", tags=["nothing"])
         svc = PRAnalysisService()
-        matched = svc._match_tests(["auth"], _req())
+        matched, _, _ = svc._match_tests(["auth"], _req())
         assert "TC-UNREL-001" not in matched
 
     def test_higher_relevance_comes_first(self):
@@ -267,22 +318,35 @@ class TestCatalogMatching:
         _add_tc("TC-EXACT-001", module="auth",    tags=["login"], name="Auth test", type_="smoke", priority="critical")
         _add_tc("TC-WEAK-001",  module="generic", tags=[],        name="Login helper")
         svc = PRAnalysisService()
-        matched = svc._match_tests(["auth"], _req())
+        matched, _, _ = svc._match_tests(["auth"], _req())
         assert matched.index("TC-EXACT-001") < matched.index("TC-WEAK-001")
 
     def test_no_domains_returns_empty(self):
         _add_tc("TC-SOME-001", module="auth", tags=["login"])
         svc = PRAnalysisService()
-        matched = svc._match_tests([], _req())
+        matched, _, _ = svc._match_tests([], _req())
         assert matched == []
 
     def test_multiple_domains_union_results(self):
         _add_tc("TC-A-001", module="auth-service",     tags=["login"])
         _add_tc("TC-C-001", module="checkout-service", tags=["payment"])
         svc = PRAnalysisService()
-        matched = svc._match_tests(["auth", "checkout"], _req())
+        matched, _, _ = svc._match_tests(["auth", "checkout"], _req())
         assert "TC-A-001" in matched
         assert "TC-C-001" in matched
+
+    def test_match_returns_api_test_type(self):
+        _add_tc(
+            "TC-API-M-001",
+            module="auth-service",
+            tags=["login"],
+            test_type="api",
+            steps=[{"action": "api_request", "method": "GET", "endpoint": "/health"}],
+        )
+        svc = PRAnalysisService()
+        matched, _, types = svc._match_tests(["auth"], _req())
+        assert "TC-API-M-001" in matched
+        assert types.get("TC-API-M-001") == "api"
 
 
 # ── Draft test generation ─────────────────────────────────────────────────────
@@ -355,6 +419,37 @@ class TestAutoEnqueue:
         assert result.orchestrator_job_id is not None
         assert len(result.matched_test_case_ids) > 0
 
+    def test_enqueue_api_tests_before_ui_tests(self):
+        _add_tc("TC-UI-ORDER", module="auth-service", tags=["login"], priority="medium")
+        _add_tc(
+            "TC-API-ORDER",
+            module="auth-service",
+            tags=["login"],
+            test_type="api",
+            steps=[{"action": "api_request", "method": "GET", "endpoint": "/health"}],
+        )
+        captured: list = []
+
+        def _capture_enqueue(*, test_case_ids, environment, **kwargs):
+            captured.append(list(test_case_ids))
+            m = MagicMock()
+            m.job_id = "job-order-1"
+            return m
+
+        svc = PRAnalysisService()
+        with patch(
+            "services.catalog_orchestrator.orchestrator_service.enqueue_suite",
+            side_effect=_capture_enqueue,
+        ):
+            result = svc.analyze(_req(
+                changed_files=["auth/login.py"],
+                auto_enqueue=True,
+            ))
+        assert result.orchestrator_job_id == "job-order-1"
+        assert captured, "enqueue_suite should have been called"
+        ids = captured[0]
+        assert ids.index("TC-API-ORDER") < ids.index("TC-UI-ORDER")
+
     def test_no_job_when_no_matches(self):
         svc = _fresh_svc()
         result = svc.analyze(_req(
@@ -385,6 +480,9 @@ class TestAnalyzePipeline:
         svc = _fresh_svc()
         result = svc.analyze(_req(changed_files=["auth/login.py"]))
         assert isinstance(result, PRAnalysisResult)
+        assert result.change_surface in ("ui", "api", "mixed")
+        assert isinstance(result.recommended_api_tests, list)
+        assert isinstance(result.recommended_ui_tests, list)
 
     def test_summary_is_non_empty_string(self):
         svc = _fresh_svc()
