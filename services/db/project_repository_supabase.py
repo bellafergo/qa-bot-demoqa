@@ -45,6 +45,22 @@ def _settings_from_row(raw: Any) -> Dict[str, Any]:
     return parse_settings_json(raw if isinstance(raw, str) else str(raw))
 
 
+def _merged_settings_row(d: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    PostgREST / legacy rows may expose JSON as settings_json (TEXT/JSONB) or settings.
+    Merge with settings_json winning on key collisions.
+    """
+    a = _settings_from_row(d.get("settings"))
+    b = _settings_from_row(d.get("settings_json"))
+    if not a:
+        return b
+    if not b:
+        return a
+    merged = dict(a)
+    merged.update(b)
+    return merged
+
+
 def _dict_to_project(d: Dict[str, Any]):
     from models.project import Project
 
@@ -55,7 +71,7 @@ def _dict_to_project(d: Dict[str, Any]):
         description=str(d.get("description") or ""),
         color=str(d.get("color") or "#6366f1"),
         base_url=d.get("base_url"),
-        settings=_settings_from_row(d.get("settings_json")),
+        settings=_merged_settings_row(d),
         created_at=_parse_ts(d.get("created_at")),
         updated_at=_parse_ts(d.get("updated_at")),
     )

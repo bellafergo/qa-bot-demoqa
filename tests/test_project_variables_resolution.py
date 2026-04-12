@@ -57,6 +57,40 @@ def test_api_runner_credential_interpolation_project_wins_over_env(monkeypatch):
     assert d["project_password"] == "projpw"
 
 
+def test_api_runner_reads_variables_json_string():
+    raw = '{"EMAIL": "js@string.io", "PASSWORD": "pw1"}'
+    p = _FakeProject({"variables": raw})
+    d = api_runner_credential_interpolation(p)
+    assert d["project_email"] == "js@string.io"
+    assert d["project_password"] == "pw1"
+
+
+def test_api_runner_reads_top_level_email_password():
+    p = _FakeProject({"EMAIL": "top@level.test", "PASSWORD": "toppw"})
+    d = api_runner_credential_interpolation(p)
+    assert d["project_email"] == "top@level.test"
+    assert d["project_password"] == "toppw"
+
+
+def test_api_runner_reads_credentials_subdoc():
+    p = _FakeProject(
+        {
+            "credentials": {"email": "sub@doc.test", "password": "subpw"},
+        },
+    )
+    d = api_runner_credential_interpolation(p)
+    assert d["project_email"] == "sub@doc.test"
+    assert d["project_password"] == "subpw"
+
+
+def test_execution_context_from_project_variables_json_string():
+    raw = '{"EMAIL": "x@y.z", "PASSWORD": "sec"}'
+    p = _FakeProject({"variables": raw})
+    ctx = execution_context_from_project(p)
+    assert ctx["project_variables"]["EMAIL"] == "x@y.z"
+    assert ctx["credentials"]["email"] == "x@y.z"
+
+
 def test_execution_context_from_project_builds_maps():
     p = _FakeProject(
         {

@@ -459,6 +459,11 @@ def run_api_test(
                             callback_url = str(interpolate_value(raw_cb, ctx)).strip()
                         csrf_url = resolve_request_url(step_origin, csrf_path)
                         csrf_resp = client.get(csrf_url, timeout=default_timeout)
+                        logger.debug(
+                            "nextauth_login: email_masked=%s csrf_http=%s",
+                            _mask_email_for_log(email_i),
+                            csrf_resp.status_code,
+                        )
                         try:
                             csrf_json = csrf_resp.json()
                         except Exception as e:
@@ -467,6 +472,10 @@ def run_api_test(
                             ) from e
                         csrf_token = (
                             csrf_json.get("csrfToken") if isinstance(csrf_json, dict) else None
+                        )
+                        logger.debug(
+                            "nextauth_login: csrfToken_found=%s",
+                            bool(csrf_token),
                         )
                         if not csrf_token:
                             raise ValueError("nextauth_login: missing csrfToken in CSRF response")
@@ -480,6 +489,10 @@ def run_api_test(
                         }
                         tr = time.time()
                         post_resp = client.post(login_url, data=form, timeout=default_timeout)
+                        logger.debug(
+                            "nextauth_login: credentials_post_http=%s",
+                            post_resp.status_code,
+                        )
                         last_response_time_ms = int((time.time() - tr) * 1000)
                         last_response = post_resp
                         try:
