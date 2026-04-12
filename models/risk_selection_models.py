@@ -14,6 +14,7 @@ class RiskSelectionRequest(BaseModel):
     changed_modules: List[str] = Field(default_factory=list)
     max_tests:       int       = 100
     priority:        Optional[Literal["critical", "high", "medium", "low"]] = None  # optional filter
+    project_id:      Optional[str] = None
 
 
 class SelectedTest(BaseModel):

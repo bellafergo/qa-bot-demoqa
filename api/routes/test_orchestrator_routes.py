@@ -29,10 +29,12 @@ router = APIRouter(prefix="/orchestrator", tags=["orchestrator"])
 class SingleJobRequest(BaseModel):
     test_case_id: str
     environment:  str = "default"
+    project_id:   Optional[str] = None
 
 
 class SuiteJobRequest(BaseModel):
     environment:   str = "default"
+    project_id:    Optional[str] = None
     limit:         int = Field(default=50, ge=1, le=200)
 
     # Explicit ID list — takes priority over filters when provided
@@ -59,6 +61,7 @@ def enqueue_single(body: SingleJobRequest):
         job = orchestrator_service.enqueue_single(
             body.test_case_id,
             environment=body.environment,
+            project_id=body.project_id,
         )
         return job
     except ValueError as e:
@@ -89,6 +92,7 @@ def enqueue_suite(body: SuiteJobRequest):
             tags=body.tags,
             environment=body.environment,
             limit=body.limit,
+            project_id=body.project_id,
         )
         return job
     except Exception as e:

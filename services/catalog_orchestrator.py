@@ -12,9 +12,9 @@ Architecture
   POST /orchestrator/jobs/single|suite
       ↓
   CatalogOrchestratorService.enqueue_single / enqueue_suite
-      ↓  creates OrchestratorJob, pushes to _QUEUE
+      ↓  creates OrchestratorJob, pushes to per-project pending deques
   _worker_loop  (daemon thread — one global loop)
-      ↓  pulls job from _QUEUE, acquires _SEM (job-level semaphore)
+      ↓  fair round-robin pop, per-project concurrency cap, then _SEM (global cap)
   _run_job  (per-job thread — dispatches tests to ThreadPoolExecutor)
       ↓  _run_single_test() per test_case_id (parallel, bounded per-type)
       ↓  updates job counters + status atomically under _job_lock
@@ -28,7 +28,7 @@ Parallel execution (execution-scheduler block)
 
 Upgrade path
 ------------
-- Swap _QUEUE with a Redis list / Celery task
+- Swap pending deques / _QUEUE with a Redis list / Celery task
 - Swap _JOB_STORE with a DB table
 - Replace threading.Semaphore with Celery / Ray workers
 
@@ -42,10 +42,10 @@ from __future__ import annotations
 
 import logging
 import os
-import queue
 import threading
 import time
 import uuid
+from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional, Tuple
@@ -60,6 +60,9 @@ logger = logging.getLogger("vanya.catalog_orchestrator")
 # ── Configuration ─────────────────────────────────────────────────────────────
 
 MAX_CONCURRENCY:         int = int(os.getenv("ORCHESTRATOR_MAX_CONCURRENCY", "2"))
+MAX_CONCURRENT_JOBS_PER_PROJECT: int = max(
+    1, int(os.getenv("ORCHESTRATOR_MAX_CONCURRENT_JOBS_PER_PROJECT", "2"))
+)
 MAX_JOBS_KEPT:           int = 500
 SHARD_SIZE:              int = int(os.getenv("ORCHESTRATOR_SHARD_SIZE", "20"))  # Block 16
 
@@ -83,8 +86,14 @@ _job_lock:  threading.RLock    = threading.RLock()
 _JOB_STORE: Dict[str, OrchestratorJob] = {}
 _JOB_ORDER: List[str]          = []   # insertion order, oldest first
 
-_QUEUE:     queue.Queue         = queue.Queue()
 _SEM:       threading.Semaphore = threading.Semaphore(MAX_CONCURRENCY)
+
+# Per-project pending queues + fair dispatch (round-robin across project keys)
+_SCHED_LOCK: threading.Lock = threading.Lock()
+_PENDING_BY_PROJECT: Dict[str, deque] = defaultdict(deque)
+_RR_LAST_PROJECT: Optional[str] = None
+# Reserved slots: incremented when a job is popped for dispatch, decremented when the job thread ends
+_RUNNING_BY_PROJECT: Dict[str, int] = defaultdict(int)
 
 _worker_started: bool = False
 _worker_lock:    threading.Lock = threading.Lock()
@@ -169,6 +178,55 @@ def _list_jobs(limit: int = 100, project_id: Optional[str] = None) -> List[Orche
     return result
 
 
+def _normalize_project_id(project_id: Optional[str]) -> str:
+    s = (project_id or "").strip()
+    return s if s else "default"
+
+
+def _enqueue_pending(job: OrchestratorJob) -> None:
+    """Partition pending work by project_id (logical queue per tenant)."""
+    pid = _normalize_project_id(job.project_id)
+    job.project_id = pid
+    with _SCHED_LOCK:
+        _PENDING_BY_PROJECT[pid].append(job)
+    logger.debug(
+        "orchestrator: pending queued job=%s project_id=%s pending_depth=%d",
+        job.job_id[:8],
+        pid,
+        len(_PENDING_BY_PROJECT[pid]),
+    )
+
+
+def _fair_pop_next_job() -> Optional[OrchestratorJob]:
+    """
+    Deterministic fair dispatch: round-robin across project keys that have
+    pending jobs. Respects MAX_CONCURRENT_JOBS_PER_PROJECT using reserved slots
+    (incremented here, decremented when the job thread finishes).
+    """
+    global _RR_LAST_PROJECT
+    with _SCHED_LOCK:
+        keys = sorted(k for k, dq in _PENDING_BY_PROJECT.items() if dq)
+        if not keys:
+            return None
+        start = 0
+        if _RR_LAST_PROJECT in keys:
+            start = (keys.index(_RR_LAST_PROJECT) + 1) % len(keys)
+        n = len(keys)
+        for i in range(n):
+            pid = keys[(start + i) % n]
+            if _RUNNING_BY_PROJECT.get(pid, 0) >= MAX_CONCURRENT_JOBS_PER_PROJECT:
+                continue
+            dq = _PENDING_BY_PROJECT[pid]
+            if not dq:
+                continue
+            job = dq.popleft()
+            jpid = _normalize_project_id(job.project_id)
+            _RUNNING_BY_PROJECT[jpid] = _RUNNING_BY_PROJECT.get(jpid, 0) + 1
+            _RR_LAST_PROJECT = jpid
+            return job
+        return None
+
+
 # ── Scheduling ────────────────────────────────────────────────────────────────
 
 _PRIORITY_ORDER: Dict[str, int] = {
@@ -232,6 +290,18 @@ def _schedule_tests(test_case_ids: List[str]) -> Tuple[List[str], str]:
         else f"Scheduled {len(sorted_ids)} tests"
     )
     return sorted_ids, notes
+
+
+def _derive_project_id_from_tests(test_case_ids: List[str]) -> str:
+    """Majority project_id among catalog rows (v1 tenant label for queue partitioning)."""
+    counts: Dict[str, int] = defaultdict(int)
+    for tc_id in test_case_ids:
+        tc = catalog_service.get_test_case(tc_id)
+        if tc:
+            counts[_normalize_project_id(getattr(tc, "project_id", None))] += 1
+    if not counts:
+        return "default"
+    return max(counts.items(), key=lambda kv: kv[1])[0]
 
 
 # ── Test-type lookup ──────────────────────────────────────────────────────────
@@ -613,26 +683,34 @@ def _run_job(job: OrchestratorJob) -> None:
 
 def _worker_loop() -> None:
     """
-    Daemon loop: pulls jobs from _QUEUE and dispatches each to its own
-    thread, bounded by _SEM so at most MAX_CONCURRENCY jobs run simultaneously.
+    Daemon loop: fair-schedules jobs across projects, then dispatches each to its
+    own thread. Global cap: _SEM (MAX_CONCURRENCY). Per-project cap:
+    MAX_CONCURRENT_JOBS_PER_PROJECT (reserved until the job thread exits).
     """
     logger.info(
-        "orchestrator: worker loop started (max_concurrency=%d, max_workers=%d)",
-        MAX_CONCURRENCY, EXECUTION_MAX_WORKERS,
+        "orchestrator: worker loop started (max_concurrency=%d, max_per_project=%d, max_workers=%d)",
+        MAX_CONCURRENCY, MAX_CONCURRENT_JOBS_PER_PROJECT, EXECUTION_MAX_WORKERS,
     )
     while True:
-        try:
-            job: OrchestratorJob = _QUEUE.get(timeout=1)
-        except queue.Empty:
+        job = _fair_pop_next_job()
+        if job is None:
+            time.sleep(0.05)
             continue
 
         _SEM.acquire()
 
         def _task(j: OrchestratorJob = job) -> None:
+            pid = _normalize_project_id(j.project_id)
             try:
                 _run_job(j)
             finally:
                 _SEM.release()
+                with _SCHED_LOCK:
+                    c = _RUNNING_BY_PROJECT.get(pid, 0) - 1
+                    if c <= 0:
+                        _RUNNING_BY_PROJECT.pop(pid, None)
+                    else:
+                        _RUNNING_BY_PROJECT[pid] = c
 
         t = threading.Thread(
             target=_task,
@@ -668,6 +746,14 @@ def get_execution_status() -> Dict[str, Any]:
         active_jobs = sum(1 for j in _JOB_STORE.values() if j.status == "running")
         queued_jobs = sum(1 for j in _JOB_STORE.values() if j.status == "queued")
 
+    with _SCHED_LOCK:
+        orchestrator_pending_by_project = {
+            k: len(v) for k, v in _PENDING_BY_PROJECT.items() if v
+        }
+        orchestrator_reserved_by_project = {
+            k: c for k, c in _RUNNING_BY_PROJECT.items() if c
+        }
+
     return {
         "active_jobs":          active_jobs,
         "queued_jobs":          queued_jobs,
@@ -682,6 +768,29 @@ def get_execution_status() -> Dict[str, Any]:
         "running_tasks":        stats["active_workers"],
         "completed_tasks":      stats["completed_tasks"],
         "retried_tasks":        stats["retried_tasks"],
+        "orchestrator_pending_by_project": orchestrator_pending_by_project,
+        "orchestrator_reserved_by_project": orchestrator_reserved_by_project,
+        "max_concurrent_jobs_per_project": MAX_CONCURRENT_JOBS_PER_PROJECT,
+    }
+
+
+def get_project_queue_stats(project_id: str) -> Dict[str, Any]:
+    """Live pending + reserved slots for one project (optional helper for APIs)."""
+    pid = _normalize_project_id(project_id)
+    with _SCHED_LOCK:
+        pending_depth = len(_PENDING_BY_PROJECT.get(pid, ()))
+        reserved = _RUNNING_BY_PROJECT.get(pid, 0)
+    with _job_lock:
+        running_jobs = sum(
+            1
+            for j in _JOB_STORE.values()
+            if j.status == "running" and _normalize_project_id(getattr(j, "project_id", None)) == pid
+        )
+    return {
+        "project_id": pid,
+        "pending_queue_depth": pending_depth,
+        "reserved_dispatch_slots": reserved,
+        "running_jobs_in_memory": running_jobs,
     }
 
 
@@ -716,13 +825,14 @@ def retry_failed_tests(job_id: str) -> Optional[OrchestratorJob]:
         test_case_ids    = failed_ids,
         total_count      = len(failed_ids),
         environment      = original.environment,
+        project_id       = _normalize_project_id(getattr(original, "project_id", None)),
         parent_job_id    = job_id,
         scheduling_notes = (
             f"Retry of {len(failed_ids)} failed test(s) from job {job_id[:8]}"
         ),
     )
     _save_job(new_job)
-    _QUEUE.put(new_job)
+    _enqueue_pending(new_job)
     logger.info(
         "orchestrator: retry job %s — %d failed tests from job %s",
         new_job.job_id, len(failed_ids), job_id,
@@ -743,6 +853,7 @@ class CatalogOrchestratorService:
         test_case_id: str,
         *,
         environment: str = "default",
+        project_id: Optional[str] = None,
     ) -> OrchestratorJob:
         """
         Create and enqueue a single-test job.
@@ -754,17 +865,19 @@ class CatalogOrchestratorService:
         if tc is None:
             raise ValueError(f"Test case '{test_case_id}' not found in catalog")
 
+        pid = _normalize_project_id(project_id if project_id is not None else getattr(tc, "project_id", None))
         job = OrchestratorJob(
             job_type="single",
             test_case_ids=[test_case_id],
             total_count=1,
             environment=environment,
+            project_id=pid,
         )
         _save_job(job)
-        _QUEUE.put(job)
+        _enqueue_pending(job)
         logger.info(
-            "orchestrator: enqueued single job %s — tc=%s env=%s",
-            job.job_id, test_case_id, environment,
+            "orchestrator: enqueued single job %s — tc=%s env=%s project_id=%s",
+            job.job_id, test_case_id, environment, job.project_id,
         )
         return job
 
@@ -779,6 +892,7 @@ class CatalogOrchestratorService:
         environment: str = "default",
         limit: int = 50,
         context_json: Optional[str] = None,
+        project_id: Optional[str] = None,
     ) -> OrchestratorJob:
         """
         Create and enqueue a suite job.
@@ -809,12 +923,18 @@ class CatalogOrchestratorService:
             )
             resolved = [c.test_case_id for c in cases]
 
+        derived_pid = (
+            _normalize_project_id(project_id)
+            if (project_id is not None and str(project_id).strip())
+            else _derive_project_id_from_tests(resolved)
+        )
         job = OrchestratorJob(
             job_type="suite",
             test_case_ids=resolved,
             total_count=len(resolved),
             environment=environment,
             context_json=context_json,
+            project_id=derived_pid,
         )
 
         if not resolved:
@@ -830,10 +950,10 @@ class CatalogOrchestratorService:
             return job
 
         _save_job(job)
-        _QUEUE.put(job)
+        _enqueue_pending(job)
         logger.info(
-            "orchestrator: enqueued suite job %s — %d tests env=%s",
-            job.job_id, len(resolved), environment,
+            "orchestrator: enqueued suite job %s — %d tests env=%s project_id=%s",
+            job.job_id, len(resolved), environment, job.project_id,
         )
         return job
 
@@ -842,6 +962,7 @@ class CatalogOrchestratorService:
         test_case_ids: List[str],
         *,
         environment: str = "default",
+        project_id: Optional[str] = None,
     ) -> OrchestratorJob:
         """
         Enqueue a list of test IDs as a single 'batch' job.
@@ -852,12 +973,18 @@ class CatalogOrchestratorService:
 
         Returns the job immediately (status=queued).
         """
+        derived_pid = (
+            _normalize_project_id(project_id)
+            if (project_id is not None and str(project_id).strip())
+            else _derive_project_id_from_tests(list(test_case_ids))
+        )
         if not test_case_ids:
             job = OrchestratorJob(
                 job_type="batch",
                 test_case_ids=[],
                 total_count=0,
                 environment=environment,
+                project_id=derived_pid,
             )
             job.status        = "failed"
             job.finished_at   = _now_utc()
@@ -870,12 +997,13 @@ class CatalogOrchestratorService:
             test_case_ids=list(test_case_ids),
             total_count=len(test_case_ids),
             environment=environment,
+            project_id=derived_pid,
         )
         _save_job(job)
-        _QUEUE.put(job)
+        _enqueue_pending(job)
         logger.info(
-            "orchestrator: enqueued batch job %s — %d tests env=%s",
-            job.job_id, len(test_case_ids), environment,
+            "orchestrator: enqueued batch job %s — %d tests env=%s project_id=%s",
+            job.job_id, len(test_case_ids), environment, job.project_id,
         )
         return job
 
@@ -885,6 +1013,7 @@ class CatalogOrchestratorService:
         *,
         shard_size: Optional[int] = None,
         environment: str = "default",
+        project_id: Optional[str] = None,
     ) -> List[OrchestratorJob]:
         """
         Split a large list of test IDs into shard sub-jobs and enqueue them all.
@@ -903,6 +1032,11 @@ class CatalogOrchestratorService:
             for i in range(0, len(test_case_ids), size)
         ]
 
+        derived_pid = (
+            _normalize_project_id(project_id)
+            if (project_id is not None and str(project_id).strip())
+            else _derive_project_id_from_tests(list(test_case_ids))
+        )
         jobs: List[OrchestratorJob] = []
         for idx, shard in enumerate(shards):
             job = OrchestratorJob(
@@ -910,12 +1044,13 @@ class CatalogOrchestratorService:
                 test_case_ids=shard,
                 total_count=len(shard),
                 environment=environment,
+                project_id=derived_pid,
                 scheduling_notes=(
                     f"Shard {idx + 1}/{len(shards)} of {len(test_case_ids)} total tests"
                 ),
             )
             _save_job(job)
-            _QUEUE.put(job)
+            _enqueue_pending(job)
             jobs.append(job)
 
         logger.info(
@@ -942,11 +1077,13 @@ def _reset_for_testing() -> None:
     with _job_lock:
         _JOB_STORE.clear()
         _JOB_ORDER.clear()
-    while not _QUEUE.empty():
-        try:
-            _QUEUE.get_nowait()
-        except Exception:
-            break
+    with _SCHED_LOCK:
+        for dq in _PENDING_BY_PROJECT.values():
+            dq.clear()
+        _PENDING_BY_PROJECT.clear()
+        _RUNNING_BY_PROJECT.clear()
+        global _RR_LAST_PROJECT
+        _RR_LAST_PROJECT = None
     with _STATS_LOCK:
         for k in list(_STATS):
             _STATS[k] = 0

@@ -44,6 +44,7 @@ class OrchestratorJobRow(Base):
     context_json       = Column(Text)
     # Retry correlation — parent job when this job is a retry of failed tests
     parent_job_id      = Column(String)
+    project_id         = Column(String, nullable=True)
 
 
 # ── Conversion helpers ────────────────────────────────────────────────────────
@@ -116,6 +117,7 @@ class OrchestratorJobRepository:
             scheduling_notes   = getattr(job, "scheduling_notes", None),
             context_json       = getattr(job, "context_json", None),
             parent_job_id      = getattr(job, "parent_job_id", None),
+            project_id         = getattr(job, "project_id", None) or "default",
         )
         with get_session() as s:
             s.add(row)
@@ -145,6 +147,7 @@ class OrchestratorJobRepository:
             scheduling_notes   = getattr(job, "scheduling_notes", None),
             context_json       = getattr(job, "context_json", None),
             parent_job_id      = getattr(job, "parent_job_id", None),
+            project_id         = getattr(job, "project_id", None) or "default",
         )
         with get_session() as s:
             s.merge(row)
@@ -157,11 +160,33 @@ class OrchestratorJobRepository:
 
     def list_jobs(self, limit: int = 100, project_id: Optional[str] = None):
         """
-        Recent jobs, newest first. When project_id is set, keep jobs whose
-        test_case_ids overlap the catalog tests in that project (scans recent rows).
+        Recent jobs, newest first.
+
+        When project_id is set, prefer the persisted ``project_id`` column (v1).
+        If the column is absent on legacy rows, fall back to test_case overlap scan.
         """
+        pid = (project_id or "").strip()
+        if pid:
+            from sqlalchemy import or_
+
+            with get_session() as s:
+                rows = (
+                    s.query(OrchestratorJobRow)
+                    .filter(
+                        or_(
+                            OrchestratorJobRow.project_id == pid,
+                            (OrchestratorJobRow.project_id.is_(None)) & (pid == "default"),
+                        )
+                    )
+                    .order_by(OrchestratorJobRow.created_at.desc())
+                    .limit(limit)
+                    .all()
+                )
+            if rows:
+                return [_row_to_model(r) for r in rows]
+
         fetch = limit
-        if project_id and str(project_id).strip():
+        if pid:
             fetch = min(2000, max(limit * 25, limit))
 
         with get_session() as s:
@@ -172,7 +197,6 @@ class OrchestratorJobRepository:
                 .all()
             )
         models = [_row_to_model(r) for r in rows]
-        pid = (project_id or "").strip()
         if not pid:
             return models[:limit]
 
@@ -193,15 +217,31 @@ class OrchestratorJobRepository:
 
     def count_by_status(self, project_id: Optional[str] = None) -> dict:
         """Job counts by status; optional scope to jobs touching a catalog project."""
-        from sqlalchemy import func
+        from sqlalchemy import func, or_
 
-        if not (project_id and str(project_id).strip()):
+        pid = (project_id or "").strip()
+        if not pid:
             with get_session() as s:
                 rows = (
                     s.query(OrchestratorJobRow.status, func.count(OrchestratorJobRow.job_id))
                     .group_by(OrchestratorJobRow.status)
                     .all()
                 )
+            return {status: count for status, count in rows}
+
+        with get_session() as s:
+            rows = (
+                s.query(OrchestratorJobRow.status, func.count(OrchestratorJobRow.job_id))
+                .filter(
+                    or_(
+                        OrchestratorJobRow.project_id == pid,
+                        (OrchestratorJobRow.project_id.is_(None)) & (pid == "default"),
+                    )
+                )
+                .group_by(OrchestratorJobRow.status)
+                .all()
+            )
+        if rows:
             return {status: count for status, count in rows}
 
         jobs = self.list_jobs(limit=800, project_id=project_id)

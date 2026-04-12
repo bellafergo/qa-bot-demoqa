@@ -70,6 +70,7 @@ def run_batch(req: BatchExecutionRequest):
             test_case_ids=req.test_case_ids,
             environment=req.environment,
             context_json=json.dumps(req.context) if req.context else None,
+            project_id=req.project_id,
         )
     except Exception as exc:
         logger.exception("execution/run-batch failed")

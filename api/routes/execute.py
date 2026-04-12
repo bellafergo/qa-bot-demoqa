@@ -32,6 +32,7 @@ class ExecuteStepsRequest(BaseModel):
     viewport: Optional[Dict[str, int]] = None
     timeout_s: Optional[int] = None
     expected: Optional[str] = None
+    project_id: Optional[str] = None
     meta: Optional[Dict[str, Any]] = None  # tags/pr/etc
 
     @field_validator("steps")
@@ -121,6 +122,10 @@ def execute_steps(req: ExecuteStepsRequest, request: Request) -> Dict[str, Any]:
         meta["client_id"] = client_id
     if workspace_id:
         meta["workspace_id"] = workspace_id
+    pid = (req.project_id or "").strip()
+    if not pid and isinstance(meta.get("project_id"), str):
+        pid = str(meta.get("project_id") or "").strip()
+    meta["project_id"] = pid if pid else "default"
     return _enqueue("steps", run_execute_steps_job, payload, meta)
 
 
@@ -133,6 +138,7 @@ class ExecuteSuiteRequest(BaseModel):
     suite: Dict[str, Any]
     env:   Optional[Dict[str, Any]] = None
     meta:  Optional[Dict[str, Any]] = None
+    project_id: Optional[str] = None
 
 
 @router.post("/execute_suite")
@@ -148,4 +154,8 @@ def execute_suite(req: ExecuteSuiteRequest, request: Request) -> Dict[str, Any]:
         meta["client_id"] = client_id
     if workspace_id:
         meta["workspace_id"] = workspace_id
+    pid = (req.project_id or "").strip()
+    if not pid and isinstance(meta.get("project_id"), str):
+        pid = str(meta.get("project_id") or "").strip()
+    meta["project_id"] = pid if pid else "default"
     return _enqueue("suite", run_suite_job, payload, meta)

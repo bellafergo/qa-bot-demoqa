@@ -35,6 +35,7 @@ class PRAnalysisRequest(BaseModel):
     auto_enqueue:           bool = False
     generate_draft_tests:   bool = False
     environment:            str  = "default"
+    project_id:             Optional[str] = None
 
 
 # ── Output atoms ──────────────────────────────────────────────────────────────

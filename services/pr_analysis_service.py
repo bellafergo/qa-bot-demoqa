@@ -701,6 +701,7 @@ class PRAnalysisService:
             job = orchestrator_service.enqueue_suite(
                 test_case_ids=matched_ids,
                 environment=req.environment or "default",
+                project_id=getattr(req, "project_id", None),
             )
             logger.info("pr_analysis: enqueued job %s for PR %s", job.job_id, req.pr_id)
             return job.job_id

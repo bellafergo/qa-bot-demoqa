@@ -24,12 +24,17 @@ class ExecutionStatusResponse(BaseModel):
     running_tasks:        int = 0   # tests currently executing (= active_workers)
     completed_tasks:      int = 0   # total tests completed since process start
     retried_tasks:        int = 0   # total retries since process start
+    # Per-project orchestrator queue (v1)
+    max_concurrent_jobs_per_project: int = 0
+    orchestrator_pending_by_project: Optional[Dict[str, int]] = None
+    orchestrator_reserved_by_project: Optional[Dict[str, int]] = None
 
 
 class BatchExecutionRequest(BaseModel):
     """Input for POST /execution/run-batch."""
     test_case_ids:   List[str]
     environment:     str            = "default"
+    project_id:      Optional[str]   = None   # catalog tenant; defaults from tests or "default"
     scheduling_mode: Optional[str]  = None   # "priority" (default) | "fifo" (no-op v1)
     context:         Optional[Dict[str, Any]] = None   # trigger context (source, pr_title, modules…)
 

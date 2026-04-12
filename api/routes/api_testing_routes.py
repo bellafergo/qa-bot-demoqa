@@ -117,8 +117,12 @@ def run_api_tests(req: APITestExecutionRequest):
     if req.test_case_ids:
         # Mode 1: catalog tests → orchestrator
         try:
-            from services.catalog_orchestrator import orchestrator
-            job = orchestrator.enqueue_suite(test_case_ids=req.test_case_ids)
+            from services.catalog_orchestrator import orchestrator_service
+            job = orchestrator_service.enqueue_suite(
+                test_case_ids=req.test_case_ids,
+                environment=req.environment or "default",
+                project_id=req.project_id,
+            )
             return {
                 "mode":                "catalog",
                 "orchestrator_job_id": job.job_id,

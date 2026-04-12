@@ -208,7 +208,10 @@ class RiskSelectionService:
 
         try:
             from services.catalog_orchestrator import orchestrator_service
-            job = orchestrator_service.enqueue_suite(test_case_ids=tc_ids)
+            job = orchestrator_service.enqueue_suite(
+                test_case_ids=tc_ids,
+                project_id=getattr(req, "project_id", None),
+            )
             return SelectAndRunResult(
                 selection           = selection,
                 orchestrator_job_id = job.job_id,

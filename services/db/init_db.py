@@ -101,11 +101,16 @@ def init_catalog_db() -> None:
                 ("scheduling_notes", "ALTER TABLE orchestrator_jobs ADD COLUMN scheduling_notes TEXT"),
                 ("context_json",     "ALTER TABLE orchestrator_jobs ADD COLUMN context_json TEXT"),
                 ("parent_job_id",    "ALTER TABLE orchestrator_jobs ADD COLUMN parent_job_id TEXT"),
+                ("project_id",      "ALTER TABLE orchestrator_jobs ADD COLUMN project_id TEXT DEFAULT 'default'"),
             ]
             for col_name, sql in migrations:
                 if col_name not in existing_cols:
                     conn.execute(text(sql))
                     logger.info("db: migrated orchestrator_jobs — added %s column", col_name)
+            if "project_id" in {row[1] for row in conn.execute(text("PRAGMA table_info(orchestrator_jobs)")).fetchall()}:
+                conn.execute(
+                    text("UPDATE orchestrator_jobs SET project_id = 'default' WHERE project_id IS NULL")
+                )
             conn.commit()
     except Exception:
         logger.exception("db: migration for orchestrator_jobs parallel-execution columns failed (non-fatal)")

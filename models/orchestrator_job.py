@@ -41,6 +41,8 @@ class OrchestratorJob(BaseModel):
     # Scope
     test_case_ids:    List[str]        = Field(default_factory=list)
     environment:      str              = "default"
+    # Catalog / tenant partition — drives per-project queue + concurrency (v1)
+    project_id:       str              = Field(default="default", min_length=1)
 
     # Counters — updated as tests complete
     total_count:      int = 0

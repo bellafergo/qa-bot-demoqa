@@ -508,6 +508,9 @@ class TestExecutionStatus:
             "max_workers", "max_ui_workers", "max_api_workers",
             "running_ui_workers", "running_api_workers",
             "queued_tasks", "running_tasks", "completed_tasks", "retried_tasks",
+            "max_concurrent_jobs_per_project",
+            "orchestrator_pending_by_project",
+            "orchestrator_reserved_by_project",
         }
         assert expected_keys <= set(status.keys())
 
@@ -515,8 +518,13 @@ class TestExecutionStatus:
         from services.catalog_orchestrator import get_execution_status
         status = get_execution_status()
         for k, v in status.items():
-            assert isinstance(v, int), f"{k} should be int"
-            assert v >= 0, f"{k} should be >= 0 (got {v})"
+            if isinstance(v, dict):
+                for sk, sv in v.items():
+                    assert isinstance(sv, int), f"{k}.{sk} should be int"
+                    assert sv >= 0, f"{k}.{sk} should be >= 0 (got {sv})"
+            else:
+                assert isinstance(v, int), f"{k} should be int"
+                assert v >= 0, f"{k} should be >= 0 (got {v})"
 
     def test_status_max_workers_matches_config(self):
         from services.catalog_orchestrator import get_execution_status, EXECUTION_MAX_WORKERS

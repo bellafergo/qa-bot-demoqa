@@ -106,6 +106,7 @@ class APITestExecutionRequest(BaseModel):
     test_case_ids: Optional[List[str]] = None
     drafts:        Optional[List[DraftAPITest]] = None
     environment:   Optional[str] = "default"
+    project_id:    Optional[str] = None
     auth_config:   Optional[Dict[str, Any]] = None
 
     @model_validator(mode="after")
