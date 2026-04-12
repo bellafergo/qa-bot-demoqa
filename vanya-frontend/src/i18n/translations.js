@@ -324,6 +324,9 @@ export const translations = {
     "projects.login_section_hint":
       "Saved as JSON in the database (not encrypted). The API never returns secret values; leave password empty when editing to keep the stored password.",
     "projects.login_url":             "Login path or URL",
+    "projects.ph_email_selector":       "input[type=\"email\"]",
+    "projects.ph_password_selector":  "input[type=\"password\"]",
+    "projects.ph_submit_selector":    "button[type=\"submit\"]",
     "projects.login_email_selector":  "Email field CSS selector",
     "projects.login_password_selector": "Password field CSS selector",
     "projects.login_submit_selector": "Submit button CSS selector",
@@ -1761,6 +1764,9 @@ export const translations = {
     "projects.login_section_hint":
       "Se guarda como JSON en la base de datos (sin cifrar). La API no devuelve valores secretos; dejá la contraseña vacía al editar para conservar la guardada.",
     "projects.login_url":             "Ruta o URL de login",
+    "projects.ph_email_selector":       "input[type=\"email\"]",
+    "projects.ph_password_selector":  "input[type=\"password\"]",
+    "projects.ph_submit_selector":    "button[type=\"submit\"]",
     "projects.login_email_selector":  "Selector CSS del email",
     "projects.login_password_selector": "Selector CSS de la contraseña",
     "projects.login_submit_selector": "Selector CSS del botón enviar",

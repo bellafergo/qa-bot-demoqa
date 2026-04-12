@@ -41,9 +41,10 @@ export default function ProjectModal({ open, mode, project, onClose }) {
   const [color, setColor] = useState(PRESET_COLORS[0]);
   const [baseUrl, setBaseUrl] = useState("");
   const [loginUrl, setLoginUrl] = useState("");
-  const [emailSel, setEmailSel] = useState('input[type="email"]');
-  const [passSel, setPassSel] = useState('input[type="password"]');
-  const [submitSel, setSubmitSel] = useState('button[type="submit"]');
+  /** Empty by default so PATCH can send only `settings.variables` without inventing a login_profile. */
+  const [emailSel, setEmailSel] = useState("");
+  const [passSel, setPassSel] = useState("");
+  const [submitSel, setSubmitSel] = useState("");
   const [successText, setSuccessText] = useState("");
   const [successUrl, setSuccessUrl] = useState("");
   const [varEmail, setVarEmail] = useState("");
@@ -65,9 +66,9 @@ export default function ProjectModal({ open, mode, project, onClose }) {
       setBaseUrl(project.base_url || "");
       const lp = readLoginProfile(project);
       setLoginUrl(lp.login_url || "");
-      setEmailSel(lp.email_selector || 'input[type="email"]');
-      setPassSel(lp.password_selector || 'input[type="password"]');
-      setSubmitSel(lp.submit_selector || 'button[type="submit"]');
+      setEmailSel((lp.email_selector || "").trim());
+      setPassSel((lp.password_selector || "").trim());
+      setSubmitSel((lp.submit_selector || "").trim());
       setSuccessText(lp.success_text || "");
       setSuccessUrl(lp.success_url_contains || lp.success_url || "");
       setVarEmail("");
@@ -81,9 +82,9 @@ export default function ProjectModal({ open, mode, project, onClose }) {
       setColor(PRESET_COLORS[0]);
       setBaseUrl("");
       setLoginUrl("");
-      setEmailSel('input[type="email"]');
-      setPassSel('input[type="password"]');
-      setSubmitSel('button[type="submit"]');
+      setEmailSel("");
+      setPassSel("");
+      setSubmitSel("");
       setSuccessText("");
       setSuccessUrl("");
       setVarEmail("");
@@ -277,6 +278,7 @@ export default function ProjectModal({ open, mode, project, onClose }) {
                 style={{ fontFamily: "ui-monospace, monospace", fontSize: 13 }}
                 value={emailSel}
                 onChange={(e) => setEmailSel(e.target.value)}
+                placeholder={t("projects.ph_email_selector")}
                 autoComplete="off"
               />
             </label>
@@ -287,6 +289,7 @@ export default function ProjectModal({ open, mode, project, onClose }) {
                 style={{ fontFamily: "ui-monospace, monospace", fontSize: 13 }}
                 value={passSel}
                 onChange={(e) => setPassSel(e.target.value)}
+                placeholder={t("projects.ph_password_selector")}
                 autoComplete="off"
               />
             </label>
@@ -297,6 +300,7 @@ export default function ProjectModal({ open, mode, project, onClose }) {
                 style={{ fontFamily: "ui-monospace, monospace", fontSize: 13 }}
                 value={submitSel}
                 onChange={(e) => setSubmitSel(e.target.value)}
+                placeholder={t("projects.ph_submit_selector")}
                 autoComplete="off"
               />
             </label>

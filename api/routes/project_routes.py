@@ -76,6 +76,16 @@ def patch_project(project_id: str, body: ProjectUpdate):
         if existing is None:
             raise HTTPException(status_code=404, detail="Project not found")
         data["settings"] = merge_settings(existing.settings, data["settings"])
+        merged = data["settings"] if isinstance(data["settings"], dict) else {}
+        vars_m = merged.get("variables") if isinstance(merged.get("variables"), dict) else {}
+        logger.info(
+            "project PATCH id=%s settings_keys=%s variables_keys=%s has_EMAIL=%s has_PASSWORD=%s",
+            pid,
+            sorted(merged.keys()),
+            sorted(vars_m.keys()),
+            "EMAIL" in vars_m,
+            "PASSWORD" in vars_m,
+        )
     updated = project_repo.update_project(pid, data)
     if updated is None:
         raise HTTPException(status_code=404, detail="Project not found")
