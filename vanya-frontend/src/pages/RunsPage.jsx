@@ -8,6 +8,10 @@ import { useLocation, useNavigate } from "react-router-dom";
 import {
   listTestRuns,
   getTestRun,
+  getTest,
+  updateTest,
+  previewCatalogAiEdit,
+  runTest,
   analyzeRCA,
   analyzeRisk,
   getRunClusters,
@@ -104,6 +108,78 @@ function hasEvidenceForList(run) {
       run.meta?.evidence_url ||
       run.meta?.report_url
   );
+}
+
+function runStatusIsFailure(status) {
+  const s = String(status || "").toLowerCase();
+  return s === "fail" || s === "failed" || s === "error";
+}
+
+/** Catalog-linked test id from a run detail payload, or null if not applicable. */
+function resolveTestCaseIdFromRun(detail) {
+  const id = detail?.test_id || detail?.test_case_id;
+  if (id == null) return null;
+  const t = String(id).trim();
+  if (!t || t === "_async") return null;
+  return t;
+}
+
+function findFailingStepInfo(detail) {
+  if (!detail) return null;
+  const steps = detail.steps_result || detail.steps || [];
+  const meta = detail.meta || {};
+  const idx = detail.step_index ?? meta.step_index;
+  if (idx != null && steps[idx]) {
+    const s = steps[idx];
+    return {
+      index: Number(idx),
+      action: s.action || s.type || s.name || "—",
+      status: s.status,
+    };
+  }
+  for (let i = 0; i < steps.length; i++) {
+    const st = String(steps[i]?.status || "").toLowerCase();
+    if (st.includes("fail") || st === "error") {
+      const s = steps[i];
+      return {
+        index: i,
+        action: s.action || s.type || s.name || "—",
+        status: s.status,
+      };
+    }
+  }
+  return null;
+}
+
+function buildAiCatalogInstructionPrefill(detail, failing, t) {
+  const tc = resolveTestCaseIdFromRun(detail);
+  const name = detail.test_name || "";
+  const err =
+    detail.error_summary ||
+    detail.reason ||
+    detail.message ||
+    detail.error_message ||
+    "";
+  const hint = detail.hint || detail.meta?.hint;
+  const lines = [];
+  if (tc) {
+    lines.push(
+      t("runs.ai_fix.prefill_intro", { tc, suffix: name ? ` — ${name}` : "" })
+    );
+  }
+  if (err) lines.push(`${t("runs.ai_fix.prefill_error_prefix")}${err}`);
+  if (hint) lines.push(`${t("runs.ai_fix.prefill_hint_prefix")}${hint}`);
+  if (failing != null) {
+    lines.push(
+      t("runs.ai_fix.prefill_failing_step", {
+        index: failing.index,
+        action: failing.action,
+        status: failing.status || "—",
+      })
+    );
+  }
+  lines.push(t("runs.ai_fix.prefill_footer"));
+  return lines.join("\n");
 }
 
 function CorrelationIdChip({ value }) {
@@ -207,6 +283,7 @@ function ConfirmModal({
   cancelLabel,
   onConfirm,
   onCancel,
+  zIndex = 9999,
 }) {
   const { t } = useLang();
   if (!open) return null;
@@ -216,7 +293,7 @@ function ConfirmModal({
         position: "fixed",
         inset: 0,
         background: "rgba(0,0,0,0.45)",
-        zIndex: 9999,
+        zIndex,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -872,6 +949,22 @@ function RunHistoryTab({ initialRunId }) {
   const [retryError, setRetryError] = useState("");
   const [lastEnqueuedJobId, setLastEnqueuedJobId] = useState(null);
 
+  // AI-assisted catalog fix (from failed run)
+  const [aiFixModalOpen, setAiFixModalOpen] = useState(false);
+  const [aiCatalogFetchLoading, setAiCatalogFetchLoading] = useState(false);
+  const [aiCatalogTest, setAiCatalogTest] = useState(null);
+  const [aiCatalogFetchError, setAiCatalogFetchError] = useState("");
+  const [aiInstruction, setAiInstruction] = useState("");
+  const [aiGenLoading, setAiGenLoading] = useState(false);
+  const [aiProposal, setAiProposal] = useState(null);
+  const [aiModalError, setAiModalError] = useState("");
+  const [confirmAiApplyOpen, setConfirmAiApplyOpen] = useState(false);
+  const [aiApplyBusy, setAiApplyBusy] = useState(false);
+  const [aiApplyError, setAiApplyError] = useState("");
+  const [postAiApplyRerunTcId, setPostAiApplyRerunTcId] = useState(null);
+  const [aiRerunBusy, setAiRerunBusy] = useState(false);
+  const [aiRerunError, setAiRerunError] = useState("");
+
   const loadClusters = useCallback(async () => {
     setClustersLoading(true);
     try {
@@ -904,6 +997,22 @@ function RunHistoryTab({ initialRunId }) {
     loadClusters();
   }, [load, loadClusters]);
 
+  function resetAiCatalogFixState() {
+    setAiFixModalOpen(false);
+    setAiCatalogFetchLoading(false);
+    setAiCatalogTest(null);
+    setAiCatalogFetchError("");
+    setAiInstruction("");
+    setAiGenLoading(false);
+    setAiProposal(null);
+    setAiModalError("");
+    setConfirmAiApplyOpen(false);
+    setAiApplyBusy(false);
+    setAiApplyError("");
+    setAiRerunBusy(false);
+    setAiRerunError("");
+  }
+
   // Auto-open a specific run when navigated from Execution Center
   useEffect(() => {
     if (initialRunId && !autoOpenedRef.current) {
@@ -924,6 +1033,8 @@ function RunHistoryTab({ initialRunId }) {
     setDetail(null);
     setRcaResult(null);
     setRiskResult(null);
+    resetAiCatalogFixState();
+    setPostAiApplyRerunTcId(null);
     setDetailLoading(true);
     try {
       const d = await getTestRun(lookupId);
@@ -960,6 +1071,74 @@ function RunHistoryTab({ initialRunId }) {
       setRiskResult({ error: apiErrorMessage(e) });
     } finally {
       setRiskLoading(false);
+    }
+  }
+
+  function openAiFixModal() {
+    if (!detail || detail.error) return;
+    const tcId = resolveTestCaseIdFromRun(detail);
+    setAiModalError("");
+    setAiProposal(null);
+    setAiCatalogFetchError("");
+    setAiCatalogTest(null);
+    const failing = findFailingStepInfo(detail);
+    setAiInstruction(buildAiCatalogInstructionPrefill(detail, failing, t));
+    setAiFixModalOpen(true);
+    if (!tcId) {
+      setAiCatalogFetchError(t("runs.ai_fix.no_test_case"));
+      return;
+    }
+    setAiCatalogFetchLoading(true);
+    (async () => {
+      try {
+        const full = await getTest(tcId);
+        setAiCatalogTest(full);
+      } catch (e) {
+        setAiCatalogFetchError(apiErrorMessage(e) || t("runs.ai_fix.catalog_load_failed"));
+      } finally {
+        setAiCatalogFetchLoading(false);
+      }
+    })();
+  }
+
+  async function handleAiFixGenerate() {
+    if (!aiCatalogTest || !aiInstruction.trim()) return;
+    setAiGenLoading(true);
+    setAiModalError("");
+    setAiProposal(null);
+    try {
+      const steps = Array.isArray(aiCatalogTest.steps) ? aiCatalogTest.steps : [];
+      const assertions = Array.isArray(aiCatalogTest.assertions) ? aiCatalogTest.assertions : [];
+      const result = await previewCatalogAiEdit({
+        test_case_id: aiCatalogTest.test_case_id,
+        name: aiCatalogTest.name,
+        module: aiCatalogTest.module,
+        priority: aiCatalogTest.priority,
+        steps,
+        assertions,
+        instruction: aiInstruction.trim(),
+      });
+      setAiProposal(result);
+    } catch (e) {
+      setAiModalError(apiErrorMessage(e) || t("runs.ai_fix.generate_failed"));
+    } finally {
+      setAiGenLoading(false);
+    }
+  }
+
+  async function handleAiRerunAfterFix(tcId) {
+    if (!tcId) return;
+    setAiRerunBusy(true);
+    setAiRerunError("");
+    try {
+      const meta = detail?.meta || {};
+      const env = meta.environment || detail?.environment || "default";
+      await runTest(tcId, { headless: true, environment: env });
+      setPostAiApplyRerunTcId(null);
+    } catch (e) {
+      setAiRerunError(apiErrorMessage(e) || t("runs.ai_fix.rerun_failed"));
+    } finally {
+      setAiRerunBusy(false);
     }
   }
 
@@ -1258,6 +1437,40 @@ function RunHistoryTab({ initialRunId }) {
                   </div>
                 )}
 
+                {postAiApplyRerunTcId &&
+                  resolveTestCaseIdFromRun(detail) === postAiApplyRerunTcId && (
+                    <div
+                      className="alert alert-success"
+                      style={{ marginBottom: 12, fontSize: 12, display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}
+                    >
+                      <span>{t("runs.ai_fix.apply_ok_banner")}</span>
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        onClick={() => handleAiRerunAfterFix(postAiApplyRerunTcId)}
+                        disabled={aiRerunBusy}
+                      >
+                        {aiRerunBusy ? t("common.working") : t("runs.ai_fix.rerun")}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => {
+                          setPostAiApplyRerunTcId(null);
+                          setAiRerunError("");
+                        }}
+                        disabled={aiRerunBusy}
+                      >
+                        {t("runs.ai_fix.dismiss_banner")}
+                      </button>
+                    </div>
+                  )}
+                {aiRerunError && (
+                  <div className="alert alert-error" style={{ marginBottom: 12, fontSize: 12 }}>
+                    {aiRerunError}
+                  </div>
+                )}
+
                 <DebugAccordion detail={detail} />
 
                 {/* Action Panel: recommended next steps with explicit confirmation for operations */}
@@ -1267,7 +1480,8 @@ function RunHistoryTab({ initialRunId }) {
                   const quarantineRecommended = meta.quarantine_recommended === true;
                   const retryPolicyApplied = meta.retry_policy_applied === true;
                   const flakySignalPresent = !!meta.flaky_signal;
-                  const failedOrError = statusNorm === "failed" || statusNorm === "error";
+                  const failedOrError =
+                    statusNorm === "failed" || statusNorm === "fail" || statusNorm === "error";
 
                   const shouldShowPanel = quarantineRecommended || retryPolicyApplied || flakySignalPresent || failedOrError;
                   if (!shouldShowPanel) return null;
@@ -1371,14 +1585,24 @@ function RunHistoryTab({ initialRunId }) {
                   </div>
                 )}
 
-                {/* RCA / Risk buttons */}
-                <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
+                {/* RCA / Risk / AI catalog fix */}
+                <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap", alignItems: "center" }}>
                   <button className="btn btn-secondary btn-sm" onClick={handleRCA} disabled={rcaLoading}>
                     {rcaLoading ? t("runs.history.analyzing") : t("runs.history.rca")}
                   </button>
                   <button className="btn btn-secondary btn-sm" onClick={handleRisk} disabled={riskLoading}>
                     {riskLoading ? t("runs.history.analyzing") : t("runs.history.risk")}
                   </button>
+                  {runStatusIsFailure(detail.status) && resolveTestCaseIdFromRun(detail) && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={openAiFixModal}
+                      disabled={aiGenLoading || aiCatalogFetchLoading}
+                    >
+                      ✨ {t("runs.ai_fix.open_btn")}
+                    </button>
+                  )}
                 </div>
               </>
             ) : null}
@@ -1468,6 +1692,251 @@ function RunHistoryTab({ initialRunId }) {
           )}
         </div>
       )}
+      {aiFixModalOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.5)",
+            zIndex: 10000,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="card" style={{ width: "min(720px, 100%)", maxHeight: "90vh", overflow: "auto", padding: 0 }}>
+            <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)" }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)" }}>{t("runs.ai_fix.modal_title")}</div>
+              <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 4 }}>{runPersistedLookupId(detail)}</div>
+            </div>
+            <div style={{ padding: "14px 20px" }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-2)", marginBottom: 8 }}>
+                {t("runs.ai_fix.failure_summary")}
+              </div>
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "var(--text-2)",
+                  lineHeight: 1.55,
+                  marginBottom: 14,
+                  padding: 10,
+                  background: "var(--surface-2)",
+                  borderRadius: 6,
+                  border: "1px solid var(--border)",
+                }}
+              >
+                <div>
+                  <span style={{ color: "var(--text-3)" }}>{t("runs.ai_fix.field_test_case")}</span>{" "}
+                  <code>{resolveTestCaseIdFromRun(detail) || "—"}</code>
+                </div>
+                <div style={{ marginTop: 6 }}>
+                  <span style={{ color: "var(--text-3)" }}>{t("runs.ai_fix.field_run_id")}</span>{" "}
+                  <code style={{ wordBreak: "break-all" }}>{runPersistedLookupId(detail)}</code>
+                </div>
+                {detail.evidence_id && (
+                  <div style={{ marginTop: 6 }}>
+                    <span style={{ color: "var(--text-3)" }}>{t("runs.ai_fix.field_evidence")}</span>{" "}
+                    <code style={{ wordBreak: "break-all" }}>{String(detail.evidence_id)}</code>
+                  </div>
+                )}
+                <div style={{ marginTop: 6 }}>
+                  <span style={{ color: "var(--text-3)" }}>{t("runs.ai_fix.field_status")}</span>{" "}
+                  {String(detail.status || "—")}
+                  {detail.duration_ms != null && (
+                    <span style={{ marginLeft: 8, color: "var(--text-3)" }}>
+                      · {fmtMs(detail.duration_ms)}
+                    </span>
+                  )}
+                </div>
+                {(detail.error_summary || detail.reason || detail.message || detail.error_message) && (
+                  <div style={{ marginTop: 8 }}>
+                    <span style={{ color: "var(--text-3)" }}>{t("runs.ai_fix.field_error")}</span>{" "}
+                    {detail.error_summary || detail.reason || detail.message || detail.error_message}
+                  </div>
+                )}
+                {(() => {
+                  const fs = findFailingStepInfo(detail);
+                  if (!fs) return null;
+                  return (
+                    <div style={{ marginTop: 8 }}>
+                      <span style={{ color: "var(--text-3)" }}>{t("runs.ai_fix.field_failing_step")}</span>{" "}
+                      #{fs.index} — {fs.action}
+                    </div>
+                  );
+                })()}
+                {(detail.correlation_id || detail.meta?.correlation_id) && (
+                  <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-3)" }}>
+                    correlation: {detail.correlation_id || detail.meta?.correlation_id}
+                  </div>
+                )}
+              </div>
+
+              {aiCatalogFetchLoading && (
+                <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 12 }}>{t("runs.ai_fix.loading_catalog")}</div>
+              )}
+              {aiCatalogFetchError && (
+                <div className="alert alert-error" style={{ marginBottom: 12, fontSize: 12 }}>
+                  {aiCatalogFetchError}
+                </div>
+              )}
+              {aiModalError && (
+                <div className="alert alert-error" style={{ marginBottom: 12, fontSize: 12 }}>
+                  {aiModalError}
+                </div>
+              )}
+
+              {!aiProposal ? (
+                <>
+                  <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 4 }}>
+                    {t("runs.ai_fix.instruction_label")}
+                  </label>
+                  <textarea
+                    className="input"
+                    rows={5}
+                    style={{ width: "100%", fontSize: 12, resize: "vertical" }}
+                    value={aiInstruction}
+                    onChange={e => setAiInstruction(e.target.value)}
+                    disabled={aiGenLoading || !!aiCatalogFetchError || aiCatalogFetchLoading || !aiCatalogTest}
+                  />
+                  <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={resetAiCatalogFixState}
+                      disabled={aiGenLoading}
+                    >
+                      {t("common.cancel")}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={handleAiFixGenerate}
+                      disabled={
+                        aiGenLoading ||
+                        !aiCatalogTest ||
+                        !aiInstruction.trim() ||
+                        aiCatalogFetchLoading ||
+                        !!aiCatalogFetchError
+                      }
+                    >
+                      {aiGenLoading ? t("runs.ai_fix.generating") : t("runs.ai_fix.generate")}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {aiProposal.change_summary?.length > 0 && (
+                    <div style={{ marginBottom: 12 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", marginBottom: 4 }}>
+                        {t("runs.ai_fix.change_summary")}
+                      </div>
+                      <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: "var(--text-2)" }}>
+                        {aiProposal.change_summary.map((line, i) => (
+                          <li key={i} style={{ marginBottom: 3 }}>{line}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", marginBottom: 4 }}>{t("runs.ai_fix.steps_label")}</div>
+                  <pre
+                    style={{
+                      margin: "0 0 10px",
+                      padding: 8,
+                      fontSize: 10,
+                      fontFamily: "monospace",
+                      maxHeight: 140,
+                      overflow: "auto",
+                      background: "var(--surface-1)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 4,
+                      color: "var(--text-2)",
+                    }}
+                  >
+                    {JSON.stringify(aiProposal.steps, null, 2)}
+                  </pre>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", marginBottom: 4 }}>{t("runs.ai_fix.assertions_label")}</div>
+                  <pre
+                    style={{
+                      margin: "0 0 12px",
+                      padding: 8,
+                      fontSize: 10,
+                      fontFamily: "monospace",
+                      maxHeight: 120,
+                      overflow: "auto",
+                      background: "var(--surface-1)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 4,
+                      color: "var(--text-2)",
+                    }}
+                  >
+                    {JSON.stringify(aiProposal.assertions, null, 2)}
+                  </pre>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => setAiProposal(null)}>
+                      {t("runs.ai_fix.discard_proposal")}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={() => {
+                        setAiApplyError("");
+                        setAiFixModalOpen(false);
+                        setConfirmAiApplyOpen(true);
+                      }}
+                    >
+                      {t("runs.ai_fix.apply_catalog")}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ConfirmModal
+        open={confirmAiApplyOpen}
+        busy={aiApplyBusy}
+        error={aiApplyError}
+        zIndex={10001}
+        title={t("runs.ai_fix.apply_confirm_title")}
+        description={t("runs.ai_fix.apply_confirm_desc")}
+        cancelLabel={t("common.cancel")}
+        confirmLabel={t("runs.ai_fix.apply_confirm_btn")}
+        onCancel={() => {
+          setConfirmAiApplyOpen(false);
+          setAiApplyError("");
+          if (aiProposal && aiCatalogTest) setAiFixModalOpen(true);
+        }}
+        onConfirm={async () => {
+          if (!aiCatalogTest || !aiProposal) return;
+          setAiApplyBusy(true);
+          setAiApplyError("");
+          try {
+            const runLabel = runPersistedLookupId(detail);
+            await updateTest(aiCatalogTest.test_case_id, {
+              name: aiCatalogTest.name,
+              module: aiCatalogTest.module,
+              priority: aiCatalogTest.priority,
+              steps: aiProposal.steps,
+              assertions: aiProposal.assertions,
+              _change_note: `Runs: corrección IA desde run ${runLabel}`,
+            });
+            setConfirmAiApplyOpen(false);
+            setPostAiApplyRerunTcId(aiCatalogTest.test_case_id);
+            resetAiCatalogFixState();
+          } catch (e) {
+            setAiApplyError(apiErrorMessage(e) || t("runs.ai_fix.apply_failed"));
+            setAiFixModalOpen(true);
+          } finally {
+            setAiApplyBusy(false);
+          }
+        }}
+      />
+
       <ConfirmModal
         open={confirmRetryOpen}
         busy={retryBusy}
