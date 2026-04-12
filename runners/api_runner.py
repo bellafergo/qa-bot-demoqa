@@ -43,6 +43,63 @@ _ALLOWED_METHODS = frozenset(
 _JSON_TYPES = frozenset({"array", "object", "string", "number", "boolean", "null"})
 
 
+def _safe_cookie_jar_summary(client: httpx.Client) -> Dict[str, Any]:
+    """Names / domains / paths only — never cookie values."""
+    names: List[str] = []
+    domains: List[str] = []
+    paths: List[str] = []
+    try:
+        cj = getattr(client.cookies, "jar", None)
+        if cj is not None:
+            for c in cj:
+                try:
+                    n = getattr(c, "name", None)
+                    if n:
+                        names.append(str(n))
+                    d = (getattr(c, "domain", None) or "").strip()
+                    if d:
+                        domains.append(d.lstrip("."))
+                    p = (getattr(c, "path", None) or "").strip()
+                    if p:
+                        paths.append(p)
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    return {
+        "names": sorted(set(names)),
+        "domains": sorted(set(domains)),
+        "paths": sorted(set(paths)),
+    }
+
+
+def _log_cookie_jar(tag: str, client: httpx.Client) -> None:
+    s = _safe_cookie_jar_summary(client)
+    logger.debug(
+        "api_runner cookies %s names=%s domains=%s paths=%s",
+        tag,
+        s.get("names"),
+        s.get("domains"),
+        s.get("paths"),
+    )
+
+
+def _request_base_for_url(variables: Dict[str, Any], merged_base: str) -> str:
+    """Prefer origin used for NextAuth login so relative URLs match the cookie jar."""
+    auth_o = str(variables.get("_session_origin") or "").strip().rstrip("/")
+    if auth_o:
+        return auth_o
+    return merged_base
+
+
+def _body_preview_for_log(resp: httpx.Response, max_len: int = 200) -> str:
+    try:
+        t = (resp.text or "")[:max_len]
+    except Exception:
+        return "(unreadable)"
+    return t.replace("\n", " ").replace("\r", " ")
+
+
 def _mask_email_for_log(email: str) -> str:
     e = (email or "").strip()
     if not e:
@@ -365,7 +422,16 @@ def run_api_test(
                                 f"Unsupported HTTP method: {method!r}. Allowed: {sorted(_ALLOWED_METHODS)}"
                             )
                         url_raw = str(step.get("url") or "")
-                        url = resolve_request_url(merged_base, interpolate_value(url_raw, ctx))
+                        url_base = _request_base_for_url(variables, merged_base)
+                        url = resolve_request_url(url_base, interpolate_value(url_raw, ctx))
+                        if logger.isEnabledFor(logging.DEBUG):
+                            _log_cookie_jar(f"before step {i} request", client)
+                            logger.debug(
+                                "api_runner request step=%s resolve_base=%s merged_base=%s",
+                                i,
+                                url_base,
+                                merged_base,
+                            )
                         headers = dict(auth_headers)
                         headers.update(interpolate_value(step.get("headers") or {}, ctx))
                         params = interpolate_value(step.get("params"), ctx) if step.get("params") else None
@@ -405,6 +471,15 @@ def run_api_test(
                             last_response_json = resp.json()
                         except Exception:
                             last_response_json = None
+
+                        if logger.isEnabledFor(logging.DEBUG) and resp.status_code >= 400:
+                            logger.debug(
+                                "api_runner request step=%s status=%s url=%s body_preview=%s",
+                                i,
+                                resp.status_code,
+                                url,
+                                _body_preview_for_log(resp),
+                            )
 
                         dur = int((time.time() - t_step) * 1000)
                         log = f"{method} {url} → HTTP {resp.status_code} ({last_response_time_ms}ms)"
@@ -519,6 +594,11 @@ def run_api_test(
                             )
                         )
                         logs.append(f"[{i}] {log}")
+                        # Align interpolation base_url with the origin that received Set-Cookie
+                        # so later {{base_url}} / relative URLs match the cookie jar host.
+                        variables["_session_origin"] = step_origin
+                        variables["base_url"] = step_origin
+                        _log_cookie_jar("after nextauth_login", client)
                         continue
 
                     if action == "assert_authenticated":
