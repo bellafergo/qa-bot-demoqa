@@ -927,7 +927,20 @@ class TestCatalogService:
             vr = validate_steps(steps, runner_kind="desktop")
         elif tc_test_type == "api":
             steps = _build_api_runner_steps(tc)
+            actions_list = [str((s or {}).get("action") or "") for s in steps]
+            logger.debug(
+                "api validation start tc=%s test_type=%s runner_kind=api actions=%s",
+                tc.test_case_id,
+                tc_test_type,
+                actions_list,
+            )
             vr = validate_steps(steps, runner_kind="api")
+            if not vr.valid:
+                logger.debug(
+                    "api validation errors tc=%s errors=%s",
+                    tc.test_case_id,
+                    [e.model_dump() for e in vr.errors],
+                )
         else:
             steps = _build_runner_steps(tc, base_url=base_url)
             steps = prepare_web_steps_for_execution(steps)

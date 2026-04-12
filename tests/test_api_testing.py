@@ -985,6 +985,52 @@ class TestNextAuthAPIRunner:
             )
         assert result.get("ok") is False
 
+    def test_tos_api_style_steps_pass_validation(self):
+        from core.step_validator import validate_steps
+
+        steps = [
+            {
+                "action": "nextauth_login",
+                "email": "{{project_email}}",
+                "password": "{{project_password}}",
+                "base_url": "{{base_url}}",
+            },
+            {"action": "assert_authenticated"},
+            {"action": "api_request", "method": "GET", "endpoint": "/api/example"},
+        ]
+        vr = validate_steps(steps, runner_kind="api")
+        assert vr.valid, [e.model_dump() for e in vr.errors]
+
+    def test_assert_authenticated_after_nextauth(self):
+        from services.api_runner import run_api_test
+
+        csrf_r = _mock_response(200, {"csrfToken": "tok"})
+        post_r = _mock_response(200, {"url": "/"})
+        sess_r = _mock_response(200, {"user": {"email": "u@example.com"}})
+
+        with patch("httpx.Client") as mock_client_cls:
+            mock_client = MagicMock()
+            mock_client_cls.return_value.__enter__.return_value = mock_client
+            mock_client.get.side_effect = [csrf_r, sess_r]
+            mock_client.post.return_value = post_r
+            mock_client.request.return_value = _mock_response(200, {"ok": True})
+            result = run_api_test(
+                steps=[
+                    {
+                        "action": "nextauth_login",
+                        "email": "u@example.com",
+                        "password": "secret",
+                        "base_url": "https://app.example.com",
+                    },
+                    {"action": "assert_authenticated", "base_url": "https://app.example.com"},
+                    {"action": "api_request", "method": "GET", "endpoint": "/api/x"},
+                ],
+                base_url="https://app.example.com",
+            )
+
+        assert result.get("ok") is True
+        assert mock_client.get.call_count == 2
+
 
 # ── 14. Dashboard test type counts ───────────────────────────────────────────
 

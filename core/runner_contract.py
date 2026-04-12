@@ -77,6 +77,7 @@ API_RUNNER_ACTIONS: frozenset = frozenset(
         "request",
         "api_request",  # legacy alias → request in runner
         "nextauth_login",
+        "assert_authenticated",
         "wait_ms",
         "assert_status",
         "assert_json_field",

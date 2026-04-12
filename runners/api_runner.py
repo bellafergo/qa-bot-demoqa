@@ -508,6 +508,58 @@ def run_api_test(
                         logs.append(f"[{i}] {log}")
                         continue
 
+                    if action == "assert_authenticated":
+                        raw_step_base = step.get("base_url")
+                        if raw_step_base is not None and str(raw_step_base).strip():
+                            step_origin = str(interpolate_value(raw_step_base, ctx)).strip().rstrip(
+                                "/"
+                            )
+                        else:
+                            step_origin = str(variables.get("base_url") or "").strip().rstrip("/")
+                        if not step_origin:
+                            raise ValueError(
+                                "assert_authenticated requires base_url on the run, from the project, or on the step."
+                            )
+                        path = str(
+                            interpolate_value(step.get("session_path") or "/api/auth/session", ctx)
+                        ).strip()
+                        sess_url = resolve_request_url(step_origin, path)
+                        tr = time.time()
+                        try:
+                            resp = client.get(sess_url, timeout=default_timeout)
+                        except httpx.TimeoutException as e:
+                            raise TimeoutError(f"Request timeout: {e}") from e
+                        last_response_time_ms = int((time.time() - tr) * 1000)
+                        last_response = resp
+                        try:
+                            last_response_json = resp.json()
+                        except Exception:
+                            last_response_json = None
+                        if resp.status_code != 200:
+                            raise AssertionError(
+                                f"assert_authenticated: expected HTTP 200, got {resp.status_code}"
+                            )
+                        sess = last_response_json if isinstance(last_response_json, dict) else {}
+                        user = sess.get("user")
+                        if user is None or user == {}:
+                            raise AssertionError(
+                                "assert_authenticated: session has no user (not logged in)"
+                            )
+                        dur = int((time.time() - t_step) * 1000)
+                        log = f"assert_authenticated GET {sess_url} → HTTP 200 (session ok)"
+                        steps_result.append(
+                            _step_result(
+                                index=i,
+                                action=action,
+                                status="pass",
+                                duration_ms=dur,
+                                log=log,
+                                extra={"status_code": resp.status_code, "url": sess_url},
+                            )
+                        )
+                        logs.append(f"[{i}] {log}")
+                        continue
+
                     if action == "assert_status":
                         if last_response is None:
                             raise RuntimeError("No previous HTTP response; run a 'request' step first.")
@@ -711,7 +763,7 @@ def run_api_test(
             duration_ms = int((time.time() - t0) * 1000)
             if last_response is None and not any(
                 str((s or {}).get("action") or "").lower()
-                in ("request", "api_request", "nextauth_login")
+                in ("request", "api_request", "nextauth_login", "assert_authenticated")
                 for s in (steps or [])
             ):
                 return {
@@ -733,6 +785,7 @@ def run_api_test(
                     "assert_json_type",
                     "assert_header",
                     "assert_response_time",
+                    "assert_authenticated",
                 )
                 for s in steps
             )

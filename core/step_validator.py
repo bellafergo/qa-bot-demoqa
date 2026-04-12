@@ -8,7 +8,7 @@ and returns a StepValidationResult with structured errors and warnings.
 Contrato canónico (multi-runner):
   - runner_kind "web" (default): acciones en RUNNER_ACTIONS (Playwright / generic_steps).
   - runner_kind "desktop": acciones en core.runner_contract.DESKTOP_RUNNER_ACTIONS (pywinauto).
-  - runner_kind "api": request, api_request (legacy), nextauth_login, wait_ms, assert_*, set_variable.
+  - runner_kind "api": request, api_request (legacy), nextauth_login, assert_authenticated, wait_ms, assert_*, set_variable.
 
   Acciones DSL alto (login, search, …) deben compilarse antes de validar en modo web.
 
@@ -427,6 +427,8 @@ def _validate_api_steps(steps: List[Dict[str, Any]]) -> StepValidationResult:
                     message="nextauth_login requires 'email' and 'password' (e.g. {{project_email}}, {{project_password}}).",
                     field="email",
                 ))
+
+        # assert_authenticated: optional session_path (default /api/auth/session in runner)
 
         if action == "assert_status" and step.get("expected") is None:
             errors.append(StepValidationError(
