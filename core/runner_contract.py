@@ -5,7 +5,7 @@ step actions are legal per runner.
 
 - Web  → Playwright (`runners.generic_steps.execute_test`)
 - Desktop → pywinauto (`runners.desktop_runner.run_desktop_test`)
-- API  → httpx (`services.api_runner.run_api_test`)
+- API  → httpx (`runners.api_runner.run_api_test`; `services.api_runner` re-exports for drafts)
 
 `test_type` on TestCase remains the persisted field: ui | desktop | api.
 `runner_kind` is the resolved execution lane: web | desktop | api.
@@ -72,7 +72,20 @@ DESKTOP_RUNNER_ACTIONS: frozenset = frozenset(
 
 # ── API runner ────────────────────────────────────────────────────────────────
 
-API_RUNNER_ACTIONS: frozenset = frozenset({"api_request", "wait_ms"})
+API_RUNNER_ACTIONS: frozenset = frozenset(
+    {
+        "request",
+        "api_request",  # legacy alias → request in runner
+        "wait_ms",
+        "assert_status",
+        "assert_json_field",
+        "assert_json_contains",
+        "assert_json_type",
+        "assert_header",
+        "set_variable",
+        "assert_response_time",
+    }
+)
 
 # Actions that clearly belong to another runner (for error hints)
 

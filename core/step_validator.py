@@ -8,7 +8,7 @@ and returns a StepValidationResult with structured errors and warnings.
 Contrato canónico (multi-runner):
   - runner_kind "web" (default): acciones en RUNNER_ACTIONS (Playwright / generic_steps).
   - runner_kind "desktop": acciones en core.runner_contract.DESKTOP_RUNNER_ACTIONS (pywinauto).
-  - runner_kind "api": api_request, wait_ms.
+  - runner_kind "api": request, api_request (legacy), wait_ms, assert_*, set_variable.
 
   Acciones DSL alto (login, search, …) deben compilarse antes de validar en modo web.
 
@@ -398,15 +398,121 @@ def _validate_api_steps(steps: List[Dict[str, Any]]) -> StepValidationResult:
                 error_type="invalid_action",
                 message=f"Action {action!r} is not valid for API runner.",
                 field="action",
-                hint=mismatch_hint(action, "api") or "Allowed: api_request, wait_ms.",
+                hint=mismatch_hint(action, "api")
+                or f"Allowed: {', '.join(sorted(API_RUNNER_ACTIONS))}.",
             ))
+            continue
 
-        if action == "api_request" and not step.get("endpoint"):
-            warnings.append(StepValidationError(
+        if action in ("request", "api_request"):
+            if not step.get("url") and not step.get("endpoint"):
+                errors.append(StepValidationError(
+                    step_index=i, action=action,
+                    error_type="missing_required_field",
+                    message="request requires 'url' or (legacy) api_request with 'endpoint'.",
+                    field="url",
+                ))
+            if not step.get("method"):
+                warnings.append(StepValidationError(
+                    step_index=i, action=action,
+                    error_type="missing_required_field",
+                    message="method defaults to GET if omitted.",
+                    field="method",
+                ))
+
+        if action == "assert_status" and step.get("expected") is None:
+            errors.append(StepValidationError(
                 step_index=i, action=action,
                 error_type="missing_required_field",
-                message="api_request should set 'endpoint' (e.g. '/users').",
-                field="endpoint",
+                message="assert_status requires 'expected' (HTTP status code).",
+                field="expected",
+            ))
+
+        if action == "assert_json_field":
+            if not step.get("field"):
+                errors.append(StepValidationError(
+                    step_index=i, action=action,
+                    error_type="missing_required_field",
+                    message="assert_json_field requires 'field' (dot path).",
+                    field="field",
+                ))
+            if step.get("expected") is None:
+                errors.append(StepValidationError(
+                    step_index=i, action=action,
+                    error_type="missing_required_field",
+                    message="assert_json_field requires 'expected'.",
+                    field="expected",
+                ))
+
+        if action == "assert_json_contains":
+            if not step.get("field"):
+                errors.append(StepValidationError(
+                    step_index=i, action=action,
+                    error_type="missing_required_field",
+                    message="assert_json_contains requires 'field'.",
+                    field="field",
+                ))
+            if step.get("expected") is None:
+                errors.append(StepValidationError(
+                    step_index=i, action=action,
+                    error_type="missing_required_field",
+                    message="assert_json_contains requires 'expected' (substring).",
+                    field="expected",
+                ))
+
+        if action == "assert_json_type":
+            if not step.get("field"):
+                errors.append(StepValidationError(
+                    step_index=i, action=action,
+                    error_type="missing_required_field",
+                    message="assert_json_type requires 'field'.",
+                    field="field",
+                ))
+            if not step.get("expected_type"):
+                errors.append(StepValidationError(
+                    step_index=i, action=action,
+                    error_type="missing_required_field",
+                    message="assert_json_type requires 'expected_type'.",
+                    field="expected_type",
+                ))
+
+        if action == "assert_header":
+            if not step.get("header"):
+                errors.append(StepValidationError(
+                    step_index=i, action=action,
+                    error_type="missing_required_field",
+                    message="assert_header requires 'header'.",
+                    field="header",
+                ))
+            if step.get("expected") is None:
+                errors.append(StepValidationError(
+                    step_index=i, action=action,
+                    error_type="missing_required_field",
+                    message="assert_header requires 'expected'.",
+                    field="expected",
+                ))
+
+        if action == "set_variable":
+            if not step.get("name"):
+                errors.append(StepValidationError(
+                    step_index=i, action=action,
+                    error_type="missing_required_field",
+                    message="set_variable requires 'name'.",
+                    field="name",
+                ))
+            if not step.get("field"):
+                errors.append(StepValidationError(
+                    step_index=i, action=action,
+                    error_type="missing_required_field",
+                    message="set_variable requires 'field' (dot path).",
+                    field="field",
+                ))
+
+        if action == "assert_response_time" and step.get("max_ms") is None:
+            errors.append(StepValidationError(
+                step_index=i, action=action,
+                error_type="missing_required_field",
+                message="assert_response_time requires 'max_ms'.",
+                field="max_ms",
             ))
 
     return StepValidationResult(

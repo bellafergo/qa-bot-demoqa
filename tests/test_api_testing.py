@@ -864,14 +864,14 @@ class TestAPIRunner:
         result = self._run(steps)
         assert isinstance(result.get("steps"), list)
 
-    def test_non_api_request_action_skipped(self):
+    def test_unknown_action_fails_before_request(self):
         steps = [
             {"action": "goto", "url": "https://example.com"},
             {"action": "api_request", "method": "GET", "endpoint": "/health"},
         ]
         result = self._run(steps, status_code=200)
-        # Should still pass (goto skipped, api_request succeeds)
-        assert result["status"] == "pass"
+        assert result["ok"] is False
+        assert result["steps"][0].get("status") in ("fail", "error")
 
     def test_no_steps_returns_error(self):
         from services.api_runner import run_api_test

@@ -306,6 +306,24 @@ def _build_runner_steps(
     return steps
 
 
+def _build_api_runner_steps(test_case: TestCase) -> List[Dict[str, Any]]:
+    """
+    Steps for test_type=api only: no injected goto, no UI assertion expansion.
+
+    Assertions belong either in the step list (assert_*, set_variable) or in
+    the catalog assertions field using legacy types (status_code_equals, …).
+    """
+    raw_steps = [s.model_dump() if hasattr(s, "model_dump") else dict(s) for s in test_case.steps]
+    try:
+        from services.test_data_service import preprocess_data_steps
+        raw_steps, _ = preprocess_data_steps(raw_steps)
+    except Exception:
+        logger.warning(
+            "test_catalog: test_data preprocessing failed (api, non-fatal), continuing",
+        )
+    return [dict(s) for s in raw_steps]
+
+
 # ── Desktop step builder ──────────────────────────────────────────────────────
 
 def _normalize_desktop_action(action: str) -> str:
@@ -907,13 +925,13 @@ class TestCatalogService:
         if tc_test_type == "desktop":
             steps = _build_desktop_steps(tc)
             vr = validate_steps(steps, runner_kind="desktop")
+        elif tc_test_type == "api":
+            steps = _build_api_runner_steps(tc)
+            vr = validate_steps(steps, runner_kind="api")
         else:
             steps = _build_runner_steps(tc, base_url=base_url)
             steps = prepare_web_steps_for_execution(steps)
-            vr = validate_steps(
-                steps,
-                runner_kind="api" if tc_test_type == "api" else "web",
-            )
+            vr = validate_steps(steps, runner_kind="web")
 
         if not vr.valid:
             err_msgs = "; ".join(
@@ -952,7 +970,7 @@ class TestCatalogService:
 
         try:
             if tc_test_type == "api":
-                from services.api_runner import run_api_test
+                from runners.api_runner import run_api_test
                 assertions_raw = [a.model_dump() for a in tc.assertions]
                 result = run_api_test(
                     steps      = steps,
