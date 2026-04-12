@@ -115,7 +115,7 @@ def _tier_for_request(method: str, path: str) -> Optional[str]:
             return "chat"
         if path in ("/drafts/generate", "/drafts/generate-from-pages"):
             return "chat"
-        if path in ("/tests/from-run", "/tests/auto-fix-preview"):
+        if path in ("/tests/from-run", "/tests/auto-fix-preview", "/tests/ai-edit-preview"):
             return "chat"
         if path == "/tests":
             return "chat"

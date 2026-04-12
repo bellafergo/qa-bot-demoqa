@@ -260,6 +260,8 @@ export function createTestFromRun(body) {
   });
 }
 export const previewAutoFix = (body)           => apiPost("/tests/auto-fix-preview", body);
+/** LLM proposal for catalog steps/assertions (preview only; no persist). */
+export const previewCatalogAiEdit = (body)     => apiPost("/tests/ai-edit-preview", body);
 export const runTest      = (tc_id, body = {}) => apiPost(`/tests/${tc_id}/run`, body);
 export const runSuite     = (body)             => apiPost("/tests/run-suite", body);
 export const updateTest   = (tc_id, body = {}) => apiPut(`/tests/${tc_id}`, body);

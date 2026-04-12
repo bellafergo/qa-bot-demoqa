@@ -5,7 +5,7 @@
  */
 import React, { useState, useEffect, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { listTests, getTest, runTest, runBatch, updateTest, listVersions, rollbackTest, diffVersions, previewAutoFix, apiErrorMessage } from "../api";
+import { listTests, getTest, runTest, runBatch, updateTest, listVersions, rollbackTest, diffVersions, previewAutoFix, previewCatalogAiEdit, apiErrorMessage } from "../api";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
@@ -166,6 +166,12 @@ export default function CatalogPage() {
   const [fixPreviewResult,  setFixPreviewResult]  = useState(null);
   const [fixPreviewLoading, setFixPreviewLoading] = useState(false);
 
+  // ── AI edit proposal (catalog editor) ─────────────────────────────────────
+  const [aiEditPanelOpen, setAiEditPanelOpen]   = useState(false);
+  const [aiInstruction,   setAiInstruction]     = useState("");
+  const [aiPreviewResult, setAiPreviewResult]   = useState(null);
+  const [aiEditLoading,   setAiEditLoading]     = useState(false);
+
   // ── Version history state ─────────────────────────────────────────────────
   const [versionsOpen,    setVersionsOpen]    = useState(null);   // tc_id whose history is open
   const [versions,        setVersions]        = useState([]);
@@ -285,8 +291,16 @@ export default function CatalogPage() {
     }
   }
 
+  function resetAiEditPanel() {
+    setAiEditPanelOpen(false);
+    setAiInstruction("");
+    setAiPreviewResult(null);
+    setAiEditLoading(false);
+  }
+
   async function handleEdit(tc_id) {
     setEditError("");
+    resetAiEditPanel();
     try {
       const full = await getTest(tc_id);
       setEditingId(tc_id);
@@ -313,6 +327,7 @@ export default function CatalogPage() {
     setEditForm(null);
     setEditError("");
     setFixPreviewResult(null);
+    resetAiEditPanel();
   }
 
   async function handleAutoFix() {
@@ -345,6 +360,50 @@ export default function CatalogPage() {
       assertionsJson: JSON.stringify(fixPreviewResult.assertions, null, 2),
     }));
     setFixPreviewResult(null);
+  }
+
+  async function handleAiEditGenerate(tc_id) {
+    if (!editForm || !aiInstruction.trim()) return;
+    let steps;
+    let assertions;
+    try {
+      steps = JSON.parse(editForm.stepsJson);
+      assertions = JSON.parse(editForm.assertionsJson);
+    } catch {
+      setEditError(t("catalog.edit.ai_invalid_json"));
+      return;
+    }
+    setEditError("");
+    setAiPreviewResult(null);
+    setAiEditLoading(true);
+    try {
+      const result = await previewCatalogAiEdit({
+        test_case_id: tc_id,
+        name: editForm.name,
+        module: editForm.module,
+        priority: editForm.priority,
+        steps,
+        assertions,
+        instruction: aiInstruction.trim(),
+      });
+      setAiPreviewResult(result);
+    } catch (e) {
+      setEditError(apiErrorMessage(e) || t("catalog.edit.ai_failed"));
+    } finally {
+      setAiEditLoading(false);
+    }
+  }
+
+  function handleApplyAiProposal() {
+    if (!aiPreviewResult) return;
+    setEditForm(f => ({
+      ...f,
+      stepsJson:      JSON.stringify(aiPreviewResult.steps,      null, 2),
+      assertionsJson: JSON.stringify(aiPreviewResult.assertions, null, 2),
+    }));
+    setAiPreviewResult(null);
+    setAiEditPanelOpen(false);
+    setAiInstruction("");
   }
 
   async function handleSave(tc_id) {
@@ -750,7 +809,7 @@ export default function CatalogPage() {
                                 onChange={e => setEditForm(f => ({ ...f, changeNote: e.target.value }))} />
                             </div>
                             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                              <button className="btn btn-primary btn-sm" onClick={() => handleSave(tc.test_case_id)} disabled={saving || fixPreviewLoading}>
+                              <button className="btn btn-primary btn-sm" onClick={() => handleSave(tc.test_case_id)} disabled={saving || fixPreviewLoading || aiEditLoading}>
                                 {saving ? t("catalog.edit.saving") : t("catalog.edit.save")}
                               </button>
                               <button className="btn btn-secondary btn-sm" onClick={handleCancelEdit} disabled={saving}>
@@ -759,12 +818,146 @@ export default function CatalogPage() {
                               <button
                                 className="btn btn-secondary btn-sm"
                                 onClick={handleAutoFix}
-                                disabled={saving || fixPreviewLoading}
+                                disabled={saving || fixPreviewLoading || aiEditLoading}
                                 style={{ marginLeft: 4 }}
                               >
                                 {fixPreviewLoading ? t("catalog.edit.autofix_loading") : `⚙ ${t("catalog.edit.autofix")}`}
                               </button>
+                              <button
+                                type="button"
+                                className={`btn btn-sm ${aiEditPanelOpen ? "btn-primary" : "btn-secondary"}`}
+                                onClick={() => {
+                                  if (aiEditPanelOpen) {
+                                    resetAiEditPanel();
+                                  } else {
+                                    setAiEditPanelOpen(true);
+                                    setAiPreviewResult(null);
+                                    setAiEditLoading(false);
+                                  }
+                                }}
+                                disabled={saving || fixPreviewLoading || aiEditLoading}
+                                style={{ marginLeft: 4 }}
+                              >
+                                ✨ {t("catalog.edit.ai_btn")}
+                              </button>
                             </div>
+
+                            {/* AI edit — instruction + proposal preview */}
+                            {aiEditPanelOpen && (
+                              <div style={{ marginTop: 10, border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden" }}>
+                                <div style={{ background: "var(--surface-2)", padding: "6px 12px", borderBottom: "1px solid var(--border)" }}>
+                                  <span style={{ fontWeight: 600, fontSize: 12, color: "var(--text-2)" }}>
+                                    ✨ {t("catalog.edit.ai_panel_title")}
+                                  </span>
+                                </div>
+                                <div style={{ padding: "10px 12px" }}>
+                                  {!aiPreviewResult ? (
+                                    <>
+                                      <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 4 }}>
+                                        {t("catalog.edit.ai_instruction_label")}
+                                      </label>
+                                      <textarea
+                                        className="input"
+                                        rows={4}
+                                        style={{ width: "100%", fontSize: 12, resize: "vertical" }}
+                                        placeholder={t("catalog.edit.ai_placeholder")}
+                                        value={aiInstruction}
+                                        onChange={e => setAiInstruction(e.target.value)}
+                                        disabled={aiEditLoading}
+                                      />
+                                      <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                                        <button
+                                          type="button"
+                                          className="btn btn-primary btn-sm"
+                                          onClick={() => handleAiEditGenerate(tc.test_case_id)}
+                                          disabled={aiEditLoading || !aiInstruction.trim()}
+                                        >
+                                          {aiEditLoading ? t("catalog.edit.ai_generating") : t("catalog.edit.ai_generate")}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="btn btn-secondary btn-sm"
+                                          onClick={resetAiEditPanel}
+                                          disabled={aiEditLoading}
+                                        >
+                                          {t("catalog.edit.ai_cancel_panel")}
+                                        </button>
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 8, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                                        <span>
+                                          Steps: {JSON.parse(editForm.stepsJson || "[]").length} → {aiPreviewResult.steps.length}
+                                        </span>
+                                        <span>·</span>
+                                        <span>
+                                          Assertions: {JSON.parse(editForm.assertionsJson || "[]").length} → {aiPreviewResult.assertions.length}
+                                        </span>
+                                      </div>
+                                      {aiPreviewResult.change_summary?.length > 0 && (
+                                        <div style={{ marginBottom: 10 }}>
+                                          <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", marginBottom: 4 }}>
+                                            {t("catalog.edit.ai_change_summary")}
+                                          </div>
+                                          <ul style={{ margin: 0, padding: "0 0 0 16px", fontSize: 12, color: "var(--text-2)" }}>
+                                            {aiPreviewResult.change_summary.map((line, i) => (
+                                              <li key={i} style={{ marginBottom: 3 }}>{line}</li>
+                                            ))}
+                                          </ul>
+                                        </div>
+                                      )}
+                                      <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", marginBottom: 4 }}>{t("catalog.edit.ai_steps_proposal")}</div>
+                                      <pre
+                                        style={{
+                                          margin: "0 0 10px",
+                                          padding: 8,
+                                          fontSize: 10,
+                                          fontFamily: "monospace",
+                                          background: "var(--surface-1)",
+                                          borderRadius: 4,
+                                          maxHeight: 160,
+                                          overflow: "auto",
+                                          border: "1px solid var(--border)",
+                                          color: "var(--text-2)",
+                                        }}
+                                      >
+                                        {JSON.stringify(aiPreviewResult.steps, null, 2)}
+                                      </pre>
+                                      <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", marginBottom: 4 }}>{t("catalog.edit.ai_assertions_proposal")}</div>
+                                      <pre
+                                        style={{
+                                          margin: 0,
+                                          padding: 8,
+                                          fontSize: 10,
+                                          fontFamily: "monospace",
+                                          background: "var(--surface-1)",
+                                          borderRadius: 4,
+                                          maxHeight: 120,
+                                          overflow: "auto",
+                                          border: "1px solid var(--border)",
+                                          color: "var(--text-2)",
+                                        }}
+                                      >
+                                        {JSON.stringify(aiPreviewResult.assertions, null, 2)}
+                                      </pre>
+                                      <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                                        <button type="button" className="btn btn-primary btn-sm" onClick={handleApplyAiProposal}>
+                                          {t("catalog.edit.ai_apply")}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="btn btn-secondary btn-sm"
+                                          onClick={() => setAiPreviewResult(null)}
+                                        >
+                                          {t("catalog.edit.ai_dismiss")}
+                                        </button>
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            )}
 
                             {/* Auto-fix preview panel */}
                             {fixPreviewResult && (

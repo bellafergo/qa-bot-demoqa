@@ -210,6 +210,46 @@ def auto_fix_preview(body: AutoFixPreviewRequest):
     )
 
 
+class CatalogAiEditPreviewRequest(BaseModel):
+    """Body for POST /tests/ai-edit-preview (LLM proposal; does not persist)."""
+
+    test_case_id: str
+    name: str = ""
+    module: str = ""
+    priority: str = ""
+    steps: List[Dict[str, Any]] = Field(default_factory=list)
+    assertions: List[Dict[str, Any]] = Field(default_factory=list)
+    instruction: str = ""
+
+
+class CatalogAiEditPreviewResponse(BaseModel):
+    steps: List[Dict[str, Any]]
+    assertions: List[Dict[str, Any]]
+    change_summary: List[str] = Field(default_factory=list)
+
+
+@router.post("/ai-edit-preview", response_model=CatalogAiEditPreviewResponse)
+def ai_edit_preview(body: CatalogAiEditPreviewRequest):
+    """
+    Propose updated steps/assertions from a natural-language instruction (OpenAI).
+    Stateless preview only — caller must save via PUT /tests/{id} if desired.
+    """
+    from services.catalog_ai_edit import run_catalog_ai_edit
+
+    try:
+        return run_catalog_ai_edit(
+            test_case_id=body.test_case_id,
+            name=body.name,
+            module=body.module,
+            priority=body.priority,
+            steps=body.steps,
+            assertions=body.assertions,
+            instruction=body.instruction,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
 # ── Single test case ──────────────────────────────────────────────────────────
 
 @router.get("/{test_case_id}", response_model=TestCase)
