@@ -417,6 +417,9 @@ export const translations = {
     "dash.kpi.based_on":       "based on",
     "dash.kpi.runs_unit":      "runs",
     "dash.kpi.clusters":       "clusters",
+    "dash.kpi.meta_target":    "Target: 80%",
+    "dash.kpi.idle_exec_title": "No active executions",
+    "dash.kpi.idle_exec_link":  "Run batch →",
 
     "dash.recent_runs":         "Recent Runs",
     "dash.recent_runs.link":    "Run history →",
@@ -442,6 +445,7 @@ export const translations = {
     "dash.col.job_id":    "Job ID",
     "dash.col.progress":  "Progress",
     "dash.col.created":   "Created",
+    "dash.col.actions":   "Actions",
 
     "dash.failure_intel":    "Failure Intelligence",
     "dash.insights_summary": "Insights",
@@ -458,6 +462,7 @@ export const translations = {
     "dash.trends.avg":            "avg",
     "dash.trends.no_data":        "Not enough data yet",
     "dash.trends.no_data_sub":    "Run at least 3 tests to see the trend",
+    "dash.trends.meta_80":        "Meta 80%",
 
     "dash.coverage.title":        "Test Distribution",
     "dash.coverage.ui":           "UI Tests",
@@ -488,6 +493,18 @@ export const translations = {
     "dash.risk.reason.flaky":      "Flaky tests detected",
     "dash.risk.reason.fail_rate":  "Elevated failure rate",
     "dash.risk.limited_history":   "Limited history",
+    "dash.risk.view_recommendations": "View recommendations →",
+
+    "dash.runs.filter.all":      "All",
+    "dash.runs.filter.failed": "Failed",
+    "dash.runs.filter.passed": "Passed",
+    "dash.runs.filter.today":  "Today",
+    "dash.runs.filter.empty":  "No runs match this filter.",
+    "dash.runs.filter.toolbar_aria": "Filter recent runs",
+    "dash.runs.view_run":      "View →",
+    "dash.rerun.cta":          "Re-run",
+    "dash.rerun.running":      "…",
+    "dash.rerun.error":        "Could not re-run the test.",
 
     "dash.analytics.title":          "Run Analytics",
     "dash.analytics.subtitle":       "Last 500 runs · 7-day trend · top failures",
@@ -1857,6 +1874,9 @@ export const translations = {
     "dash.kpi.based_on":       "basado en",
     "dash.kpi.runs_unit":      "ejecuciones",
     "dash.kpi.clusters":       "clusters",
+    "dash.kpi.meta_target":    "Meta: 80%",
+    "dash.kpi.idle_exec_title": "Sin ejecuciones activas",
+    "dash.kpi.idle_exec_link":  "Ejecutar batch →",
 
     "dash.recent_runs":         "Ejecuciones Recientes",
     "dash.recent_runs.link":    "Historial →",
@@ -1882,6 +1902,10 @@ export const translations = {
     "dash.col.job_id":    "Job ID",
     "dash.col.progress":  "Progreso",
     "dash.col.created":   "Creado",
+    "dash.col.actions":   "Acciones",
+
+    "dash.insights_summary": "Insights",
+    "dash.view_insights":    "Ver Insights →",
 
     "dash.failure_intel":    "Inteligencia de Fallos",
     "dash.fi.flaky_tests":   "Pruebas inestables",
@@ -1896,6 +1920,7 @@ export const translations = {
     "dash.trends.avg":            "prom",
     "dash.trends.no_data":        "Aún no hay datos suficientes",
     "dash.trends.no_data_sub":    "Ejecuta al menos 3 pruebas para ver la tendencia",
+    "dash.trends.meta_80":        "Meta 80%",
 
     "dash.coverage.title":        "Distribución de Pruebas",
     "dash.coverage.ui":           "Pruebas UI",
@@ -1926,6 +1951,18 @@ export const translations = {
     "dash.risk.reason.flaky":      "Pruebas inestables detectadas",
     "dash.risk.reason.fail_rate":  "Tasa de fallo elevada",
     "dash.risk.limited_history":   "Historial limitado",
+    "dash.risk.view_recommendations": "Ver recomendaciones →",
+
+    "dash.runs.filter.all":      "Todos",
+    "dash.runs.filter.failed": "Fallidos",
+    "dash.runs.filter.passed": "Pasados",
+    "dash.runs.filter.today":  "Hoy",
+    "dash.runs.filter.empty":  "Ninguna ejecución coincide con este filtro.",
+    "dash.runs.filter.toolbar_aria": "Filtrar ejecuciones recientes",
+    "dash.runs.view_run":      "Ver →",
+    "dash.rerun.cta":          "Re-ejecutar",
+    "dash.rerun.running":      "…",
+    "dash.rerun.error":        "No se pudo re-ejecutar el test.",
 
     "dash.analytics.title":          "Analítica de Runs",
     "dash.analytics.subtitle":       "Últimos 500 runs · tendencia 7 días · más fallidos",
