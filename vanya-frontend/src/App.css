@@ -859,6 +859,40 @@ code {
   font-weight: 500;
 }
 
+/* System status ribbon (dashboard decision center — incremental) */
+.dash-system-ribbon {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 14px 40px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2, var(--surface));
+}
+.dash-system-ribbon__inner {
+  max-width: 100%;
+}
+.dash-system-ribbon--loading {
+  opacity: 0.85;
+}
+.dash-system-ribbon--danger {
+  border-left: 4px solid var(--red);
+  background: var(--red-bg);
+}
+.dash-system-ribbon--warning {
+  border-left: 4px solid var(--orange);
+  background: var(--orange-bg);
+}
+.dash-system-ribbon--info {
+  border-left: 4px solid var(--accent);
+  background: var(--info-bg);
+}
+.dash-system-ribbon--neutral {
+  border-left: 4px solid var(--border);
+}
+.dash-system-ribbon--success {
+  border-left: 4px solid var(--green);
+  background: var(--green-bg);
+}
+
 .flow-card {
   background: var(--surface);
   border: 1px solid var(--border);

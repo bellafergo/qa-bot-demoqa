@@ -83,6 +83,174 @@ function filterDashboardRuns(runs, filterKey) {
   return list;
 }
 
+/** Match recent dashboard run to analytics top-failure test (failed status only). */
+function findRecentFailedRunForTest(recentRuns, testCaseId) {
+  const want = String(testCaseId || "").trim();
+  if (!want) return null;
+  for (const r of recentRuns || []) {
+    if (!isFailStatus(r.status)) continue;
+    const tid = String(r.test_id || r.test_case_id || "").trim();
+    if (tid === want) return r;
+  }
+  return null;
+}
+
+/**
+ * System status ribbon — priority rules (summary + fi + idle flags only; recentRuns reserved for future).
+ * Idle flag matches existing KPI `idleExecKpis`: active_workers === 0 && total_jobs === 0.
+ */
+function deriveSystemRibbonState({ loading, s, fi, passRateValid, passRateNum, idleExecKpis, t }) {
+  if (loading) {
+    return {
+      variant: "loading",
+      headline: t("dash.ribbon.loading"),
+      cta: null,
+    };
+  }
+  const totalRuns = s.total_runs ?? 0;
+  if (passRateValid && passRateNum < 60 && totalRuns >= 5) {
+    return {
+      variant: "danger",
+      headline: t("dash.ribbon.alert_quality"),
+      cta: { to: "/insights", label: t("dash.ribbon.cta_insights"), secondary: false },
+    };
+  }
+  if ((fi?.recurrent_regressions_count ?? 0) > 0) {
+    return {
+      variant: "warning",
+      headline: t("dash.ribbon.regressions"),
+      cta: { to: "/insights", label: t("dash.ribbon.cta_insights"), secondary: false },
+    };
+  }
+  if (!idleExecKpis) {
+    return {
+      variant: "info",
+      headline: t("dash.ribbon.execution_active"),
+      cta: { to: "/batch", label: t("dash.ribbon.cta_batch"), secondary: false },
+    };
+  }
+  if (passRateValid && passRateNum >= 80) {
+    return {
+      variant: "success",
+      headline: t("dash.ribbon.stable"),
+      cta: {
+        to: "/insights",
+        label: t("dash.ribbon.cta_insights_secondary"),
+        secondary: true,
+      },
+    };
+  }
+  return {
+    variant: "neutral",
+    headline: t("dash.ribbon.idle"),
+    cta: { to: "/batch", label: t("dash.ribbon.cta_batch"), secondary: false },
+  };
+}
+
+function SystemStatusRibbon({ ribbon }) {
+  const { variant, headline, cta } = ribbon;
+  return (
+    <div
+      className={`dash-system-ribbon dash-system-ribbon--${variant}`}
+      role="status"
+      aria-live="polite"
+    >
+      <div
+        className="dash-system-ribbon__inner"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 16,
+          flexWrap: "wrap",
+        }}
+      >
+        <span
+          className="dash-system-ribbon__headline"
+          style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", lineHeight: 1.35 }}
+        >
+          {headline}
+        </span>
+        {cta ? (
+          <Link
+            to={cta.to}
+            className={cta.secondary ? "btn btn-ghost btn-sm" : "btn btn-secondary btn-sm"}
+            style={{ flexShrink: 0 }}
+          >
+            {cta.label}
+          </Link>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function TopProblemCard({
+  analytics,
+  loading,
+  t,
+  onRerun,
+  onView,
+  busy,
+  error,
+}) {
+  const tf = analytics?.top_failures?.[0];
+  if (loading) {
+    return (
+      <div className="card dash-top-problem" style={{ padding: "18px 22px", marginBottom: 28 }}>
+        <div className="section-title" style={{ margin: 0, marginBottom: 10 }}>{t("dash.top_problem.title")}</div>
+        <div style={{ fontSize: 13, color: "var(--text-3)" }}>{t("dash.top_problem.loading")}</div>
+      </div>
+    );
+  }
+  if (!tf) return null;
+
+  const displayName = tf.test_name && tf.test_name !== tf.test_case_id ? tf.test_name : null;
+
+  return (
+    <div className="card dash-top-problem" style={{ padding: "18px 22px", marginBottom: 28 }}>
+      <div className="section-title" style={{ margin: 0, marginBottom: 12 }}>{t("dash.top_problem.title")}</div>
+      <div style={{ marginBottom: 10 }}>
+        {displayName && (
+          <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)", marginBottom: 4 }}>{displayName}</div>
+        )}
+        <div style={{ fontFamily: "monospace", fontSize: 12, color: "var(--text-2)" }}>{tf.test_case_id}</div>
+      </div>
+      <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 14, lineHeight: 1.5 }}>
+        <span>{t("dash.top_problem.impact_failed", { n: tf.failed_runs ?? 0 })}</span>
+        {" · "}
+        <span>{t("dash.top_problem.impact_runs", { n: tf.total_runs ?? 0 })}</span>
+        {" · "}
+        <span>
+          {t("dash.top_problem.impact_rate", {
+            pct:
+              tf.pass_rate != null && !Number.isNaN(Number(tf.pass_rate))
+                ? Number(tf.pass_rate).toFixed(1)
+                : "—",
+          })}
+        </span>
+      </div>
+      {error ? (
+        <div style={{ fontSize: 12, color: "var(--red)", marginBottom: 10 }}>{error}</div>
+      ) : null}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          disabled={busy || !tf.test_case_id}
+          aria-busy={busy ? true : undefined}
+          onClick={() => onRerun(tf.test_case_id)}
+        >
+          {busy ? t("dash.rerun.running") : t("dash.top_problem.rerun")}
+        </button>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => onView(tf)}>
+          {t("dash.top_problem.view")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Merge GET /execution/status orchestrator maps into one row per project.
  * "reserved" is the backend dispatch slot count (proxy for in-flight jobs per project).
@@ -740,6 +908,8 @@ export default function DashboardPage() {
   // MEJORA #5 — single-flight re-run per row
   const [rerunBusyRunId, setRerunBusyRunId] = useState(null);
   const [runInlineError, setRunInlineError]   = useState("");
+  const [topProblemBusy, setTopProblemBusy]   = useState(false);
+  const [topProblemError, setTopProblemError] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -812,6 +982,38 @@ export default function DashboardPage() {
     [navigate],
   );
 
+  const handleTopProblemRerun = useCallback(
+    async (testCaseId) => {
+      const tc = String(testCaseId || "").trim();
+      if (!tc) return;
+      setTopProblemError("");
+      setTopProblemBusy(true);
+      try {
+        await runTest(tc, { headless: true });
+        await load();
+      } catch (e) {
+        setTopProblemError(apiErrorMessage(e) || t("dash.rerun.error"));
+      } finally {
+        setTopProblemBusy(false);
+      }
+    },
+    [load, t],
+  );
+
+  const handleTopProblemView = useCallback(
+    (tf) => {
+      const id = tf?.test_case_id;
+      const run = findRecentFailedRunForTest(recentRuns, id);
+      const rid = String(run?.run_id || "").trim();
+      if (rid) {
+        navigate(`/evidence/run/${encodeURIComponent(rid)}`);
+      } else {
+        navigate("/runs");
+      }
+    },
+    [navigate, recentRuns],
+  );
+
   // KPI "Total Ejecuciones" — subtexto dinámico con solo los estados > 0
   const runsSubParts = [];
   if ((s.pass_runs  ?? 0) > 0) runsSubParts.push(`${s.pass_runs}  ${t("dash.kpi.pass")}`);
@@ -873,6 +1075,23 @@ export default function DashboardPage() {
   const idleExecKpis =
     !loading && (s.active_workers ?? 0) === 0 && (s.total_jobs ?? 0) === 0;
 
+  const systemRibbon = useMemo(
+    () =>
+      deriveSystemRibbonState({
+        loading,
+        s,
+        fi,
+        passRateValid,
+        passRateNum,
+        idleExecKpis,
+        t,
+      }),
+    [loading, s, fi, passRateValid, passRateNum, idleExecKpis, t],
+  );
+
+  const showTopProblemCard =
+    loading || !!(analytics && Array.isArray(analytics.top_failures) && analytics.top_failures[0]);
+
   return (
     <div style={{ height: "100%", overflow: "auto", background: "var(--bg)" }}>
 
@@ -917,6 +1136,8 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      <SystemStatusRibbon ribbon={systemRibbon} />
 
       <div style={{ padding: "32px 40px" }}>
 
@@ -968,6 +1189,18 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
+
+        {showTopProblemCard ? (
+          <TopProblemCard
+            analytics={loading ? null : analytics}
+            loading={loading}
+            t={t}
+            onRerun={handleTopProblemRerun}
+            onView={handleTopProblemView}
+            busy={topProblemBusy}
+            error={topProblemError}
+          />
+        ) : null}
 
         {!loading && (
           <ProjectCapacitySection execStatus={execStatus} projects={projects} t={t} />
