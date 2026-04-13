@@ -4,8 +4,8 @@
  * Wired to live backend: /dashboard/summary, /dashboard/recent-runs,
  * /dashboard/recent-jobs, /failure-intelligence/summary
  */
-import React, { useEffect, useState, useCallback } from "react";
-import { Link } from "react-router-dom";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import {
   getDashboardSummary,
   getDashboardRecentRuns,
@@ -13,6 +13,8 @@ import {
   getFailureIntel,
   getRunsAnalytics,
   getExecStatus,
+  runTest,
+  apiErrorMessage,
 } from "../api";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
@@ -44,6 +46,41 @@ function statusClass(s) {
 
 function isPassStatus(s) {
   return ["pass", "passed", "completed"].includes(String(s || "").toLowerCase());
+}
+
+function isFailStatus(s) {
+  return ["fail", "failed", "error"].includes(String(s || "").toLowerCase());
+}
+
+/** Local calendar day bounds for MEJORA #4 "Hoy" filter. */
+function isSameLocalDay(iso, dayStart, dayEnd) {
+  // QA FINAL — tolerate empty / non-string timestamps without producing Invalid Date matches
+  if (iso == null || iso === "") return false;
+  try {
+    const raw = typeof iso === "number" ? iso : String(iso).trim();
+    if (raw === "") return false;
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return false;
+    return d >= dayStart && d <= dayEnd;
+  } catch {
+    return false;
+  }
+}
+
+function filterDashboardRuns(runs, filterKey) {
+  const list = Array.isArray(runs) ? runs : [];
+  if (filterKey === "failed") return list.filter((r) => isFailStatus(r.status));
+  if (filterKey === "passed") return list.filter((r) => isPassStatus(r.status));
+  if (filterKey === "today") {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const end = new Date();
+    end.setHours(23, 59, 59, 999);
+    return list.filter((r) =>
+      isSameLocalDay(r.started_at || r.executed_at || r.finished_at, start, end),
+    );
+  }
+  return list;
 }
 
 /**
@@ -173,7 +210,8 @@ function PassRateTrendChart({ runs, loading, t }) {
     );
   }
 
-  const W = 400, H = 110, PAD_L = 32, PAD_R = 8, PAD_T = 10, PAD_B = 24;
+  // QA FINAL — extra right padding so "Meta 80%" does not collide with the last plot point
+  const W = 400, H = 110, PAD_L = 32, PAD_R = 40, PAD_T = 10, PAD_B = 24;
   const innerW = W - PAD_L - PAD_R;
   const innerH = H - PAD_T - PAD_B;
 
@@ -205,6 +243,12 @@ function PassRateTrendChart({ runs, loading, t }) {
 
   const avgY = (PAD_T + innerH * (1 - avgRate)).toFixed(1);
 
+  // MEJORA #7 — reference band 80–100% and horizontal line at 80%
+  const yAt = (rate) => PAD_T + innerH * (1 - rate);
+  const y80 = yAt(0.8);
+  const y100 = yAt(1);
+  const bandH = y80 - y100;
+
   return (
     <div>
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: 110, display: "block" }}>
@@ -217,6 +261,36 @@ function PassRateTrendChart({ runs, loading, t }) {
               stroke="var(--border)" strokeWidth="0.5" strokeDasharray="2,4" />
           );
         })}
+
+        {/* MEJORA #7 — success band between 80% and 100% (behind series) */}
+        <rect
+          x={PAD_L}
+          y={y100}
+          width={innerW}
+          height={Math.max(0, bandH)}
+          fill="var(--green)"
+          opacity={0.08}
+        />
+        <line
+          x1={PAD_L}
+          y1={y80}
+          x2={W - PAD_R}
+          y2={y80}
+          stroke="var(--green)"
+          strokeWidth="1"
+          strokeDasharray="4,3"
+          opacity={0.85}
+        />
+        <text
+          x={PAD_L + 4}
+          y={Math.max(PAD_T + 11, y80 - 4)}
+          textAnchor="start"
+          fontSize="9"
+          fill="var(--green)"
+          fontWeight={500}
+        >
+          {t("dash.trends.meta_80")}
+        </text>
 
         {/* Area fill */}
         <path d={areaPath} fill="var(--chart-trend-fill)" />
@@ -581,13 +655,24 @@ function RiskSummaryCard({ summary, fi, loading, t }) {
           ))}
         </div>
       )}
+
+      {/* MEJORA #8 — discrete link to Insights */}
+      <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${c.border}` }}>
+        <Link
+          to="/insights"
+          style={{ fontSize: 11, color: "var(--accent)", fontWeight: 500, textDecoration: "none" }}
+        >
+          {t("dash.risk.view_recommendations")}
+        </Link>
+      </div>
     </div>
   );
 }
 
 // ── Existing sub-components ───────────────────────────────────────────────────
 
-function KpiCard({ label, value, sub, accent, icon }) {
+/** `valueExtra` supports MEJORA #1 (benchmark under pass rate) without changing other KPI cards. */
+function KpiCard({ label, value, sub, accent, icon, valueExtra }) {
   return (
     <div className="kpi-card">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -597,6 +682,7 @@ function KpiCard({ label, value, sub, accent, icon }) {
       <div className="kpi-value" style={accent ? { color: accent } : {}}>
         {value ?? "—"}
       </div>
+      {valueExtra}
       {sub && <div className="kpi-sub">{sub}</div>}
     </div>
   );
@@ -637,6 +723,7 @@ function WidgetCard({ title, subtitle, children }) {
 
 export default function DashboardPage() {
   const { t } = useLang();
+  const navigate = useNavigate();
   const { currentProject, projects } = useProject();
   const projectId = currentProject?.id;
 
@@ -648,6 +735,11 @@ export default function DashboardPage() {
   const [execStatus, setExecStatus]   = useState(null);
   const [loading, setLoading]         = useState(true);
   const [lastRefresh, setLastRefresh] = useState(null);
+  // MEJORA #4 — client-side filters for recent runs (no extra API calls)
+  const [recentRunsFilter, setRecentRunsFilter] = useState("all");
+  // MEJORA #5 — single-flight re-run per row
+  const [rerunBusyRunId, setRerunBusyRunId] = useState(null);
+  const [runInlineError, setRunInlineError]   = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -679,8 +771,46 @@ export default function DashboardPage() {
     load();
   }, [load]);
 
-  const s        = summary || {};
-  const passRate = s.pass_rate != null ? `${s.pass_rate.toFixed(1)}%` : "—";
+  const s = summary || {};
+  // QA FINAL — numeric pass_rate only (avoids NaN / string edge cases breaking toFixed / delta)
+  const passRateRaw = s.pass_rate;
+  const passRateNum =
+    passRateRaw == null || passRateRaw === "" ? null : Number(passRateRaw);
+  const passRateValid = passRateNum != null && !Number.isNaN(passRateNum);
+  const passRate = passRateValid ? `${passRateNum.toFixed(1)}%` : "—";
+
+  const filteredRecentRuns = useMemo(
+    () => filterDashboardRuns(recentRuns, recentRunsFilter),
+    [recentRuns, recentRunsFilter],
+  );
+
+  const handleDashboardRerun = useCallback(
+    async (r) => {
+      const tcId = r.test_id || r.test_case_id;
+      if (!tcId) return;
+      setRunInlineError("");
+      const busyKey = r.run_id || tcId;
+      setRerunBusyRunId(busyKey);
+      try {
+        await runTest(tcId, { headless: true });
+        await load();
+      } catch (e) {
+        setRunInlineError(apiErrorMessage(e) || t("dash.rerun.error"));
+      } finally {
+        setRerunBusyRunId(null);
+      }
+    },
+    [load, t],
+  );
+
+  const openRunEvidence = useCallback(
+    (r) => {
+      const id = String(r.run_id || "").trim();
+      if (!id) return;
+      navigate(`/evidence/run/${encodeURIComponent(id)}`);
+    },
+    [navigate],
+  );
 
   // KPI "Total Ejecuciones" — subtexto dinámico con solo los estados > 0
   const runsSubParts = [];
@@ -701,6 +831,47 @@ export default function DashboardPage() {
       )}
     </>
   );
+
+  // MEJORA #1 — benchmark vs 80% target (delta in percentage points)
+  const passBench = 80;
+  const passRateDeltaPp = passRateValid ? passRateNum - passBench : null;
+  const passRateBenchmarkExtra =
+    !loading && passRateValid && passRateDeltaPp != null ? (
+      // MEJORA #1 — benchmark line (does not replace main pass rate value)
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 500,
+          color: "var(--text-2)",
+          lineHeight: 1.35,
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "baseline",
+          gap: "0 8px",
+          marginTop: 4,
+        }}
+      >
+        <span>{t("dash.kpi.meta_target")}</span>
+        <span
+          style={{
+            fontVariantNumeric: "tabular-nums",
+            color:
+              passRateNum >= passBench
+                ? "var(--green)"
+                : passRateNum < 60
+                  ? "var(--red)"
+                  : "var(--orange)",
+          }}
+        >
+          {passRateDeltaPp >= 0 ? "+" : ""}
+          {passRateDeltaPp.toFixed(1)} pp
+        </span>
+      </div>
+    ) : null;
+
+  // MEJORA #2 — hide workers + jobs KPIs when both are zero (after load)
+  const idleExecKpis =
+    !loading && (s.active_workers ?? 0) === 0 && (s.total_jobs ?? 0) === 0;
 
   return (
     <div style={{ height: "100%", overflow: "auto", background: "var(--bg)" }}>
@@ -749,16 +920,53 @@ export default function DashboardPage() {
 
       <div style={{ padding: "32px 40px" }}>
 
-        {/* ── KPI grid ─────────────────────────────────────────────────────── */}
-        <div className="kpi-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", marginBottom: 28 }}>
+        {/* ── KPI grid (MEJORA #3 — rely on .kpi-grid auto-fit for variable card count) ── */}
+        <div className="kpi-grid" style={{ marginBottom: 28 }}>
           <KpiCard label={t("dash.kpi.total_tests")}    value={loading ? "…" : s.total_test_cases} sub={`${s.active_test_cases ?? "—"} ${t("dash.kpi.active")}`}                        icon="☰" />
           <KpiCard label={t("dash.kpi.total_runs")}     value={loading ? "…" : s.total_runs}        sub={runsSub}      icon="▶" />
-          <KpiCard label={t("dash.kpi.pass_rate")}      value={loading ? "…" : passRate}            sub={passRateSub}  accent={s.pass_rate >= 80 ? "var(--green)" : "var(--orange)"} icon="✓" />
-          <KpiCard label={t("dash.kpi.active_workers")} value={loading ? "…" : s.active_workers}    sub={`${s.queue_depth ?? 0} ${t("dash.kpi.queued")}`}                                icon="⚙" />
-          <KpiCard label={t("dash.kpi.total_jobs")}     value={loading ? "…" : s.total_jobs}        sub={`${s.running_jobs ?? 0} ${t("dash.kpi.running")} · ${s.queued_jobs ?? 0} ${t("dash.kpi.queued")}`} icon="◈" />
+          <KpiCard
+            label={t("dash.kpi.pass_rate")}
+            value={loading ? "…" : passRate}
+            valueExtra={passRateBenchmarkExtra}
+            sub={passRateSub}
+            accent={
+              !loading && passRateValid
+                ? passRateNum >= passBench
+                  ? "var(--green)"
+                  : "var(--orange)"
+                : undefined
+            }
+            icon="✓"
+          />
+          {!idleExecKpis && (
+            <>
+              <KpiCard label={t("dash.kpi.active_workers")} value={loading ? "…" : s.active_workers}    sub={`${s.queue_depth ?? 0} ${t("dash.kpi.queued")}`}                                icon="⚙" />
+              <KpiCard label={t("dash.kpi.total_jobs")}     value={loading ? "…" : s.total_jobs}        sub={`${s.running_jobs ?? 0} ${t("dash.kpi.running")} · ${s.queued_jobs ?? 0} ${t("dash.kpi.queued")}`} icon="◈" />
+            </>
+          )}
           <KpiCard label={t("dash.kpi.ui_tests")}       value={loading ? "…" : s.total_ui_tests}    sub={t("dash.kpi.in_catalog")}                                                        icon="◻" />
           <KpiCard label={t("dash.kpi.api_tests")}      value={loading ? "…" : s.total_api_tests}   sub={t("dash.kpi.in_catalog")}                                                        icon="⌥" />
           {fi && <KpiCard label={t("dash.kpi.flaky_tests")} value={fi.flaky_tests_count ?? 0} sub={`${fi.total_clusters ?? 0} ${t("dash.kpi.clusters")}`} accent={fi.flaky_tests_count > 0 ? "var(--orange)" : undefined} icon="⚠" />}
+          {/* MEJORA #2 — compact CTA when no active workers and no jobs */}
+          {idleExecKpis && (
+            <div
+              className="kpi-card dash-kpi-idle-cta"
+              style={{
+                gridColumn: "1 / -1",
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                flexWrap: "wrap",
+                gap: 12,
+                minHeight: 72,
+              }}
+            >
+              <span style={{ fontSize: 13, color: "var(--text-2)", fontWeight: 500 }}>{t("dash.kpi.idle_exec_title")}</span>
+              <Link to="/batch" style={{ fontSize: 13, color: "var(--accent)", fontWeight: 600, textDecoration: "none", whiteSpace: "nowrap" }}>
+                {t("dash.kpi.idle_exec_link")}
+              </Link>
+            </div>
+          )}
         </div>
 
         {!loading && (
@@ -786,10 +994,9 @@ export default function DashboardPage() {
           </WidgetCard>
         </div>
 
-        {/* ── Bottom 2-col grid: runs/jobs (left) + intel/actions (right) ──── */}
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr)", gap: 28, alignItems: "start" }}>
+        {/* ── Bottom: runs + jobs + insights (MEJORA #6 — quick actions column removed) ─── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 28, alignItems: "stretch" }}>
 
-          {/* LEFT */}
           <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
 
             {/* Recent Runs */}
@@ -801,28 +1008,109 @@ export default function DashboardPage() {
                   {t("dash.no_runs")} <Link to="/catalog" style={{ color: "var(--accent)", fontWeight: 500, textDecoration: "none" }}>{t("dash.run_a_test")}</Link>
                 </div>
               ) : (
-                <table className="data-table">
-                  <thead><tr>
-                    <th>{t("dash.col.test_case")}</th>
-                    <th>{t("dash.col.status")}</th>
-                    <th>{t("dash.col.duration")}</th>
-                    <th>{t("dash.col.executed")}</th>
-                  </tr></thead>
-                  <tbody>
-                    {recentRuns.slice(0, 8).map((r, i) => (
-                      <tr key={r.run_id || i}>
-                        <td style={{ fontWeight: 500, fontSize: 12, fontFamily: "monospace" }}>
-                          {r.test_id || r.test_case_id || "—"}
-                        </td>
-                        <td><span className={`badge ${statusClass(r.status)}`}>{r.status}</span></td>
-                        <td style={{ fontSize: 12, color: "var(--text-2)" }}>{fmtMs(r.duration_ms)}</td>
-                        <td style={{ fontSize: 11, color: "var(--text-3)", whiteSpace: "nowrap" }}>
-                          {fmtDate(r.started_at || r.executed_at)}
-                        </td>
-                      </tr>
+                <>
+                  {/* MEJORA #4 — quick client-side filters */}
+                  <div
+                    className="dash-recent-runs-filters"
+                    role="toolbar"
+                    aria-label={t("dash.runs.filter.toolbar_aria")}
+                    style={{
+                      padding: "12px 16px",
+                      borderBottom: "1px solid var(--border)",
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: 8,
+                      alignItems: "center",
+                      minHeight: 48,
+                      boxSizing: "border-box",
+                    }}
+                  >
+                    {["all", "failed", "passed", "today"].map((key) => (
+                      <button
+                        key={key}
+                        type="button"
+                        className={
+                          recentRunsFilter === key ? "dash-filter-chip dash-filter-chip-active" : "dash-filter-chip dash-filter-chip-outline"
+                        }
+                        aria-pressed={recentRunsFilter === key}
+                        onClick={() => {
+                          setRunInlineError("");
+                          setRecentRunsFilter(key);
+                        }}
+                      >
+                        {t(`dash.runs.filter.${key}`)}
+                      </button>
                     ))}
-                  </tbody>
-                </table>
+                  </div>
+                  {runInlineError && (
+                    <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--red)", borderBottom: "1px solid var(--border)" }}>
+                      {runInlineError}
+                    </div>
+                  )}
+                  {filteredRecentRuns.length === 0 ? (
+                    <div style={{ padding: "20px", color: "var(--text-3)", fontSize: 13 }}>{t("dash.runs.filter.empty")}</div>
+                  ) : (
+                    <table className="data-table dash-recent-runs-table">
+                      <thead><tr>
+                        <th>{t("dash.col.test_case")}</th>
+                        <th>{t("dash.col.status")}</th>
+                        <th>{t("dash.col.duration")}</th>
+                        <th>{t("dash.col.executed")}</th>
+                        <th className="dash-recent-actions-col">{t("dash.col.actions")}</th>
+                      </tr></thead>
+                      <tbody>
+                        {/* MEJORA #5 — inline actions for failed-style rows (hover emphasis via CSS) */}
+                        {filteredRecentRuns.slice(0, 8).map((r, i) => {
+                          const showFailActions = isFailStatus(r.status);
+                          const busyKey = r.run_id || r.test_id || r.test_case_id;
+                          const busy = rerunBusyRunId && busyKey && rerunBusyRunId === busyKey;
+                          return (
+                            <tr key={r.run_id || i} className="dash-recent-runs-row">
+                              <td style={{ fontWeight: 500, fontSize: 12, fontFamily: "monospace" }}>
+                                {r.test_id || r.test_case_id || "—"}
+                              </td>
+                              <td><span className={`badge ${statusClass(r.status)}`}>{r.status}</span></td>
+                              <td style={{ fontSize: 12, color: "var(--text-2)" }}>{fmtMs(r.duration_ms)}</td>
+                              <td style={{ fontSize: 11, color: "var(--text-3)", whiteSpace: "nowrap" }}>
+                                {fmtDate(r.started_at || r.executed_at)}
+                              </td>
+                              <td className="dash-recent-actions-cell" style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                                {showFailActions ? (
+                                  <span className="dash-recent-runs-actions">
+                                    <button
+                                      type="button"
+                                      className="btn btn-ghost btn-sm"
+                                      style={{
+                                        padding: "2px 8px",
+                                        fontSize: 11,
+                                        minHeight: 28,
+                                        opacity: busy ? 0.65 : 1,
+                                      }}
+                                      aria-busy={busy ? true : undefined}
+                                      disabled={busy || !(r.test_id || r.test_case_id)}
+                                      onClick={() => handleDashboardRerun(r)}
+                                    >
+                                      {busy ? t("dash.rerun.running") : t("dash.rerun.cta")}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="btn btn-ghost btn-sm"
+                                      style={{ padding: "2px 8px", fontSize: 11, minHeight: 28, marginLeft: 4 }}
+                                      disabled={!r.run_id}
+                                      onClick={() => openRunEvidence(r)}
+                                    >
+                                      {t("dash.runs.view_run")}
+                                    </button>
+                                  </span>
+                                ) : null}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </>
               )}
             </SectionCard>
 
@@ -860,54 +1148,28 @@ export default function DashboardPage() {
 
           </div>
 
-          {/* RIGHT */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-
-            {/* Failure Intelligence summary — links to Insights */}
-            {fi && (
-              <div className="card">
-                <div className="section-title">{t("dash.insights_summary")}</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 6 }}>
-                  <Row label={t("dash.fi.flaky_tests")}  value={fi.flaky_tests_count ?? 0}           accent={fi.flaky_tests_count > 0 ? "var(--orange)" : undefined} />
-                  <Row label={t("dash.fi.clusters")}      value={fi.total_clusters ?? 0} />
-                  <Row label={t("dash.fi.regressions")}   value={fi.recurrent_regressions_count ?? 0} accent={fi.recurrent_regressions_count > 0 ? "var(--red)" : undefined} />
-                  {fi.notes && (
-                    <div style={{ fontSize: 12, color: "var(--text-2)", marginTop: 4, lineHeight: 1.5, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
-                      {fi.notes}
-                    </div>
-                  )}
-                </div>
-                <div style={{ marginTop: 12 }}>
-                  <Link to="/insights" style={{ fontSize: 12, color: "var(--accent)", fontWeight: 500, textDecoration: "none" }}>
-                    {t("dash.view_insights")}
-                  </Link>
-                </div>
-              </div>
-            )}
-
-            {/* Quick Actions */}
+          {/* Failure Intelligence summary — full width after MEJORA #6 */}
+          {fi && (
             <div className="card">
-              <div className="section-title">{t("dash.quick_actions")}</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {[
-                  { to: "/catalog",   icon: "☰", labelKey: "nav.catalog",   subKey: "dash.qa.catalog_sub"   },
-                  { to: "/generate",  icon: "⊕", labelKey: "nav.generate",  subKey: "dash.qa.generate_sub"  },
-                  { to: "/insights",  icon: "◐", labelKey: "nav.insights",  subKey: "dash.qa.insights_sub"  },
-                  { to: "/execution", icon: "⚙", labelKey: "exec.page.title", subKey: "dash.qa.execution_sub" },
-                  { to: "/chat",      icon: "✦", labelKey: "nav.chat",      subKey: "dash.qa.chat_sub"      },
-                ].map(({ to, icon, labelKey, subKey }) => (
-                  <Link key={to} to={to} className="quick-action" style={{ flexDirection: "row", gap: 12 }}>
-                    <span className="quick-action-icon" style={{ fontSize: 15 }}>{icon}</span>
-                    <div>
-                      <span className="quick-action-label">{t(labelKey)}</span>
-                      <span className="quick-action-sub" style={{ display: "block" }}>{t(subKey)}</span>
-                    </div>
-                  </Link>
-                ))}
+              <div className="section-title">{t("dash.insights_summary")}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 6 }}>
+                <Row label={t("dash.fi.flaky_tests")}  value={fi.flaky_tests_count ?? 0}           accent={fi.flaky_tests_count > 0 ? "var(--orange)" : undefined} />
+                <Row label={t("dash.fi.clusters")}      value={fi.total_clusters ?? 0} />
+                <Row label={t("dash.fi.regressions")}   value={fi.recurrent_regressions_count ?? 0} accent={fi.recurrent_regressions_count > 0 ? "var(--red)" : undefined} />
+                {fi.notes && (
+                  <div style={{ fontSize: 12, color: "var(--text-2)", marginTop: 4, lineHeight: 1.5, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+                    {fi.notes}
+                  </div>
+                )}
+              </div>
+              <div style={{ marginTop: 12 }}>
+                <Link to="/insights" style={{ fontSize: 12, color: "var(--accent)", fontWeight: 500, textDecoration: "none" }}>
+                  {t("dash.view_insights")}
+                </Link>
               </div>
             </div>
+          )}
 
-          </div>
         </div>
       </div>
 

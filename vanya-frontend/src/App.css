@@ -699,6 +699,67 @@ textarea.input { resize: vertical; }
   background: var(--table-row-hover);
 }
 
+/* MEJORA #4 — recent runs filter chips (solid active / outline idle) */
+.dash-filter-chip {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-2);
+  font-family: inherit;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.dash-filter-chip-outline {
+  border-color: var(--border);
+  color: var(--text-2);
+  background: transparent;
+}
+.dash-filter-chip-outline:hover:not(:disabled) {
+  border-color: var(--accent-border);
+  color: var(--text-1);
+}
+.dash-filter-chip-active {
+  background: var(--accent);
+  color: var(--btn-primary-fg);
+  border-color: var(--accent);
+}
+/* QA FINAL — keyboard focus visible on filter chips (dark theme safe) */
+.dash-filter-chip:focus-visible {
+  outline: 2px solid var(--accent-border);
+  outline-offset: 2px;
+}
+
+/* MEJORA #5 — failed-row actions: subtle by default, full on hover / touch / focus */
+.dash-recent-runs-table .dash-recent-actions-col {
+  width: 1%;
+  white-space: nowrap;
+  min-width: 140px;
+}
+.dash-recent-runs-table .dash-recent-actions-cell {
+  min-width: 140px;
+  vertical-align: middle;
+}
+.dash-recent-runs-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  transition: opacity 0.2s ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .dash-recent-runs-table tbody tr.dash-recent-runs-row .dash-recent-runs-actions {
+    opacity: 0;
+  }
+  .dash-recent-runs-table tbody tr.dash-recent-runs-row:hover .dash-recent-runs-actions {
+    opacity: 1;
+  }
+}
+.dash-recent-runs-table tbody tr.dash-recent-runs-row:focus-within .dash-recent-runs-actions {
+  opacity: 1;
+}
+
 /* ═══════════════════════════════════════════════════════
    Page layout helpers
    ═══════════════════════════════════════════════════════ */
