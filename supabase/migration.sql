@@ -236,6 +236,9 @@ CREATE TABLE IF NOT EXISTS public.projects (
   updated_at    TEXT NOT NULL
 );
 
+-- GitHub per project: stored inside settings_json under key "github"
+-- (enabled, owner, repo, default_branch, repo_url, installation_id, github_token, api_base, …).
+
 -- Existing Supabase projects created before settings_json: add column idempotently
 ALTER TABLE public.projects ADD COLUMN IF NOT EXISTS settings_json TEXT;
 

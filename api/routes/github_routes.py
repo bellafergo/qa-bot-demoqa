@@ -1,20 +1,25 @@
 # api/routes/github_routes.py
 """
-GitHub integration — minimal PR fetch for PR Impact Analysis.
+GitHub integration — PR fetch for PR Impact Analysis.
 
 POST /github/pr/fetch  — fetch PR metadata + changed files from GitHub API by URL
+
+Credentials resolve in this order:
+- When ``project_id`` is sent: ``project.settings["github"]`` (enabled + optional per-project PAT)
+  with fallback to global ``GITHUB_TOKEN`` from ``core.settings`` when no project PAT is set.
+- Legacy: omit ``project_id`` and rely on server ``GITHUB_TOKEN`` only (deprecated).
 """
 from __future__ import annotations
 
 import logging
 import re
-from typing import List
+from typing import List, Optional
 
 import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from core.settings import settings
+from services.github_project_context import resolve_github_for_pr_fetch, resolve_legacy_github_http
 
 logger = logging.getLogger("vanya.github")
 
@@ -24,16 +29,17 @@ _PR_URL_RE = re.compile(
     r"https?://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/pull/(?P<number>\d+)",
     re.IGNORECASE,
 )
-_GITHUB_API = "https://api.github.com"
 
 
 # ── Request / Response ────────────────────────────────────────────────────────
 
 class PRFetchRequest(BaseModel):
     url: str
+    project_id: Optional[str] = None
 
 
 _DIFF_MAX_CHARS = 15_000
+
 
 class PRFetchResult(BaseModel):
     title: str
@@ -45,16 +51,6 @@ class PRFetchResult(BaseModel):
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-
-def _require_token() -> str:
-    token = settings.GITHUB_TOKEN
-    if not token:
-        raise HTTPException(
-            status_code=503,
-            detail="GITHUB_TOKEN is not configured on server",
-        )
-    return token
-
 
 def _parse_pr_url(url: str):
     """Return (owner, repo, pull_number) or raise 400."""
@@ -77,35 +73,58 @@ def fetch_pr(body: PRFetchRequest):
     """
     Fetch PR title, description, branch and changed files from GitHub API.
 
-    Requires the GITHUB_TOKEN environment variable (classic or fine-grained PAT
-    with at least `repo:read` scope for private repos; no scope needed for public).
+    Prefer ``project_id`` so credentials and default repo binding come from the catalog project.
+    Legacy callers may omit ``project_id`` only when ``GITHUB_TOKEN`` is configured on the server.
     """
-    token  = _require_token()
     owner, repo, number = _parse_pr_url(body.url)
 
+    if body.project_id and str(body.project_id).strip():
+        try:
+            gh_ctx = resolve_github_for_pr_fetch(
+                str(body.project_id).strip(),
+                pr_owner=owner,
+                pr_repo=repo,
+            )
+            http = gh_ctx.http
+        except LookupError:
+            raise HTTPException(status_code=404, detail="Project not found") from None
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+    else:
+        http = resolve_legacy_github_http()
+        if not http:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "GitHub is not configured: open Project settings and enable GitHub for this workspace, "
+                    "or set GITHUB_TOKEN on the server (legacy)."
+                ),
+            )
+
+    api_base = (http.api_base or "https://api.github.com").strip().rstrip("/")
     headers = {
-        "Authorization": f"Bearer {token}",
+        "Authorization": f"Bearer {http.token}",
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     }
 
     try:
-        with httpx.Client(timeout=15) as client:
+        with httpx.Client(timeout=min(30, max(5, http.timeout_s))) as client:
             # ── PR metadata ──────────────────────────────────────────────────
             pr_res = client.get(
-                f"{_GITHUB_API}/repos/{owner}/{repo}/pulls/{number}",
+                f"{api_base}/repos/{owner}/{repo}/pulls/{number}",
                 headers=headers,
             )
             if pr_res.status_code == 404:
                 raise HTTPException(
                     status_code=404,
                     detail=f"PR #{number} not found in {owner}/{repo}. "
-                           "Check the URL and that the token has access.",
+                    "Check the URL and that the token has access.",
                 )
             if pr_res.status_code == 401:
                 raise HTTPException(
                     status_code=401,
-                    detail="GitHub token is invalid or expired. Regenerate GITHUB_TOKEN.",
+                    detail="GitHub token is invalid or expired. Update the project GitHub token or GITHUB_TOKEN.",
                 )
             if not pr_res.is_success:
                 raise HTTPException(
@@ -117,7 +136,7 @@ def fetch_pr(body: PRFetchRequest):
             # ── Diff (raw patch, truncated to _DIFF_MAX_CHARS) ───────────────
             diff_text = ""
             diff_res = client.get(
-                f"{_GITHUB_API}/repos/{owner}/{repo}/pulls/{number}",
+                f"{api_base}/repos/{owner}/{repo}/pulls/{number}",
                 headers={**headers, "Accept": "application/vnd.github.v3.diff"},
             )
             if diff_res.is_success:
@@ -128,7 +147,7 @@ def fetch_pr(body: PRFetchRequest):
             page = 1
             while True:
                 files_res = client.get(
-                    f"{_GITHUB_API}/repos/{owner}/{repo}/pulls/{number}/files",
+                    f"{api_base}/repos/{owner}/{repo}/pulls/{number}/files",
                     headers=headers,
                     params={"per_page": 100, "page": page},
                 )
@@ -154,10 +173,10 @@ def fetch_pr(body: PRFetchRequest):
         )
 
     return PRFetchResult(
-        title         = pr.get("title") or "",
-        description   = pr.get("body")  or "",
-        branch        = (pr.get("head") or {}).get("ref") or "",
-        pr_id         = str(pr.get("number") or number),
-        changed_files = changed_files,
-        diff          = diff_text,
+        title=pr.get("title") or "",
+        description=pr.get("body") or "",
+        branch=(pr.get("head") or {}).get("ref") or "",
+        pr_id=str(pr.get("number") or number),
+        changed_files=changed_files,
+        diff=diff_text,
     )

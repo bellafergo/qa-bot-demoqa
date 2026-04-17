@@ -1,7 +1,7 @@
 // src/pages/PRAnalysisPage.jsx
 /**
  * PR Impact Analysis — fetch PR data from GitHub, analyze impact, enqueue tests.
- * POST /github/pr/fetch          — fetch PR metadata + changed files from GitHub API
+ * POST /github/pr/fetch          — fetch PR from GitHub (uses current catalog ``project_id`` + project GitHub settings)
  * POST /pr-analysis/analyze      — analyze impact and match catalog tests
  * POST /execution/run-batch      — enqueue matched test IDs via Execution Center
  */
@@ -9,6 +9,7 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { analyzePR, runBatch, fetchGithubPR, batchSaveDrafts, suggestModules } from "../api";
 import { useLang } from "../i18n/LangContext";
+import { useProject } from "../context/ProjectContext.jsx";
 
 function RiskBadge({ level }) {
   const { t } = useLang();
@@ -19,6 +20,7 @@ function RiskBadge({ level }) {
 
 export default function PRAnalysisPage() {
   const { t } = useLang();
+  const { currentProject } = useProject();
   const navigate = useNavigate();
   const [form, setForm] = useState({
     title: "",
@@ -55,7 +57,7 @@ export default function PRAnalysisPage() {
     setFetching(true);
     setFetchError("");
     try {
-      const pr = await fetchGithubPR(url);
+      const pr = await fetchGithubPR(url, currentProject?.id ?? null);
       setForm({
         title:         pr.title        || "",
         description:   pr.description  || "",
@@ -190,6 +192,11 @@ export default function PRAnalysisPage() {
         <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 10 }}>
           {t("pr.fetch.desc")}
         </div>
+        {!currentProject?.id ? (
+          <div style={{ marginBottom: 10, fontSize: 12, color: "var(--text-3)" }}>
+            {t("pr.fetch.hint_project")}
+          </div>
+        ) : null}
         <div style={{ display: "flex", gap: 10 }}>
           <input
             className="input"

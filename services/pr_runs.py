@@ -8,6 +8,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
+from services.github_project_context import GitHubHttpConfig
 from services.pr_agent import PRContext, update_pr_comment
 from services.run_access import persist_run_payload
 from services.run_store import list_runs_for_pr
@@ -137,6 +138,7 @@ def trigger_runs_for_tags(
     *,
     comment_id: int,
     comment_body_template: str,
+    http: GitHubHttpConfig,
 ) -> List[str]:
     """
     Crea runs "running" y dispara ejecución en background.
@@ -185,6 +187,7 @@ def trigger_runs_for_tags(
                 evidence_id=evidence_id,
                 comment_id=comment_id,
                 comment_body_template=comment_body_template,
+                http=http,
             ),
             daemon=True,
         )
@@ -193,7 +196,7 @@ def trigger_runs_for_tags(
     # Primer update “live” inmediato (muestra running)
     try:
         new_body = _render_live_comment(comment_body_template, ctx=ctx)
-        update_pr_comment(ctx, comment_id, new_body)
+        update_pr_comment(ctx, comment_id, new_body, http=http)
     except Exception:
         logger.exception("Failed to update PR comment (initial running state)")
 
@@ -212,6 +215,7 @@ def _execute_and_update(
     evidence_id: str,
     comment_id: int,
     comment_body_template: str,
+    http: GitHubHttpConfig,
 ) -> None:
     start = time.time()
     result = RunResult(evidence_id=evidence_id, run_id=run_id, tag=tag, status="running")
@@ -275,7 +279,7 @@ def _execute_and_update(
         # Update comentario “live” con estado más reciente
         try:
             new_body = _render_live_comment(comment_body_template, ctx=ctx)
-            update_pr_comment(ctx, comment_id, new_body)
+            update_pr_comment(ctx, comment_id, new_body, http=http)
         except Exception:
             logger.exception("Failed to update PR comment live")
 

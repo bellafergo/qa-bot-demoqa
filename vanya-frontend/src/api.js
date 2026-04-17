@@ -351,7 +351,13 @@ export const analyzePR           = (body) => apiPost("/pr-analysis/analyze",    
 export const analyzePRAndEnqueue = (body) => apiPost("/pr-analysis/analyze-and-enqueue", body);
 
 // ========= GitHub =========
-export const fetchGithubPR = (url) => apiPost("/github/pr/fetch", { url });
+export const fetchGithubPR = (url, projectId = null) => {
+  const body = { url };
+  if (projectId != null && String(projectId).trim()) {
+    body.project_id = String(projectId).trim();
+  }
+  return apiPost("/github/pr/fetch", body);
+};
 
 // ========= API Testing =========
 export const parseSpec        = (body) => apiPost("/api-testing/parse-spec",     body);

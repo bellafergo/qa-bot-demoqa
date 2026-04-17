@@ -91,11 +91,26 @@ def mask_settings_for_api(settings: Optional[Dict[str, Any]]) -> Optional[Dict[s
                 "present": present,
                 "preview": _preview_non_secret(str(v or "")) if present else "",
             }
-    return {
+    gh_in = settings.get("github") if isinstance(settings.get("github"), dict) else {}
+    gh_out: Dict[str, Any] = {}
+    if gh_in:
+        gh_out["enabled"] = bool(gh_in.get("enabled"))
+        for key in ("repo_url", "owner", "repo", "default_branch", "installation_id", "api_base"):
+            v = gh_in.get(key)
+            if v is not None and str(v).strip():
+                gh_out[key] = str(v).strip()
+        tok = gh_in.get("github_token")
+        tok_present = bool(tok is not None and str(tok).strip())
+        gh_out["github_token"] = {"sensitive": True, "present": tok_present}
+
+    out: Dict[str, Any] = {
         "login_profile": lp_out,
         "variables": vars_out,
         "_security_note": "Sensitive variable values are stored for execution only and are not returned by the API.",
     }
+    if gh_out:
+        out["github"] = gh_out
+    return out
 
 
 def merge_settings(existing: Optional[Dict[str, Any]], patch: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -127,5 +142,17 @@ def merge_settings(existing: Optional[Dict[str, Any]], patch: Optional[Dict[str,
                 else:
                     old_v[key] = v
             out["variables"] = old_v
+
+    if "github" in patch and patch["github"] is not None:
+        old_g = dict(out.get("github") or {}) if isinstance(out.get("github"), dict) else {}
+        new_g = patch["github"]
+        if isinstance(new_g, dict):
+            for k, v in new_g.items():
+                key = str(k)
+                if v is None:
+                    old_g.pop(key, None)
+                else:
+                    old_g[key] = v
+            out["github"] = old_g
 
     return out

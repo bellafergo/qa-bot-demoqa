@@ -72,12 +72,17 @@ class Settings:
     EXEC_MAX_TOKENS: int = int(os.getenv("EXEC_MAX_TOKENS", "700"))
 
     # ----------------------------
-    # GitHub
+    # GitHub (global defaults — prefer per-project settings under project.settings["github"])
     # ----------------------------
     GITHUB_TOKEN: str = (os.getenv("GITHUB_TOKEN") or "").strip()
+    GITHUB_WEBHOOK_SECRET: str = (os.getenv("GITHUB_WEBHOOK_SECRET") or "").strip()
+    GITHUB_API_BASE: str = (os.getenv("GITHUB_API_BASE") or "https://api.github.com").strip().rstrip("/")
+    GITHUB_HTTP_TIMEOUT_S: int = int((os.getenv("GITHUB_HTTP_TIMEOUT_S") or "30").strip() or "30")
+    PR_AGENT_EXECUTE_RUNS: bool = _truthy(os.getenv("PR_AGENT_EXECUTE_RUNS", "false"))
 
     @property
     def HAS_GITHUB(self) -> bool:
+        """True when a legacy global PAT is configured (optional; projects may use their own token)."""
         return bool(self.GITHUB_TOKEN)
 
     # ----------------------------
