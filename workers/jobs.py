@@ -82,6 +82,7 @@ def run_execute_steps_job(evidence_id: str, payload: Dict[str, Any], meta: Dict[
         logger.info("[JOBS] run_execute_steps_job evidence_id=%s rid=%s", evidence_id, cid)
     persist_run_payload({
         "evidence_id": evidence_id,
+        "run_id": evidence_id,
         "status": "running",
         "started_at": int(t0 * 1000),
         "kind": "steps",
@@ -101,6 +102,7 @@ def run_execute_steps_job(evidence_id: str, payload: Dict[str, Any], meta: Dict[
             run = {"status": "failed", "error_message": "Runner returned non-dict"}
 
         run["evidence_id"] = evidence_id  # fuerza consistencia
+        run.setdefault("run_id", (str(run.get("run_id")).strip() if run.get("run_id") else "") or evidence_id)
         run = _merge_meta(run, meta)
 
         t1 = time.time()
@@ -126,6 +128,7 @@ def run_execute_steps_job(evidence_id: str, payload: Dict[str, Any], meta: Dict[
         err = _redact(raw_err)
         run = {
             "evidence_id": evidence_id,
+            "run_id": evidence_id,
             "status": "error",
             "started_at": int(t0 * 1000),
             "finished_at": int(t1 * 1000),
@@ -144,11 +147,12 @@ def run_suite_job(evidence_id: str, payload: Dict[str, Any], meta: Dict[str, Any
     """
     Worker job: execute a full TestSuite and persist the SuiteRunResult.
     Payload keys: "suite" (TestSuite dict), "env" (ExecEnv dict, optional).
-    The result is saved under evidence_id so /runs/{evidence_id} works.
+    The result is saved under evidence_id (cache key); run_id matches it so GET /runs/{run_id} works.
     """
     t0 = time.time()
     persist_run_payload({
         "evidence_id": evidence_id,
+        "run_id": evidence_id,
         "status": "running",
         "started_at": int(t0 * 1000),
         "kind": "suite",
@@ -167,6 +171,7 @@ def run_suite_job(evidence_id: str, payload: Dict[str, Any], meta: Dict[str, Any
 
         run: Dict[str, Any] = suite_result.model_dump()
         run["evidence_id"] = evidence_id
+        run.setdefault("run_id", (str(run.get("run_id")).strip() if run.get("run_id") else "") or evidence_id)
         run["kind"]        = "suite"
         run = _merge_meta(run, meta)
 
@@ -182,6 +187,7 @@ def run_suite_job(evidence_id: str, payload: Dict[str, Any], meta: Dict[str, Any
         err = _redact(raw_err)
         run = {
             "evidence_id": evidence_id,
+            "run_id": evidence_id,
             "status": "error",
             "started_at": int(t0 * 1000),
             "finished_at": int(t1 * 1000),

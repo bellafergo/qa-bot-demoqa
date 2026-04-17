@@ -214,34 +214,38 @@ def _runs_cleanup_locked() -> None:
 def save_run(run_payload: Dict[str, Any]) -> Optional[str]:
     """
     Guarda un run en memoria.
-    Requiere evidence_id (compat con tu runner).
+    Requiere ``run_id`` (canónico) y/o ``evidence_id`` (clave legacy de caché).
+    Si falta ``evidence_id`` pero hay ``run_id``, usa ``run_id`` como clave de caché.
     Opcional:
-      run_payload["run_id"]
       run_payload["meta"]["tags"] = ["ui_smoke", ...]
       run_payload["meta"]["pr"] = {"owner","repo","number","sha"}
-    Retorna evidence_id si guardó.
+    Retorna la clave de caché (evidence_id) usada para ``_RUNS``.
     """
     if not isinstance(run_payload, dict):
         return None
 
+    meta = run_payload.get("meta")
+    if meta is None or not isinstance(meta, dict):
+        meta = {}
+        run_payload["meta"] = meta
+
+    run_id = _safe_str(run_payload.get("run_id")) or _safe_str(meta.get("run_id"))
     evid = _safe_str(run_payload.get("evidence_id"))
+    if not evid and run_id:
+        evid = run_id
+        run_payload["evidence_id"] = evid
     if not evid:
         return None
+    if run_id:
+        run_payload["run_id"] = run_id
 
     with _lock:
         _runs_cleanup_locked()
-
-        # asegura meta dict
-        meta = run_payload.get("meta")
-        if meta is None or not isinstance(meta, dict):
-            meta = {}
-            run_payload["meta"] = meta
 
         # timestamp
         _RUNS[evid] = {"ts": _now(), "data": run_payload}
 
         # index opcional por run_id
-        run_id = _safe_str(run_payload.get("run_id"))
         if run_id:
             _RUN_ID_TO_EVID[run_id] = evid
 

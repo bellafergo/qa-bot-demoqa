@@ -1,7 +1,7 @@
 // src/pages/RunsPage.jsx
 /**
  * Runs & RCA — Evidence Lookup + Run History with root cause and business risk analysis.
- * GET /runs/{id} | GET /test-runs | POST /rca/analyze | POST /business-risk/analyze
+ * GET /runs/{run_id} | GET /test-runs | POST /rca/analyze | POST /business-risk/analyze
  */
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -27,13 +27,12 @@ import { useProject } from "../context/ProjectContext.jsx";
 const TAB_KEYS = ["runs.tab.history", "runs.tab.lookup"];
 
 /**
- * Prefer evidence_id for GET /runs/{id} and GET /test-runs/{id} (Supabase qa_runs PK).
- * Falls back to run_id when evidence_id is absent (older rows).
+ * Canonical run_id for GET /runs/{run_id}?format=json (same id as Evidence Library /test-runs).
  */
 function runPersistedLookupId(run) {
   if (!run) return "";
-  const ev = run.evidence_id != null ? String(run.evidence_id).trim() : "";
-  return ev || run.run_id || "";
+  const rid = run.run_id != null ? String(run.run_id).trim() : "";
+  return rid || "";
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────

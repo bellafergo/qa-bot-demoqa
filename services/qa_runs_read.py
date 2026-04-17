@@ -16,6 +16,13 @@ from services.run_mapper import run_from_legacy_store
 logger = logging.getLogger("vanya.qa_runs_read")
 
 
+def _safe_str(x: Any) -> str:
+    try:
+        return (str(x) if x is not None else "").strip()
+    except Exception:
+        return ""
+
+
 def supabase_qa_runs_enabled() -> bool:
     from services.supabase_store import _is_configured  # noqa: SLF001
 
@@ -50,11 +57,15 @@ def qa_runs_row_to_legacy_payload(row: Dict[str, Any]) -> Dict[str, Any]:
     result = row.get("result")
     steps = row.get("steps")
     evid = str(row.get("evidence_id") or "").strip()
+    # Canonical execution id: persisted column preferred, then embedded payload, never forced to evidence_id.
+    col_run = str(row.get("run_id") or "").strip()
 
     if isinstance(result, dict):
         payload: Dict[str, Any] = {**result}
-        payload.setdefault("evidence_id", evid)
-        payload.setdefault("run_id", evid)
+        canon_run = col_run or _safe_str(result.get("run_id")) or evid
+        payload["run_id"] = canon_run
+        if evid:
+            payload.setdefault("evidence_id", evid)
         if isinstance(steps, list):
             payload["steps"] = steps
         elif not payload.get("steps"):
@@ -86,9 +97,10 @@ def qa_runs_row_to_legacy_payload(row: Dict[str, Any]) -> Dict[str, Any]:
 
     steps_list = steps if isinstance(steps, list) else []
     tc = _effective_test_case_id(row, meta)
+    canon_run = col_run or _safe_str(meta.get("run_id")) or evid
     return {
-        "evidence_id": evid,
-        "run_id": evid,
+        "evidence_id": evid or None,
+        "run_id": canon_run,
         "status": row.get("status") or "failed",
         "duration_ms": row.get("duration_ms"),
         "steps": steps_list,
@@ -109,9 +121,9 @@ def canonical_from_qa_row(row: Dict[str, Any]) -> CanonicalRun:
     return run_from_legacy_store(qa_runs_row_to_legacy_payload(row))
 
 
-def fetch_qa_runs_legacy_payload(evidence_id: str) -> Optional[Dict[str, Any]]:
-    """Single run as legacy dict for GET /runs/{id} (HTML + JSON merge)."""
-    rid = (evidence_id or "").strip()
+def fetch_qa_runs_legacy_payload(run_id: str) -> Optional[Dict[str, Any]]:
+    """Single run as legacy dict for GET /runs/{run_id} (HTML + JSON merge). Resolves by ``run_id`` column."""
+    rid = (run_id or "").strip()
     if not rid or not supabase_qa_runs_enabled():
         return None
     try:
@@ -123,7 +135,7 @@ def fetch_qa_runs_legacy_payload(evidence_id: str) -> Optional[Dict[str, Any]]:
         res = (
             sb.table("qa_runs")
             .select("*")
-            .eq("evidence_id", rid)
+            .eq("run_id", rid)
             .limit(1)
             .execute()
         )
@@ -132,7 +144,7 @@ def fetch_qa_runs_legacy_payload(evidence_id: str) -> Optional[Dict[str, Any]]:
             return None
         return qa_runs_row_to_legacy_payload(rows[0] if isinstance(rows[0], dict) else dict(rows[0]))
     except Exception:
-        logger.exception("qa_runs_read: fetch legacy payload failed for %r", evidence_id)
+        logger.exception("qa_runs_read: fetch legacy payload failed for run_id=%r", run_id)
         return None
 
 

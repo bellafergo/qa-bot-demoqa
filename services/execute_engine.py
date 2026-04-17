@@ -702,6 +702,11 @@ def handle_execute_mode(
         run_payload: Dict[str, Any] = {
             **(runner if isinstance(runner, dict) else {}),
             "evidence_id": evidence_id,
+            "run_id": (
+                str(runner.get("run_id")).strip()
+                if isinstance(runner, dict) and runner.get("run_id")
+                else evidence_id
+            ),
             "base_url": base_url,
             "prompt": redact_secrets(prompt),
             "steps": redact_steps(steps),

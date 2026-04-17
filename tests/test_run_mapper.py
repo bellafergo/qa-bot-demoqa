@@ -523,7 +523,7 @@ class TestContractInvariants(unittest.TestCase):
 
 class TestEvidenceLookupMerge(unittest.TestCase):
     """
-    Reproduces the merge logic used by GET /runs/{evidence_id}:
+    Reproduces the merge logic used by GET /runs/{run_id}:
         canonical = run_from_legacy_store(run)
         merged = {**run, **canonical.model_dump()}
         merged["evidence_id"] = run.get("evidence_id") or merged.get("run_id")

@@ -13,7 +13,7 @@ Architecture notes
 - Projects only the fields needed for list views; NO screenshot_b64,
   NO dom snapshots, NO network data.
 - Full evidence (HTML report with embedded screenshots) remains at
-  GET /runs/{evidence_id}.
+  GET /runs/{run_id}?format=json (canonical execution id).
 """
 from __future__ import annotations
 

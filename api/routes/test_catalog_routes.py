@@ -431,7 +431,7 @@ def list_test_runs(
     Return recent test execution records as CanonicalRun, most recent first.
 
     Source: run_history_service → Supabase ``qa_runs`` when configured, else SQLite.
-    Async chat/execute runs are accessible via GET /runs/{evidence_id}.
+    Async chat/execute runs are accessible via GET /runs/{run_id}.
     """
     return run_history_service.list_runs(
         test_case_id=test_case_id,

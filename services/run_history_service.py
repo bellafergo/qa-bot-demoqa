@@ -19,10 +19,10 @@ Rules
 • **Listings** (dashboard, ``GET /test-runs``, analytics): when Supabase is
   configured, ``qa_runs`` via ``qa_runs_read``; otherwise SQLite → ``CanonicalRun``.
 
-• **get_run(run_id)**: Supabase ``qa_runs`` by ``evidence_id`` when configured;
-  else SQLite. Use **get_run_unified** when the id might exist only in memory.
+• **get_run(run_id)**: Supabase ``qa_runs`` by canonical ``run_id`` column when configured;
+  else SQLite ``test_runs`` by ``run_id``. Use **get_run_unified** when the id might exist only in memory.
 
-• **Evidence** ``GET /runs/{id}``: ``run_store`` first, then ``qa_runs`` when
+• **Evidence** ``GET /runs/{run_id}``: ``run_store`` (``get_run_by_id`` then ``get_run``), then ``qa_runs`` when
   Supabase is configured, else SQLite — see ``app.get_run_evidence``.
 
 • New code should persist via ``services.run_access.persist_run_payload`` so all
@@ -33,8 +33,8 @@ Usage
     from services.run_history_service import run_history_service
 
     runs  = run_history_service.list_runs(limit=50)       # List[CanonicalRun]
-    run   = run_history_service.get_run("uuid")         # qa_runs or SQLite
-    one   = run_history_service.get_run_unified("id")   # run_store, then persisted
+    run   = run_history_service.get_run("uuid")         # qa_runs or SQLite by run_id
+    one   = run_history_service.get_run_unified("uuid") # run_store, then persisted
 """
 from __future__ import annotations
 
@@ -113,11 +113,11 @@ class RunHistoryService:
 
     def get_run(self, run_id: str) -> Optional[CanonicalRun]:
         """
-        Return a single run by id. With Supabase configured, resolves ``evidence_id``
-        on ``qa_runs``. Otherwise SQLite ``run_id``.
+        Return a single run by canonical ``run_id``. With Supabase configured, resolves the
+        ``run_id`` column on ``qa_runs``. Otherwise SQLite ``test_runs.run_id``.
 
         Returns None if not found. For ids that may exist only in memory, use
-        ``get_run_unified`` or ``GET /runs/{evidence_id}``.
+        ``get_run_unified`` or ``GET /runs/{run_id}``.
         """
         if supabase_qa_runs_enabled():
             cr = fetch_qa_run_canonical((run_id or "").strip())
@@ -141,7 +141,7 @@ class RunHistoryService:
         rid = (run_id or "").strip()
         if not rid:
             return None
-        raw = get_run(rid) or get_run_by_id(rid)
+        raw = get_run_by_id(rid) or get_run(rid)
         if raw is not None:
             try:
                 return normalize_run(raw)

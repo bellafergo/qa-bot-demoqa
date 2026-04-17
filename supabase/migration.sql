@@ -120,6 +120,23 @@ CREATE TABLE IF NOT EXISTS public.qa_runs (
 
 CREATE INDEX IF NOT EXISTS idx_qa_runs_status ON public.qa_runs (status);
 
+-- Canonical run_id (application identity) — GET /runs/{run_id} + Evidence Library
+-- evidence_id remains the table PK for legacy upserts; run_id is the stable execution id.
+ALTER TABLE public.qa_runs ADD COLUMN IF NOT EXISTS run_id TEXT;
+
+UPDATE public.qa_runs r
+SET run_id = COALESCE(
+  NULLIF(btrim(r.run_id), ''),
+  NULLIF(btrim(r.result->>'run_id'), ''),
+  NULLIF(btrim(r.meta->>'run_id'), ''),
+  r.evidence_id
+)
+WHERE r.run_id IS NULL OR btrim(COALESCE(r.run_id, '')) = '';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_qa_runs_run_id
+  ON public.qa_runs (run_id)
+  WHERE run_id IS NOT NULL AND btrim(run_id) <> '';
+
 -- Memoria por dominio: services/memory_store.py (upsert on_conflict domain)
 CREATE TABLE IF NOT EXISTS public.domain_memory (
   domain TEXT PRIMARY KEY,

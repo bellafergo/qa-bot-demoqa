@@ -30,7 +30,7 @@ those rows are the same SQLite store; no duplicate semantics.
 Example ``CanonicalRun``-aligned JSON (illustrative)
 ----------------------------------------------------
 {
-  "run_id": "uuid-or-evidence-id",
+  "run_id": "uuid-canonical",
   "evidence_id": "EV-abc123",
   "test_id": "TC-LOGIN-001",
   "test_name": "Login flow",
@@ -62,7 +62,7 @@ def persist_run_payload(payload: Dict[str, Any]) -> Optional[str]:
     """
     Persist a run dict from chat, planner, workers, or API execute.
 
-    Returns ``evidence_id`` on success, or ``None`` if the payload is invalid.
+    Returns the in-memory cache key (legacy name ``evidence_id``; often equal to ``run_id``) on success, or ``None`` if invalid.
     Side effects: memory store + optional SQLite bridge + optional Supabase.
     """
     return save_run(payload)
@@ -70,7 +70,7 @@ def persist_run_payload(payload: Dict[str, Any]) -> Optional[str]:
 
 def get_canonical_run(run_id: str) -> Optional[CanonicalRun]:
     """
-    Resolve a run by ``run_id`` or ``evidence_id`` for catalog/from-run flows.
+    Resolve a run by canonical ``run_id`` (and hot-cache aliases via ``get_run_unified``).
 
     Prefer this over ad-hoc ``get_run`` + ``run_history_service.get_run`` chains.
     """

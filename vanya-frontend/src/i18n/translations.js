@@ -701,8 +701,8 @@ export const translations = {
     "runs.clusters.col.count":  "Count",
 
     "runs.lookup.title":       "Evidence Lookup",
-    "runs.lookup.subtitle":    "Enter the evidence ID shown in the app (e.g. TC-…). That is the ID GET /runs/{id} uses. You can also try the run UUID if the row has no evidence ID.",
-    "runs.lookup.placeholder": "Evidence ID (TC-…) or run UUID",
+    "runs.lookup.subtitle":    "Enter the canonical run id (UUID from the Evidence Library or run history). GET /runs/{run_id} resolves only by run_id.",
+    "runs.lookup.placeholder": "Run id (UUID)",
     "runs.lookup.loading":     "Loading…",
     "runs.lookup.fetch":       "Fetch Run",
 
@@ -2175,8 +2175,8 @@ export const translations = {
     "runs.clusters.col.count":  "Cantidad",
 
     "runs.lookup.title":       "Búsqueda de Evidencia",
-    "runs.lookup.subtitle":    "Usá el ID de evidencia que muestra la app (ej. TC-…); es el que usa GET /runs/{id}. Si no hay evidencia, probá el UUID de ejecución.",
-    "runs.lookup.placeholder": "ID de evidencia (TC-…) o UUID de ejecución",
+    "runs.lookup.subtitle":    "Ingresá el run_id canónico (UUID de la Biblioteca de Evidencias o del historial). GET /runs/{run_id} resuelve solo por run_id.",
+    "runs.lookup.placeholder": "run_id (UUID)",
     "runs.lookup.loading":     "Cargando…",
     "runs.lookup.fetch":       "Buscar Ejecución",
 

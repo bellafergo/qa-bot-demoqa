@@ -1,6 +1,6 @@
 // src/pages/RunEvidenceDetailPage.jsx
 /**
- * In-SPA evidence for GET /runs/:id?format=json (authenticated fetch).
+ * In-SPA evidence for GET /runs/:runId?format=json (authenticated fetch). Path param is canonical run_id.
  * Avoids opening API /runs URLs in a new tab (no Bearer on navigation).
  */
 import React, { useEffect, useState } from "react";
