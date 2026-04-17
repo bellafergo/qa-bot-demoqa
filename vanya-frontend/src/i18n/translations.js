@@ -753,6 +753,12 @@ export const translations = {
     "runs.detail.logs":            "Execution Logs",
     "runs.detail.screenshot":      "Screenshot",
 
+    "runs.api_evidence.title":     "API evidence (sanitized)",
+    "runs.api_evidence.request":   "Request",
+    "runs.api_evidence.response":  "Response",
+    "runs.api_evidence.failure":   "Failure",
+    "runs.api_evidence.truncated": "Body truncated for storage",
+
     "runs.history.refresh":        "↻ Refresh",
     "runs.history.none":           "No runs recorded yet.",
     "runs.history.error":          "Failed to load runs",
@@ -2239,6 +2245,12 @@ export const translations = {
     "runs.detail.healing_subtitle": "Recuperaciones auditables en esta ejecución. La confianza indica qué tan conservador fue el recupero.",
     "runs.detail.logs":            "Logs de Ejecución",
     "runs.detail.screenshot":      "Captura de Pantalla",
+
+    "runs.api_evidence.title":     "Evidencia API (sanitizada)",
+    "runs.api_evidence.request":   "Request",
+    "runs.api_evidence.response":  "Response",
+    "runs.api_evidence.failure":   "Fallo",
+    "runs.api_evidence.truncated": "Cuerpo truncado para almacenamiento",
 
     "runs.history.refresh":        "↻ Actualizar",
     "runs.history.none":           "Sin ejecuciones registradas aún.",

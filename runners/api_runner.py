@@ -28,9 +28,17 @@ import json
 import logging
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
+
+from runners.api_evidence import (
+    build_step_evidence,
+    classify_failure,
+    iso_timestamp_now,
+    pair_from_httpx_response,
+    snapshot_request_evidence,
+)
 
 logger = logging.getLogger("vanya.runners.api")
 
@@ -225,9 +233,14 @@ def _evaluate_legacy_assertions(
     assertions: List[Dict[str, Any]],
     response: httpx.Response,
     logs: List[str],
-) -> bool:
-    """Catalog assertion dicts (type/value/…) against last httpx.Response."""
+) -> Tuple[bool, Optional[Dict[str, Any]]]:
+    """Catalog assertion dicts (type/value/…) against last httpx.Response.
+
+    Returns (all_pass, first_failure_detail) where failure_detail is
+    ``{"assertion_type": str, "message": str}`` or None.
+    """
     all_pass = True
+    first_fail: Optional[Dict[str, Any]] = None
     for assertion in assertions:
         atype = assertion.get("type", "")
         try:
@@ -238,6 +251,13 @@ def _evaluate_legacy_assertions(
                         f"FAIL status_code_equals: expected {expected}, got {response.status_code}"
                     )
                     all_pass = False
+                    if first_fail is None:
+                        first_fail = {
+                            "assertion_type": atype,
+                            "message": logs[-1],
+                            "expected": expected,
+                            "actual": response.status_code,
+                        }
             elif atype == "status_code_in":
                 raw = assertion["value"]
                 if isinstance(raw, str):
@@ -249,6 +269,13 @@ def _evaluate_legacy_assertions(
                         f"FAIL status_code_in: expected one of {allowed}, got {response.status_code}"
                     )
                     all_pass = False
+                    if first_fail is None:
+                        first_fail = {
+                            "assertion_type": atype,
+                            "message": logs[-1],
+                            "expected": allowed,
+                            "actual": response.status_code,
+                        }
             elif atype == "response_contains":
                 target = assertion.get("target")
                 value = assertion.get("value", "")
@@ -271,23 +298,31 @@ def _evaluate_legacy_assertions(
                 if not passed:
                     logs.append(f"FAIL response_contains: {value!r} not found at {target!r}")
                     all_pass = False
+                    if first_fail is None:
+                        first_fail = {"assertion_type": atype, "message": logs[-1]}
             elif atype == "response_schema_match":
                 try:
                     response.json()
                 except Exception:
                     logs.append("FAIL response_schema_match: response is not valid JSON")
                     all_pass = False
+                    if first_fail is None:
+                        first_fail = {"assertion_type": atype, "message": logs[-1]}
             elif atype == "header_exists":
                 header_name = str(assertion.get("value", ""))
                 if not any(h.lower() == header_name.lower() for h in response.headers):
                     logs.append(f"FAIL header_exists: header {header_name!r} not present")
                     all_pass = False
+                    if first_fail is None:
+                        first_fail = {"assertion_type": atype, "message": logs[-1]}
             else:
                 logs.append(f"WARN unknown legacy assertion type: {atype!r} — skipped")
         except Exception as exc:
             logs.append(f"ERROR evaluating assertion {atype!r}: {exc}")
             all_pass = False
-    return all_pass
+            if first_fail is None:
+                first_fail = {"assertion_type": atype, "message": logs[-1]}
+    return all_pass, first_fail
 
 
 def _step_result(
@@ -302,6 +337,7 @@ def _step_result(
 ) -> Dict[str, Any]:
     row: Dict[str, Any] = {
         "step": index,
+        "index": index,
         "action": action,
         "status": status,
         "duration_ms": duration_ms,
@@ -392,6 +428,7 @@ def run_api_test(
                 step = _normalize_step(raw)
                 action = (step.get("action") or "").strip().lower()
                 t_step = time.time()
+                pending_request_evidence: Optional[Dict[str, Any]] = None
 
                 try:
                     ctx = {**variables, "base_url": variables.get("base_url", "")}
@@ -460,11 +497,49 @@ def run_api_test(
                                     body if isinstance(body, (bytes, str)) else str(body)
                                 )
 
+                        body_for_ev: Any = kwargs.get("json")
+                        if body_for_ev is None and "content" in kwargs:
+                            body_for_ev = kwargs.get("content")
+                        pending_request_evidence = snapshot_request_evidence(
+                            method=method,
+                            url=url,
+                            headers=dict(headers),
+                            params=params,
+                            body=body_for_ev,
+                            started_at=iso_timestamp_now(),
+                        )
+
                         tr = time.time()
                         try:
                             resp = client.request(**kwargs)
-                        except httpx.TimeoutException as e:
-                            raise TimeoutError(f"Request timeout: {e}") from e
+                        except (
+                            httpx.TimeoutException,
+                            httpx.ConnectError,
+                            httpx.NetworkError,
+                            httpx.RemoteProtocolError,
+                        ) as net_err:
+                            dur = int((time.time() - t_step) * 1000)
+                            failure = classify_failure(net_err, action=action)
+                            ev = build_step_evidence(
+                                request=pending_request_evidence,
+                                response=None,
+                                failure=failure,
+                            )
+                            err_s = f"{type(net_err).__name__}: {net_err}"
+                            logs.append(f"[{i}] FAIL {action}: {err_s}")
+                            steps_result.append(
+                                _step_result(
+                                    index=i,
+                                    action=action,
+                                    status="error",
+                                    duration_ms=dur,
+                                    log=f"{action} failed: {net_err}",
+                                    error=err_s,
+                                    extra={"step_type": "api", "evidence": ev},
+                                )
+                            )
+                            summary = f"Step {i} ({action}): {net_err}"
+                            return _finish_fail(logs, steps_result, t0, summary, err_s)
                         last_response_time_ms = int((time.time() - tr) * 1000)
                         last_response = resp
                         try:
@@ -834,6 +909,40 @@ def run_api_test(
                     dur = int((time.time() - t_step) * 1000)
                     err = f"{type(exc).__name__}: {exc}"
                     logs.append(f"[{i}] FAIL {action}: {err}")
+                    failure = classify_failure(exc, action=action)
+                    if (
+                        action == "assert_status"
+                        and last_response is not None
+                        and isinstance(exc, AssertionError)
+                    ):
+                        try:
+                            exp_v = int(interpolate_value(step.get("expected"), ctx))
+                            failure = classify_failure(
+                                exc,
+                                action=action,
+                                expected=exp_v,
+                                actual=last_response.status_code,
+                            )
+                        except Exception:
+                            pass
+                    evidence_obj: Optional[Dict[str, Any]] = None
+                    try:
+                        if last_response is not None:
+                            req_e, resp_e = pair_from_httpx_response(
+                                last_response,
+                                response_duration_ms=last_response_time_ms,
+                            )
+                            evidence_obj = build_step_evidence(req_e, resp_e, failure)
+                        elif pending_request_evidence is not None:
+                            evidence_obj = build_step_evidence(
+                                pending_request_evidence, None, failure
+                            )
+                        else:
+                            evidence_obj = build_step_evidence(None, None, failure)
+                    except Exception:
+                        evidence_obj = build_step_evidence(None, None, failure)
+
+                    extra_e: Dict[str, Any] = {"step_type": "api", "evidence": evidence_obj}
                     steps_result.append(
                         _step_result(
                             index=i,
@@ -842,6 +951,7 @@ def run_api_test(
                             duration_ms=dur,
                             log=f"{action} failed: {exc}",
                             error=err,
+                            extra=extra_e,
                         )
                     )
                     summary = f"Step {i} ({action}): {exc}"
@@ -849,8 +959,42 @@ def run_api_test(
 
             # Legacy catalog assertions (non-step) after last request
             if assertions and last_response is not None:
-                if not _evaluate_legacy_assertions(assertions, last_response, logs):
-                    summary = "One or more legacy catalog assertions failed"
+                legacy_ok, legacy_fail = _evaluate_legacy_assertions(
+                    assertions, last_response, logs
+                )
+                if not legacy_ok:
+                    summary = (legacy_fail or {}).get("message") or (
+                        "One or more legacy catalog assertions failed"
+                    )
+                    try:
+                        req_e, resp_e = pair_from_httpx_response(
+                            last_response,
+                            response_duration_ms=last_response_time_ms,
+                        )
+                        fail_d: Dict[str, Any] = {
+                            "type": "assertion_failed",
+                            "message": summary,
+                            "assertion": legacy_fail or {},
+                        }
+                        ev = build_step_evidence(req_e, resp_e, fail_d)
+                    except Exception:
+                        fail_d = {
+                            "type": "assertion_failed",
+                            "message": summary,
+                            "assertion": legacy_fail or {},
+                        }
+                        ev = build_step_evidence(None, None, fail_d)
+                    steps_result.append(
+                        _step_result(
+                            index=len(steps_result),
+                            action="catalog_assertions",
+                            status="fail",
+                            duration_ms=0,
+                            log=summary,
+                            error=summary,
+                            extra={"step_type": "api", "evidence": ev},
+                        )
+                    )
                     return _finish_fail(logs, steps_result, t0, summary, summary)
 
             duration_ms = int((time.time() - t0) * 1000)
@@ -886,6 +1030,33 @@ def run_api_test(
                 passed = last_response.is_success
             else:
                 passed = True
+
+            if not passed and last_response is not None:
+                try:
+                    req_e, resp_e = pair_from_httpx_response(
+                        last_response,
+                        response_duration_ms=last_response_time_ms,
+                    )
+                    fail_d = {
+                        "type": "http_error",
+                        "message": (
+                            f"Response HTTP {last_response.status_code} is not treated as success "
+                            "for this run (no explicit assert_* steps and no catalog assertions)."
+                        ),
+                        "expected": "Successful HTTP status (is_success on httpx.Response)",
+                        "actual": last_response.status_code,
+                    }
+                    ev = build_step_evidence(req_e, resp_e, fail_d)
+                    for j in range(len(steps_result) - 1, -1, -1):
+                        actj = str(steps_result[j].get("action") or "").lower()
+                        if actj in ("request", "api_request"):
+                            steps_result[j]["status"] = "fail"
+                            steps_result[j]["step_type"] = "api"
+                            steps_result[j]["evidence"] = ev
+                            steps_result[j]["error"] = fail_d["message"]
+                            break
+                except Exception:
+                    logger.exception("api_runner: failed to attach implicit HTTP failure evidence")
 
             status = "pass" if passed else "fail"
             reason = None if passed else (

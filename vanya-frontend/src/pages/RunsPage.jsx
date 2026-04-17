@@ -3,7 +3,7 @@
  * Runs & RCA — Evidence Lookup + Run History with root cause and business risk analysis.
  * GET /runs/{run_id} | GET /test-runs | POST /rca/analyze | POST /business-risk/analyze
  */
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, Fragment } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   listTestRuns,
@@ -25,6 +25,77 @@ import { useProject } from "../context/ProjectContext.jsx";
 
 // Tab identifiers — rendered via t() in the component
 const TAB_KEYS = ["runs.tab.history", "runs.tab.lookup"];
+
+/** Structured API failure evidence (runners/api_evidence.py → step.evidence). */
+function ApiStepEvidencePanel({ evidence, t }) {
+  if (!evidence || typeof evidence !== "object") return null;
+  const req = evidence.request;
+  const res = evidence.response;
+  const fail = evidence.failure;
+  const truncNote = (part) =>
+    part && part.truncated ? (
+      <div style={{ fontSize: 11, color: "var(--orange-text)", marginBottom: 6 }}>
+        {t("runs.api_evidence.truncated")}
+        {part.original_size != null ? ` (${part.original_size} B)` : ""}
+      </div>
+    ) : null;
+  const jsonPre = (labelKey, obj) => {
+    if (obj == null) return null;
+    let text;
+    try {
+      text = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2);
+    } catch {
+      text = String(obj);
+    }
+    return (
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", marginBottom: 6 }}>
+          {t(labelKey)}
+        </div>
+        <pre
+          className="code-block"
+          style={{
+            margin: 0,
+            maxHeight: 280,
+            overflow: "auto",
+            fontSize: 11,
+            lineHeight: 1.45,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+          }}
+        >
+          {text}
+        </pre>
+      </div>
+    );
+  };
+  return (
+    <div
+      style={{
+        padding: "12px 16px",
+        background: "var(--bg-subtle, rgba(0,0,0,0.03))",
+        borderTop: "1px dashed var(--border)",
+      }}
+    >
+      <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", marginBottom: 8 }}>
+        {t("runs.api_evidence.title")}
+      </div>
+      {req && (
+        <>
+          {truncNote(req)}
+          {jsonPre("runs.api_evidence.request", req)}
+        </>
+      )}
+      {res && (
+        <>
+          {truncNote(res)}
+          {jsonPre("runs.api_evidence.response", res)}
+        </>
+      )}
+      {fail && jsonPre("runs.api_evidence.failure", fail)}
+    </div>
+  );
+}
 
 /**
  * Canonical run_id for GET /runs/{run_id}?format=json (same id as Evidence Library /test-runs).
@@ -944,28 +1015,41 @@ export function EvidenceLookupResultView({ run }) {
                       const idx0 = typeof step.index === "number" ? step.index : i;
                       const isHealed = healedIndexSet.has(idx0);
                       return (
-                        <tr
-                          key={i}
-                          style={{
-                            background: isHealed ? "var(--orange-bg)" : undefined,
-                            boxShadow: isHealed ? "inset 3px 0 0 var(--orange-border)" : undefined,
-                          }}
-                        >
-                          <td style={{ color: "var(--text-3)", fontWeight: 600 }}>{step.index ?? i + 1}</td>
-                          <td>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                              <code style={{ fontSize: 12 }}>{step.action || "—"}</code>
-                              {isHealed && (
-                                <span className="badge badge-orange" style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                                  {t("runs.detail.step_healed_badge")}
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td style={{ maxWidth: 320, wordBreak: "break-all", fontSize: 12, color: "var(--text-2)" }}>{bestStepTarget(step)}</td>
-                          <td><span style={{ fontSize: 11, fontWeight: 500, color: stepStatusColor(step.status), textTransform: "uppercase", letterSpacing: "0.03em" }}>{step.status || "—"}</span></td>
-                          <td style={{ color: "var(--text-3)", fontSize: 12, whiteSpace: "nowrap" }}>{step.duration_ms ? `${step.duration_ms}ms` : "—"}</td>
-                        </tr>
+                        <Fragment key={`step-row-${i}`}>
+                          <tr
+                            style={{
+                              background: isHealed ? "var(--orange-bg)" : undefined,
+                              boxShadow: isHealed ? "inset 3px 0 0 var(--orange-border)" : undefined,
+                            }}
+                          >
+                            <td style={{ color: "var(--text-3)", fontWeight: 600 }}>{step.index ?? i + 1}</td>
+                            <td>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                <code style={{ fontSize: 12 }}>{step.action || "—"}</code>
+                                {step.evidence && (
+                                  <span className="badge badge-gray" style={{ fontSize: 9 }}>
+                                    API
+                                  </span>
+                                )}
+                                {isHealed && (
+                                  <span className="badge badge-orange" style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                    {t("runs.detail.step_healed_badge")}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td style={{ maxWidth: 320, wordBreak: "break-all", fontSize: 12, color: "var(--text-2)" }}>{bestStepTarget(step)}</td>
+                            <td><span style={{ fontSize: 11, fontWeight: 500, color: stepStatusColor(step.status), textTransform: "uppercase", letterSpacing: "0.03em" }}>{step.status || "—"}</span></td>
+                            <td style={{ color: "var(--text-3)", fontSize: 12, whiteSpace: "nowrap" }}>{step.duration_ms ? `${step.duration_ms}ms` : "—"}</td>
+                          </tr>
+                          {step.evidence && (
+                            <tr className="api-step-evidence-row">
+                              <td colSpan={5} style={{ padding: 0, verticalAlign: "top" }}>
+                                <ApiStepEvidencePanel evidence={step.evidence} t={t} />
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
                       );
                     })}
                   </tbody>

@@ -42,6 +42,8 @@ Backward compatibility notes
 • `evidence_id` is optional metadata (e.g. qa_runs PK / EV-… label). URLs and lookups use `run_id` only.
 • `test_id` corresponds to `test_case_id` in the original TestRun model.
 • `steps` corresponds to `steps_result` in the original TestRun model.
+  API runner steps may include ``evidence``: ``{ "request": {...}, "response": {...}, "failure": {...} }``
+  (redacted HTTP snapshots; see ``runners/api_evidence.py``).
 """
 from __future__ import annotations
 
