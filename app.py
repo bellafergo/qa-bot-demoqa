@@ -23,7 +23,7 @@ from core.vanya_auth import (
 )
 from db import init_db
 from services.qa_runs_read import fetch_qa_runs_legacy_payload, supabase_qa_runs_enabled
-from services.run_store import get_run
+from services.run_store import get_run, get_run_by_id
 from services.run_history_service import run_history_service
 
 from api.routes.health import router as health_router
@@ -49,6 +49,9 @@ from api.routes.execution_routes import router as execution_router
 from api.routes.failure_intelligence_routes import router as failure_intelligence_router
 from api.routes.integrations_routes import router as integrations_router
 from api.routes.app_explorer_routes import router as app_explorer_router
+from api.routes.browser_inspector_routes import router as browser_inspector_router
+from api.routes.browser_inspection_history_routes import router as browser_inspection_history_router
+from api.routes.browser_inspection_watch_routes import router as browser_inspection_watch_router
 from api.routes.drafts_routes import router as drafts_router
 from api.routes.github_routes import router as github_router
 from api.routes.analytics_routes import router as analytics_router
@@ -245,26 +248,37 @@ def on_startup():
     # Start orchestrator background worker
     try:
         from services.catalog_orchestrator import ensure_worker_started
+
         ensure_worker_started()
     except Exception:
         logger.exception("orchestrator: worker start failed (non-fatal)")
+
+    # Browser inspection watch scheduler (single-process MVP)
+    try:
+        from services.browser_inspection_watch_scheduler import ensure_watch_scheduler_started
+
+        ensure_watch_scheduler_started()
+    except Exception:
+        logger.exception("browser_inspection_watch_scheduler: start failed (non-fatal)")
 
 
 # ============================================================
 # ENDPOINTS
 # ============================================================
-@app.get("/runs/{evidence_id}", response_class=HTMLResponse)
-def get_run_evidence(evidence_id: str, request: Request, format: str = "html"):
-    # 1) short-term in-memory store (chat / execute / async runs)
-    run = get_run(evidence_id)
+@app.get("/runs/{run_id}", response_class=HTMLResponse)
+def get_run_evidence(run_id: str, request: Request, format: str = "html"):
+    """Resolve a run by canonical ``run_id`` (path segment). Same id is used by GET /evidences and SPA /evidence/run/:runId."""
+    rid = (run_id or "").strip()
+    # 1) short-term in-memory store (chat / execute / async runs) — try run_id index first
+    run = get_run_by_id(rid) or get_run(rid)
 
     # 2) Supabase qa_runs (durable source of truth when configured)
     if not run and supabase_qa_runs_enabled():
-        run = fetch_qa_runs_legacy_payload(evidence_id)
+        run = fetch_qa_runs_legacy_payload(rid)
 
     # 3) SQLite catalog history (local / legacy when Supabase is not configured)
     if not run and not supabase_qa_runs_enabled():
-        canonical = run_history_service.get_run(evidence_id)
+        canonical = run_history_service.get_run(rid)
         if canonical:
             # Adapt CanonicalRun → flat dict expected by the HTML renderer and
             # run_from_legacy_store.  model_dump() converts nested Pydantic models
@@ -291,12 +305,14 @@ def get_run_evidence(evidence_id: str, request: Request, format: str = "html"):
                 d["reason"] = d["error_summary"]
 
             # Ensure evidence_id alias is present
-            d.setdefault("evidence_id", d.get("run_id") or evidence_id)
+            d.setdefault("evidence_id", d.get("run_id") or rid)
 
             run = d
 
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
+
+    resolve_id = str(run.get("run_id") or run.get("evidence_id") or rid or "").strip()
 
     # Si explícitamente piden JSON — devuelve CanonicalRun + extras legacy
     accept = (request.headers.get("accept") or "").lower()
@@ -381,7 +397,7 @@ def get_run_evidence(evidence_id: str, request: Request, format: str = "html"):
         links_html.append(f'<a href="{esc(evidence_url)}" target="_blank">Evidence URL</a>')
     if report_url:
         links_html.append(f'<a href="{esc(report_url)}" target="_blank">Report URL</a>')
-    links_html.append(f'<a href="/runs/{esc(evidence_id)}?format=json" target="_blank">View JSON</a>')
+    links_html.append(f'<a href="/runs/{esc(resolve_id)}?format=json" target="_blank">View JSON</a>')
 
     links_line = " | ".join(links_html)
 
@@ -389,10 +405,10 @@ def get_run_evidence(evidence_id: str, request: Request, format: str = "html"):
     <html>
       <head>
         <meta charset="utf-8" />
-        <title>Run {esc(evidence_id)} — Evidence</title>
+        <title>Run {esc(resolve_id)} — Evidence</title>
       </head>
       <body style="font-family: ui-sans-serif, system-ui, -apple-system; margin:24px; max-width:1100px;">
-        <h2>Run Evidence: {esc(evidence_id)}</h2>
+        <h2>Run Evidence: {esc(resolve_id)}</h2>
 
         <div style="margin:10px 0; padding:12px; border:1px solid #eee; border-radius:10px;">
           <div><b>Status:</b> {esc(status)} </div>
@@ -440,6 +456,9 @@ app.include_router(execution_router)        # GET /execution/health|status, POST
 app.include_router(failure_intelligence_router)  # GET /failure-intelligence/summary|clusters|flaky-tests|regressions
 app.include_router(integrations_router)          # GET|POST /integrations, /integrations/{id}/health-check|enable|disable|config|actions
 app.include_router(app_explorer_router)          # GET /app-explorer/health, POST /app-explorer/explore
+app.include_router(browser_inspector_router)     # POST /inspect-url
+app.include_router(browser_inspection_history_router)  # GET /browser-inspections, diff, …
+app.include_router(browser_inspection_watch_router)   # /browser-inspections/watch
 app.include_router(drafts_router)                # POST /drafts/generate, POST /drafts/approve
 app.include_router(github_router)               # POST /github/pr/fetch
 app.include_router(analytics_router)           # GET /analytics/runs/dashboard

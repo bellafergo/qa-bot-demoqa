@@ -53,11 +53,22 @@ export default function ProjectModal({ open, mode, project, onClose }) {
   const [submitErr, setSubmitErr] = useState("");
   const [saving, setSaving] = useState(false);
   const slugEditedRef = useRef(false);
+  const githubTouchedRef = useRef(false);
+
+  const [ghEnabled, setGhEnabled] = useState(false);
+  const [ghRepoUrl, setGhRepoUrl] = useState("");
+  const [ghOwner, setGhOwner] = useState("");
+  const [ghRepo, setGhRepo] = useState("");
+  const [ghBranch, setGhBranch] = useState("");
+  const [ghInstallation, setGhInstallation] = useState("");
+  const [ghToken, setGhToken] = useState("");
+  const [ghTokenHint, setGhTokenHint] = useState("");
 
   useEffect(() => {
     if (!open) return;
     setSubmitErr("");
     slugEditedRef.current = false;
+    githubTouchedRef.current = false;
     if (mode === "edit" && project) {
       setName(project.name || "");
       setSlug(project.id || "");
@@ -74,6 +85,16 @@ export default function ProjectModal({ open, mode, project, onClose }) {
       setVarEmail("");
       setVarHintEmail(variablePresentLabel(project, "EMAIL"));
       setVarPassword("");
+      const g = project?.settings?.github;
+      setGhEnabled(Boolean(g?.enabled));
+      setGhRepoUrl(typeof g?.repo_url === "string" ? g.repo_url : "");
+      setGhOwner(typeof g?.owner === "string" ? g.owner : "");
+      setGhRepo(typeof g?.repo === "string" ? g.repo : "");
+      setGhBranch(typeof g?.default_branch === "string" ? g.default_branch : "");
+      setGhInstallation(typeof g?.installation_id === "string" ? g.installation_id : "");
+      setGhToken("");
+      const tok = g?.github_token;
+      setGhTokenHint(tok && typeof tok === "object" && tok.present ? "set" : "");
       slugEditedRef.current = true;
     } else {
       setName("");
@@ -90,6 +111,14 @@ export default function ProjectModal({ open, mode, project, onClose }) {
       setVarEmail("");
       setVarHintEmail("");
       setVarPassword("");
+      setGhEnabled(false);
+      setGhRepoUrl("");
+      setGhOwner("");
+      setGhRepo("");
+      setGhBranch("");
+      setGhInstallation("");
+      setGhToken("");
+      setGhTokenHint("");
     }
   }, [open, mode, project]);
 
@@ -120,6 +149,18 @@ export default function ProjectModal({ open, mode, project, onClose }) {
     const settings = {};
     if (Object.keys(login_profile).length) settings.login_profile = login_profile;
     if (Object.keys(variables).length) settings.variables = variables;
+
+    if (githubTouchedRef.current) {
+      const github = { enabled: Boolean(ghEnabled) };
+      if (ghRepoUrl.trim()) github.repo_url = ghRepoUrl.trim();
+      if (ghOwner.trim()) github.owner = ghOwner.trim();
+      if (ghRepo.trim()) github.repo = ghRepo.trim();
+      if (ghBranch.trim()) github.default_branch = ghBranch.trim();
+      if (ghInstallation.trim()) github.installation_id = ghInstallation.trim();
+      if (ghToken.trim()) github.github_token = ghToken.trim();
+      settings.github = github;
+    }
+
     return settings;
   }
 
@@ -134,6 +175,10 @@ export default function ProjectModal({ open, mode, project, onClose }) {
     }
     if (!isValidProjectSlug(id)) {
       setSubmitErr(t("projects.err_slug_invalid"));
+      return;
+    }
+    if (githubTouchedRef.current && ghEnabled && (!ghOwner.trim() || !ghRepo.trim())) {
+      setSubmitErr(t("projects.github_err_need_owner_repo"));
       return;
     }
     const optSettings = buildOptionalSettings();
@@ -245,6 +290,117 @@ export default function ProjectModal({ open, mode, project, onClose }) {
               autoComplete="off"
             />
           </label>
+
+          <fieldset
+            style={{
+              border: "1px solid var(--border)",
+              borderRadius: "var(--r-sm)",
+              padding: "12px 14px",
+              marginTop: 16,
+              marginBottom: 8,
+            }}
+          >
+            <legend style={{ fontSize: 13, fontWeight: 600, padding: "0 6px" }}>
+              {t("projects.github_section")}
+            </legend>
+            <p className="project-modal-hint" style={{ marginBottom: 12 }}>
+              {t("projects.github_section_hint")}
+            </p>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, fontSize: 13 }}>
+              <input
+                type="checkbox"
+                checked={ghEnabled}
+                onChange={(e) => {
+                  githubTouchedRef.current = true;
+                  setGhEnabled(e.target.checked);
+                }}
+              />
+              {t("projects.github_enabled")}
+            </label>
+            <label className="project-modal-label">
+              {t("projects.github_repo_url")}
+              <input
+                className="input"
+                value={ghRepoUrl}
+                onChange={(e) => {
+                  githubTouchedRef.current = true;
+                  setGhRepoUrl(e.target.value);
+                }}
+                placeholder="https://github.com/org/repo"
+                autoComplete="off"
+              />
+            </label>
+            <label className="project-modal-label">
+              {t("projects.github_owner")}
+              <input
+                className="input"
+                style={{ fontFamily: "ui-monospace, monospace", fontSize: 13 }}
+                value={ghOwner}
+                onChange={(e) => {
+                  githubTouchedRef.current = true;
+                  setGhOwner(e.target.value);
+                }}
+                autoComplete="off"
+              />
+            </label>
+            <label className="project-modal-label">
+              {t("projects.github_repo")}
+              <input
+                className="input"
+                style={{ fontFamily: "ui-monospace, monospace", fontSize: 13 }}
+                value={ghRepo}
+                onChange={(e) => {
+                  githubTouchedRef.current = true;
+                  setGhRepo(e.target.value);
+                }}
+                autoComplete="off"
+              />
+            </label>
+            <label className="project-modal-label">
+              {t("projects.github_branch")}
+              <input
+                className="input"
+                value={ghBranch}
+                onChange={(e) => {
+                  githubTouchedRef.current = true;
+                  setGhBranch(e.target.value);
+                }}
+                placeholder="main"
+                autoComplete="off"
+              />
+            </label>
+            <label className="project-modal-label">
+              {t("projects.github_installation")}
+              <input
+                className="input"
+                value={ghInstallation}
+                onChange={(e) => {
+                  githubTouchedRef.current = true;
+                  setGhInstallation(e.target.value);
+                }}
+                autoComplete="off"
+              />
+            </label>
+            <label className="project-modal-label">
+              {t("projects.github_token")}
+              {mode === "edit" && ghTokenHint ? (
+                <span className="project-modal-hint" style={{ display: "block", marginBottom: 4 }}>
+                  {t("projects.github_token_hint_set")}
+                </span>
+              ) : null}
+              <input
+                className="input"
+                type="password"
+                value={ghToken}
+                onChange={(e) => {
+                  githubTouchedRef.current = true;
+                  setGhToken(e.target.value);
+                }}
+                autoComplete="new-password"
+                placeholder={mode === "edit" ? t("projects.password_unchanged_hint") : ""}
+              />
+            </label>
+          </fieldset>
 
           <fieldset
             style={{

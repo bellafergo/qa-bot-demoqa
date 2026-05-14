@@ -4,8 +4,21 @@ Pydantic response models for the Failure Intelligence API.
 """
 from __future__ import annotations
 
-from typing import Dict, List
-from pydantic import BaseModel
+from typing import Dict, List, Optional
+
+from pydantic import BaseModel, Field
+
+from models.rca_models import RCAEvidenceSignal
+
+
+class BlastRadius(BaseModel):
+    """Impact estimate for a failure cluster — suites omitted when not present in run meta."""
+
+    affected_modules: List[str] = Field(default_factory=list)
+    affected_tests_count: int = 0
+    affected_suites_count: Optional[int] = None
+    estimated_severity: str = "low"
+    impact_scope: str = "unknown"
 
 
 class FailureCluster(BaseModel):
@@ -21,6 +34,11 @@ class FailureCluster(BaseModel):
     probable_cause:              str
     confidence:                  str
     summary:                     str
+    # ── QA Intelligence extensions (additive; older clients may ignore) ────────
+    affected_test_case_ids:     List[str] = Field(default_factory=list)
+    recommended_action:          str = ""
+    signals_used:                List[RCAEvidenceSignal] = Field(default_factory=list)
+    blast_radius:                Optional[BlastRadius] = None
 
 
 class FlakyTestSignal(BaseModel):

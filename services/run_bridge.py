@@ -96,7 +96,7 @@ def _to_datetime(value: Any) -> datetime:
 
 def bridge_async_run_to_sqlite(payload: Dict[str, Any]) -> bool:
     """
-    Persist queued/running runs to SQLite so GET /runs/{evidence_id} can resolve
+    Persist queued/running runs to SQLite so GET /runs/{run_id} can resolve
     them even when the request hits a different process (e.g. multi-instance).
     Uses test_case_id="_async" to distinguish from catalog runs.
     Returns True on success, False on skip or error. Never raises.

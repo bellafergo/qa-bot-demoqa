@@ -9,7 +9,7 @@ services/run_mapper.py to produce a CanonicalRun before leaving the API layer.
 
 Fields
 ------
-run_id        — UUID, always present
+run_id        — Canonical execution id (UUID or stable string); always present for API navigation
 job_id        — set when the run was part of an orchestrator job
 test_id       — test_case_id of the executed test case (was test_case_id)
 test_name     — human-readable test name (denormalized for convenience)
@@ -39,8 +39,11 @@ Backward compatibility notes
 -----------------------------
 • Legacy runs (run_store / chat path) may omit the `artifacts` / `meta` objects.
   Consumers should use the helpers in run_mapper.py rather than reading raw dicts.
+• `evidence_id` is optional metadata (e.g. qa_runs PK / EV-… label). URLs and lookups use `run_id` only.
 • `test_id` corresponds to `test_case_id` in the original TestRun model.
 • `steps` corresponds to `steps_result` in the original TestRun model.
+  API runner steps may include ``evidence``: ``{ "request": {...}, "response": {...}, "failure": {...} }``
+  (redacted HTTP snapshots; see ``runners/api_evidence.py``).
 """
 from __future__ import annotations
 
@@ -114,8 +117,13 @@ class CanonicalRun(BaseModel):
     summary:       Optional[str] = None
     error_summary: Optional[str] = None
     rca_summary:   Optional[str] = None
-    evidence_id:   Optional[str] = None
+    evidence_id:   Optional[str] = Field(
+        default=None,
+        description="Secondary id (e.g. qa_runs.evidence_id, EV-…). Not the navigation key; use run_id.",
+    )
     steps:         List[Dict[str, Any]] = Field(default_factory=list)
+    # Optional runner log lines (SQLite catalog rows carry these; list payloads stay lean when empty)
+    logs:          List[str]    = Field(default_factory=list)
     artifacts:     RunArtifacts = Field(default_factory=RunArtifacts)
     meta:          RunMeta      = Field(default_factory=RunMeta)
 

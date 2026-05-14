@@ -351,7 +351,13 @@ export const analyzePR           = (body) => apiPost("/pr-analysis/analyze",    
 export const analyzePRAndEnqueue = (body) => apiPost("/pr-analysis/analyze-and-enqueue", body);
 
 // ========= GitHub =========
-export const fetchGithubPR = (url) => apiPost("/github/pr/fetch", { url });
+export const fetchGithubPR = (url, projectId = null) => {
+  const body = { url };
+  if (projectId != null && String(projectId).trim()) {
+    body.project_id = String(projectId).trim();
+  }
+  return apiPost("/github/pr/fetch", body);
+};
 
 // ========= API Testing =========
 export const parseSpec        = (body) => apiPost("/api-testing/parse-spec",     body);
@@ -415,6 +421,15 @@ export function getClusters(params = {}) {
 }
 export const getRunClusters  = (limit = 50) => apiGet(`/failure-intelligence/run-clusters?limit=${limit}`);
 
+export function getDeepInsights(project_id) {
+  const q = new URLSearchParams();
+  if (project_id != null && String(project_id).trim()) {
+    q.set("project_id", String(project_id).trim());
+  }
+  const qs = q.toString();
+  return apiGet(`/failure-intelligence/deep-insights${qs ? `?${qs}` : ""}`);
+}
+
 // ========= Risk-Based Test Selection =========
 export const selectTests    = (body) => apiPost("/risk-selection/select-tests",   body);
 export const selectAndRun   = (body) => apiPost("/risk-selection/select-and-run", body);
@@ -451,3 +466,52 @@ export const getProject     = (projectId)           => apiGet(`/projects/${encod
 export const createProject  = (payload)           => apiPost("/projects", payload);
 export const updateProject  = (projectId, payload) => apiPatch(`/projects/${encodeURIComponent(projectId)}`, payload);
 export const deleteProject  = (projectId)           => apiDelete(`/projects/${encodeURIComponent(projectId)}`);
+
+// ========= Browser inspection watches (Phase 3G–3H) =========
+/** POST /browser-inspections/watch — create watch (cloud-only). */
+export function createBrowserInspectionWatch(body) {
+  return apiPost("/browser-inspections/watch", body ?? {});
+}
+
+/** GET /browser-inspections/watch — list watches (optional project scope). */
+export function listBrowserInspectionWatches(params = {}) {
+  const q = new URLSearchParams();
+  if (params.limit != null) q.set("limit", String(params.limit));
+  if (params.project_id != null && String(params.project_id).trim()) {
+    q.set("project_id", String(params.project_id).trim());
+  }
+  const qs = q.toString();
+  return apiGet(`/browser-inspections/watch${qs ? `?${qs}` : ""}`);
+}
+
+export const getBrowserInspectionWatch = (watchId) =>
+  apiGet(`/browser-inspections/watch/${encodeURIComponent(watchId)}`);
+
+export function patchBrowserInspectionWatch(watchId, body) {
+  return apiPatch(`/browser-inspections/watch/${encodeURIComponent(watchId)}`, body ?? {});
+}
+
+/** POST /browser-inspections/watch/{id}/run-now */
+export function postBrowserWatchRunNow(watchId, { force = false } = {}) {
+  const q = force ? "?force=true" : "";
+  return apiPost(`/browser-inspections/watch/${encodeURIComponent(watchId)}/run-now${q}`, {});
+}
+
+/** Pin baseline to latest inspection (use_latest). */
+export function postBrowserWatchBaselineUseLatest(watchId) {
+  return apiPost(`/browser-inspections/watch/${encodeURIComponent(watchId)}/baseline`, { use_latest: true });
+}
+
+export const getBrowserWatchMetrics = (watchId) =>
+  apiGet(`/browser-inspections/watch/${encodeURIComponent(watchId)}/metrics`);
+
+/**
+ * GET /browser-inspections/watch/{id}/events with cursor pagination.
+ * Returns { items, next_cursor } when paged (default).
+ */
+export function getBrowserWatchEventsPage(watchId, params = {}) {
+  const q = new URLSearchParams({ paged: "true" });
+  if (params.limit != null) q.set("limit", String(params.limit));
+  if (params.cursor) q.set("cursor", String(params.cursor));
+  return apiGet(`/browser-inspections/watch/${encodeURIComponent(watchId)}/events?${q}`);
+}

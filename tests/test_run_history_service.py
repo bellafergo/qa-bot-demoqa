@@ -224,14 +224,15 @@ class TestAggregates(unittest.TestCase):
 
     def test_count_by_status_delegates_to_repo(self):
         expected = {"pass": 10, "fail": 3, "error": 1}
-        with patch(
+        with _patch_sqlite_reads(), patch(
             "services.run_history_service.test_run_repo.count_by_status",
             return_value=expected,
-        ):
+        ) as mock_count:
             from services.run_history_service import RunHistoryService
             svc = RunHistoryService()
             result = svc.count_by_status()
         self.assertEqual(result, expected)
+        mock_count.assert_called_once_with()
 
     def test_get_last_run_at_delegates_to_repo(self):
         expected = "2024-06-01T12:00:00+00:00"

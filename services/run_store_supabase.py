@@ -53,23 +53,31 @@ def _get_supabase() -> Optional[Client]:
 
 def persist_run_supabase(run_payload: Dict[str, Any]) -> bool:
     """
-    Upsert por evidence_id.
+    Upsert por evidence_id (PK legacy) + persist canonical run_id column for GET /runs/{run_id}.
     No debe lanzar excepción (robustez).
     Retorna True si persistió, False si no.
     """
     if not isinstance(run_payload, dict):
         return False
 
+    meta = run_payload.get("meta") if isinstance(run_payload.get("meta"), dict) else {}
+    meta = dict(meta) if isinstance(meta, dict) else {}  # mutable copy — never mutate caller's dict
+
+    run_id_val = _safe_str(run_payload.get("run_id")) or _safe_str(meta.get("run_id"))
+    if not run_id_val and isinstance(run_payload.get("result"), dict):
+        run_id_val = _safe_str(run_payload["result"].get("run_id"))
+
     evid = _safe_str(run_payload.get("evidence_id"))
+    if not evid and run_id_val:
+        evid = run_id_val
     if not evid:
         return False
+    if not run_id_val:
+        run_id_val = evid
 
     sb = _get_supabase()
     if sb is None:
         return False
-
-    meta = run_payload.get("meta") if isinstance(run_payload.get("meta"), dict) else {}
-    meta = dict(meta) if isinstance(meta, dict) else {}  # mutable copy — never mutate caller's dict
 
     # Enrich meta with project association from run_payload top-level keys.
     # Only write if the key is absent in meta — never overwrite existing values.
@@ -115,6 +123,7 @@ def persist_run_supabase(run_payload: Dict[str, Any]) -> bool:
 
     row = {
         "evidence_id": evid,
+        "run_id": run_id_val,
         "status": status,
         "test_name": _safe_str(run_payload.get("test_name")) or None,
         "steps": steps or [],

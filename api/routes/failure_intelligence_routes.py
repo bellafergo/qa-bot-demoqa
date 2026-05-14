@@ -8,6 +8,7 @@ GET  /failure-intelligence/summary      — platform-wide failure intelligence a
 GET  /failure-intelligence/clusters     — failure clusters grouped by RCA + module
 GET  /failure-intelligence/flaky-tests  — tests with high pass/fail flip rate
 GET  /failure-intelligence/regressions  — tests with repeated recent failures
+GET  /failure-intelligence/deep-insights — correlations + timeline + recommendations (deterministic)
 """
 from __future__ import annotations
 
@@ -22,6 +23,7 @@ from models.failure_intelligence_models import (
     FlakyTestSignal,
     RegressionPattern,
 )
+from models.insights_models import DeepInsightsResponse
 
 logger = logging.getLogger("vanya.failure_intelligence_routes")
 
@@ -125,3 +127,22 @@ def get_regressions(project_id: Optional[str] = Query(None)):
     except Exception as exc:
         logger.exception("failure-intelligence/regressions failed")
         raise HTTPException(status_code=500, detail=f"Regression detection error: {exc}")
+
+
+# ── Deep insights (correlations + timeline + recommendations) ─────────────────
+
+@router.get("/deep-insights", response_model=DeepInsightsResponse)
+def get_deep_insights(project_id: Optional[str] = Query(None)):
+    """
+    Deterministic QA intelligence bundle: root-cause correlations (from clusters),
+    failure timeline from canonical run history, and actionable recommendations.
+
+    Does not persist or delete data. Safe for frequent polling.
+    """
+    from services.insights_intelligence_service import build_deep_insights
+
+    try:
+        return build_deep_insights(project_id=project_id)
+    except Exception as exc:
+        logger.exception("failure-intelligence/deep-insights failed")
+        raise HTTPException(status_code=500, detail=f"Deep insights error: {exc}")

@@ -23,6 +23,7 @@ const ROUTE_META = {
   "/api-testing":  { titleKey: "layout.api_testing.title",   subtitleKey: "layout.api_testing.subtitle"   },
   "/coverage":     { titleKey: "layout.coverage.title",      subtitleKey: "layout.coverage.subtitle"      },
   "/integrations": { titleKey: "layout.integrations.title",  subtitleKey: "layout.integrations.subtitle"  },
+  "/browser-watch": null,
 };
 
 export default function Layout() {

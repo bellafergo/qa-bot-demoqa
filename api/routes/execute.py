@@ -77,6 +77,7 @@ def _enqueue(kind: str, fn, payload: Dict[str, Any], meta: Optional[Dict[str, An
     # Run inicial (para que la UI pueda hacer polling inmediato)
     run = {
         "evidence_id": evidence_id,
+        "run_id": evidence_id,
         "status": "queued",
         "created_at": int(time.time() * 1000),
         "kind": kind,

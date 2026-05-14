@@ -4,26 +4,15 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
-import os
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import requests
 
+from core.settings import settings
+from services.github_project_context import GitHubHttpConfig, resolve_github_http_for_repository
+
 logger = logging.getLogger("vanya.pr_agent")
-
-# ============================================================
-# ENV
-# ============================================================
-
-GITHUB_TOKEN = (os.getenv("GITHUB_TOKEN") or "").strip()
-GITHUB_WEBHOOK_SECRET = (os.getenv("GITHUB_WEBHOOK_SECRET") or "").strip()
-
-GITHUB_API_BASE = (os.getenv("GITHUB_API_BASE") or "https://api.github.com").strip().rstrip("/")
-DEFAULT_TIMEOUT_S = int((os.getenv("GITHUB_HTTP_TIMEOUT_S") or "30").strip() or "30")
-
-# Webhook: post QA comment always (when token + payload ok). Runs are opt-in (set PR_AGENT_EXECUTE_RUNS=true).
-PR_AGENT_EXECUTE_RUNS = (os.getenv("PR_AGENT_EXECUTE_RUNS") or "false").strip().lower() in ("1", "true", "yes", "y")
 
 # Evitar spam: solo reaccionar a estos actions
 ALLOWED_PR_ACTIONS = {"opened", "synchronize", "reopened", "ready_for_review"}
@@ -62,8 +51,10 @@ class SuiteSelection:
 def verify_github_signature(raw_body: bytes, signature_header: str) -> bool:
     """
     signature_header example: "sha256=..."
+    Uses ``settings.GITHUB_WEBHOOK_SECRET`` (global app secret).
     """
-    if not GITHUB_WEBHOOK_SECRET:
+    secret = (settings.GITHUB_WEBHOOK_SECRET or "").strip()
+    if not secret:
         logger.warning("GITHUB_WEBHOOK_SECRET missing; signature verification skipped")
         return True
 
@@ -71,7 +62,7 @@ def verify_github_signature(raw_body: bytes, signature_header: str) -> bool:
         return False
 
     expected = "sha256=" + hmac.new(
-        GITHUB_WEBHOOK_SECRET.encode("utf-8"),
+        secret.encode("utf-8"),
         raw_body,
         hashlib.sha256,
     ).hexdigest()
@@ -114,18 +105,14 @@ def parse_github_pull_request_event(payload: Dict[str, Any]) -> Optional[PRConte
 
 
 # ============================================================
-# GitHub API client
+# GitHub API client (credentials injected per call)
 # ============================================================
 
-def _has_token() -> bool:
-    return bool(GITHUB_TOKEN)
-
-
-def _gh_headers() -> Dict[str, str]:
-    if not _has_token():
-        raise RuntimeError("GITHUB_TOKEN missing")
+def _gh_headers(http: GitHubHttpConfig) -> Dict[str, str]:
+    if not (http.token or "").strip():
+        raise RuntimeError("GitHub token missing")
     return {
-        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "Authorization": f"Bearer {http.token}",
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     }
@@ -142,14 +129,15 @@ def _request(
     method: str,
     url: str,
     *,
+    http: GitHubHttpConfig,
     headers: Optional[Dict[str, str]] = None,
     json: Any = None,
 ) -> requests.Response:
     """
-    Wrapper con logging útil (auth / rate limit).
+    Wrapper con logging útil (auth / rate limit). Never log token.
     """
     try:
-        r = requests.request(method, url, headers=headers, json=json, timeout=DEFAULT_TIMEOUT_S)
+        r = requests.request(method, url, headers=headers, json=json, timeout=http.timeout_s)
         if r.status_code in (401, 403):
             logger.warning(
                 "GitHub API %s %s -> %s (check token perms / rate limit). body=%s",
@@ -184,16 +172,16 @@ def _parse_next_link(link_header: str) -> Optional[str]:
     return None
 
 
-def list_changed_files(ctx: PRContext, *, max_pages: int = 3) -> List[Dict[str, Any]]:
+def list_changed_files(ctx: PRContext, *, http: GitHubHttpConfig, max_pages: int = 3) -> List[Dict[str, Any]]:
     """
     Returns GitHub PR files list entries (filename, status, patch, etc.)
-    Requires token.
     """
     out: List[Dict[str, Any]] = []
-    url = f"{GITHUB_API_BASE}/repos/{ctx.owner}/{ctx.repo}/pulls/{ctx.pr_number}/files?per_page=100"
+    base = (http.api_base or "https://api.github.com").strip().rstrip("/")
+    url = f"{base}/repos/{ctx.owner}/{ctx.repo}/pulls/{ctx.pr_number}/files?per_page=100"
 
     for _ in range(max_pages):
-        r = _request("GET", url, headers=_gh_headers())
+        r = _request("GET", url, http=http, headers=_gh_headers(http))
         items = r.json() or []
         if isinstance(items, list):
             out.extend(items)
@@ -207,24 +195,26 @@ def list_changed_files(ctx: PRContext, *, max_pages: int = 3) -> List[Dict[str, 
     return out
 
 
-def post_pr_comment(ctx: PRContext, body: str) -> int:
+def post_pr_comment(ctx: PRContext, body: str, *, http: GitHubHttpConfig) -> int:
     """
     Crea comentario en PR y devuelve comment_id.
     """
-    url = f"{GITHUB_API_BASE}/repos/{ctx.owner}/{ctx.repo}/issues/{ctx.pr_number}/comments"
-    r = _request("POST", url, headers=_gh_headers(), json={"body": body})
+    base = (http.api_base or "https://api.github.com").strip().rstrip("/")
+    url = f"{base}/repos/{ctx.owner}/{ctx.repo}/issues/{ctx.pr_number}/comments"
+    r = _request("POST", url, http=http, headers=_gh_headers(http), json={"body": body})
     data = r.json() or {}
     return int(data.get("id") or 0)
 
 
-def update_pr_comment(ctx: PRContext, comment_id: int, body: str) -> None:
+def update_pr_comment(ctx: PRContext, comment_id: int, body: str, *, http: GitHubHttpConfig) -> None:
     """
     Edita comentario existente (para “live updates”).
     """
     if not comment_id:
         return
-    url = f"{GITHUB_API_BASE}/repos/{ctx.owner}/{ctx.repo}/issues/comments/{comment_id}"
-    _request("PATCH", url, headers=_gh_headers(), json={"body": body})
+    base = (http.api_base or "https://api.github.com").strip().rstrip("/")
+    url = f"{base}/repos/{ctx.owner}/{ctx.repo}/issues/comments/{comment_id}"
+    _request("PATCH", url, http=http, headers=_gh_headers(http), json={"body": body})
 
 
 # ============================================================
@@ -383,11 +373,12 @@ def format_comment_live(
     """
     draft_txt = " (DRAFT)" if ctx.is_draft else ""
     tags_txt = ", ".join(suites.tags) if suites.tags else "smoke"
+    sha_disp = (ctx.sha[:7] if ctx.sha and len(ctx.sha) >= 7 else (ctx.sha or "n/a"))
 
     return (
         f"🛡️ **Vanya PR Agent**\n\n"
         f"**PR:** #{ctx.pr_number}{draft_txt} — {ctx.title}\n"
-        f"**Commit:** `{ctx.sha[:7]}`\n"
+        f"**Commit:** `{sha_disp}`\n"
         f"**Link:** {ctx.html_url}\n\n"
         f"### Suites recomendadas\n"
         f"- **Tags:** `{tags_txt}`\n"
@@ -407,9 +398,10 @@ def handle_pull_request_event(payload: Dict[str, Any]) -> Dict[str, Any]:
     - Parse ctx (sha optional)
     - Skip draft PRs
     - Filter pull_request actions (opened / synchronize / reopened / ready_for_review)
+    - Resolve GitHub credentials via ``resolve_github_http_for_repository`` (project or legacy)
     - List changed files (best-effort), run pr_analysis_service (no auto_enqueue)
     - Post QA markdown comment to the PR
-    - Optionally trigger tag-based runs when PR_AGENT_EXECUTE_RUNS=true (legacy pr_runs path)
+    - Optionally trigger tag-based runs when settings.PR_AGENT_EXECUTE_RUNS is true
     """
     action = (payload.get("action") or "").strip().lower()
     ctx = parse_github_pull_request_event(payload)
@@ -429,15 +421,21 @@ def handle_pull_request_event(payload: Dict[str, Any]) -> Dict[str, Any]:
         logger.info("pr_agent: ignored pull_request action=%s (allowed=%s)", action, sorted(ALLOWED_PR_ACTIONS))
         return {"ok": True, "ignored": True, "action": action}
 
-    if not _has_token():
-        logger.warning("pr_agent: GITHUB_TOKEN missing — cannot list files or comment")
+    http = resolve_github_http_for_repository(ctx.owner, ctx.repo)
+    if not http:
+        logger.warning(
+            "pr_agent: no GitHub credentials for %s/%s — enable GitHub on a matching project "
+            "or set GITHUB_TOKEN (legacy)",
+            ctx.owner,
+            ctx.repo,
+        )
         return {"ok": True, "commented": False, "reason": "missing_token", "pr": ctx.html_url}
 
     pr = payload.get("pull_request") or {}
     files_raw: List[Dict[str, Any]] = []
     files_err: Optional[str] = None
     try:
-        files_raw = list_changed_files(ctx)
+        files_raw = list_changed_files(ctx, http=http)
     except Exception as e:
         files_err = f"{type(e).__name__}: {e}"
         logger.exception("pr_agent: list_changed_files failed for %s/%s #%s", ctx.owner, ctx.repo, ctx.pr_number)
@@ -475,7 +473,7 @@ def handle_pull_request_event(payload: Dict[str, Any]) -> Dict[str, Any]:
         if files_err:
             fail_body += f"\n**File list:** could not load changed files — `{files_err}`\n"
         try:
-            comment_id = post_pr_comment(ctx, fail_body)
+            comment_id = post_pr_comment(ctx, fail_body, http=http)
             return {
                 "ok": True,
                 "commented": True,
@@ -487,11 +485,11 @@ def handle_pull_request_event(payload: Dict[str, Any]) -> Dict[str, Any]:
             logger.exception("pr_agent: post_pr_comment failed (analysis error path)")
             return {"ok": False, "error": "post_comment_failed", "analysis_error": analysis_err, "pr": ctx.html_url}
 
-    include_marker = bool(PR_AGENT_EXECUTE_RUNS and suites.tags)
+    include_marker = bool(settings.PR_AGENT_EXECUTE_RUNS and suites.tags)
     runs_state = (
         "⏳ Ejecutando suites detectadas…"
         if include_marker
-        else "📝 Automated test runs are disabled (`PR_AGENT_EXECUTE_RUNS` not set to true)."
+        else "📝 Automated test runs are disabled (PR_AGENT_EXECUTE_RUNS is not enabled on the server)."
     )
     initial_body = format_pr_qa_analysis_comment(
         ctx,
@@ -504,7 +502,7 @@ def handle_pull_request_event(payload: Dict[str, Any]) -> Dict[str, Any]:
     )
 
     try:
-        comment_id = post_pr_comment(ctx, initial_body)
+        comment_id = post_pr_comment(ctx, initial_body, http=http)
         logger.info(
             "pr_agent: posted QA comment id=%s pr=%s/%s#%s action=%s",
             comment_id,
@@ -532,6 +530,7 @@ def handle_pull_request_event(payload: Dict[str, Any]) -> Dict[str, Any]:
                 suites.tags,
                 comment_id=comment_id,
                 comment_body_template=initial_body,
+                http=http,
             )
         except Exception:
             logger.exception("pr_agent: trigger_runs_for_tags failed")
@@ -545,7 +544,7 @@ def handle_pull_request_event(payload: Dict[str, Any]) -> Dict[str, Any]:
                     suite_selection=suites,
                     runs_state_line="⚠️ No se pudieron disparar runs (revisar logs/runner).",
                 )
-                update_pr_comment(ctx, comment_id, fail_body)
+                update_pr_comment(ctx, comment_id, fail_body, http=http)
             except Exception:
                 pass
 
