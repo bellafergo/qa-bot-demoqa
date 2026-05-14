@@ -34,3 +34,5 @@ Simulated success uses `result_ref` JSON (≤512 chars) describing dry-run `mess
 2. Respect agent capabilities (`localhost_access`, `intranet_access`).
 3. Normalize inspection output and map to `result_ref` / future artifact APIs.
 4. Optional: backoff when Cloud returns 429.
+
+**Update:** Phase 4C (local Playwright + bounded `result_ref`) is documented in [VANYA_LOCAL_AGENT_PHASE4C.md](VANYA_LOCAL_AGENT_PHASE4C.md).

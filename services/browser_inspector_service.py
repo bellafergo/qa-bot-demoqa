@@ -248,22 +248,24 @@ def build_selector_candidates(
     return out
 
 
-def inspect_url_collect(
-    req: InspectUrlRequest,
-) -> tuple[BrowserInspectionResult, Dict[str, Any], Dict[str, Any]]:
+def normalize_raw_runner_output(
+    *,
+    request_url: str,
+    raw: Dict[str, Any],
+    validated_navigation_url: Optional[str] = None,
+    upload_hosted_screenshot: bool = True,
+) -> BrowserInspectionResult:
     """
-    Run inspection and return the public result plus raw inventory / extras for
-    downstream consumers (e.g. Phase 2 app map) without a second Playwright pass.
+    Build ``BrowserInspectionResult`` from a runner dict without SSRF validation.
+
+    Callers must validate URLs appropriately (cloud: ``validate_target_url``;
+    local agent: ``local_agent.url_guard``).
+
+    When ``upload_hosted_screenshot`` is False, skip Cloudinary upload (local agent / Phase 4C).
     """
     from core.settings import settings
-    from core.target_url_validation import validate_target_url
 
-    from runners.browser_inspector_runner import run_browser_inspection
-
-    warnings: List[str] = []
-    validated = validate_target_url(req.url.strip())
-
-    raw = run_browser_inspection(url=validated, timeout_ms=int(req.timeout_ms))
+    validated = (validated_navigation_url or request_url).strip()
     inv = raw.get("inventory") or {}
     if not isinstance(inv, dict):
         inv = {}
@@ -283,9 +285,10 @@ def inspect_url_collect(
 
     inspection_id = str(uuid.uuid4())
     screenshot_url: Optional[str] = None
+    warnings: List[str] = []
 
     b64 = raw.get("screenshot_b64")
-    if b64 and getattr(settings, "HAS_CLOUDINARY", False):
+    if upload_hosted_screenshot and b64 and getattr(settings, "HAS_CLOUDINARY", False):
         try:
             from services.cloudinary_service import upload_screenshot_b64_url
 
@@ -298,7 +301,7 @@ def inspect_url_collect(
         except Exception as e:
             warnings.append(f"screenshot_upload_skipped: {type(e).__name__}")
             logger.warning("browser_inspector: Cloudinary upload failed: %s", e)
-    elif b64:
+    elif upload_hosted_screenshot and b64:
         warnings.append("screenshot_url_unavailable: configure Cloudinary for hosted screenshots")
 
     if raw.get("navigation_error"):
@@ -320,9 +323,9 @@ def inspect_url_collect(
         "selector_candidates_count": len(selector_candidates),
     }
 
-    result = BrowserInspectionResult(
+    return BrowserInspectionResult(
         inspection_id=inspection_id,
-        url=req.url.strip(),
+        url=request_url.strip(),
         final_url=str(raw.get("final_url") or validated),
         title=str(raw.get("title") or ""),
         status_code=raw.get("status_code"),
@@ -340,6 +343,35 @@ def inspect_url_collect(
         warnings=warnings,
         inventory_counts=inventory_counts,
         inspection_succeeded=inspection_succeeded,
+    )
+
+
+def inspect_url_collect(
+    req: InspectUrlRequest,
+) -> tuple[BrowserInspectionResult, Dict[str, Any], Dict[str, Any]]:
+    """
+    Run inspection and return the public result plus raw inventory / extras for
+    downstream consumers (e.g. Phase 2 app map) without a second Playwright pass.
+    """
+    from core.target_url_validation import validate_target_url
+
+    from runners.browser_inspector_runner import run_browser_inspection
+
+    validated = validate_target_url(req.url.strip())
+
+    raw = run_browser_inspection(url=validated, timeout_ms=int(req.timeout_ms), headless=True)
+    inv = raw.get("inventory") or {}
+    if not isinstance(inv, dict):
+        inv = {}
+    extras = raw.get("extras") or {}
+    if not isinstance(extras, dict):
+        extras = {}
+
+    result = normalize_raw_runner_output(
+        request_url=req.url.strip(),
+        raw=raw,
+        validated_navigation_url=validated,
+        upload_hosted_screenshot=True,
     )
     return result, inv, extras
 

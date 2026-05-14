@@ -217,7 +217,11 @@ def poll_jobs(agent_id: str, body: LocalAgentPollRequest, authorization: Optiona
     if not pid:
         raise HTTPException(status_code=400, detail="agent has no project_id")
     raw_jobs = local_agent_repo.list_queued_jobs_for_project(pid, limit=body.limit)
-    return LocalAgentPollResponse(jobs=[_row_to_job(j) for j in raw_jobs])
+    caps = normalize_capabilities(list(row.get("capabilities") or []))
+    return LocalAgentPollResponse(
+        jobs=[_row_to_job(j) for j in raw_jobs],
+        agent_capabilities=[str(x) for x in caps],
+    )
 
 
 def submit_job_result(

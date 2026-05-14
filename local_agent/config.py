@@ -17,6 +17,11 @@ class AgentConfig:
     dry_run: bool
     once: bool
     agent_version: str
+    browser_enabled: bool = False
+    allow_localhost: bool = False
+    allow_private_ips: bool = False
+    browser_headless: bool = True
+    browser_timeout_ms_default: int = 15_000
 
     def token_log_label(self) -> str:
         """Safe label for logs (fingerprint + last 4 chars; never full token)."""
@@ -32,10 +37,34 @@ def _env(name: str, default: Optional[str] = None) -> Optional[str]:
     return str(v).strip()
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    v = _env(name)
+    if v is None:
+        return default
+    return v.lower() in ("1", "true", "yes", "on")
+
+
 def _parse_float(s: Optional[str], *, fallback: float) -> float:
     if s is None or str(s).strip() == "":
         return fallback
     return float(str(s).strip())
+
+
+def _parse_int_env(name: str, *, fallback: int, lo: int, hi: int) -> int:
+    raw = _env(name)
+    if raw is None:
+        return fallback
+    try:
+        v = int(str(raw).strip())
+    except Exception:
+        return fallback
+    return max(lo, min(v, hi))
+
+
+def _merge_bool(cli_val: Optional[bool], env_name: str, *, default: bool = False) -> bool:
+    if cli_val is not None:
+        return bool(cli_val)
+    return _env_bool(env_name, default)
 
 
 def validate_base_url(url: str) -> str:
@@ -60,6 +89,11 @@ def build_config(
     dry_run: bool,
     once: bool,
     agent_version: Optional[str] = None,
+    browser_enabled: Optional[bool] = None,
+    allow_localhost: Optional[bool] = None,
+    allow_private_ips: Optional[bool] = None,
+    browser_headless: Optional[bool] = None,
+    browser_timeout_ms_default: Optional[int] = None,
 ) -> AgentConfig:
     bu = validate_base_url((base_url or _env("VANYA_CLOUD_URL") or "").strip())
     aid = (agent_id or _env("VANYA_AGENT_ID") or "").strip()
@@ -83,7 +117,15 @@ def build_config(
     if timeout < 5.0:
         raise ValueError("HTTP timeout must be >= 5 seconds")
 
-    av = (agent_version or "vanya-local-agent/4b").strip() or "vanya-local-agent/4b"
+    av = (agent_version or "vanya-local-agent/4c").strip() or "vanya-local-agent/4c"
+
+    be = _merge_bool(browser_enabled, "VANYA_AGENT_BROWSER_ENABLED", default=False)
+    al = _merge_bool(allow_localhost, "VANYA_AGENT_ALLOW_LOCALHOST", default=False)
+    ap = _merge_bool(allow_private_ips, "VANYA_AGENT_ALLOW_PRIVATE_IPS", default=False)
+    bh = _merge_bool(browser_headless, "VANYA_AGENT_BROWSER_HEADLESS", default=True)
+    btm = browser_timeout_ms_default
+    if btm is None:
+        btm = _parse_int_env("VANYA_AGENT_BROWSER_TIMEOUT_MS", fallback=15_000, lo=3000, hi=60_000)
 
     return AgentConfig(
         base_url=bu,
@@ -94,12 +136,24 @@ def build_config(
         dry_run=dry_run,
         once=once,
         agent_version=av,
+        browser_enabled=be,
+        allow_localhost=al,
+        allow_private_ips=ap,
+        browser_headless=bh,
+        browser_timeout_ms_default=int(btm),
     )
 
 
 def argparse_namespace_to_kwargs(ns: Any) -> dict:
     """Map argparse.Namespace to build_config kwargs (None = use env / defaults)."""
     av = getattr(ns, "agent_version", None)
+
+    def _ob(name: str) -> Optional[bool]:
+        if not hasattr(ns, name):
+            return None
+        v = getattr(ns, name)
+        return v if v is not None else None
+
     return dict(
         base_url=getattr(ns, "base_url", None),
         agent_id=getattr(ns, "agent_id", None),
@@ -109,4 +163,9 @@ def argparse_namespace_to_kwargs(ns: Any) -> dict:
         dry_run=bool(getattr(ns, "dry_run", False)),
         once=bool(getattr(ns, "once", False)),
         agent_version=av if av is not None else None,
+        browser_enabled=_ob("browser_enabled"),
+        allow_localhost=_ob("allow_localhost"),
+        allow_private_ips=_ob("allow_private_ips"),
+        browser_headless=_ob("browser_headless"),
+        browser_timeout_ms_default=getattr(ns, "browser_timeout_ms", None),
     )

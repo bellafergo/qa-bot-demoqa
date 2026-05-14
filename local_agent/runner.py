@@ -21,11 +21,12 @@ def run_cycle(client: "VanyaAgentClient", cfg: "AgentConfig") -> int:
     client.heartbeat(agent_version=cfg.agent_version)
     data = client.poll(limit=10)
     jobs = list(data.get("jobs") or [])
+    caps = list(data.get("agent_capabilities") or [])
     if not jobs:
         logger.info("poll: no jobs in queue")
         return 0
     logger.info("poll: %d job(s) in queue", len(jobs))
-    client.process_jobs_dry_run_simulation(jobs, dry_run=cfg.dry_run)
+    client.process_jobs(jobs, cfg=cfg, agent_capabilities=caps)
     return len(jobs)
 
 

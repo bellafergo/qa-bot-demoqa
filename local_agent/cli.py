@@ -1,4 +1,4 @@
-"""CLI entry for Vanya Local Agent (Phase 4B)."""
+"""CLI entry for Vanya Local Agent (Phase 4B–4C)."""
 from __future__ import annotations
 
 import argparse
@@ -21,7 +21,7 @@ def _setup_logging(verbose: bool) -> None:
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="vanya-local-agent",
-        description="Vanya Local Agent — Phase 4B (heartbeat + poll + simulated job results; no browser).",
+        description="Vanya Local Agent — heartbeat, poll, jobs (Phase 4C: optional Playwright browser_inspection).",
     )
     p.add_argument("--base-url", default=None, help="Vanya Cloud base URL (or VANYA_CLOUD_URL)")
     p.add_argument("--agent-id", default=None, help="Agent id (or VANYA_AGENT_ID)")
@@ -41,13 +41,43 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--agent-version",
         default=None,
-        help="Sent as agent_version on heartbeat (default vanya-local-agent/4b)",
+        help="Sent as agent_version on heartbeat (default vanya-local-agent/4c)",
     )
     p.add_argument("--once", action="store_true", help="Run a single heartbeat+poll cycle then exit")
     p.add_argument(
         "--dry-run",
         action="store_true",
-        help="Do not POST job results (still heartbeat + poll to validate the channel)",
+        help="Do not POST job results (still heartbeat + poll)",
+    )
+    p.add_argument(
+        "--browser-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Run browser_inspection jobs with Playwright (or VANYA_AGENT_BROWSER_ENABLED=1). Default off.",
+    )
+    p.add_argument(
+        "--allow-localhost",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Allow http(s) to localhost/127.0.0.1 (or VANYA_AGENT_ALLOW_LOCALHOST=1)",
+    )
+    p.add_argument(
+        "--allow-private-ips",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Allow literal private/link-local IPs (or VANYA_AGENT_ALLOW_PRIVATE_IPS=1)",
+    )
+    p.add_argument(
+        "--browser-headless",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Chromium headless (default true; or VANYA_AGENT_BROWSER_HEADLESS)",
+    )
+    p.add_argument(
+        "--browser-timeout-ms",
+        type=int,
+        default=None,
+        help="Default navigation timeout for jobs without payload.timeout_ms (VANYA_AGENT_BROWSER_TIMEOUT_MS)",
     )
     p.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
     p.add_argument(
@@ -72,12 +102,15 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(2) from e
 
     log.info(
-        "starting agent id=%s cloud=%s poll=%.1fs once=%s dry_run=%s token=%s",
+        "starting agent id=%s cloud=%s poll=%.1fs once=%s dry_run=%s browser=%s lh=%s priv=%s token=%s",
         cfg.agent_id,
         cfg.base_url,
         cfg.poll_interval_s,
         cfg.once,
         cfg.dry_run,
+        cfg.browser_enabled,
+        cfg.allow_localhost,
+        cfg.allow_private_ips,
         cfg.token_log_label(),
     )
 

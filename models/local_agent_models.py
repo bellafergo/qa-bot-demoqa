@@ -135,6 +135,10 @@ class LocalAgentJob(BaseModel):
 
 class LocalAgentPollResponse(BaseModel):
     jobs: List[LocalAgentJob] = Field(default_factory=list)
+    agent_capabilities: List[str] = Field(
+        default_factory=list,
+        description="Capabilities registered for this agent (Phase 4C+). Empty if unknown.",
+    )
 
 
 class LocalAgentPatchRequest(BaseModel):

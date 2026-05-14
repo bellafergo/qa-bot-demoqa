@@ -152,31 +152,40 @@ class VanyaAgentClient:
         r = self._request("POST", path, json_body=body)
         return r.json()
 
-    def process_jobs_dry_run_simulation(
+    def process_jobs(
         self,
         jobs: List[Dict[str, Any]],
         *,
-        dry_run: bool,
+        cfg: Any,
+        agent_capabilities: Optional[List[str]] = None,
     ) -> int:
         """
-        For each job: log id/type; submit succeeded + dry-run result_ref unless dry_run flag (no POST).
-        Does not open URLs or execute payloads.
+        Heartbeat/poll caller dispatches here. Supports ``browser_inspection`` (Phase 4C)
+        and rejects unknown job types with a controlled failed result.
         """
+        from local_agent.browser_job import execute_browser_inspection_job
+
         submitted = 0
-        ref = build_dry_run_result_ref()
+        caps = list(agent_capabilities or [])
         for job in jobs:
             jid = str(job.get("job_id") or "").strip()
-            jt = str(job.get("job_type") or "")
+            jt = str(job.get("job_type") or "").strip().lower()
             logger.info("job received job_id=%s job_type=%s", jid, jt)
             if not jid:
                 logger.warning("skip job with empty job_id")
                 continue
-            if dry_run:
-                logger.info(
-                    "dry-run: would POST result status=succeeded result_ref=%s (not sent)",
-                    ref[:80] + ("…" if len(ref) > 80 else ""),
-                )
+            if cfg.dry_run:
+                logger.info("dry-run: skip result POST job_id=%s job_type=%s", jid, jt)
                 continue
-            self.submit_job_result(jid, status="succeeded", result_ref=ref)
+            if jt == "browser_inspection":
+                st, ref, err = execute_browser_inspection_job(job, cfg, agent_capabilities=caps)
+                self.submit_job_result(jid, status=st, result_ref=ref, error=err)
+                submitted += 1
+                continue
+            self.submit_job_result(
+                jid,
+                status="failed",
+                error=f"unsupported job_type: {jt!r}"[:500],
+            )
             submitted += 1
         return submitted

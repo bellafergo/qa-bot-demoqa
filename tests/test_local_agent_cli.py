@@ -41,6 +41,7 @@ def test_build_config_from_env(monkeypatch):
     assert cfg.agent_token == "vla_testtoken_secret_value"
     assert cfg.poll_interval_s == 15.0
     assert cfg.http_timeout_s == 12.0
+    assert cfg.browser_enabled is False
 
 
 def test_build_config_cli_overrides_env(monkeypatch):
@@ -117,7 +118,7 @@ def test_poll_no_jobs():
         if "/heartbeat" in str(request.url):
             return httpx.Response(200, json={"agent_id": "a1", "status": "online"})
         if "/poll" in str(request.url):
-            return httpx.Response(200, json={"jobs": []})
+            return httpx.Response(200, json={"jobs": [], "agent_capabilities": []})
         return httpx.Response(404, json={"detail": "unexpected"})
 
     transport = httpx.MockTransport(handler)
@@ -127,7 +128,7 @@ def test_poll_no_jobs():
         out = c.poll(limit=5)
     finally:
         c.close()
-    assert out == {"jobs": []}
+    assert out.get("jobs") == []
 
 
 def test_poll_with_job_submits_result():
@@ -152,13 +153,14 @@ def test_poll_with_job_submits_result():
                             "status": "queued",
                             "created_at": "t",
                         }
-                    ]
+                    ],
+                    "agent_capabilities": [],
                 },
             )
         if "/jobs/job-99/result" in u:
             body = json.loads(request.content.decode("utf-8"))
-            assert body["status"] == "succeeded"
-            assert "result_ref" in body
+            assert body["status"] == "failed"
+            assert "disabled" in (body.get("error") or "").lower()
             return httpx.Response(
                 200,
                 json={
@@ -167,10 +169,10 @@ def test_poll_with_job_submits_result():
                     "job_type": "browser_inspection",
                     "target_url": "https://example.com",
                     "payload": {},
-                    "status": "succeeded",
+                    "status": "failed",
                     "created_at": "t",
                     "completed_at": "t2",
-                    "result_ref": body["result_ref"],
+                    "result_ref": body.get("result_ref"),
                 },
             )
         return httpx.Response(500, json={"detail": "unexpected"})
@@ -203,7 +205,7 @@ def test_once_exits_zero():
         if "/heartbeat" in u:
             return httpx.Response(200, json={"agent_id": "a1", "status": "online"})
         if "/poll" in u:
-            return httpx.Response(200, json={"jobs": []})
+            return httpx.Response(200, json={"jobs": [], "agent_capabilities": []})
         return httpx.Response(404)
 
     transport = httpx.MockTransport(handler)
@@ -296,7 +298,8 @@ def test_dry_run_skips_result_post():
                             "status": "queued",
                             "created_at": "t",
                         }
-                    ]
+                    ],
+                    "agent_capabilities": [],
                 },
             )
         return httpx.Response(500, json={"detail": "unexpected"})

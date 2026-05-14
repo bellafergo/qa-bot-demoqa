@@ -92,11 +92,11 @@ def _patch_js_extras(max_forms: int, max_img: int) -> str:
     )
 
 
-def run_browser_inspection(*, url: str, timeout_ms: int) -> Dict[str, Any]:
+def run_browser_inspection(*, url: str, timeout_ms: int, headless: bool = True) -> Dict[str, Any]:
     """
-    Run a headless Chromium inspection against *url* (already SSRF-validated).
+    Run a Chromium inspection against *url* (caller validates URL for its context).
 
-    Returns a plain dict for ``browser_inspector_service`` to normalize.
+    Returns a plain dict for ``browser_inspector_service`` / local agent to normalize.
     """
     from playwright.sync_api import sync_playwright
 
@@ -149,7 +149,7 @@ def run_browser_inspection(*, url: str, timeout_ms: int) -> Dict[str, Any]:
     nav_error: Optional[str] = None
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=bool(headless))
         try:
             context = browser.new_context(accept_downloads=False)
             page = context.new_page()

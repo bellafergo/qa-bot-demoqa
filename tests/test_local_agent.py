@@ -111,7 +111,9 @@ def test_poll_empty_jobs(client: TestClient):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert p.status_code == 200
-    assert p.json() == {"jobs": []}
+    body = p.json()
+    assert body.get("jobs") == []
+    assert "agent_capabilities" in body
 
 
 def test_poll_disabled_agent_fails(client: TestClient):
