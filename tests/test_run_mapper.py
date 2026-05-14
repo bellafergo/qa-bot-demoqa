@@ -496,7 +496,7 @@ class TestContractInvariants(unittest.TestCase):
         self.assertIsInstance(r.artifacts, RunArtifacts)
         self.assertIsInstance(r.meta, RunMeta)
         self.assertIn(r.status, ("queued", "planning", "compiled", "running", "passed", "failed", "error", "canceled"))
-        self.assertIn(r.source, ("chat", "catalog", "orchestrator", "api"))
+        self.assertIn(r.source, ("chat", "catalog", "orchestrator", "api", "local_agent"))
 
     def test_catalog_run(self):
         self._check(run_from_catalog_testrun(_make_test_run()))

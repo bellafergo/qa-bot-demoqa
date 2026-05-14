@@ -1,6 +1,6 @@
-# Vanya Local Agent (Phase 4B–4C)
+# Vanya Local Agent (Phase 4B–4D)
 
-Executable **local agent** CLI: heartbeat, poll, and job results to Vanya Cloud. **Phase 4B** validated the channel; **Phase 4C** adds optional **Playwright** execution for `browser_inspection` jobs (single navigation, no clicks/crawl), including **localhost / private IPs** when explicitly allowed.
+Executable **local agent** CLI: heartbeat, poll, and job results to Vanya Cloud. **Phase 4B** validated the channel; **Phase 4C** adds optional **Playwright** execution for `browser_inspection` jobs (single navigation, no clicks/crawl), including **localhost / private IPs** when explicitly allowed. **Phase 4D** uploads screenshots to Cloudinary and persists inspections on the cloud via `browser-inspections/persist` (see [docs/VANYA_LOCAL_AGENT_PHASE4D.md](../docs/VANYA_LOCAL_AGENT_PHASE4D.md)).
 
 ## Requirements
 

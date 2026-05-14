@@ -5,7 +5,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from models.browser_inspection_models import BrowserInspectionResult
 
 LocalAgentStatus = Literal["online", "offline", "disabled"]
 LocalAgentCapability = Literal["browser_inspection", "playwright", "localhost_access", "intranet_access"]
@@ -18,6 +20,7 @@ LOCAL_AGENT_MAX_JOB_PAYLOAD_JSON = 4096
 LOCAL_AGENT_MAX_VERSION_LEN = 64
 LOCAL_AGENT_MAX_TARGET_URL_LEN = 2048
 LOCAL_AGENT_MAX_RESULT_REF_LEN = 512
+LOCAL_AGENT_MAX_ARTIFACT_BYTES = 8 * 1024 * 1024  # Phase 4D — single screenshot per inspection
 
 _CAPABILITIES_ALLOWED = frozenset(
     {"browser_inspection", "playwright", "localhost_access", "intranet_access"}
@@ -168,3 +171,52 @@ class LocalAgentPatchRequest(BaseModel):
         if len(raw.encode("utf-8")) > LOCAL_AGENT_MAX_METADATA_JSON:
             raise ValueError(f"metadata JSON must be <= {LOCAL_AGENT_MAX_METADATA_JSON} bytes")
         return v
+
+
+class LocalAgentArtifactUploadResponse(BaseModel):
+    """Phase 4D — Cloudinary secure URL + integrity hash (no raw bytes returned)."""
+
+    evidence_url: str = Field(..., min_length=8, max_length=2048)
+    sha256: str = Field(..., min_length=64, max_length=64, description="Hex SHA-256 of uploaded bytes.")
+    content_type: str = Field(..., max_length=64)
+
+
+class LocalAgentBrowserInspectionPersistRequest(BaseModel):
+    """Agent → cloud: persist a bounded BrowserInspectionResult (no screenshot_b64)."""
+
+    job_id: Optional[str] = Field(default=None, max_length=128)
+    watch_id: Optional[str] = Field(default=None, max_length=128)
+    project_id: Optional[str] = Field(default=None, max_length=256)
+    artifact_sha256: Optional[str] = Field(default=None, max_length=64)
+    inspection: BrowserInspectionResult
+
+    @field_validator("artifact_sha256", mode="before")
+    @classmethod
+    def _artifact_sha(cls, v: Any) -> Any:
+        if v is None or v == "":
+            return None
+        s = str(v).strip().lower()
+        if len(s) != 64 or any(c not in "0123456789abcdef" for c in s):
+            raise ValueError("artifact_sha256 must be 64 lowercase hex characters")
+        return s
+
+    @model_validator(mode="before")
+    @classmethod
+    def _strip_heavy_inspection(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        ins = out.get("inspection")
+        if isinstance(ins, dict):
+            ins = dict(ins)
+            for k in ("screenshot_b64", "raw_html", "dom", "dom_snapshot", "html"):
+                ins.pop(k, None)
+            out["inspection"] = ins
+        return out
+
+
+class LocalAgentBrowserInspectionPersistResponse(BaseModel):
+    persisted_run_id: Optional[str] = None
+    persisted: bool = False
+    persistence_warning: Optional[str] = Field(default=None, max_length=512)
+    evidence_url: Optional[str] = Field(default=None, max_length=2048)

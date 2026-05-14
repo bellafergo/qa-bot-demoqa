@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Header, Request
+from fastapi import APIRouter, File, Header, Query, Request, UploadFile
 
 from models.local_agent_models import (
     LocalAgent,
+    LocalAgentArtifactUploadResponse,
+    LocalAgentBrowserInspectionPersistRequest,
+    LocalAgentBrowserInspectionPersistResponse,
     LocalAgentHeartbeat,
     LocalAgentJob,
     LocalAgentJobResultSubmit,
@@ -83,3 +86,32 @@ def agent_job_result(
 ) -> LocalAgentJob:
     _ = request
     return local_agent_service.submit_job_result(agent_id, job_id, body, authorization)
+
+
+@agent_router.post(
+    "/{agent_id}/artifacts/upload",
+    response_model=LocalAgentArtifactUploadResponse,
+    summary="Upload one browser inspection screenshot (PNG/JPEG/WEBP, bounded size).",
+)
+async def agent_upload_browser_artifact(
+    agent_id: str,
+    inspection_id: str = Query(..., min_length=8, max_length=128),
+    file: UploadFile = File(...),
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> LocalAgentArtifactUploadResponse:
+    return await local_agent_service.upload_browser_inspection_artifact(
+        agent_id, inspection_id, file, authorization
+    )
+
+
+@agent_router.post(
+    "/{agent_id}/browser-inspections/persist",
+    response_model=LocalAgentBrowserInspectionPersistResponse,
+    summary="Persist a local browser inspection run (no screenshot_b64).",
+)
+def agent_persist_browser_inspection(
+    agent_id: str,
+    body: LocalAgentBrowserInspectionPersistRequest,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> LocalAgentBrowserInspectionPersistResponse:
+    return local_agent_service.persist_browser_inspection_from_agent(agent_id, body, authorization)

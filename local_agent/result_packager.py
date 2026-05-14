@@ -58,6 +58,11 @@ def pack_browser_inspection_result_ref(
     *,
     raw_runner: Optional[Dict[str, Any]] = None,
     max_len: int = LOCAL_AGENT_MAX_RESULT_REF_LEN,
+    cloud_evidence_url: Optional[str] = None,
+    persisted_run_id: Optional[str] = None,
+    persisted: Optional[bool] = None,
+    persistence_warning: Optional[str] = None,
+    artifact_upload_warning: Optional[str] = None,
 ) -> str:
     """
     JSON suitable for ``result_ref`` — no ``screenshot_b64``; bounded lists.
@@ -103,6 +108,19 @@ def pack_browser_inspection_result_ref(
         ),
         "warnings": list((result.warnings or [])[:6]),
     }
+    ev = (cloud_evidence_url or result.screenshot_url or "").strip()
+    if ev:
+        payload["evidence_url"] = ev[:280]
+    if persisted_run_id:
+        payload["persisted_run_id"] = str(persisted_run_id)[:80]
+    if persisted is not None:
+        payload["persisted"] = bool(persisted)
+    pw = (persistence_warning or "").strip()
+    if pw:
+        payload["persistence_warning"] = pw[:200]
+    auw = (artifact_upload_warning or "").strip()
+    if auw and auw not in pw:
+        payload["artifact_upload_warning"] = auw[:160]
 
     raw = json.dumps(payload, separators=(",", ":"), default=str)
     if len(raw) <= max_len:

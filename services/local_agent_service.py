@@ -12,11 +12,14 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, UploadFile
 
 from models.local_agent_models import (
     LOCAL_AGENT_MAX_METADATA_JSON,
     LocalAgent,
+    LocalAgentArtifactUploadResponse,
+    LocalAgentBrowserInspectionPersistRequest,
+    LocalAgentBrowserInspectionPersistResponse,
     LocalAgentHeartbeat,
     LocalAgentJob,
     LocalAgentJobResultSubmit,
@@ -251,3 +254,34 @@ def submit_job_result(
     )
     row2 = local_agent_repo.get_job(job_id)
     return _row_to_job(row2 or job)
+
+
+async def upload_browser_inspection_artifact(
+    agent_id: str,
+    inspection_id: str,
+    upload: UploadFile,
+    authorization: Optional[str],
+) -> LocalAgentArtifactUploadResponse:
+    row = _auth_agent(agent_id, authorization)
+    if not row.get("enabled"):
+        raise HTTPException(status_code=403, detail="agent is disabled")
+    from services.local_agent_evidence_service import upload_browser_inspection_artifact as _upload
+
+    return await _upload(agent_id=agent_id, inspection_id=inspection_id, upload=upload)
+
+
+def persist_browser_inspection_from_agent(
+    agent_id: str,
+    body: LocalAgentBrowserInspectionPersistRequest,
+    authorization: Optional[str],
+) -> LocalAgentBrowserInspectionPersistResponse:
+    row = _auth_agent(agent_id, authorization)
+    if not row.get("enabled"):
+        raise HTTPException(status_code=403, detail="agent is disabled")
+    from services.local_agent_evidence_service import persist_browser_inspection_from_local_agent
+
+    return persist_browser_inspection_from_local_agent(
+        agent_id=agent_id,
+        agent_project_id=(row.get("project_id") or "").strip() or None,
+        body=body,
+    )

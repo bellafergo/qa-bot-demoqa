@@ -177,6 +177,12 @@ def build_lightweight_run_payload(
     extras: Optional[Dict[str, Any]] = None,
     project_id: Optional[str],
     app_map: Optional[AppMapResponse] = None,
+    meta_source: str = "browser_inspection",
+    execution_mode: str = "cloud",
+    local_agent_id: Optional[str] = None,
+    watch_id: Optional[str] = None,
+    job_id: Optional[str] = None,
+    artifact_sha256: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Minimal dict for ``save_run`` / Supabase ``result`` — safe to store as JSON."""
     summary = build_browser_inspection_summary(result, inv=inv, extras=extras)
@@ -197,15 +203,27 @@ def build_lightweight_run_payload(
     test_name = _clip(f"[Browser inspection] {title}", 200)
 
     meta: Dict[str, Any] = {
-        "source": "browser_inspection",
+        "source": (meta_source or "browser_inspection").strip() or "browser_inspection",
         "test_case_id": "_browser_inspection",
         "project_id": (project_id or "").strip() or None,
-        "execution_mode": "cloud",
+        "execution_mode": (execution_mode or "cloud").strip() or "cloud",
         "inspection_id": result.inspection_id,
         "run_type": "browser_inspection",
         "browser_inspection_summary": summary,
         "app_map_summary": app_summary,
     }
+    la = (local_agent_id or "").strip()
+    if la:
+        meta["local_agent_id"] = la
+    w = (watch_id or "").strip()
+    if w:
+        meta["watch_id"] = w
+    j = (job_id or "").strip()
+    if j:
+        meta["job_id"] = j
+    ah = (artifact_sha256 or "").strip()
+    if ah:
+        meta["artifact_sha256"] = ah[:64]
     meta = {k: v for k, v in meta.items() if v is not None}
     meta = _shrink_meta(meta)
 
@@ -232,6 +250,12 @@ def persist_light_browser_inspection(
     extras: Optional[Dict[str, Any]] = None,
     project_id: Optional[str],
     app_map: Optional[AppMapResponse] = None,
+    meta_source: str = "browser_inspection",
+    execution_mode: str = "cloud",
+    local_agent_id: Optional[str] = None,
+    watch_id: Optional[str] = None,
+    job_id: Optional[str] = None,
+    artifact_sha256: Optional[str] = None,
 ) -> Tuple[Optional[str], bool, Optional[str]]:
     """
     Persist a bounded run payload. Returns ``(persisted_run_id, persisted, warning)``.
@@ -251,6 +275,12 @@ def persist_light_browser_inspection(
             extras=extras,
             project_id=project_id,
             app_map=app_map,
+            meta_source=meta_source,
+            execution_mode=execution_mode,
+            local_agent_id=local_agent_id,
+            watch_id=watch_id,
+            job_id=job_id,
+            artifact_sha256=artifact_sha256,
         )
         # Hard guard: never ship known heavy keys.
         payload.pop("screenshot_b64", None)

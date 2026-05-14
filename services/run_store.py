@@ -123,7 +123,10 @@ def _is_browser_inspection_hot_run(data: Dict[str, Any]) -> bool:
     if not isinstance(data, dict):
         return False
     meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
-    if meta.get("source") == "browser_inspection":
+    src = meta.get("source")
+    if src == "browser_inspection":
+        return True
+    if src == "local_agent" and meta.get("run_type") == "browser_inspection":
         return True
     tc = _safe_str(data.get("test_case_id")) or _safe_str(meta.get("test_case_id"))
     return tc == "_browser_inspection"

@@ -61,7 +61,7 @@ RunStatus = Literal[
     "error",
     "canceled",
 ]
-RunSource = Literal["chat", "catalog", "orchestrator", "api"]
+RunSource = Literal["chat", "catalog", "orchestrator", "api", "local_agent"]
 
 
 class RunArtifacts(BaseModel):

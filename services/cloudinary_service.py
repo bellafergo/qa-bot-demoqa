@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import os
 from typing import Any, Dict, Optional, Sequence
 
@@ -113,6 +114,55 @@ def upload_screenshot_b64_url(
         folder=folder,
         tags=tags,
     )
+    url = (res.get("secure_url") or res.get("url") or "").strip()
+    if not url:
+        raise RuntimeError("Cloudinary no devolvió secure_url/url")
+    return url
+
+
+def upload_image_bytes(
+    image_bytes: bytes,
+    *,
+    public_id: str,
+    folder: str = "vanya/local_agent",
+    tags: Optional[Sequence[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Upload raw image bytes (PNG/JPEG/WEBP) to Cloudinary as ``resource_type=image``.
+
+    ``public_id`` must be a server-controlled path segment (no user filesystem paths).
+    """
+    _configure_cloudinary()
+
+    pid = (public_id or "").strip().replace("//", "/").lstrip("/")
+    if not pid or ".." in pid:
+        raise ValueError("public_id inválido")
+
+    if not image_bytes or len(image_bytes) < 32:
+        raise ValueError("Imagen vacía o demasiado pequeña")
+
+    base = folder.strip("/").replace("//", "/")
+    full_public_id = f"{base}/{pid}".replace("//", "/")
+
+    buf = io.BytesIO(image_bytes)
+    return cloudinary.uploader.upload(
+        buf,
+        public_id=full_public_id,
+        overwrite=True,
+        resource_type="image",
+        tags=list(tags) if tags else ["vanya", "local_agent", "evidence"],
+    )
+
+
+def upload_image_bytes_url(
+    image_bytes: bytes,
+    *,
+    public_id: str,
+    folder: str = "vanya/local_agent",
+    tags: Optional[Sequence[str]] = None,
+) -> str:
+    """Sube bytes de imagen y devuelve la URL segura."""
+    res = upload_image_bytes(image_bytes, public_id=public_id, folder=folder, tags=tags)
     url = (res.get("secure_url") or res.get("url") or "").strip()
     if not url:
         raise RuntimeError("Cloudinary no devolvió secure_url/url")

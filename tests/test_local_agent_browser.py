@@ -190,6 +190,8 @@ def test_browser_job_uses_mocked_playwright(mock_run):
 
 
 def test_cli_once_browser_job_mocked_playwright():
+    import base64
+
     import httpx
 
     from local_agent.client import VanyaAgentClient
@@ -223,6 +225,25 @@ def test_cli_once_browser_job_mocked_playwright():
                         }
                     ],
                     "agent_capabilities": ["browser_inspection"],
+                },
+            )
+        if "/artifacts/upload" in u:
+            return httpx.Response(
+                200,
+                json={
+                    "evidence_url": "https://cdn.example/cli.png",
+                    "sha256": "a" * 64,
+                    "content_type": "image/png",
+                },
+            )
+        if "/browser-inspections/persist" in u:
+            return httpx.Response(
+                200,
+                json={
+                    "persisted_run_id": "cli-ins",
+                    "persisted": True,
+                    "persistence_warning": None,
+                    "evidence_url": "https://cdn.example/cli.png",
                 },
             )
         if "/jobs/jb1/result" in u:
@@ -265,7 +286,14 @@ def test_cli_once_browser_job_mocked_playwright():
             status_code=200,
             inspection_succeeded=True,
         ),
-        {"screenshot_b64": None},
+        {
+            "screenshot_b64": base64.b64encode(
+                bytes.fromhex(
+                    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+                    "0000000a49444154789c63000100000500001d0a2db40000000049454e44ae426082"
+                )
+            ).decode("ascii")
+        },
     )
     with patch("local_agent.browser_job.run_local_browser_inspection", return_value=fake):
         try:

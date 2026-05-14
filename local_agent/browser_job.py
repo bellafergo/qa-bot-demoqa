@@ -1,15 +1,25 @@
-"""Process ``browser_inspection`` jobs on the local agent (Phase 4C)."""
+"""Process ``browser_inspection`` jobs on the local agent (Phase 4C + 4D cloud persist)."""
 from __future__ import annotations
 
+import base64
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
+from local_agent.client import AgentClientError
 from local_agent.config import AgentConfig
 from local_agent.inspect_local import run_local_browser_inspection
 from local_agent.result_packager import pack_browser_inspection_result_ref
 from local_agent.url_guard import LocalAgentURLRejected, validate_job_navigation_url
+from services.browser_inspection_persistence import merge_persist_fields_into_inspection
+from services.local_agent_evidence_service import sniff_image_content_type
 
 logger = logging.getLogger("vanya.local_agent.browser_job")
+
+_MIME_EXT = {
+    "image/png": ("png", "image/png"),
+    "image/jpeg": ("jpg", "image/jpeg"),
+    "image/webp": ("webp", "image/webp"),
+}
 
 
 def _caps_set(agent_capabilities: Optional[List[str]]) -> frozenset[str]:
@@ -38,11 +48,35 @@ def _payload_execution_mode(job: Dict[str, Any]) -> str:
     return str(p.get("execution_mode") or "").strip().lower()
 
 
+def _payload_watch_id(job: Dict[str, Any]) -> Optional[str]:
+    p = job.get("payload") if isinstance(job.get("payload"), dict) else {}
+    w = str(p.get("watch_id") or "").strip()
+    return w or None
+
+
+def decode_runner_screenshot_bytes(raw_runner: Dict[str, Any]) -> Tuple[Optional[bytes], Optional[str]]:
+    """Decode ``screenshot_b64`` / data-URL from runner output. Returns ``(bytes, error)``."""
+    b64 = raw_runner.get("screenshot_b64") if isinstance(raw_runner, dict) else None
+    if not b64 or not str(b64).strip():
+        return None, None
+    s = str(b64).strip()
+    try:
+        if "base64," in s:
+            s = s.split("base64,", 1)[1]
+        pad = (-len(s)) % 4
+        if pad:
+            s += "=" * pad
+        return base64.b64decode(s, validate=False), None
+    except Exception as e:
+        return None, f"screenshot_decode_failed: {type(e).__name__}"
+
+
 def execute_browser_inspection_job(
     job: Dict[str, Any],
     cfg: AgentConfig,
     *,
     agent_capabilities: Optional[List[str]] = None,
+    client: Optional[Any] = None,
 ) -> Tuple[str, Optional[str], Optional[str]]:
     """
     Returns ``(status, result_ref, error)`` for ``submit_job_result``.
@@ -81,7 +115,67 @@ def execute_browser_inspection_job(
             timeout_ms=timeout_ms,
             headless=cfg.browser_headless,
         )
-        ref = pack_browser_inspection_result_ref(result, raw_runner=raw)
+        raw = raw if isinstance(raw, dict) else {}
+
+        merged = result
+        artifact_upload_warning: Optional[str] = None
+        artifact_sha: Optional[str] = None
+        evidence_url = result.screenshot_url
+
+        if client is not None:
+            img_bytes, dec_err = decode_runner_screenshot_bytes(raw)
+            if dec_err:
+                artifact_upload_warning = dec_err
+            elif img_bytes:
+                mime = sniff_image_content_type(img_bytes)
+                if not mime or mime not in _MIME_EXT:
+                    artifact_upload_warning = "artifact_upload_skipped: unsupported image bytes"
+                else:
+                    ext, ct = _MIME_EXT[mime]
+                    try:
+                        up = client.upload_browser_inspection_artifact(
+                            result.inspection_id,
+                            img_bytes,
+                            filename=f"screenshot.{ext}",
+                            content_type=ct,
+                        )
+                        evidence_url = str(up.get("evidence_url") or "").strip() or evidence_url
+                        artifact_sha = str(up.get("sha256") or "").strip() or None
+                    except AgentClientError as e:
+                        artifact_upload_warning = str(e)[:400]
+
+            if evidence_url and evidence_url != (result.screenshot_url or ""):
+                merged = result.model_copy(update={"screenshot_url": evidence_url})
+
+            project_id = str(job.get("project_id") or "").strip() or None
+            pres: Dict[str, Any] = {}
+            try:
+                pres = client.persist_browser_inspection_to_cloud(
+                    inspection=merged,
+                    job_id=jid or None,
+                    watch_id=_payload_watch_id(job),
+                    project_id=project_id,
+                    artifact_sha256=artifact_sha,
+                )
+            except AgentClientError as e:
+                pres = {"persisted_run_id": None, "persisted": False, "persistence_warning": str(e)[:400]}
+
+            pw_parts = [x for x in [pres.get("persistence_warning"), artifact_upload_warning] if x]
+            merged = merge_persist_fields_into_inspection(
+                merged,
+                persisted_run_id=pres.get("persisted_run_id"),
+                persisted=bool(pres.get("persisted")),
+                persistence_warning="; ".join(str(x) for x in pw_parts) if pw_parts else None,
+            )
+
+        ref = pack_browser_inspection_result_ref(
+            merged,
+            raw_runner=raw,
+            cloud_evidence_url=merged.screenshot_url,
+            persisted_run_id=merged.persisted_run_id,
+            persisted=merged.persisted,
+            persistence_warning=merged.persistence_warning,
+        )
         st = "succeeded" if result.inspection_succeeded else "failed"
         err: Optional[str] = None
         if not result.inspection_succeeded:
