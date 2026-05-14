@@ -62,6 +62,51 @@ def test_post_watch_valid():
     assert "baseline_inspection_id" in data
 
 
+def test_get_watch_list_200_not_shadowed_by_inspection_id_route():
+    """GET /browser-inspections/watch must not be handled as GET …/{inspection_id} with id='watch'."""
+    from app import app
+
+    client = TestClient(app)
+    r = client.get("/browser-inspections/watch", params={"limit": 10})
+    assert r.status_code == 200, r.text
+    assert isinstance(r.json(), list)
+
+
+def test_get_watch_list_with_project_id_query():
+    from app import app
+
+    client = TestClient(app)
+    r = client.get("/browser-inspections/watch", params={"limit": 10, "project_id": "p-scope-test"})
+    assert r.status_code == 200, r.text
+    assert isinstance(r.json(), list)
+
+
+def test_route_registration_order_watch_before_inspection_detail():
+    """Starlette matches APIRoute list order; literal /watch must register before /{inspection_id}."""
+    from app import app
+    from api.routes.browser_inspection_history_routes import router as history_router
+    from api.routes.browser_inspection_watch_routes import router as watch_router
+    from fastapi.routing import APIRoute
+
+    assert watch_router.prefix == "/browser-inspections/watch"
+    assert history_router.prefix == "/browser-inspections"
+
+    api_routes = [r for r in app.router.routes if isinstance(r, APIRoute)]
+
+    def index_of(path: str, method: str) -> int:
+        for i, r in enumerate(api_routes):
+            if r.path == path and method in r.methods:
+                return i
+        raise AssertionError(f"route not found: {method} {path}")
+
+    i_watch_get = index_of("/browser-inspections/watch", "GET")
+    i_inspection_get = index_of("/browser-inspections/{inspection_id}", "GET")
+    assert i_watch_get < i_inspection_get, (
+        f"GET /browser-inspections/watch must be registered before "
+        f"GET /browser-inspections/{{inspection_id}} (indices {i_watch_get} vs {i_inspection_get})"
+    )
+
+
 def test_watch_persisted_roundtrip():
     from services.browser_inspection_watch_service import create_watch, get_watch
 
