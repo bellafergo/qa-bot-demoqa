@@ -16,6 +16,7 @@ import {
   postBrowserWatchBaselineUseLatest,
   getBrowserWatchMetrics,
   getBrowserWatchEventsPage,
+  listLocalAgents,
   apiErrorMessage,
 } from "../api";
 import { useLang } from "../i18n/LangContext";
@@ -49,6 +50,24 @@ function shortRunId(id) {
   if (id == null || id === "" || id === "_") return "";
   const s = String(id);
   return s.length <= 10 ? s : `${s.slice(0, 8)}…`;
+}
+
+/** Heuristic for agent selector warnings (MVP: online <2m, stale <10m). */
+function agentHeartbeatHealth(agent) {
+  if (!agent?.enabled || String(agent.status || "").toLowerCase() === "disabled") return "disabled";
+  const iso = agent.last_seen_at;
+  if (!iso) return "offline";
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(ms)) return "offline";
+  if (ms < 2 * 60 * 1000) return "online";
+  if (ms < 10 * 60 * 1000) return "stale";
+  return "offline";
+}
+
+function execModeBadgeLabel(em, t) {
+  const v = String(em || "cloud").toLowerCase();
+  if (v === "local_agent") return t("watch.mode.badge_local_agent");
+  return t("watch.mode.badge_cloud");
 }
 
 function InspectionRunRef({ id, t, showToast }) {
@@ -308,10 +327,12 @@ export default function BrowserWatchPage() {
           )}
           {!loading && !error && watches.length > 0 && (
             <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 8 }}>
-              <table className="data-table" style={{ margin: 0, minWidth: 880 }}>
+              <table className="data-table" style={{ margin: 0, minWidth: 980 }}>
                 <thead>
                   <tr>
                     <th>{t("watch.col.url")}</th>
+                    <th>{t("watch.col.mode")}</th>
+                    <th>{t("watch.col.agent")}</th>
                     <th>{t("watch.col.status")}</th>
                     <th>{t("watch.col.threshold")}</th>
                     <th>{t("watch.col.compare")}</th>
@@ -335,6 +356,16 @@ export default function BrowserWatchPage() {
                       }}
                     >
                       <td style={{ maxWidth: 200, wordBreak: "break-all", fontSize: 12 }}>{w.url}</td>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        <span className="badge badge-gray" style={{ fontSize: 10 }}>
+                          {execModeBadgeLabel(w.execution_mode, t)}
+                        </span>
+                      </td>
+                      <td style={{ fontSize: 11, maxWidth: 120, wordBreak: "break-word" }}>
+                        {String(w.execution_mode || "").toLowerCase() === "local_agent"
+                          ? w.local_agent_name || (w.local_agent_id ? shortRunId(w.local_agent_id) : "—")
+                          : "—"}
+                      </td>
                       <td>
                         <span className={`badge ${statusBadgeClass(w.current_status || w.last_status)}`} style={{ fontSize: 10 }}>
                           {w.current_status || w.last_status || "—"}
@@ -409,8 +440,17 @@ function WatchFormModal({ open, mode, editWatch, defaultProjectId, onClose, t, s
   const [changeThreshold, setChangeThreshold] = useState("medium");
   const [compareMode, setCompareMode] = useState("last");
   const [enabled, setEnabled] = useState(true);
+  const [executionMode, setExecutionMode] = useState("cloud");
+  const [localAgentId, setLocalAgentId] = useState("");
+  const [localAgents, setLocalAgents] = useState([]);
+  const [agentsLoading, setAgentsLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [fieldError, setFieldError] = useState("");
+
+  const watchProjectId = useMemo(() => {
+    if (mode === "edit" && editWatch) return String(editWatch.project_id || "").trim();
+    return (projectId.trim() || String(defaultProjectId || "").trim());
+  }, [mode, editWatch, projectId, defaultProjectId]);
 
   useEffect(() => {
     if (!open) return;
@@ -421,6 +461,9 @@ function WatchFormModal({ open, mode, editWatch, defaultProjectId, onClose, t, s
       setChangeThreshold(editWatch.change_threshold || "medium");
       setCompareMode(String(editWatch.compare_mode || "last").toLowerCase() === "baseline" ? "baseline" : "last");
       setEnabled(Boolean(editWatch.enabled));
+      const em = String(editWatch.execution_mode || "cloud").toLowerCase() === "local_agent" ? "local_agent" : "cloud";
+      setExecutionMode(em);
+      setLocalAgentId(String(editWatch.local_agent_id || "").trim());
       setFieldError("");
       return;
     }
@@ -430,6 +473,8 @@ function WatchFormModal({ open, mode, editWatch, defaultProjectId, onClose, t, s
     setChangeThreshold("medium");
     setCompareMode("last");
     setEnabled(true);
+    setExecutionMode("cloud");
+    setLocalAgentId("");
     setFieldError("");
   }, [open, mode, editWatch, defaultProjectId]);
 
@@ -442,11 +487,45 @@ function WatchFormModal({ open, mode, editWatch, defaultProjectId, onClose, t, s
     return () => window.removeEventListener("keydown", onKey);
   }, [open, busy, onClose]);
 
+  useEffect(() => {
+    if (!open || !watchProjectId) {
+      setLocalAgents([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setAgentsLoading(true);
+      try {
+        const data = await listLocalAgents({ project_id: watchProjectId, limit: 100 });
+        if (!cancelled) setLocalAgents(Array.isArray(data) ? data : []);
+      } catch {
+        if (!cancelled) setLocalAgents([]);
+      } finally {
+        if (!cancelled) setAgentsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, watchProjectId]);
+
+  const eligibleAgents = useMemo(() => localAgents.filter((a) => a.enabled), [localAgents]);
+  const selectedAgent = useMemo(
+    () => localAgents.find((a) => a.agent_id === localAgentId) || null,
+    [localAgents, localAgentId],
+  );
+
   if (!open) return null;
 
   const baselineIdForWarn =
     mode === "edit" && editWatch ? String(editWatch.baseline_inspection_id || "").trim() : "";
   const showBaselineWarn = compareMode === "baseline" && !baselineIdForWarn;
+
+  const showNoAgentsWarn = executionMode === "local_agent" && !agentsLoading && eligibleAgents.length === 0;
+  const showDisabledAgentWarn = executionMode === "local_agent" && localAgentId && selectedAgent && !selectedAgent.enabled;
+  const hk = selectedAgent ? agentHeartbeatHealth(selectedAgent) : null;
+  const showOfflineWarn =
+    executionMode === "local_agent" && localAgentId && selectedAgent && hk && hk !== "online" && hk !== "disabled";
 
   const submit = async () => {
     const u = url.trim();
@@ -467,17 +546,32 @@ function WatchFormModal({ open, mode, editWatch, defaultProjectId, onClose, t, s
       setFieldError(t("watch.create.err_compare"));
       return;
     }
+    const em = executionMode === "local_agent" ? "local_agent" : "cloud";
+    if (em === "local_agent") {
+      const pidCreate = (projectId.trim() || String(defaultProjectId || "").trim());
+      if (mode !== "edit" && !pidCreate) {
+        setFieldError(t("watch.create.err_project_local"));
+        return;
+      }
+      if (!localAgentId.trim()) {
+        setFieldError(t("watch.create.err_local_agent"));
+        return;
+      }
+    }
     setFieldError("");
     setBusy(true);
     try {
       if (mode === "edit" && editWatch?.watch_id) {
-        const updated = await patchBrowserInspectionWatch(editWatch.watch_id, {
+        const patch = {
           url: u,
           interval_minutes: n,
           change_threshold: changeThreshold,
           enabled,
           compare_mode: compareMode,
-        });
+          execution_mode: em,
+        };
+        if (em === "local_agent") patch.local_agent_id = localAgentId.trim();
+        const updated = await patchBrowserInspectionWatch(editWatch.watch_id, patch);
         await onUpdated?.(updated);
       } else {
         const body = {
@@ -485,11 +579,12 @@ function WatchFormModal({ open, mode, editWatch, defaultProjectId, onClose, t, s
           interval_minutes: n,
           change_threshold: changeThreshold,
           enabled,
-          execution_mode: "cloud",
+          execution_mode: em,
           compare_mode: compareMode,
         };
         const pid = projectId.trim();
         if (pid) body.project_id = pid;
+        if (em === "local_agent") body.local_agent_id = localAgentId.trim();
         const created = await createBrowserInspectionWatch(body);
         await onCreated?.(created);
       }
@@ -522,8 +617,8 @@ function WatchFormModal({ open, mode, editWatch, defaultProjectId, onClose, t, s
         if (e.target === e.currentTarget && !busy) onClose?.();
       }}
     >
-      <div className="card" style={{ width: "min(480px, 100%)", padding: 0, overflow: "hidden" }}>
-        <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)" }}>
+      <div className="card" style={{ width: "min(520px, 100%)", padding: 0, overflow: "hidden" }}>
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)", maxHeight: "90vh", overflowY: "auto" }}>
           <div id="watch-form-modal-title" style={{ fontSize: 16, fontWeight: 600, color: "var(--text-1)" }}>
             {title}
           </div>
@@ -535,6 +630,26 @@ function WatchFormModal({ open, mode, editWatch, defaultProjectId, onClose, t, s
           {showBaselineWarn ? (
             <div className="alert alert-warn" style={{ marginTop: 10, fontSize: 12 }}>
               {t("watch.warn_baseline_missing")}
+            </div>
+          ) : null}
+          {showNoAgentsWarn ? (
+            <div className="alert alert-warn" style={{ marginTop: 10, fontSize: 12 }}>
+              {t("watch.create.warn_no_agents")}
+            </div>
+          ) : null}
+          {showDisabledAgentWarn ? (
+            <div className="alert alert-warn" style={{ marginTop: 10, fontSize: 12 }}>
+              {t("watch.create.warn_agent_disabled")}
+            </div>
+          ) : null}
+          {showOfflineWarn ? (
+            <div className="alert alert-warn" style={{ marginTop: 10, fontSize: 12 }}>
+              {t("watch.create.warn_agent_offline")}
+            </div>
+          ) : null}
+          {!watchProjectId && executionMode === "local_agent" ? (
+            <div className="alert alert-warn" style={{ marginTop: 10, fontSize: 12 }}>
+              {mode === "edit" ? t("watch.edit.warn_no_project") : t("watch.create.err_project_local")}
             </div>
           ) : null}
 
@@ -565,6 +680,10 @@ function WatchFormModal({ open, mode, editWatch, defaultProjectId, onClose, t, s
                 style={{ width: "100%" }}
               />
             </>
+          ) : editWatch?.project_id ? (
+            <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 10 }}>
+              project_id: <span style={{ fontFamily: "monospace" }}>{editWatch.project_id}</span>
+            </div>
           ) : null}
 
           <label style={{ display: "block", fontSize: 12, color: "var(--text-3)", marginTop: 12, marginBottom: 6 }}>
@@ -612,8 +731,55 @@ function WatchFormModal({ open, mode, editWatch, defaultProjectId, onClose, t, s
           <label style={{ display: "block", fontSize: 12, color: "var(--text-3)", marginTop: 12, marginBottom: 6 }}>
             {t("watch.create.execution_mode")}
           </label>
-          <input className="input" readOnly value="cloud" disabled style={{ width: "100%", opacity: 0.85 }} />
-          <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 4 }}>{t("watch.create.execution_cloud")}</div>
+          <select
+            className="input"
+            value={executionMode}
+            onChange={(e) => {
+              const v = e.target.value === "local_agent" ? "local_agent" : "cloud";
+              setExecutionMode(v);
+              if (v === "cloud") setLocalAgentId("");
+            }}
+            disabled={busy}
+            style={{ width: "100%" }}
+          >
+            <option value="cloud">{t("watch.create.execution_cloud")}</option>
+            <option value="local_agent">{t("watch.create.execution_local_agent")}</option>
+          </select>
+
+          {executionMode === "local_agent" ? (
+            <>
+              <label style={{ display: "block", fontSize: 12, color: "var(--text-3)", marginTop: 12, marginBottom: 6 }}>
+                {t("watch.create.local_agent")} *
+              </label>
+              <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 6 }}>{t("watch.create.local_agent_hint")}</div>
+              {agentsLoading ? (
+                <div style={{ fontSize: 12, color: "var(--text-3)" }}>{t("watch.loading")}</div>
+              ) : (
+                <select
+                  className="input"
+                  value={localAgentId}
+                  onChange={(e) => setLocalAgentId(e.target.value)}
+                  disabled={busy || !watchProjectId}
+                  style={{ width: "100%" }}
+                >
+                  <option value="">—</option>
+                  {eligibleAgents.map((a) => (
+                    <option key={a.agent_id} value={a.agent_id}>
+                      {a.name} (
+                      {a.agent_id.length <= 12 ? a.agent_id : `${a.agent_id.slice(0, 8)}…`})
+                    </option>
+                  ))}
+                  {localAgentId && !eligibleAgents.some((a) => a.agent_id === localAgentId) ? (
+                    <option value={localAgentId}>
+                      {(localAgents.find((a) => a.agent_id === localAgentId)?.name || localAgentId).slice(0, 64)}
+                    </option>
+                  ) : null}
+                </select>
+              )}
+            </>
+          ) : (
+            <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 6 }}>{t("watch.create.execution_cloud")}</div>
+          )}
         </div>
         <div style={{ padding: "14px 20px", display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => onClose?.()} disabled={busy}>
@@ -722,6 +888,30 @@ function DetailPanel({ watchId, detailVersion, selectedWatch, t, showToast }) {
             marginBottom: 10,
           }}
         >
+          {t("watch.detail.execution")}
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 12, fontSize: 13 }}>
+          <span className="badge badge-gray" style={{ fontSize: 10 }}>
+            {execModeBadgeLabel(selectedWatch?.execution_mode, t)}
+          </span>
+          {String(selectedWatch?.execution_mode || "").toLowerCase() === "local_agent" ? (
+            <span style={{ color: "var(--text-2)" }}>
+              {t("watch.detail.local_agent")}: {selectedWatch?.local_agent_name || selectedWatch?.local_agent_id || "—"}
+            </span>
+          ) : (
+            <span style={{ color: "var(--text-3)" }}>{t("watch.ev.origin_cloud")}</span>
+          )}
+        </div>
+        <div
+          style={{
+            fontSize: 12,
+            fontWeight: 600,
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+            color: "var(--text-3)",
+            marginBottom: 10,
+          }}
+        >
           {t("watch.detail.metrics")}
         </div>
         {mLoading && <div style={{ fontSize: 13, color: "var(--text-3)" }}>{t("watch.detail.loading_m")}</div>}
@@ -791,11 +981,24 @@ function DetailPanel({ watchId, detailVersion, selectedWatch, t, showToast }) {
                   fontSize: 12,
                 }}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                   <span className="badge badge-gray" style={{ fontSize: 10 }}>
                     {e.event_type}
                   </span>
-                  <span style={{ color: "var(--text-3)", whiteSpace: "nowrap" }}>{fmtTs(e.created_at)}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    {e.run_origin ? (
+                      <span
+                        className={`badge ${String(e.run_origin).toLowerCase() === "local_agent" ? "badge-orange" : "badge-gray"}`}
+                        style={{ fontSize: 9 }}
+                        title={`${t("watch.ev.origin")}: ${e.run_origin}`}
+                      >
+                        {String(e.run_origin).toLowerCase() === "local_agent"
+                          ? t("watch.ev.origin_local_agent")
+                          : t("watch.ev.origin_cloud")}
+                      </span>
+                    ) : null}
+                    <span style={{ color: "var(--text-3)", whiteSpace: "nowrap" }}>{fmtTs(e.created_at)}</span>
+                  </div>
                 </div>
                 <div style={{ color: "var(--text-2)", marginTop: 4, wordBreak: "break-word" }}>
                   {(e.summary || "").slice(0, 200)}

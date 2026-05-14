@@ -47,6 +47,7 @@ class BrowserInspectionWatchRow(Base):
     change_threshold = Column(String, nullable=False, default="medium")
     enabled = Column(Integer, nullable=False, default=1)
     execution_mode = Column(String, nullable=False, default="cloud")
+    local_agent_id = Column(String, nullable=True)
     compare_mode = Column(String, nullable=False, default="last")
     baseline_inspection_id = Column(String, nullable=True)
     baseline_set_at = Column(String, nullable=True)
@@ -92,6 +93,7 @@ class BrowserInspectionWatchRepository:
         enabled: bool,
         execution_mode: str,
         compare_mode: str = "last",
+        local_agent_id: Optional[str] = None,
     ) -> str:
         wid = str(uuid.uuid4())
         now = _utc_iso()
@@ -103,6 +105,7 @@ class BrowserInspectionWatchRepository:
             change_threshold=change_threshold,
             enabled=1 if enabled else 0,
             execution_mode=execution_mode,
+            local_agent_id=(local_agent_id or "").strip() or None,
             compare_mode=(compare_mode or "last").strip().lower() or "last",
             baseline_inspection_id=None,
             baseline_set_at=None,
@@ -170,6 +173,9 @@ class BrowserInspectionWatchRepository:
                 row.enabled = 1 if bool(fields["enabled"]) else 0
             if "execution_mode" in fields and fields["execution_mode"] is not None:
                 row.execution_mode = str(fields["execution_mode"])
+            if "local_agent_id" in fields:
+                v = fields["local_agent_id"]
+                row.local_agent_id = (str(v).strip() or None) if v is not None else None
             if "compare_mode" in fields and fields["compare_mode"] is not None:
                 row.compare_mode = str(fields["compare_mode"]).strip().lower() or "last"
             if "baseline_inspection_id" in fields:
@@ -282,6 +288,15 @@ class BrowserInspectionWatchRepository:
         rows = rows[:limit]
         out: List[Dict[str, Any]] = []
         for r in rows:
+            run_origin: Optional[str] = None
+            try:
+                vmj = getattr(r, "visual_meta_json", None)
+                if vmj:
+                    jd = json.loads(vmj)
+                    if isinstance(jd, dict) and jd.get("run_origin"):
+                        run_origin = str(jd.get("run_origin")).strip()[:32]
+            except Exception:
+                run_origin = None
             out.append(
                 {
                     "event_id": r.event_id,
@@ -294,6 +309,7 @@ class BrowserInspectionWatchRepository:
                     "change_level": r.change_level,
                     "summary": (r.summary or "")[:2000],
                     "alert_triggered": bool(r.alert_triggered),
+                    "run_origin": run_origin,
                 }
             )
         next_cur: Optional[str] = None
@@ -383,6 +399,7 @@ class BrowserInspectionWatchRepository:
             "change_threshold": row.change_threshold,
             "enabled": bool(row.enabled),
             "execution_mode": row.execution_mode,
+            "local_agent_id": getattr(row, "local_agent_id", None),
             "compare_mode": getattr(row, "compare_mode", None) or "last",
             "baseline_inspection_id": getattr(row, "baseline_inspection_id", None),
             "baseline_set_at": getattr(row, "baseline_set_at", None),

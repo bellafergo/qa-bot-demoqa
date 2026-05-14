@@ -11,6 +11,7 @@ from models.local_agent_models import (
     LocalAgentArtifactUploadResponse,
     LocalAgentBrowserInspectionPersistRequest,
     LocalAgentBrowserInspectionPersistResponse,
+    LocalAgentDetail,
     LocalAgentHeartbeat,
     LocalAgentJob,
     LocalAgentJobResultSubmit,
@@ -40,8 +41,8 @@ def list_local_agents(
     return local_agent_service.list_agents(project_id=project_id, limit=limit, request=request)
 
 
-@admin_router.get("/{agent_id}", response_model=LocalAgent)
-def get_local_agent(agent_id: str, request: Request) -> LocalAgent:
+@admin_router.get("/{agent_id}", response_model=LocalAgentDetail)
+def get_local_agent(agent_id: str, request: Request) -> LocalAgentDetail:
     return local_agent_service.get_agent(agent_id, request)
 
 

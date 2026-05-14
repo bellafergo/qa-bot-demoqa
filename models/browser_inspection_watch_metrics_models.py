@@ -31,6 +31,10 @@ class WatchEventItem(BaseModel):
     change_level: Optional[str] = None
     summary: Optional[str] = None
     alert_triggered: bool = False
+    run_origin: Optional[str] = Field(
+        default=None,
+        description="cloud | local_agent — taken from event visual_meta when present (Phase 4E).",
+    )
 
 
 class WatchEventsPageResponse(BaseModel):

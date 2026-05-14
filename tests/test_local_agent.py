@@ -149,6 +149,10 @@ def test_cloud_inspect_url_still_blocks_localhost(client: TestClient):
 
 
 def test_local_agent_watch_cloud_execution_disabled(client: TestClient):
+    reg = client.post("/local-agents/register", json={"project_id": "pw2", "name": "watch-agent"})
+    assert reg.status_code == 200, reg.text
+    agent_id = reg.json()["agent_id"]
+
     w = client.post(
         "/browser-inspections/watch",
         json={"url": "https://example.com", "project_id": "pw2", "execution_mode": "cloud"},
@@ -157,10 +161,11 @@ def test_local_agent_watch_cloud_execution_disabled(client: TestClient):
     wid = w.json()["watch_id"]
     p = client.patch(
         f"/browser-inspections/watch/{wid}",
-        json={"execution_mode": "local_agent"},
+        json={"execution_mode": "local_agent", "local_agent_id": agent_id},
     )
     assert p.status_code == 200, p.text
     assert p.json().get("execution_mode") == "local_agent"
+    assert p.json().get("local_agent_id") == agent_id
 
     run = client.post(f"/browser-inspections/watch/{wid}/run-now")
     assert run.status_code == 400

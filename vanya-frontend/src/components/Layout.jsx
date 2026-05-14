@@ -24,6 +24,7 @@ const ROUTE_META = {
   "/coverage":     { titleKey: "layout.coverage.title",      subtitleKey: "layout.coverage.subtitle"      },
   "/integrations": { titleKey: "layout.integrations.title",  subtitleKey: "layout.integrations.subtitle"  },
   "/browser-watch": null,
+  "/local-agents": null,
 };
 
 export default function Layout() {

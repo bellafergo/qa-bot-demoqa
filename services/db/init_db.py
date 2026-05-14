@@ -183,6 +183,20 @@ def init_catalog_db() -> None:
     except Exception:
         logger.exception("db: migration for browser_inspection_watches Phase3E failed (non-fatal)")
 
+    # ── browser_inspection_watches.local_agent_id (Phase 4E) ─────────────────────
+    try:
+        from sqlalchemy import text
+
+        with engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(browser_inspection_watches)"))
+            existing_cols = {row[1] for row in result.fetchall()}
+            if existing_cols and "local_agent_id" not in existing_cols:
+                conn.execute(text("ALTER TABLE browser_inspection_watches ADD COLUMN local_agent_id TEXT"))
+                conn.commit()
+                logger.info("db: migrated browser_inspection_watches — added local_agent_id")
+    except Exception:
+        logger.exception("db: migration for browser_inspection_watches.local_agent_id failed (non-fatal)")
+
     # ── browser_inspection_watch_events.event_type (Phase 3E) ─────────────────
     try:
         from sqlalchemy import text

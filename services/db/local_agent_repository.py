@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import Column, Integer, String, Text, and_
+from sqlalchemy import Column, Integer, String, Text, and_, desc
 
 from models.local_agent_models import LOCAL_AGENT_MAX_JOB_PAYLOAD_JSON
 from services.db.sqlite_db import Base, get_session
@@ -246,6 +246,22 @@ class LocalAgentRepository:
                     )
                 )
                 .order_by(LocalAgentJobRow.created_at.asc())
+                .limit(lim)
+                .all()
+            )
+            return [_job_to_dict(r) for r in rows]
+
+    def list_recent_jobs_for_project(self, project_id: str, *, limit: int = 25) -> List[Dict[str, Any]]:
+        """Recent jobs for a project (admin / UI), newest first."""
+        pid = (project_id or "").strip()
+        if not pid:
+            return []
+        lim = max(1, min(int(limit), 100))
+        with get_session() as s:
+            rows = (
+                s.query(LocalAgentJobRow)
+                .filter(LocalAgentJobRow.project_id == pid)
+                .order_by(desc(LocalAgentJobRow.created_at))
                 .limit(lim)
                 .all()
             )

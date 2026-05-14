@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 def _utc_now_iso() -> str:
@@ -24,11 +24,26 @@ class BrowserInspectionWatchCreate(BaseModel):
     interval_minutes: int = Field(default=60, ge=5, le=1440)
     change_threshold: ChangeThreshold = Field(default="medium")
     enabled: bool = True
-    execution_mode: Literal["cloud"] = Field(
+    execution_mode: WatchExecutionMode = Field(
         default="cloud",
-        description="Watch creation is cloud-only; switch to local_agent via PATCH after create (Phase 4A+).",
+        description="cloud: Vanya cloud runner; local_agent: enqueue for Vanya Local Agent (same project).",
+    )
+    local_agent_id: Optional[str] = Field(
+        default=None,
+        max_length=128,
+        description="Required when execution_mode is local_agent; must belong to project_id.",
     )
     compare_mode: WatchCompareMode = Field(default="last")
+
+    @model_validator(mode="after")
+    def _local_agent_requires_agent(self) -> "BrowserInspectionWatchCreate":
+        em = str(self.execution_mode or "cloud").strip().lower()
+        if em == "local_agent":
+            if not (self.local_agent_id or "").strip():
+                raise ValueError("local_agent_id is required when execution_mode is local_agent")
+            if not (self.project_id or "").strip():
+                raise ValueError("project_id is required when execution_mode is local_agent")
+        return self
 
 
 class BrowserInspectionWatchPatch(BaseModel):
@@ -42,6 +57,11 @@ class BrowserInspectionWatchPatch(BaseModel):
         default=None,
         description="local_agent: runs only on Vanya Local Agent (cloud tick disabled).",
     )
+    local_agent_id: Optional[str] = Field(
+        default=None,
+        max_length=128,
+        description="Bind watch to a registered local agent (same project). Clear with empty string not supported — omit key.",
+    )
 
 
 class BrowserInspectionWatchResponse(BaseModel):
@@ -52,6 +72,11 @@ class BrowserInspectionWatchResponse(BaseModel):
     change_threshold: ChangeThreshold = "medium"
     enabled: bool = True
     execution_mode: WatchExecutionMode = "cloud"
+    local_agent_id: Optional[str] = None
+    local_agent_name: Optional[str] = Field(
+        default=None,
+        description="Resolved agent display name for UI (not persisted on watch row).",
+    )
     compare_mode: WatchCompareMode = "last"
     baseline_inspection_id: Optional[str] = None
     baseline_set_at: Optional[str] = None

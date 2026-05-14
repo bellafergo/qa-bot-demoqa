@@ -109,6 +109,23 @@ class LocalAgent(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
+class LocalAgentJobBrief(BaseModel):
+    """Lightweight job row for admin UI (Phase 4E)."""
+
+    job_id: str
+    job_type: str = "browser_inspection"
+    status: str
+    target_url: str = Field(..., max_length=512)
+    created_at: str
+    completed_at: Optional[str] = None
+
+
+class LocalAgentDetail(LocalAgent):
+    """GET /local-agents/{id} — includes recent project jobs (newest first)."""
+
+    recent_jobs: List[LocalAgentJobBrief] = Field(default_factory=list)
+
+
 class LocalAgentRegistrationResponse(BaseModel):
     """Returned once at registration; includes plaintext agent token."""
 

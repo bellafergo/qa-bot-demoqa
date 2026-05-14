@@ -36,6 +36,7 @@ from services.browser_inspection_persistence import (
 from services.browser_watch_alert_dedupe import watch_alert_try_reserve_slot
 from services.browser_inspector_service import inspect_url_collect
 from services.db.browser_inspection_watch_repository import browser_inspection_watch_repo
+from services.db.local_agent_repository import local_agent_repo
 
 logger = logging.getLogger("vanya.browser_inspection_watch")
 
@@ -189,7 +190,34 @@ def _record_watch_error(watch_id: str, message: str) -> None:
         logger.exception("browser_inspection_watch: record_watch_error failed")
 
 
+def _validate_local_agent_binding(*, project_id: Optional[str], agent_id: str) -> None:
+    """Ensure the agent exists, is enabled, and matches the watch project."""
+    aid = (agent_id or "").strip()
+    if not aid:
+        raise HTTPException(status_code=400, detail="local_agent_id is required for local_agent watches")
+    wp = (project_id or "").strip()
+    if not wp:
+        raise HTTPException(status_code=400, detail="project_id is required for local_agent watches")
+    row = local_agent_repo.get_agent(aid)
+    if not row:
+        raise HTTPException(status_code=400, detail="local_agent_id not found")
+    if not row.get("enabled"):
+        raise HTTPException(status_code=400, detail="local agent is disabled")
+    ap = (row.get("project_id") or "").strip()
+    if ap != wp:
+        raise HTTPException(status_code=400, detail="local agent does not belong to this project_id")
+
+
 def _dict_to_watch_response(d: Dict[str, Any]) -> BrowserInspectionWatchResponse:
+    laid = (d.get("local_agent_id") or "").strip() or None
+    lan: Optional[str] = None
+    if laid:
+        try:
+            ag = local_agent_repo.get_agent(laid)
+            if ag:
+                lan = str(ag.get("name") or "").strip() or None
+        except Exception:
+            lan = None
     return BrowserInspectionWatchResponse(
         watch_id=d["watch_id"],
         url=d["url"],
@@ -198,6 +226,8 @@ def _dict_to_watch_response(d: Dict[str, Any]) -> BrowserInspectionWatchResponse
         change_threshold=d.get("change_threshold") or "medium",  # type: ignore[arg-type]
         enabled=bool(d.get("enabled")),
         execution_mode=d.get("execution_mode") or "cloud",  # type: ignore[arg-type]
+        local_agent_id=laid,
+        local_agent_name=lan,
         compare_mode=d.get("compare_mode") or "last",  # type: ignore[arg-type]
         baseline_inspection_id=d.get("baseline_inspection_id"),
         baseline_set_at=d.get("baseline_set_at"),
@@ -218,21 +248,32 @@ def _dict_to_watch_response(d: Dict[str, Any]) -> BrowserInspectionWatchResponse
 
 
 def create_watch(body: BrowserInspectionWatchCreate) -> BrowserInspectionWatchResponse:
-    if str(body.execution_mode) != "cloud":
-        raise HTTPException(status_code=422, detail="execution_mode must be cloud")
-    try:
-        validated = validate_target_url(body.url.strip())
-    except TargetURLNotAllowed as e:
-        raise HTTPException(status_code=400, detail=str(e) or "Target URL not allowed") from None
+    em = str(body.execution_mode or "cloud").strip().lower()
+    pid = (body.project_id or "").strip() or None
+    laid = (body.local_agent_id or "").strip() or None
+
+    if em == "cloud":
+        try:
+            validated = validate_target_url(body.url.strip())
+        except TargetURLNotAllowed as e:
+            raise HTTPException(status_code=400, detail=str(e) or "Target URL not allowed") from None
+        laid_store = None
+    elif em == "local_agent":
+        validated = _validate_url_for_local_agent_watch(body.url.strip())
+        _validate_local_agent_binding(project_id=pid, agent_id=laid or "")
+        laid_store = laid
+    else:
+        raise HTTPException(status_code=400, detail="invalid execution_mode")
 
     wid = browser_inspection_watch_repo.create_watch(
         url=validated,
-        project_id=body.project_id,
+        project_id=pid,
         interval_minutes=body.interval_minutes,
         change_threshold=body.change_threshold,
         enabled=body.enabled,
-        execution_mode=body.execution_mode,
+        execution_mode=em,
         compare_mode=str(body.compare_mode or "last"),
+        local_agent_id=laid_store,
     )
     row = browser_inspection_watch_repo.get_watch(wid)
     if not row:
@@ -295,6 +336,27 @@ def patch_watch(watch_id: str, body: BrowserInspectionWatchPatch) -> BrowserInsp
         if em not in ("cloud", "local_agent"):
             raise HTTPException(status_code=400, detail="invalid execution_mode")
         updates["execution_mode"] = em
+        if em == "cloud":
+            updates["local_agent_id"] = None
+    if "local_agent_id" in body.model_fields_set:
+        lid = body.local_agent_id
+        if lid is None or str(lid).strip() == "":
+            updates["local_agent_id"] = None
+        else:
+            updates["local_agent_id"] = str(lid).strip()
+
+    merged = dict(row)
+    merged.update(updates)
+    merged_em = str(merged.get("execution_mode") or "cloud").strip().lower()
+    merged_pid = str(merged.get("project_id") or "").strip() or None
+    merged_agent = (merged.get("local_agent_id") or "").strip() or None
+    if merged_em == "local_agent":
+        if not merged_agent:
+            raise HTTPException(status_code=400, detail="local_agent_id required for local_agent execution_mode")
+        _validate_local_agent_binding(project_id=merged_pid, agent_id=merged_agent)
+    elif merged_em == "cloud" and merged_agent:
+        updates["local_agent_id"] = None
+
     if not updates:
         return _dict_to_watch_response(row)
     ok = browser_inspection_watch_repo.update_watch(watch_id, **updates)
@@ -532,6 +594,9 @@ def execute_watch_tick(watch_id: str, *, force: bool = False, timeout_s: int = 9
             )
             tick_warnings.append("watch_diff_skipped: baseline inspection not found in store")
         if diff is not None:
+            run_origin = str(watch.get("execution_mode") or "cloud").strip().lower()
+            if run_origin not in ("cloud", "local_agent"):
+                run_origin = "cloud"
             diff_id = str(uuid.uuid4())
             change_level = diff.change_level
             summary = diff.summary
@@ -542,7 +607,7 @@ def execute_watch_tick(watch_id: str, *, force: bool = False, timeout_s: int = 9
             vis_det = diff.visual_change_detected
             vis_lvl = diff.visual_change_level
             vis_sim = diff.visual_similarity_score
-            visual_meta: Dict[str, Any] = {"visual_change_detected": diff.visual_change_detected}
+            visual_meta: Dict[str, Any] = {"visual_change_detected": diff.visual_change_detected, "run_origin": run_origin}
             if diff.visual_change_level is not None:
                 visual_meta["visual_change_level"] = diff.visual_change_level
             if diff.visual_similarity_score is not None:
@@ -584,7 +649,7 @@ def execute_watch_tick(watch_id: str, *, force: bool = False, timeout_s: int = 9
                         improvement_signals=[],
                         alert_triggered=False,
                         alert_kind=None,
-                        visual_meta={"dedupe": True},
+                        visual_meta={"dedupe": True, "run_origin": run_origin},
                         event_type="alert_deduped",
                     )
                 else:
@@ -619,7 +684,7 @@ def execute_watch_tick(watch_id: str, *, force: bool = False, timeout_s: int = 9
                     improvement_signals=[],
                     alert_triggered=False,
                     alert_kind=None,
-                    visual_meta=None,
+                    visual_meta={"run_origin": run_origin},
                     event_type="visual_diff_skipped",
                 )
 

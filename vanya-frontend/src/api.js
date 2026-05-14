@@ -467,8 +467,8 @@ export const createProject  = (payload)           => apiPost("/projects", payloa
 export const updateProject  = (projectId, payload) => apiPatch(`/projects/${encodeURIComponent(projectId)}`, payload);
 export const deleteProject  = (projectId)           => apiDelete(`/projects/${encodeURIComponent(projectId)}`);
 
-// ========= Browser inspection watches (Phase 3G–3H) =========
-/** POST /browser-inspections/watch — create watch (cloud-only). */
+// ========= Browser inspection watches (Phase 3G–4E) =========
+/** POST /browser-inspections/watch — create watch (execution_mode: cloud | local_agent). */
 export function createBrowserInspectionWatch(body) {
   return apiPost("/browser-inspections/watch", body ?? {});
 }
@@ -514,4 +514,43 @@ export function getBrowserWatchEventsPage(watchId, params = {}) {
   if (params.limit != null) q.set("limit", String(params.limit));
   if (params.cursor) q.set("cursor", String(params.cursor));
   return apiGet(`/browser-inspections/watch/${encodeURIComponent(watchId)}/events?${q}`);
+}
+
+// ========= Local agents admin (Phase 4E) — optional VITE_LOCAL_AGENT_REGISTER_KEY / VITE_VANYA_SERVICE_TOKEN =========
+function localAgentAdminHeaders() {
+  const h = {};
+  const reg = (import.meta.env.VITE_LOCAL_AGENT_REGISTER_KEY || "").trim();
+  if (reg) h["X-Vanya-Local-Agent-Register-Key"] = reg;
+  const st = (import.meta.env.VITE_VANYA_SERVICE_TOKEN || "").trim();
+  if (st) h["X-Service-Token"] = st;
+  return h;
+}
+
+/** GET /local-agents — requires admin key when LOCAL_AGENT_REGISTER_SECRET is set on server. */
+export function listLocalAgents(params = {}) {
+  const q = new URLSearchParams();
+  if (params.limit != null) q.set("limit", String(params.limit));
+  if (params.project_id != null && String(params.project_id).trim()) {
+    q.set("project_id", String(params.project_id).trim());
+  }
+  const qs = q.toString();
+  return apiFetchJson(`/local-agents${qs ? `?${qs}` : ""}`, {
+    method: "GET",
+    headers: { ...localAgentAdminHeaders(), "Content-Type": "application/json" },
+  });
+}
+
+export function getLocalAgent(agentId) {
+  return apiFetchJson(`/local-agents/${encodeURIComponent(agentId)}`, {
+    method: "GET",
+    headers: { ...localAgentAdminHeaders(), "Content-Type": "application/json" },
+  });
+}
+
+export function disableLocalAgent(agentId) {
+  return apiFetchJson(`/local-agents/${encodeURIComponent(agentId)}/disable`, {
+    method: "POST",
+    headers: { ...localAgentAdminHeaders(), "Content-Type": "application/json" },
+    body: "{}",
+  });
 }

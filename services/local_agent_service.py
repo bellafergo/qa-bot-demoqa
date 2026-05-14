@@ -20,8 +20,10 @@ from models.local_agent_models import (
     LocalAgentArtifactUploadResponse,
     LocalAgentBrowserInspectionPersistRequest,
     LocalAgentBrowserInspectionPersistResponse,
+    LocalAgentDetail,
     LocalAgentHeartbeat,
     LocalAgentJob,
+    LocalAgentJobBrief,
     LocalAgentJobResultSubmit,
     LocalAgentPatchRequest,
     LocalAgentPollRequest,
@@ -142,12 +144,41 @@ def list_agents(*, project_id: Optional[str], limit: int, request: Request) -> L
     return [_row_to_local_agent(r) for r in rows]
 
 
-def get_agent(agent_id: str, request: Request) -> LocalAgent:
+def get_agent(agent_id: str, request: Request) -> LocalAgentDetail:
     require_local_agent_admin(request)
     row = local_agent_repo.get_agent(agent_id)
     if not row:
         raise HTTPException(status_code=404, detail="agent not found")
-    return _row_to_local_agent(row)
+    base = _row_to_local_agent(row)
+    briefs: List[LocalAgentJobBrief] = []
+    pid = (row.get("project_id") or "").strip()
+    if pid:
+        for j in local_agent_repo.list_recent_jobs_for_project(pid, limit=20):
+            briefs.append(
+                LocalAgentJobBrief(
+                    job_id=j["job_id"],
+                    job_type=str(j.get("job_type") or "browser_inspection"),
+                    status=str(j.get("status") or ""),
+                    target_url=str(j.get("target_url") or "")[:512],
+                    created_at=str(j.get("created_at") or ""),
+                    completed_at=j.get("completed_at"),
+                )
+            )
+    return LocalAgentDetail(
+        agent_id=base.agent_id,
+        project_id=base.project_id,
+        name=base.name,
+        status=base.status,
+        capabilities=base.capabilities,
+        version=base.version,
+        last_seen_at=base.last_seen_at,
+        created_at=base.created_at,
+        updated_at=base.updated_at,
+        enabled=base.enabled,
+        token_fingerprint=base.token_fingerprint,
+        metadata=base.metadata,
+        recent_jobs=briefs,
+    )
 
 
 def patch_agent(agent_id: str, body: LocalAgentPatchRequest, request: Request) -> LocalAgent:
