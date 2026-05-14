@@ -123,3 +123,7 @@ curl -sS -X POST "$BASE/agent-api/$AGENT_ID/jobs/$JOB_ID/result" \
 - In-memory rate limits are not shared across workers.
 - Admin routes are middleware-public; **always set `LOCAL_AGENT_REGISTER_SECRET` in production** (or restrict at the edge with API gateway / mTLS).
 - Job claiming / leasing and `running` transitions are minimal; 4B+ will define atomic claim semantics.
+
+## Phase 4B (CLI) — implemented
+
+See [VANYA_LOCAL_AGENT_PHASE4B.md](VANYA_LOCAL_AGENT_PHASE4B.md) and the runnable package [local_agent/README.md](../local_agent/README.md): `python -m local_agent.cli` with `VANYA_CLOUD_URL` / `VANYA_AGENT_ID` / `VANYA_AGENT_TOKEN`.
