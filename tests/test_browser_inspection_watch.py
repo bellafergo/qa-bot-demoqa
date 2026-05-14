@@ -62,6 +62,25 @@ def test_post_watch_valid():
     assert "baseline_inspection_id" in data
 
 
+def test_get_watch_list_200_not_shadowed_by_inspection_id_route():
+    """GET /browser-inspections/watch must resolve to the watch list, not GET …/{inspection_id} with id='watch'."""
+    from app import app
+
+    client = TestClient(app)
+    r = client.get("/browser-inspections/watch", params={"limit": 10})
+    assert r.status_code == 200, r.text
+    assert isinstance(r.json(), list)
+
+
+def test_get_watch_list_with_project_id_query():
+    from app import app
+
+    client = TestClient(app)
+    r = client.get("/browser-inspections/watch", params={"limit": 10, "project_id": "p-scope-test"})
+    assert r.status_code == 200, r.text
+    assert isinstance(r.json(), list)
+
+
 def test_watch_persisted_roundtrip():
     from services.browser_inspection_watch_service import create_watch, get_watch
 

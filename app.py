@@ -457,8 +457,11 @@ app.include_router(failure_intelligence_router)  # GET /failure-intelligence/sum
 app.include_router(integrations_router)          # GET|POST /integrations, /integrations/{id}/health-check|enable|disable|config|actions
 app.include_router(app_explorer_router)          # GET /app-explorer/health, POST /app-explorer/explore
 app.include_router(browser_inspector_router)     # POST /inspect-url
-app.include_router(browser_inspection_history_router)  # GET /browser-inspections, diff, …
+# Watch routes MUST register before history router: both share /browser-inspections/…
+# and GET /browser-inspections/{inspection_id} would otherwise capture the literal
+# segment "watch" (404 inspection not found) instead of the watch list endpoint.
 app.include_router(browser_inspection_watch_router)   # /browser-inspections/watch
+app.include_router(browser_inspection_history_router)  # GET /browser-inspections, diff, …
 app.include_router(drafts_router)                # POST /drafts/generate, POST /drafts/approve
 app.include_router(github_router)               # POST /github/pr/fetch
 app.include_router(analytics_router)           # GET /analytics/runs/dashboard
