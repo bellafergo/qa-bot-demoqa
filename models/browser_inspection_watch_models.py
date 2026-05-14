@@ -13,7 +13,7 @@ def _utc_now_iso() -> str:
 
 
 ChangeThreshold = Literal["low", "medium", "high"]
-WatchExecutionMode = Literal["cloud"]
+WatchExecutionMode = Literal["cloud", "local_agent"]
 WatchCompareMode = Literal["last", "baseline"]
 WatchLastStatus = Literal["healthy", "changed", "failed", "never_run", "disabled"]
 
@@ -24,9 +24,9 @@ class BrowserInspectionWatchCreate(BaseModel):
     interval_minutes: int = Field(default=60, ge=5, le=1440)
     change_threshold: ChangeThreshold = Field(default="medium")
     enabled: bool = True
-    execution_mode: WatchExecutionMode = Field(
+    execution_mode: Literal["cloud"] = Field(
         default="cloud",
-        description="Cloud-only; local_agent/hybrid reserved for future nodes.",
+        description="Watch creation is cloud-only; switch to local_agent via PATCH after create (Phase 4A+).",
     )
     compare_mode: WatchCompareMode = Field(default="last")
 
@@ -38,6 +38,10 @@ class BrowserInspectionWatchPatch(BaseModel):
     change_threshold: Optional[ChangeThreshold] = None
     enabled: Optional[bool] = None
     compare_mode: Optional[WatchCompareMode] = None
+    execution_mode: Optional[WatchExecutionMode] = Field(
+        default=None,
+        description="local_agent: runs only on Vanya Local Agent (cloud tick disabled).",
+    )
 
 
 class BrowserInspectionWatchResponse(BaseModel):

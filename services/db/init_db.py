@@ -25,6 +25,7 @@ def init_catalog_db() -> None:
     from services.db import test_version_repository      # noqa: F401 — registers TestVersionRow
     from services.db import project_repository_sqlite       # noqa: F401 — registers ProjectRow on SQLite Base
     from services.db import browser_inspection_watch_repository  # noqa: F401 — browser_inspection_watches tables
+    from services.db import local_agent_repository  # noqa: F401 — Phase 4A local_agents / local_agent_jobs
 
     Base.metadata.create_all(bind=engine, checkfirst=True)
     logger.info("db: catalog tables initialized (SQLite)")

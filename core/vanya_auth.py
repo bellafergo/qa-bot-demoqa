@@ -184,6 +184,8 @@ PUBLIC_PATH_PREFIXES: Tuple[str, ...] = (
     "/evidence",
     "/reports",
     "/favicon.ico",
+    "/agent-api",
+    "/local-agents",
 )
 
 PUBLIC_PATHS_EXACT: FrozenSet[str] = frozenset()

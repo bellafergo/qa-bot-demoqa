@@ -252,16 +252,34 @@ def get_watch(watch_id: str) -> BrowserInspectionWatchResponse:
     return _dict_to_watch_response(row)
 
 
+def _validate_url_for_local_agent_watch(url: str) -> str:
+    u = (url or "").strip()
+    if len(u) > 2048:
+        raise HTTPException(status_code=400, detail="url too long")
+    low = u.lower()
+    if not low.startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="url must be http or https")
+    return u
+
+
 def patch_watch(watch_id: str, body: BrowserInspectionWatchPatch) -> BrowserInspectionWatchResponse:
     row = browser_inspection_watch_repo.get_watch(watch_id)
     if not row:
         raise HTTPException(status_code=404, detail="watch not found")
     updates: Dict[str, Any] = {}
+    next_em = (
+        str(body.execution_mode).strip().lower()
+        if body.execution_mode is not None
+        else str(row.get("execution_mode") or "cloud").strip().lower()
+    )
     if body.url is not None:
-        try:
-            updates["url"] = validate_target_url(body.url.strip())
-        except TargetURLNotAllowed as e:
-            raise HTTPException(status_code=400, detail=str(e) or "Target URL not allowed") from None
+        if next_em == "local_agent":
+            updates["url"] = _validate_url_for_local_agent_watch(body.url)
+        else:
+            try:
+                updates["url"] = validate_target_url(body.url.strip())
+            except TargetURLNotAllowed as e:
+                raise HTTPException(status_code=400, detail=str(e) or "Target URL not allowed") from None
     if body.project_id is not None:
         updates["project_id"] = body.project_id
     if body.interval_minutes is not None:
@@ -272,6 +290,11 @@ def patch_watch(watch_id: str, body: BrowserInspectionWatchPatch) -> BrowserInsp
         updates["enabled"] = body.enabled
     if body.compare_mode is not None:
         updates["compare_mode"] = str(body.compare_mode)
+    if body.execution_mode is not None:
+        em = str(body.execution_mode).strip().lower()
+        if em not in ("cloud", "local_agent"):
+            raise HTTPException(status_code=400, detail="invalid execution_mode")
+        updates["execution_mode"] = em
     if not updates:
         return _dict_to_watch_response(row)
     ok = browser_inspection_watch_repo.update_watch(watch_id, **updates)
@@ -378,6 +401,13 @@ def execute_watch_tick(watch_id: str, *, force: bool = False, timeout_s: int = 9
         raise HTTPException(status_code=404, detail="watch not found")
     if not watch.get("enabled") and not force:
         raise HTTPException(status_code=400, detail="watch is disabled")
+
+    mode = str(watch.get("execution_mode") or "cloud").strip().lower()
+    if mode == "local_agent" and not force:
+        raise HTTPException(
+            status_code=400,
+            detail="execution_mode is local_agent; cloud execution is disabled. Use Vanya Local Agent (Phase 4B+).",
+        )
 
     tick_warnings: List[str] = []
     compare_mode = str(watch.get("compare_mode") or "last")
@@ -656,6 +686,8 @@ def tick_due_watches(*, max_per_tick: int = 10) -> int:
     n = 0
     for w in browser_inspection_watch_repo.list_watches(project_id=None, limit=500):
         if not w.get("enabled"):
+            continue
+        if str(w.get("execution_mode") or "cloud").strip().lower() == "local_agent":
             continue
         if not watch_is_due(w):
             continue

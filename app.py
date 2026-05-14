@@ -52,6 +52,8 @@ from api.routes.app_explorer_routes import router as app_explorer_router
 from api.routes.browser_inspector_routes import router as browser_inspector_router
 from api.routes.browser_inspection_history_routes import router as browser_inspection_history_router
 from api.routes.browser_inspection_watch_routes import router as browser_inspection_watch_router
+from api.routes.local_agent_routes import admin_router as local_agent_admin_router
+from api.routes.local_agent_routes import agent_router as local_agent_api_router
 from api.routes.drafts_routes import router as drafts_router
 from api.routes.github_routes import router as github_router
 from api.routes.analytics_routes import router as analytics_router
@@ -460,6 +462,8 @@ app.include_router(browser_inspector_router)     # POST /inspect-url
 # Watch router MUST register before history: GET /browser-inspections/{inspection_id} would
 # otherwise match the literal path segment "watch" and return 404 inspection not found.
 app.include_router(browser_inspection_watch_router)   # /browser-inspections/watch
+app.include_router(local_agent_admin_router)          # /local-agents (admin)
+app.include_router(local_agent_api_router)            # /agent-api (local agent)
 app.include_router(browser_inspection_history_router)  # GET /browser-inspections, diff, …
 app.include_router(drafts_router)                # POST /drafts/generate, POST /drafts/approve
 app.include_router(github_router)               # POST /github/pr/fetch

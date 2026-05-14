@@ -98,6 +98,10 @@ def _tier_for_request(method: str, path: str) -> Optional[str]:
             return "explorer"
         if path.startswith("/browser-inspections/watch"):
             return "explorer"
+        if path.startswith("/local-agents"):
+            return "explorer"
+        if path.startswith("/agent-api/"):
+            return "explorer"
         if path.startswith("/exploration/"):
             return "explorer"
 
