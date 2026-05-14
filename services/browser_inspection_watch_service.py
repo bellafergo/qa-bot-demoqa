@@ -474,6 +474,11 @@ def execute_watch_tick(watch_id: str, *, force: bool = False, timeout_s: int = 9
     tick_warnings: List[str] = []
     compare_mode = str(watch.get("compare_mode") or "last")
 
+    run_origin_tick = str(watch.get("execution_mode") or "cloud").strip().lower()
+    if run_origin_tick not in ("cloud", "local_agent"):
+        run_origin_tick = "cloud"
+    tick_run_meta: Dict[str, Any] = {"run_origin": run_origin_tick}
+
     browser_inspection_watch_repo.insert_event(
         event_id=str(uuid.uuid4()),
         watch_id=watch_id,
@@ -485,7 +490,7 @@ def execute_watch_tick(watch_id: str, *, force: bool = False, timeout_s: int = 9
         improvement_signals=[],
         alert_triggered=False,
         alert_kind=None,
-        visual_meta=None,
+        visual_meta=tick_run_meta,
         event_type="run_started",
     )
 
@@ -544,7 +549,7 @@ def execute_watch_tick(watch_id: str, *, force: bool = False, timeout_s: int = 9
         improvement_signals=[],
         alert_triggered=False,
         alert_kind=None,
-        visual_meta=None,
+        visual_meta=tick_run_meta,
         event_type="run_completed",
     )
 

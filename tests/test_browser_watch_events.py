@@ -36,6 +36,8 @@ def test_events_include_run_completed(mock_persist, mock_collect):
     completed = [e for e in ev_sorted if e.event_type == "run_completed"]
     assert started and completed
     assert started[0].created_at <= completed[0].created_at
+    assert getattr(started[0], "run_origin", None) == "cloud"
+    assert getattr(completed[0], "run_origin", None) == "cloud"
     for e in ev:
         assert len(e.summary or "") < 5000
 

@@ -22,6 +22,7 @@ import {
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
 import { useToast } from "../context/ToastContext.jsx";
+import { shouldClearWatchFieldErrorWhenSwitchingToCloud, effectiveEventRunOrigin } from "../lib/browserWatchUi.js";
 
 function fmtTs(iso) {
   if (!iso) return "—";
@@ -446,6 +447,8 @@ function WatchFormModal({ open, mode, editWatch, defaultProjectId, onClose, t, s
   const [agentsLoading, setAgentsLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [fieldError, setFieldError] = useState("");
+  /** Which validation failed — used to clear stale errors when switching execution_mode to cloud. */
+  const [fieldErrorKind, setFieldErrorKind] = useState("none");
 
   const watchProjectId = useMemo(() => {
     if (mode === "edit" && editWatch) return String(editWatch.project_id || "").trim();
@@ -465,6 +468,7 @@ function WatchFormModal({ open, mode, editWatch, defaultProjectId, onClose, t, s
       setExecutionMode(em);
       setLocalAgentId(String(editWatch.local_agent_id || "").trim());
       setFieldError("");
+      setFieldErrorKind("none");
       return;
     }
     setUrl("");
@@ -476,7 +480,16 @@ function WatchFormModal({ open, mode, editWatch, defaultProjectId, onClose, t, s
     setExecutionMode("cloud");
     setLocalAgentId("");
     setFieldError("");
+    setFieldErrorKind("none");
   }, [open, mode, editWatch, defaultProjectId]);
+
+  useEffect(() => {
+    if (executionMode !== "cloud") return;
+    if (shouldClearWatchFieldErrorWhenSwitchingToCloud(fieldErrorKind)) {
+      setFieldError("");
+      setFieldErrorKind("none");
+    }
+  }, [executionMode, fieldErrorKind]);
 
   useEffect(() => {
     if (!open) return;
@@ -531,19 +544,23 @@ function WatchFormModal({ open, mode, editWatch, defaultProjectId, onClose, t, s
     const u = url.trim();
     if (!u) {
       setFieldError(t("watch.create.err_url"));
+      setFieldErrorKind("generic");
       return;
     }
     const n = parseInt(String(intervalMinutes), 10);
     if (!Number.isFinite(n) || n < 5 || n > 1440) {
       setFieldError(t("watch.create.err_interval"));
+      setFieldErrorKind("generic");
       return;
     }
     if (!["low", "medium", "high"].includes(changeThreshold)) {
       setFieldError(t("watch.create.err_threshold"));
+      setFieldErrorKind("generic");
       return;
     }
     if (!["last", "baseline"].includes(compareMode)) {
       setFieldError(t("watch.create.err_compare"));
+      setFieldErrorKind("generic");
       return;
     }
     const em = executionMode === "local_agent" ? "local_agent" : "cloud";
@@ -551,14 +568,17 @@ function WatchFormModal({ open, mode, editWatch, defaultProjectId, onClose, t, s
       const pidCreate = (projectId.trim() || String(defaultProjectId || "").trim());
       if (mode !== "edit" && !pidCreate) {
         setFieldError(t("watch.create.err_project_local"));
+        setFieldErrorKind("project_local");
         return;
       }
       if (!localAgentId.trim()) {
         setFieldError(t("watch.create.err_local_agent"));
+        setFieldErrorKind("agent");
         return;
       }
     }
     setFieldError("");
+    setFieldErrorKind("none");
     setBusy(true);
     try {
       if (mode === "edit" && editWatch?.watch_id) {
@@ -986,17 +1006,20 @@ function DetailPanel({ watchId, detailVersion, selectedWatch, t, showToast }) {
                     {e.event_type}
                   </span>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                    {e.run_origin ? (
-                      <span
-                        className={`badge ${String(e.run_origin).toLowerCase() === "local_agent" ? "badge-orange" : "badge-gray"}`}
-                        style={{ fontSize: 9 }}
-                        title={`${t("watch.ev.origin")}: ${e.run_origin}`}
-                      >
-                        {String(e.run_origin).toLowerCase() === "local_agent"
-                          ? t("watch.ev.origin_local_agent")
-                          : t("watch.ev.origin_cloud")}
-                      </span>
-                    ) : null}
+                    {(() => {
+                      const ro = effectiveEventRunOrigin(e, selectedWatch);
+                      if (!ro) return null;
+                      const isLocal = ro === "local_agent";
+                      return (
+                        <span
+                          className={`badge ${isLocal ? "badge-orange" : "badge-gray"}`}
+                          style={{ fontSize: 9, letterSpacing: "0.04em" }}
+                          title={`${t("watch.ev.origin")}: ${ro}`}
+                        >
+                          {isLocal ? t("watch.ev.badge_local") : t("watch.ev.badge_cloud")}
+                        </span>
+                      );
+                    })()}
                     <span style={{ color: "var(--text-3)", whiteSpace: "nowrap" }}>{fmtTs(e.created_at)}</span>
                   </div>
                 </div>

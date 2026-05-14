@@ -516,7 +516,7 @@ export function getBrowserWatchEventsPage(watchId, params = {}) {
   return apiGet(`/browser-inspections/watch/${encodeURIComponent(watchId)}/events?${q}`);
 }
 
-// ========= Local agents admin (Phase 4E) — optional VITE_LOCAL_AGENT_REGISTER_KEY / VITE_VANYA_SERVICE_TOKEN =========
+// ========= Local agents admin (Phase 4E) — optional admin headers for GET /local-agents (configure per deployment). =========
 function localAgentAdminHeaders() {
   const h = {};
   const reg = (import.meta.env.VITE_LOCAL_AGENT_REGISTER_KEY || "").trim();

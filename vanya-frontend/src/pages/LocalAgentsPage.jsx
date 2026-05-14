@@ -191,9 +191,6 @@ export default function LocalAgentsPage() {
           <p style={{ fontSize: 12, color: "var(--text-2)", margin: "8px 0 0" }}>
             {currentProject ? t("localAgents.scope_project", { name: currentProject.name }) : t("localAgents.scope_all")}
           </p>
-          <p style={{ fontSize: 11, color: "var(--text-3)", margin: "8px 0 0", maxWidth: 720, lineHeight: 1.5 }}>
-            {t("localAgents.admin_hint")}
-          </p>
         </div>
         <button type="button" className="btn btn-secondary btn-sm" onClick={() => loadAgents({ silent: false })} disabled={loading}>
           {t("localAgents.refresh")}
