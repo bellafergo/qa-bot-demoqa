@@ -10,7 +10,7 @@
  */
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { getFlakyTests, getRegressions, getClusters } from "../api";
+import { getFlakyTests, getRegressions, getClusters, getDeepInsights } from "../api";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
 
@@ -273,6 +273,7 @@ function ClustersTab({ data, loading, error, t }) {
           <th style={{ width: 82, textAlign: "center" }}>{t("fi.col.confidence")}</th>
           <th style={{ width: 160 }}>{t("fi.col.rep_test")}</th>
           <th>{t("fi.col.probable_cause")}</th>
+          <th style={{ width: 120 }}>{t("fi.col.blast")}</th>
         </tr></thead>
         <tbody>
           {data.map(cl => (
@@ -310,10 +311,157 @@ function ClustersTab({ data, loading, error, t }) {
                   title={cl.probable_cause}>
                 {cl.probable_cause || cl.summary || "—"}
               </td>
+              <td style={{ fontSize: 10, color: "var(--text-3)", lineHeight: 1.35 }}>
+                {cl.blast_radius ? (
+                  <>
+                    <div style={{ fontWeight: 600, color: "var(--text-2)" }}>{cl.blast_radius.estimated_severity}</div>
+                    <div>{impactScopeLabel(cl.blast_radius.impact_scope, t)}</div>
+                    <div style={{ opacity: 0.85 }}>{cl.blast_radius.affected_tests_count} tests</div>
+                  </>
+                ) : "—"}
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function impactScopeLabel(scope, t) {
+  const key = `fi.scope.${scope || "unknown"}`;
+  const lbl = t(key);
+  return lbl === key ? String(scope || "").replace(/_/g, " ") : lbl;
+}
+
+// ── QA Intelligence (deep insights) tab ───────────────────────────────────────
+
+function DeepInsightsTab({ projectId, t }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await getDeepInsights(projectId);
+      setData(res && typeof res === "object" ? res : null);
+    } catch (e) {
+      setError(e?.message || "Failed to load deep insights");
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [projectId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  if (loading) return <div style={{ padding: 24, color: "var(--text-3)", fontSize: 13 }}>{t("fi.deep.loading")}</div>;
+  if (error) return <div style={{ padding: 16 }} className="alert alert-error">{error}</div>;
+  if (!data) return <div style={{ padding: 24, color: "var(--text-3)" }}>{t("fi.deep.empty")}</div>;
+
+  const tl = data.timeline || {};
+  const buckets = Array.isArray(tl.buckets) ? tl.buckets : [];
+  const rootCauses = Array.isArray(data.root_causes) ? data.root_causes : [];
+  const recs = Array.isArray(data.recommendations) ? data.recommendations : [];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <div style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.6 }}>
+        <strong style={{ color: "var(--text-2)" }}>{t("fi.deep.timeline")}</strong>
+        {" · "}
+        {t("fi.deep.runs_analyzed")}: {tl.runs_analyzed ?? "—"}
+        {tl.pass_rate_delta_window != null && (
+          <> · {t("fi.deep.pass_delta")}: {tl.pass_rate_delta_window}%</>
+        )}
+      </div>
+      {tl.note && (
+        <div style={{ fontSize: 11, color: "var(--text-3)", fontStyle: "italic" }}>{t("fi.deep.note")}: {tl.note}</div>
+      )}
+
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: "var(--text-1)" }}>{t("fi.deep.timeline")}</div>
+        <div style={{ overflowX: "auto" }}>
+          <table className="data-table" style={{ fontSize: 11, minWidth: 480 }}>
+            <thead><tr>
+              <th>Date</th>
+              <th style={{ textAlign: "right" }}>Total</th>
+              <th style={{ textAlign: "right" }}>Failed</th>
+              <th style={{ textAlign: "right" }}>Pass %</th>
+            </tr></thead>
+            <tbody>
+              {buckets.map(b => (
+                <tr key={b.date}>
+                  <td style={{ fontFamily: "monospace" }}>{b.date}</td>
+                  <td style={{ textAlign: "right" }}>{b.total_runs}</td>
+                  <td style={{ textAlign: "right", color: b.failed_runs ? "var(--red)" : "var(--text-3)" }}>{b.failed_runs}</td>
+                  <td style={{ textAlign: "right" }}>{b.pass_rate != null ? `${b.pass_rate}%` : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: "var(--text-1)" }}>{t("fi.deep.root_causes")}</div>
+        {rootCauses.length === 0 ? (
+          <div style={{ fontSize: 12, color: "var(--text-3)" }}>—</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {rootCauses.slice(0, 12).map(rc => (
+              <div key={rc.root_cause_id} className="card" style={{ padding: "12px 14px", background: "var(--surface)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                  <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-1)" }}>{rc.title}</div>
+                  <span className={`badge ${confidenceBadge(rc.confidence)}`} style={{ fontSize: 10 }}>{rc.confidence}</span>
+                </div>
+                <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 6, lineHeight: 1.5 }}>{rc.suspected_cause}</div>
+                <div style={{ fontSize: 10, color: "var(--text-3)", marginTop: 8 }}>
+                  {t("fi.deep.affected_tests")}: {(rc.affected_tests || []).length
+                    ? rc.affected_tests.slice(0, 8).join(", ") + (rc.affected_tests.length > 8 ? "…" : "")
+                    : "—"}
+                </div>
+                <div style={{ fontSize: 10, color: "var(--text-2)", marginTop: 6 }}>
+                  {t("fi.deep.signals")}: {(rc.signals_used || []).length
+                    ? rc.signals_used.slice(0, 4).map(s => s.signal_type).join(", ")
+                    : "insufficient evidence"}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--text-2)", marginTop: 8 }}>{rc.recommended_action}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: "var(--text-1)" }}>{t("fi.deep.recommendations")}</div>
+        {recs.length === 0 ? (
+          <div style={{ fontSize: 12, color: "var(--text-3)" }}>—</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {recs.slice(0, 15).map((r, i) => (
+              <div key={`${r.type}-${i}`} className="card" style={{ padding: "12px 14px", borderLeft: "3px solid var(--accent-border)" }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-1)" }}>{r.title}</div>
+                <div style={{ fontSize: 10, color: "var(--text-3)", marginTop: 2 }}>{r.type} · {r.confidence}</div>
+                <div style={{ fontSize: 11, color: "var(--text-2)", marginTop: 6, lineHeight: 1.5 }}>{r.description}</div>
+                <div style={{ fontSize: 11, color: "var(--text-2)", marginTop: 8 }}>
+                  <span style={{ fontWeight: 500 }}>{t("fi.deep.next_step")}:</span> {r.suggested_next_step}
+                </div>
+                <div style={{ fontSize: 10, color: "var(--text-3)", marginTop: 6 }}>
+                  {t("fi.deep.auto_fix")}: {t("fi.deep.auto_fix_off")} ({String(r.safe_to_apply_auto_fix)})
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={load} disabled={loading}>
+          {t("fi.refresh")}
+        </button>
+      </div>
     </div>
   );
 }
@@ -426,6 +574,7 @@ export default function FailureIntelligencePage({ embedded = false }) {
           { key: "flaky",       label: t("fi.tab.flaky"),       count: suspectedCount,  badgeClass: "badge-red"    },
           { key: "regressions", label: t("fi.tab.regressions"), count: regressionCount, badgeClass: "badge-orange" },
           { key: "clusters",    label: t("fi.tab.clusters"),    count: clusterCount,    badgeClass: "badge-gray"   },
+          { key: "deep",        label: t("fi.tab.deep"),        count: 0,               badgeClass: "badge-gray"   },
         ].map(({ key, label, count, badgeClass }) => (
           <button
             key={key}
@@ -442,7 +591,7 @@ export default function FailureIntelligencePage({ embedded = false }) {
             }}
           >
             {label}
-            {count > 0 && (
+            {count > 0 && key !== "deep" && (
               <span className={`badge ${badgeClass}`} style={{ fontSize: 10 }}>{count}</span>
             )}
           </button>
@@ -469,6 +618,9 @@ export default function FailureIntelligencePage({ embedded = false }) {
         )}
         {tab === "clusters" && (
           <ClustersTab data={clusters} loading={loadingClusters} error={errorClusters} t={t} />
+        )}
+        {tab === "deep" && (
+          <DeepInsightsTab projectId={projectId} t={t} />
         )}
       </div>
 

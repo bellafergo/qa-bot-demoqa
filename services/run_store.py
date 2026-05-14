@@ -118,6 +118,17 @@ def _safe_str(x: Any) -> str:
         return ""
 
 
+def _is_browser_inspection_hot_run(data: Dict[str, Any]) -> bool:
+    """Exclude browser intelligence snapshots from generic in-memory run listings."""
+    if not isinstance(data, dict):
+        return False
+    meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
+    if meta.get("source") == "browser_inspection":
+        return True
+    tc = _safe_str(data.get("test_case_id")) or _safe_str(meta.get("test_case_id"))
+    return tc == "_browser_inspection"
+
+
 def _normalize_tags(x: Any) -> List[str]:
     if not x:
         return []
@@ -363,7 +374,14 @@ def list_runs(limit: int = 50) -> List[Dict[str, Any]]:
             data = it.get("data") if isinstance(it.get("data"), dict) else {}
             items.append((evid, ts, data))
         items.sort(key=lambda x: x[1], reverse=True)
-        return [_strip_b64(x[2]) for x in items[:limit]]
+        out: List[Dict[str, Any]] = []
+        for _, _, data in items:
+            if _is_browser_inspection_hot_run(data):
+                continue
+            out.append(_strip_b64(data))
+            if len(out) >= limit:
+                break
+        return out
 
 
 def list_runs_for_pr(owner: str, repo: str, pr_number: int, sha: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
@@ -395,7 +413,14 @@ def list_runs_for_pr(owner: str, repo: str, pr_number: int, sha: Optional[str] =
             data = it.get("data") if isinstance(it.get("data"), dict) else {}
             scored.append((ts, data))
         scored.sort(key=lambda x: x[0], reverse=True)
-        return [_strip_b64(d) for _, d in scored[:limit]]
+        out: List[Dict[str, Any]] = []
+        for _, data in scored:
+            if _is_browser_inspection_hot_run(data):
+                continue
+            out.append(_strip_b64(data))
+            if len(out) >= limit:
+                break
+        return out
 
 
 def list_runs_for_tag(tag: str, limit: int = 50) -> List[Dict[str, Any]]:
@@ -419,4 +444,11 @@ def list_runs_for_tag(tag: str, limit: int = 50) -> List[Dict[str, Any]]:
             data = it.get("data") if isinstance(it.get("data"), dict) else {}
             scored.append((ts, data))
         scored.sort(key=lambda x: x[0], reverse=True)
-        return [_strip_b64(d) for _, d in scored[:limit]]
+        out: List[Dict[str, Any]] = []
+        for _, data in scored:
+            if _is_browser_inspection_hot_run(data):
+                continue
+            out.append(_strip_b64(data))
+            if len(out) >= limit:
+                break
+        return out

@@ -17,10 +17,13 @@ run_from_orchestrator_job(job)          → CanonicalRun from OrchestratorJob
 run_from_legacy_store(payload)          → CanonicalRun from run_store dict
 normalize_run(raw)                      → CanonicalRun from any dict
 normalize_run_list(runs)                → List[CanonicalRun]
+normalize_storage_status(status)       → TestRun.status vocabulary (pass|fail|error|…)
+canonical_run_to_test_run(cr)           → models.test_run.TestRun (RCA/FI compatibility; alias ``test_run_from_canonical``)
 """
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from models.run_contract import (
@@ -61,7 +64,73 @@ def normalize_status(status: str) -> str:
     return _STATUS_MAP.get(str(status or "").strip().lower(), "failed")
 
 
+def normalize_storage_status(status: Optional[str]) -> str:
+    """
+    Map any persisted or canonical status string to ``TestRun.status`` vocabulary
+    (pass | fail | error | running | queued | planning | compiled | canceled).
+
+    Single source of truth for persistence-shaped status — do not duplicate
+    equivalence tables elsewhere (RCA / FI will consume this in a later step).
+    """
+    s = str(status or "").strip().lower()
+    if not s:
+        return "fail"
+    direct: Dict[str, str] = {
+        "passed": "pass",
+        "pass": "pass",
+        "success": "pass",
+        "completed": "pass",
+        "ok": "pass",
+        "failed": "fail",
+        "fail": "fail",
+        "failure": "fail",
+        "partial": "fail",
+        "error": "error",
+        "errored": "error",
+        "running": "running",
+        "queued": "queued",
+        "pending": "queued",
+        "planning": "planning",
+        "compiled": "compiled",
+        "canceled": "canceled",
+        "cancelled": "canceled",
+        "aborted": "canceled",
+    }
+    if s in direct:
+        return direct[s]
+    canon = normalize_status(s)
+    from_canon = {
+        "passed": "pass",
+        "failed": "fail",
+        "error": "error",
+        "running": "running",
+        "queued": "queued",
+        "planning": "planning",
+        "compiled": "compiled",
+        "canceled": "canceled",
+    }
+    return from_canon.get(canon, "fail")
+
+
 # ── Datetime helpers ──────────────────────────────────────────────────────────
+
+def _parse_iso_to_datetime(value: Optional[str]) -> Optional[datetime]:
+    """Parse ISO-8601 strings from ``CanonicalRun`` timestamps into aware UTC datetimes."""
+    if not value:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    try:
+        if raw.endswith("Z"):
+            raw = raw[:-1] + "+00:00"
+        dt = datetime.fromisoformat(raw)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except Exception:
+        return None
+
 
 def _to_iso(value: Any) -> Optional[str]:
     """
@@ -129,6 +198,7 @@ def run_from_catalog_testrun(tr: Any) -> CanonicalRun:
     )
 
     steps = list(getattr(tr, "steps_result", None) or [])
+    log_lines = [str(x) for x in (getattr(tr, "logs", None) or []) if str(x).strip()]
     return CanonicalRun(
         run_id=tr.run_id,
         job_id=raw_meta.get("job_id"),
@@ -146,6 +216,7 @@ def run_from_catalog_testrun(tr: Any) -> CanonicalRun:
         report_url=getattr(tr, "report_url", None),
         correlation_id=raw_meta.get("correlation_id"),
         steps=steps,
+        logs=log_lines,
         artifacts=artifacts,
         meta=meta,
     )
@@ -246,6 +317,10 @@ def run_from_legacy_store(payload: Dict[str, Any]) -> CanonicalRun:
     run_id = payload.get("run_id") or payload.get("evidence_id") or "unknown"
 
     steps = list(payload.get("steps") or payload.get("steps_result") or [])
+    raw_logs = payload.get("logs")
+    log_lines: List[str] = []
+    if isinstance(raw_logs, list):
+        log_lines = [str(x) for x in raw_logs if str(x).strip()]
     return CanonicalRun(
         run_id=run_id,
         job_id=payload.get("job_id"),
@@ -263,9 +338,80 @@ def run_from_legacy_store(payload: Dict[str, Any]) -> CanonicalRun:
         report_url=report_url,
         correlation_id=raw_meta.get("correlation_id"),
         steps=steps,
+        logs=log_lines,
         artifacts=artifacts,
         meta=meta,
     )
+
+
+def canonical_run_to_test_run(cr: CanonicalRun):
+    """
+    Compatibility adapter: ``CanonicalRun`` → ``models.test_run.TestRun`` for RCA / FI.
+
+    Named ``canonical_run_to_test_run`` so pytest does not treat it as a test function.
+    Public alias: ``test_run_from_canonical``.
+
+    TODO(tech-debt): RCA and Failure Intelligence should consume a neutral analysis
+    view (or ``CanonicalRun`` directly) instead of round-tripping through ``TestRun``.
+    """
+    from models.test_run import TestRun
+
+    meta: Dict[str, Any] = {}
+    if cr.meta is not None:
+        try:
+            meta = cr.meta.model_dump(exclude_none=True)
+        except Exception:
+            meta = {}
+    if cr.job_id:
+        meta.setdefault("job_id", cr.job_id)
+    if cr.correlation_id:
+        meta.setdefault("correlation_id", cr.correlation_id)
+    if cr.suite_id:
+        meta.setdefault("suite_run_id", cr.suite_id)
+    if cr.suite_name:
+        meta.setdefault("suite_name", cr.suite_name)
+
+    logs: List[str] = [str(x) for x in (cr.logs or []) if str(x).strip()]
+    if cr.error_summary and str(cr.error_summary).strip():
+        summary_line = str(cr.error_summary).strip()
+        if summary_line not in logs:
+            logs.insert(0, summary_line)
+    rr = meta.get("runner_reason")
+    if rr and str(rr).strip() and str(rr).strip() not in logs:
+        logs.insert(0, str(rr).strip())
+
+    steps_result = list(cr.steps or [])
+    executed_at = (
+        _parse_iso_to_datetime(cr.started_at)
+        or _parse_iso_to_datetime(cr.finished_at)
+        or datetime.now(timezone.utc)
+    )
+    env = meta.get("environment") or (cr.meta.environment if cr.meta else None) or "default"
+    environment = str(env).strip() or "default"
+
+    st = normalize_storage_status(str(cr.status or ""))
+
+    test_case_id = (cr.test_id or "").strip() or "unknown"
+
+    return TestRun(
+        run_id=cr.run_id,
+        test_case_id=test_case_id,
+        test_name=cr.test_name,
+        executed_at=executed_at,
+        environment=environment,
+        status=st,  # type: ignore[arg-type]
+        duration_ms=int(cr.duration_ms or 0) or None,
+        evidence_url=cr.evidence_url or cr.artifacts.evidence_url,
+        report_url=cr.report_url or cr.artifacts.report_url,
+        evidence_id=cr.evidence_id,
+        logs=logs,
+        steps_result=steps_result,
+        meta=meta,
+    )
+
+
+# Public alias (requested API name — must not be ``def test_*`` or pytest collects it)
+test_run_from_canonical = canonical_run_to_test_run
 
 
 # ── Generic dispatch ──────────────────────────────────────────────────────────

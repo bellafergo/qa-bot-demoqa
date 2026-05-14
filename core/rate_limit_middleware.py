@@ -94,7 +94,9 @@ def _tier_for_request(method: str, path: str) -> Optional[str]:
         if path.startswith("/orchestrator/jobs"):
             return "execute"
 
-        if path in ("/app-explorer/explore", "/app-explorer/explore-app"):
+        if path in ("/app-explorer/explore", "/app-explorer/explore-app", "/inspect-url", "/inspect-url/map"):
+            return "explorer"
+        if path.startswith("/browser-inspections/watch"):
             return "explorer"
         if path.startswith("/exploration/"):
             return "explorer"

@@ -115,6 +115,9 @@ def schedule_slack_alert_on_failed_run(run: Any) -> None:
     Fire-and-forget from synchronous run completion paths (catalog, run_bridge).
     Never raises.
     """
+    meta = getattr(run, "meta", None) or {}
+    if isinstance(meta, dict) and meta.get("source") == "browser_inspection":
+        return
 
     def _worker() -> None:
         try:
@@ -127,3 +130,82 @@ def schedule_slack_alert_on_failed_run(run: Any) -> None:
         t.start()
     except Exception as exc:
         logger.warning("slack auto-alert could not start thread: %s", exc)
+
+
+def schedule_browser_inspection_watch_alert(
+    *,
+    alert_kind: str,
+    watch_id: str,
+    url: str,
+    change_level: str,
+    summary: str,
+    regression_signals: list,
+    base_inspection_id: str | None,
+    target_inspection_id: str,
+    visual_change_detected: Optional[bool] = None,
+    visual_change_level: Optional[str] = None,
+    visual_similarity_score: Optional[float] = None,
+) -> None:
+    """
+    Fire-and-forget Slack summary for watch diff alerts. Never raises.
+    Payload is intentionally tiny (no DOM, no screenshots).
+    """
+
+    def _worker() -> None:
+        try:
+            from connectors.registry import registry
+            from connectors.slack_connector import SlackConnector
+            from models.connector import ConnectorConfig
+            from services.integration_service import integration_service
+
+            cfg: ConnectorConfig = integration_service.get_config("slack")
+            if not cfg.enabled:
+                return
+            conn = registry.get("slack")
+            if not isinstance(conn, SlackConnector):
+                return
+            valid, msg = conn.validate_config(cfg)
+            if not valid:
+                logger.debug("browser watch alert skipped: %s", msg)
+                return
+            ch = (cfg.channel or "").strip()
+            if not ch:
+                return
+            rs = ", ".join(str(x) for x in (regression_signals or [])[:12])
+            if len(rs) > 600:
+                rs = rs[:600] + "…"
+            body = (
+                f"*Vanya browser watch*\n"
+                f"*Kind:* `{alert_kind}`\n"
+                f"*URL:* {str(url)[:500]}\n"
+                f"*Change level:* `{change_level}`\n"
+                f"*Watch:* `{watch_id}`\n"
+                f"*Inspections:* `{base_inspection_id or '—'}` → `{target_inspection_id}`\n"
+                f"*Summary:* {str(summary)[:900]}\n"
+                f"*Regression signals:* {rs or '—'}"
+            )
+            if visual_change_detected or (
+                visual_change_level and str(visual_change_level).lower() not in ("none", "")
+            ):
+                sim = visual_similarity_score
+                sim_s = f"{sim:.2f}" if isinstance(sim, (int, float)) else "—"
+                body += (
+                    f"\n*Visual:* detected={bool(visual_change_detected)} "
+                    f"level=`{visual_change_level or '—'}` sim={sim_s}"
+                )
+            ok, send_msg = conn.send_alert(
+                channel=ch,
+                text=body,
+                run_id=target_inspection_id,
+                status="watch",
+            )
+            if not ok:
+                logger.warning("browser watch slack alert failed: %s", send_msg)
+        except Exception as exc:
+            logger.warning("browser watch alert worker error: %s", exc)
+
+    try:
+        t = threading.Thread(target=_worker, daemon=True, name="vanya-browser-watch-alert")
+        t.start()
+    except Exception as exc:
+        logger.warning("browser watch alert could not start thread: %s", exc)

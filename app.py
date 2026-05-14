@@ -49,6 +49,9 @@ from api.routes.execution_routes import router as execution_router
 from api.routes.failure_intelligence_routes import router as failure_intelligence_router
 from api.routes.integrations_routes import router as integrations_router
 from api.routes.app_explorer_routes import router as app_explorer_router
+from api.routes.browser_inspector_routes import router as browser_inspector_router
+from api.routes.browser_inspection_history_routes import router as browser_inspection_history_router
+from api.routes.browser_inspection_watch_routes import router as browser_inspection_watch_router
 from api.routes.drafts_routes import router as drafts_router
 from api.routes.github_routes import router as github_router
 from api.routes.analytics_routes import router as analytics_router
@@ -245,9 +248,18 @@ def on_startup():
     # Start orchestrator background worker
     try:
         from services.catalog_orchestrator import ensure_worker_started
+
         ensure_worker_started()
     except Exception:
         logger.exception("orchestrator: worker start failed (non-fatal)")
+
+    # Browser inspection watch scheduler (single-process MVP)
+    try:
+        from services.browser_inspection_watch_scheduler import ensure_watch_scheduler_started
+
+        ensure_watch_scheduler_started()
+    except Exception:
+        logger.exception("browser_inspection_watch_scheduler: start failed (non-fatal)")
 
 
 # ============================================================
@@ -444,6 +456,9 @@ app.include_router(execution_router)        # GET /execution/health|status, POST
 app.include_router(failure_intelligence_router)  # GET /failure-intelligence/summary|clusters|flaky-tests|regressions
 app.include_router(integrations_router)          # GET|POST /integrations, /integrations/{id}/health-check|enable|disable|config|actions
 app.include_router(app_explorer_router)          # GET /app-explorer/health, POST /app-explorer/explore
+app.include_router(browser_inspector_router)     # POST /inspect-url
+app.include_router(browser_inspection_history_router)  # GET /browser-inspections, diff, …
+app.include_router(browser_inspection_watch_router)   # /browser-inspections/watch
 app.include_router(drafts_router)                # POST /drafts/generate, POST /drafts/approve
 app.include_router(github_router)               # POST /github/pr/fetch
 app.include_router(analytics_router)           # GET /analytics/runs/dashboard

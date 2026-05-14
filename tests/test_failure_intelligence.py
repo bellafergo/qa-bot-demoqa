@@ -31,8 +31,28 @@ from __future__ import annotations
 import time
 from datetime import datetime, timezone
 from typing import List
+from unittest.mock import patch
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _fi_tests_sqlite_history_only():
+    """
+    Failure Intelligence tests persist runs to SQLite only.
+
+    When ``SUPABASE_*`` is set locally, ``run_history_service`` would otherwise
+    read ``qa_runs`` and miss synthetic rows — force the SQLite read path here.
+
+    Patch both ``qa_runs_read`` and ``run_history_service`` bindings: the latter
+    keeps a module-level import of ``supabase_qa_runs_enabled`` that does not
+    follow patches on ``qa_runs_read`` alone.
+    """
+    with (
+        patch("services.qa_runs_read.supabase_qa_runs_enabled", return_value=False),
+        patch("services.run_history_service.supabase_qa_runs_enabled", return_value=False),
+    ):
+        yield
 
 
 # ── Shared DB / state helpers ─────────────────────────────────────────────────
@@ -468,3 +488,102 @@ class TestNonRegression:
         assert FlakyTestSignal
         assert FailureIntelligenceSummary
         assert RegressionPattern
+
+
+# ── Run history facade + adapter (Supabase-shaped canonical) ─────────────────
+
+class TestFailureIntelligenceRunHistoryIntegration:
+
+    def test_get_clusters_invokes_run_history_list_runs(self):
+        """Clusters load through ``run_history_service.list_runs`` (not repo directly)."""
+        from services.failure_intelligence_service import FailureIntelligenceService
+        from services.run_history_service import run_history_service
+
+        _make_tc("TC-RH-TRACE", module="checkout")
+        _make_run("TC-RH-TRACE", "fail", logs=["selector not found on page"])
+
+        orig = run_history_service.list_runs
+        calls = []
+
+        def spy(**kwargs):
+            calls.append(kwargs)
+            return orig(**kwargs)
+
+        with patch.object(run_history_service, "list_runs", side_effect=spy):
+            FailureIntelligenceService().get_clusters(limit=50)
+
+        assert len(calls) >= 1
+        assert any("limit" in c for c in calls)
+
+    def test_clusters_non_empty_when_sqlite_empty_but_history_returns_failures(self):
+        """``qa_runs`` can carry failures while SQLite is empty — FI still clusters."""
+        from services.failure_intelligence_service import FailureIntelligenceService
+        from models.run_contract import CanonicalRun, RunArtifacts, RunMeta
+
+        _db_reset()
+        _make_tc("TC-SB-ONLY", module="payments")
+        rid = "run-supabase-only-1"
+        fake_row = CanonicalRun(
+            run_id=rid,
+            test_id="TC-SB-ONLY",
+            test_name="remote",
+            source="api",
+            status="failed",
+            started_at="2026-05-10T10:00:00+00:00",
+            steps=[],
+            logs=["500 Internal Server Error calling /api/pay"],
+            artifacts=RunArtifacts(),
+            meta=RunMeta(environment="staging"),
+        )
+        with patch("services.qa_runs_read.supabase_qa_runs_enabled", return_value=True):
+            with patch(
+                "services.run_history_service.run_history_service.list_runs",
+                return_value=[fake_row],
+            ):
+                clusters = FailureIntelligenceService().get_clusters(limit=50)
+        api_clusters = [c for c in clusters if c.root_cause_category == "api_failure"]
+        assert len(api_clusters) >= 1
+        assert rid in api_clusters[0].run_ids
+
+    def test_flaky_normalizes_passed_failed_canonical_statuses(self):
+        """Canonical ``passed`` / ``failed`` map to storage pass/fail for flip heuristics."""
+        from services.failure_intelligence_service import (
+            FailureIntelligenceService,
+            FLAKY_MIN_RUNS,
+        )
+        from models.run_contract import CanonicalRun, RunArtifacts, RunMeta
+
+        _db_reset()
+        tc = "TC-CANON-STAT"
+        _make_tc(tc)
+        rows = []
+        for i, st in enumerate(["passed", "failed", "passed", "failed", "passed", "failed"]):
+            rows.append(
+                CanonicalRun(
+                    run_id=f"cr-{i}",
+                    test_id=tc,
+                    status=st,
+                    started_at=f"2026-05-11T10:0{i}:00+00:00",
+                    steps=[],
+                    logs=[],
+                    artifacts=RunArtifacts(),
+                    meta=RunMeta(),
+                )
+            )
+        with patch("services.qa_runs_read.supabase_qa_runs_enabled", return_value=True):
+
+            def fake_list_runs(*, test_case_id=None, project_id=None, limit=100):
+                if test_case_id in (None, tc):
+                    return rows[:limit]
+                return []
+
+            with patch(
+                "services.run_history_service.run_history_service.list_runs",
+                side_effect=fake_list_runs,
+            ):
+                signals = FailureIntelligenceService().get_flaky_tests(min_runs=FLAKY_MIN_RUNS)
+        match = next((s for s in signals if s.test_case_id == tc), None)
+        assert match is not None
+        assert match.suspected_flaky is True
+        assert match.pass_count >= 1
+        assert match.fail_count >= 1

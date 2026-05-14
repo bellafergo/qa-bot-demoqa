@@ -22,9 +22,11 @@ Provides on-demand failure analysis over persisted test run history:
    Combines the above into a single FailureIntelligenceSummary.
 
 Data sources:
-  - test_run_repo  (SQLite run history)
-  - catalog_repo   (test case metadata for module mapping)
-  - rca_service    (deterministic RCA, reused as-is)
+  - run_history_service.list_runs  (Supabase ``qa_runs`` or SQLite → ``CanonicalRun``)
+  - canonical_run_to_test_run      (adapter to ``TestRun`` for RCA / legacy helpers)
+  - test_run_repo                  (SQLite-only: merge keys for flaky/regression TC discovery)
+  - catalog_repo                   (test case metadata for module mapping)
+  - rca_service                    (deterministic RCA, reused as-is)
 
 No new persistence layer — all computed on demand.
 """
@@ -32,7 +34,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from models.failure_intelligence_models import (
     FailureCluster,
@@ -40,6 +42,8 @@ from models.failure_intelligence_models import (
     FlakyTestSignal,
     RegressionPattern,
 )
+from services.insights_metrics import compute_blast_radius
+from services.rca_service import recommendation_for_category
 
 logger = logging.getLogger("vanya.failure_intelligence")
 
@@ -52,6 +56,13 @@ FLAKY_FLIP_THRESHOLD = 0.4   # minimum flip rate to suspect flakiness
 CLUSTER_LIMIT        = 200   # max recent runs to load for clustering
 REGRESSION_MIN_FAILURES = 2  # failures needed to report a regression pattern
 REGRESSION_WINDOW    = 20    # recent run window for regression detection
+
+# Recent-history cap for discovering test_case_ids (union with SQLite keys).
+FI_HISTORY_KEY_SCAN_LIMIT = 2000
+
+# ``get_summary`` total_failed counts failures within this many most-recent rows only.
+# TODO(Supabase parity): align with global aggregates / ``run_history_service.count_by_status``.
+FI_SUMMARY_FAILED_CAP = 5000
 
 
 # ── Private helpers ────────────────────────────────────────────────────────────
@@ -75,6 +86,172 @@ def _cluster_id(category: str, layer: str, module: str) -> str:
     return f"CL-{h}"
 
 
+def _list_canonical_for_fi(
+    *,
+    test_case_id: Optional[str] = None,
+    project_id: Optional[str] = None,
+    limit: int = 100,
+):
+    """
+    Primary read: ``run_history_service.list_runs``.
+
+    When Supabase is configured, merge in SQLite rows so local catalog history
+    (tests / mirror lag) still feeds FI when ``qa_runs`` is empty or partial.
+    Rows are ordered **SQLite first** (newest within each source), then Supabase-only
+    ids, so a capped ``limit`` does not drop local runs behind a large cloud tail.
+    The same ``run_id`` in both stores uses the Supabase payload. When Supabase
+    is off, ``run_history_service`` already reads SQLite only — no merge.
+    """
+    from services.db.test_run_repository import test_run_repo
+    from models.run_contract import CanonicalRun
+    from services.qa_runs_read import supabase_qa_runs_enabled
+    from services.run_history_service import run_history_service
+    from services.run_mapper import run_from_catalog_testrun
+
+    # Read flag before ``list_runs`` so tests patching ``qa_runs_read`` do not fetch
+    # ``qa_runs`` first and then short-circuit with an empty cloud tail.
+    if not supabase_qa_runs_enabled():
+        return run_history_service.list_runs(
+            test_case_id=test_case_id,
+            project_id=project_id,
+            limit=limit,
+        )
+
+    crs = run_history_service.list_runs(
+        test_case_id=test_case_id,
+        project_id=project_id,
+        limit=limit,
+    )
+
+    rows_sql = test_run_repo.list_runs(
+        test_case_id=test_case_id,
+        project_id=project_id,
+        limit=limit,
+    )
+    sqlite_crs = [run_from_catalog_testrun(r) for r in rows_sql]
+    if not crs:
+        return sqlite_crs
+
+    by_supa: Dict[str, CanonicalRun] = {cr.run_id: cr for cr in crs if cr.run_id}
+
+    def _sort_key(cr: CanonicalRun) -> str:
+        return str(cr.started_at or cr.finished_at or "")
+
+    sqlite_sorted = sorted(sqlite_crs, key=_sort_key, reverse=True)
+    supa_sorted = sorted(crs, key=_sort_key, reverse=True)
+    used: set[str] = set()
+    ordered: List[CanonicalRun] = []
+
+    def _emit(cr: CanonicalRun) -> None:
+        rid = cr.run_id
+        if not rid or rid in used:
+            return
+        used.add(rid)
+        # Same execution id in both stores: prefer Supabase row.
+        ordered.append(by_supa.get(rid, cr))
+
+    for sc in sqlite_sorted:
+        _emit(sc)
+        if len(ordered) >= limit:
+            return ordered
+    for cr in supa_sorted:
+        _emit(cr)
+        if len(ordered) >= limit:
+            break
+    return ordered
+
+
+def _list_test_runs_via_history(
+    *,
+    test_case_id: Optional[str] = None,
+    project_id: Optional[str] = None,
+    limit: int = 100,
+):
+    """Canonical rows for FI → ``TestRun`` via ``canonical_run_to_test_run``."""
+    from services.run_mapper import canonical_run_to_test_run
+
+    crs = _list_canonical_for_fi(
+        test_case_id=test_case_id,
+        project_id=project_id,
+        limit=limit,
+    )
+    return [canonical_run_to_test_run(cr) for cr in crs]
+
+
+def _test_case_ids_from_history_preview(
+    *,
+    project_id: Optional[str],
+    preview_limit: int,
+    allowed_ids: Optional[Set[str]],
+) -> List[str]:
+    crs = _list_canonical_for_fi(project_id=project_id, limit=preview_limit)
+    order: List[str] = []
+    seen: set[str] = set()
+    for cr in crs:
+        tid = (cr.test_id or "").strip()
+        if not tid or tid == "unknown":
+            continue
+        if allowed_ids is not None and tid not in allowed_ids:
+            continue
+        if tid not in seen:
+            seen.add(tid)
+            order.append(tid)
+    return order
+
+
+def _sqlite_test_case_id_keys(project_id: Optional[str]) -> List[str]:
+    from services.db.catalog_repository import catalog_repo
+    from services.db.test_run_repository import test_run_repo
+
+    pid = (project_id or "").strip() or None
+    if pid:
+        allowed = set(catalog_repo.list_test_case_ids_for_project(pid))
+        if not allowed:
+            return []
+        runs_by_tc = test_run_repo.count_runs_by_test_case(test_case_ids=allowed)
+    else:
+        runs_by_tc = test_run_repo.count_runs_by_test_case()
+    return list(runs_by_tc.keys())
+
+
+def _merge_tc_id_order(history_first: List[str], sqlite_keys: List[str]) -> List[str]:
+    seen: set[str] = set()
+    out: List[str] = []
+    for tid in history_first:
+        if tid in seen:
+            continue
+        seen.add(tid)
+        out.append(tid)
+    for tid in sqlite_keys:
+        if tid in seen:
+            continue
+        seen.add(tid)
+        out.append(tid)
+    return out
+
+
+def _iter_flaky_regression_tc_ids(
+    project_id: Optional[str],
+    *,
+    allowed_ids: Optional[Set[str]],
+) -> List[str]:
+    """
+    Test cases to scan for flaky/regression heuristics.
+
+    Order: distinct ids from recent ``run_history_service`` rows, then any
+    additional ids present only in SQLite — so FI stays populated when
+    Supabase has data but the local mirror is empty.
+    """
+    pid = (project_id or "").strip() or None
+    hist = _test_case_ids_from_history_preview(
+        project_id=pid,
+        preview_limit=FI_HISTORY_KEY_SCAN_LIMIT,
+        allowed_ids=allowed_ids,
+    )
+    sqlite_keys = _sqlite_test_case_id_keys(pid)
+    return _merge_tc_id_order(hist, sqlite_keys)
+
+
 # ── Service class ─────────────────────────────────────────────────────────────
 
 class FailureIntelligenceService:
@@ -94,13 +271,19 @@ class FailureIntelligenceService:
 
         Optional filters narrow down returned clusters.
         """
-        from services.db.test_run_repository import test_run_repo
         from services.db.catalog_repository import catalog_repo
         from services.rca_service import rca_service
+        from services.run_mapper import normalize_storage_status
 
         pid = (project_id or "").strip() or None
-        all_runs     = test_run_repo.list_runs(limit=limit, project_id=pid)
-        failed_runs  = [r for r in all_runs if r.status in ("fail", "error")]
+        all_runs = _list_test_runs_via_history(
+            project_id=pid,
+            limit=limit,
+        )
+        failed_runs = [
+            r for r in all_runs
+            if normalize_storage_status(str(r.status or "")) in ("fail", "error")
+        ]
 
         # Build tc_id → module lookup
         tc_module: Dict[str, str] = {}
@@ -161,6 +344,25 @@ class FailureIntelligenceService:
                 f"(layer: {layer}). {probable_cause[:80]}."
             )
 
+            runs_only = [r for r, _ in items]
+            affected_tc_ids = sorted(
+                {r.test_case_id for r in runs_only if getattr(r, "test_case_id", None)}
+            )
+            signals_used = []
+            if first_rca and first_rca.evidence_signals:
+                signals_used = list(first_rca.evidence_signals)[:12]
+            rec_action = (
+                (first_rca.recommendation if first_rca else "")
+                or recommendation_for_category(category)
+            )
+            blast = compute_blast_radius(
+                module=mod,
+                affected_test_case_ids=affected_tc_ids,
+                total_failures=n,
+                root_cause_category=category,
+                runs=runs_only,
+            )
+
             clusters.append(FailureCluster(
                 cluster_id                  = _cluster_id(category, layer, mod),
                 root_cause_category         = category,
@@ -173,6 +375,10 @@ class FailureIntelligenceService:
                 probable_cause              = probable_cause,
                 confidence                  = confidence,
                 summary                     = summary,
+                affected_test_case_ids       = affected_tc_ids,
+                recommended_action           = rec_action,
+                signals_used                 = signals_used,
+                blast_radius                 = blast,
             ))
 
         clusters.sort(key=lambda c: -c.total_failures)
@@ -198,24 +404,27 @@ class FailureIntelligenceService:
         flaky_score ∈ [0, 1] combines flip_rate and pass/fail balance.
         """
         from services.db.catalog_repository import catalog_repo
-        from services.db.test_run_repository import test_run_repo
+        from services.run_mapper import normalize_storage_status
 
         pid = (project_id or "").strip() or None
+        allowed: Optional[Set[str]] = None
         if pid:
             allowed = set(catalog_repo.list_test_case_ids_for_project(pid))
             if not allowed:
                 return []
-            runs_by_tc = test_run_repo.count_runs_by_test_case(test_case_ids=allowed)
-        else:
-            runs_by_tc = test_run_repo.count_runs_by_test_case()
+
         signals: List[FlakyTestSignal] = []
 
-        for tc_id in runs_by_tc:
-            recent = test_run_repo.list_runs(test_case_id=tc_id, limit=window)
+        for tc_id in _iter_flaky_regression_tc_ids(pid, allowed_ids=allowed):
+            recent = _list_test_runs_via_history(
+                test_case_id=tc_id,
+                project_id=pid,
+                limit=window,
+            )
             if not recent:
                 continue
 
-            statuses    = [r.status for r in recent]
+            statuses = [normalize_storage_status(str(r.status or "")) for r in recent]
             total       = len(statuses)
             pass_count  = statuses.count("pass")
             fail_count  = statuses.count("fail")
@@ -281,13 +490,16 @@ class FailureIntelligenceService:
 
         Returns None when there is no recent history for the test case.
         """
-        from services.db.test_run_repository import test_run_repo
+        from services.run_mapper import normalize_storage_status
 
-        recent = test_run_repo.list_runs(test_case_id=test_case_id, limit=window)
+        recent = _list_test_runs_via_history(
+            test_case_id=test_case_id,
+            limit=window,
+        )
         if not recent:
             return None
 
-        statuses    = [r.status for r in recent]
+        statuses    = [normalize_storage_status(str(r.status or "")) for r in recent]
         total       = len(statuses)
         pass_count  = statuses.count("pass")
         fail_count  = statuses.count("fail")
@@ -346,9 +558,9 @@ class FailureIntelligenceService:
         Detect test cases that have failed >= min_failures times within
         their most recent `window` runs.
         """
-        from services.db.test_run_repository import test_run_repo
         from services.db.catalog_repository import catalog_repo
         from services.rca_service import rca_service
+        from services.run_mapper import normalize_storage_status
 
         pid = (project_id or "").strip() or None
         tc_module: Dict[str, str] = {}
@@ -362,23 +574,24 @@ class FailureIntelligenceService:
         except Exception:
             pass
 
+        allowed: Optional[Set[str]] = None
         if pid:
             allowed = set(catalog_repo.list_test_case_ids_for_project(pid))
             if not allowed:
                 return []
-            runs_by_tc = test_run_repo.count_runs_by_test_case(test_case_ids=allowed)
-        else:
-            runs_by_tc = test_run_repo.count_runs_by_test_case()
+
         patterns: List[RegressionPattern] = []
 
-        for tc_id, status_counts in runs_by_tc.items():
-            # Quick pre-filter: skip if aggregate totals can't qualify
-            total_agg_failures = status_counts.get("fail", 0) + status_counts.get("error", 0)
-            if total_agg_failures < min_failures:
-                continue
-
-            recent = test_run_repo.list_runs(test_case_id=tc_id, limit=window)
-            failed = [r for r in recent if r.status in ("fail", "error")]
+        for tc_id in _iter_flaky_regression_tc_ids(pid, allowed_ids=allowed):
+            recent = _list_test_runs_via_history(
+                test_case_id=tc_id,
+                project_id=pid,
+                limit=window,
+            )
+            failed = [
+                r for r in recent
+                if normalize_storage_status(str(r.status or "")) in ("fail", "error")
+            ]
             if len(failed) < min_failures:
                 continue
 
@@ -411,18 +624,18 @@ class FailureIntelligenceService:
 
     def get_summary(self, project_id: Optional[str] = None) -> FailureIntelligenceSummary:
         """Aggregate all failure intelligence metrics into one summary object."""
-        from services.db.catalog_repository import catalog_repo
-        from services.db.test_run_repository import test_run_repo
+        from services.run_mapper import normalize_storage_status
 
         pid = (project_id or "").strip() or None
-        if pid:
-            tc_ids = set(catalog_repo.list_test_case_ids_for_project(pid))
-            run_counts = test_run_repo.count_by_status(
-                test_case_ids=tc_ids if tc_ids else [],
-            )
-        else:
-            run_counts = test_run_repo.count_by_status()
-        total_failed = run_counts.get("fail", 0) + run_counts.get("error", 0)
+        # Capped recent window — see ``FI_SUMMARY_FAILED_CAP`` / module TODO for global parity.
+        runs_canonical = _list_canonical_for_fi(
+            project_id=pid,
+            limit=FI_SUMMARY_FAILED_CAP,
+        )
+        total_failed = sum(
+            1 for cr in runs_canonical
+            if normalize_storage_status(str(cr.status or "")) in ("fail", "error")
+        )
 
         clusters    = self.get_clusters(project_id=pid)
         flaky       = self.get_flaky_tests(project_id=pid)

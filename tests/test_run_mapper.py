@@ -31,6 +31,7 @@ from services.run_mapper import (
     run_from_orchestrator_job,
     normalize_run,
     normalize_run_list,
+    normalize_storage_status,
     suite_from_catalog_suite_result,
 )
 from models.run_contract import CanonicalRun, RunArtifacts, RunMeta
@@ -154,6 +155,11 @@ class TestRunFromCatalogTestRun(unittest.TestCase):
         r = run_from_catalog_testrun(tr)
         self.assertEqual(len(r.steps), 2)
         self.assertEqual(r.steps[0]["action"], "goto")
+
+    def test_logs_carried_to_canonical(self):
+        tr = _make_test_run(logs=["line a", "line b"])
+        r = run_from_catalog_testrun(tr)
+        self.assertEqual(r.logs, ["line a", "line b"])
 
     def test_started_at_is_iso_string(self):
         r = run_from_catalog_testrun(_make_test_run())
@@ -688,6 +694,16 @@ class TestEvidenceLookupMerge(unittest.TestCase):
         self.assertIsNone(merged.get("resolution_log"))
         self.assertEqual(merged["status"], "queued")
         self.assertIsNotNone(merged.get("artifacts"))
+
+
+class TestNormalizeStorageStatusQuick(unittest.TestCase):
+    """Sanity checks — full matrix lives in ``tests/test_canonical_run_adapter.py``."""
+
+    def test_failed_to_fail(self):
+        self.assertEqual(normalize_storage_status("failed"), "fail")
+
+    def test_passed_to_pass(self):
+        self.assertEqual(normalize_storage_status("passed"), "pass")
 
 
 if __name__ == "__main__":

@@ -7,11 +7,14 @@ The analyze_run_id tests persist a run to the SQLite DB via conftest.py.
 """
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 
 from models.rca_models import RCAAnalysisResult, RCAEvidenceSignal
+from models.run_contract import CanonicalRun, RunArtifacts, RunMeta
 from models.test_run import TestRun
-from services.rca_service import RCAService, rca_service
+from services.rca_service import RCAService, rca_service, recommendation_for_category
 from services.test_catalog_service import _reset_for_testing
 from services.catalog_orchestrator import _reset_for_testing as _orch_reset
 
@@ -443,3 +446,97 @@ class TestAnalyzeRunId:
 
         result = rca_service.analyze_run_id(run.run_id)
         assert result.root_cause_category == "selector_issue"
+
+
+class TestAnalyzeRunIdRunHistoryFacade:
+    """``analyze_run_id`` prefers ``run_history_service.get_run`` + adapter; SQLite fallback."""
+
+    def setup_method(self):
+        _reset_for_testing()
+        _orch_reset()
+
+    def test_calls_run_history_get_run_first(self):
+        rid = "supabase-like-run-001"
+        cr = CanonicalRun(
+            run_id=rid,
+            test_id="TC-SB-1",
+            test_name="API smoke",
+            source="api",
+            status="failed",
+            started_at="2026-05-01T12:00:00+00:00",
+            finished_at="2026-05-01T12:01:00+00:00",
+            duration_ms=5000,
+            steps=[],
+            logs=["Timeout en step 2: fill — TimeoutError: exceeded 15000ms"],
+            artifacts=RunArtifacts(),
+            meta=RunMeta(environment="staging"),
+        )
+        with patch(
+            "services.run_history_service.run_history_service.get_run",
+            return_value=cr,
+        ) as mock_get:
+            result = rca_service.analyze_run_id(rid)
+        mock_get.assert_called_once_with(rid)
+        assert result.run_id == rid
+        assert result.root_cause_category == "timeout_issue"
+
+    def test_supabase_like_canonical_run_analyzed_via_adapter(self):
+        rid = "canonical-only-002"
+        cr = CanonicalRun(
+            run_id=rid,
+            test_id="TC-X",
+            status="failed",
+            started_at="2026-05-02T00:00:00+00:00",
+            steps=[
+                {
+                    "action": "click",
+                    "status": "failed",
+                    "error": "locator not found: .pay-btn",
+                }
+            ],
+            logs=[],
+            artifacts=RunArtifacts(),
+            meta=RunMeta(),
+        )
+        with patch(
+            "services.run_history_service.run_history_service.get_run",
+            return_value=cr,
+        ):
+            result = rca_service.analyze_run_id(rid)
+        assert result.root_cause_category == "selector_issue"
+
+    def test_fallback_sqlite_when_history_returns_none(self):
+        from services.db.test_run_repository import test_run_repo
+
+        run = TestRun(
+            test_case_id="TC-FB-1",
+            status="fail",
+            logs=["503 Service Unavailable from gateway"],
+        )
+        test_run_repo.create_run(run)
+        rid = run.run_id
+        with patch(
+            "services.run_history_service.run_history_service.get_run",
+            return_value=None,
+        ):
+            result = rca_service.analyze_run_id(rid)
+        assert result.run_id == rid
+        assert result.root_cause_category == "api_failure"
+
+    def test_not_found_when_neither_source_has_run(self):
+        with patch(
+            "services.run_history_service.run_history_service.get_run",
+            return_value=None,
+        ):
+            with pytest.raises(ValueError, match="not found"):
+                rca_service.analyze_run_id("ghost-run-id-no-sqlite")
+
+
+def test_recommendation_for_category_auth():
+    text = recommendation_for_category("auth_issue")
+    assert len(text) > 20
+    assert "auth" in text.lower() or "credential" in text.lower()
+
+
+def test_recommendation_for_category_fallback():
+    assert len(recommendation_for_category("")) > 10

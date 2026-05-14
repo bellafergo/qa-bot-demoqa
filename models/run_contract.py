@@ -122,6 +122,8 @@ class CanonicalRun(BaseModel):
         description="Secondary id (e.g. qa_runs.evidence_id, EV-…). Not the navigation key; use run_id.",
     )
     steps:         List[Dict[str, Any]] = Field(default_factory=list)
+    # Optional runner log lines (SQLite catalog rows carry these; list payloads stay lean when empty)
+    logs:          List[str]    = Field(default_factory=list)
     artifacts:     RunArtifacts = Field(default_factory=RunArtifacts)
     meta:          RunMeta      = Field(default_factory=RunMeta)
 

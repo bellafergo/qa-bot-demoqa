@@ -158,11 +158,12 @@ class RunHistoryService:
 
     def count_by_status(self) -> dict:
         """
-        Return {status_string: count} over all persisted runs.
+        Return {status_string: count} over all persisted runs in SQLite ``test_runs``.
 
         Note: counts reflect the legacy status strings stored in SQLite
-        ('pass', 'fail', 'error') — not canonical values.  Use
-        normalize_status() from run_mapper if you need canonical counts.
+        ('pass', 'fail', 'error') — not canonical values.  When Supabase ``qa_runs``
+        is the primary read path for listings, this aggregate may diverge from
+        ``list_runs`` until a unified count is implemented.
         """
         return test_run_repo.count_by_status()
 

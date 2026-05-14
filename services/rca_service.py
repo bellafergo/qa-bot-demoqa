@@ -161,6 +161,13 @@ _RECOMMENDATIONS: Dict[str, str] = {
     "unknown":           "Inspect the full run log for error details. No specific pattern was matched — manual review is recommended.",
 }
 
+
+def recommendation_for_category(category: str) -> str:
+    """Public helper for dashboards / insights — same strings as per-run RCA recommendations."""
+    key = str(category or "unknown").strip() or "unknown"
+    return _RECOMMENDATIONS.get(key, _RECOMMENDATIONS["unknown"])
+
+
 _PROBABLE_CAUSES: Dict[str, str] = {
     "selector_issue":    "A UI element could not be located. The selector may be stale, the page may have changed, or the element may not have rendered.",
     "timeout_issue":     "A step exceeded its allowed time. The page or element may be loading slowly, or a backend call is delayed.",
@@ -213,8 +220,20 @@ def _aggregate_confidence(signals: List[RCAEvidenceSignal]) -> RCAConfidence:
 class RCAService:
 
     def analyze_run_id(self, run_id: str) -> RCAAnalysisResult:
-        """Load run from DB and analyze it."""
+        """
+        Load run and analyze it.
+
+        Resolution order: ``run_history_service.get_run`` (Supabase ``qa_runs`` or
+        SQLite via canonical mapper) → ``canonical_run_to_test_run``; if not found,
+        fallback to ``test_run_repo.get_run`` (SQLite ``TestRun`` rows).
+        """
         from services.db.test_run_repository import test_run_repo
+        from services.run_history_service import run_history_service
+        from services.run_mapper import canonical_run_to_test_run
+
+        cr = run_history_service.get_run(run_id)
+        if cr is not None:
+            return self.analyze(canonical_run_to_test_run(cr))
         run = test_run_repo.get_run(run_id)
         if run is None:
             raise ValueError(f"Run '{run_id}' not found")

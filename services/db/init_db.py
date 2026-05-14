@@ -24,6 +24,7 @@ def init_catalog_db() -> None:
     from services.db import draft_repository             # noqa: F401 — registers DraftRow
     from services.db import test_version_repository      # noqa: F401 — registers TestVersionRow
     from services.db import project_repository_sqlite       # noqa: F401 — registers ProjectRow on SQLite Base
+    from services.db import browser_inspection_watch_repository  # noqa: F401 — browser_inspection_watches tables
 
     Base.metadata.create_all(bind=engine, checkfirst=True)
     logger.info("db: catalog tables initialized (SQLite)")
@@ -140,3 +141,94 @@ def init_catalog_db() -> None:
                 logger.info("db: migrated projects — added settings_json column")
     except Exception:
         logger.exception("db: migration for projects.settings_json failed (non-fatal)")
+
+    # ── browser_inspection_watch_events.visual_meta_json (Phase 3D) ─────────────
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(browser_inspection_watch_events)"))
+            existing_cols = {row[1] for row in result.fetchall()}
+            if existing_cols and "visual_meta_json" not in existing_cols:
+                conn.execute(text("ALTER TABLE browser_inspection_watch_events ADD COLUMN visual_meta_json TEXT"))
+                conn.commit()
+                logger.info("db: migrated browser_inspection_watch_events — added visual_meta_json")
+    except Exception:
+        logger.exception("db: migration for browser_inspection_watch_events.visual_meta_json failed (non-fatal)")
+
+    # ── browser_inspection_watches — Phase 3E baseline + status ────────────────
+    _watch_cols = [
+        ("compare_mode", "ALTER TABLE browser_inspection_watches ADD COLUMN compare_mode TEXT DEFAULT 'last'"),
+        ("baseline_inspection_id", "ALTER TABLE browser_inspection_watches ADD COLUMN baseline_inspection_id TEXT"),
+        ("baseline_set_at", "ALTER TABLE browser_inspection_watches ADD COLUMN baseline_set_at TEXT"),
+        ("baseline_updated_by", "ALTER TABLE browser_inspection_watches ADD COLUMN baseline_updated_by TEXT"),
+        ("last_status", "ALTER TABLE browser_inspection_watches ADD COLUMN last_status TEXT"),
+        ("last_effective_change_level", "ALTER TABLE browser_inspection_watches ADD COLUMN last_effective_change_level TEXT"),
+        ("last_alert_at", "ALTER TABLE browser_inspection_watches ADD COLUMN last_alert_at TEXT"),
+        ("last_run_error", "ALTER TABLE browser_inspection_watches ADD COLUMN last_run_error TEXT"),
+    ]
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(browser_inspection_watches)"))
+            existing_cols = {row[1] for row in result.fetchall()}
+            if not existing_cols:
+                pass
+            else:
+                for col_name, sql in _watch_cols:
+                    if col_name not in existing_cols:
+                        conn.execute(text(sql))
+                        logger.info("db: migrated browser_inspection_watches — added %s", col_name)
+                conn.commit()
+    except Exception:
+        logger.exception("db: migration for browser_inspection_watches Phase3E failed (non-fatal)")
+
+    # ── browser_inspection_watch_events.event_type (Phase 3E) ─────────────────
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(browser_inspection_watch_events)"))
+            existing_cols = {row[1] for row in result.fetchall()}
+            if existing_cols and "event_type" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE browser_inspection_watch_events ADD COLUMN event_type TEXT DEFAULT 'diff_generated'"
+                    )
+                )
+                conn.commit()
+                logger.info("db: migrated browser_inspection_watch_events — added event_type")
+    except Exception:
+        logger.exception("db: migration for browser_inspection_watch_events.event_type failed (non-fatal)")
+
+    # ── browser_inspection_watches.last_visual_change_level (Phase 3F) ─────────
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(browser_inspection_watches)"))
+            existing_cols = {row[1] for row in result.fetchall()}
+            if existing_cols and "last_visual_change_level" not in existing_cols:
+                conn.execute(text("ALTER TABLE browser_inspection_watches ADD COLUMN last_visual_change_level TEXT"))
+                conn.commit()
+                logger.info("db: migrated browser_inspection_watches — added last_visual_change_level")
+    except Exception:
+        logger.exception("db: migration for browser_inspection_watches.last_visual_change_level failed (non-fatal)")
+
+    # ── browser_inspection_watch_events indexes (Phase 3F, idempotent) ──────────
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_bio_wevents_watch_created "
+                    "ON browser_inspection_watch_events(watch_id, created_at)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_bio_wevents_watch_event_type "
+                    "ON browser_inspection_watch_events(watch_id, event_type)"
+                )
+            )
+            conn.commit()
+            logger.info("db: ensured browser_inspection_watch_events Phase3F indexes")
+    except Exception:
+        logger.exception("db: migration for browser_inspection_watch_events indexes failed (non-fatal)")

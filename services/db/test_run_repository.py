@@ -6,13 +6,16 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Collection, List, Optional
+from typing import Any, Collection, List, Optional
 
 from sqlalchemy import Column, Integer, String, Text
 
 from services.db.sqlite_db import Base, get_session
 
 logger = logging.getLogger("vanya.db.test_run")
+
+# Browser intelligence rows (Phase 3A) — excluded from generic catalog run listings.
+_EXCLUDED_FROM_DEFAULT_LIST = frozenset({"_async", "_browser_inspection"})
 
 # ============================================================
 # Retention / soft delete
@@ -129,12 +132,45 @@ class TestRunRepository:
             if test_case_id:
                 q = q.filter(TestRunRow.test_case_id == test_case_id)
             else:
-                q = q.filter(TestRunRow.test_case_id != "_async")
+                q = q.filter(~TestRunRow.test_case_id.in_(_EXCLUDED_FROM_DEFAULT_LIST))
             if allowed is not None:
                 q = q.filter(TestRunRow.test_case_id.in_(allowed))
             q = q.order_by(TestRunRow.executed_at.desc()).limit(limit)
             rows = q.all()
         return [_row_to_model(r) for r in rows]
+
+    def list_browser_inspection_runs(
+        self,
+        *,
+        project_id: Optional[str] = None,
+        limit: int = 50,
+    ):
+        """
+        Recent browser inspection rows (``test_case_id == _browser_inspection``), newest first.
+
+        ``project_id`` filters ``meta.project_id`` in Python (small result sets).
+        """
+        cap = max(1, min(int(limit or 50), 200))
+        fetch_n = min(500, cap * 5 if project_id else cap)
+        with get_session() as s:
+            q = s.query(TestRunRow).filter(TestRunRow.test_case_id == "_browser_inspection")
+            q = self._not_deleted(q)
+            q = q.order_by(TestRunRow.executed_at.desc()).limit(fetch_n)
+            rows = q.all()
+        models = [_row_to_model(r) for r in rows]
+
+        def _is_bio_row(m: Any) -> bool:
+            if getattr(m, "test_case_id", None) != "_browser_inspection":
+                return False
+            meta = m.meta if isinstance(m.meta, dict) else {}
+            src = str(meta.get("source") or "").strip()
+            return not src or src == "browser_inspection"
+
+        models = [m for m in models if _is_bio_row(m)]
+        if project_id and str(project_id).strip():
+            pid = str(project_id).strip()
+            models = [m for m in models if str((m.meta or {}).get("project_id") or "").strip() == pid]
+        return models[:cap]
 
     def count_by_status(self, test_case_ids: Optional[Collection[str]] = None) -> dict:
         """Return {status: count} for test runs; optional filter by catalog test ids."""
@@ -143,7 +179,7 @@ class TestRunRepository:
         with get_session() as s:
             q = (
                 s.query(TestRunRow.status, func.count(TestRunRow.run_id))
-                .filter(TestRunRow.test_case_id != "_async")
+                .filter(~TestRunRow.test_case_id.in_(_EXCLUDED_FROM_DEFAULT_LIST))
             )
             q = self._not_deleted(q)
             if test_case_ids is not None:
@@ -161,7 +197,7 @@ class TestRunRepository:
         with get_session() as s:
             q = (
                 s.query(func.max(TestRunRow.executed_at))
-                .filter(TestRunRow.test_case_id != "_async")
+                .filter(~TestRunRow.test_case_id.in_(_EXCLUDED_FROM_DEFAULT_LIST))
             )
             q = self._not_deleted(q)
             if test_case_ids is not None:
@@ -186,7 +222,7 @@ class TestRunRepository:
                     TestRunRow.status,
                     func.count(TestRunRow.run_id),
                 )
-                .filter(TestRunRow.test_case_id != "_async")
+                .filter(~TestRunRow.test_case_id.in_(_EXCLUDED_FROM_DEFAULT_LIST))
             )
             q = self._not_deleted(q)
             if test_case_ids is not None:
