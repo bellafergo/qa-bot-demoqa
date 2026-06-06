@@ -205,6 +205,10 @@ def supabase_client():
             },
         )
         _supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, options=opts)
+        logger.info(
+            "Supabase REST client initialized (singleton) source=supabase_store pid=%s",
+            os.getpid(),
+        )
         return _supabase
     except Exception as e:
         cat = _classify_supabase_exception(e)

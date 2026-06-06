@@ -4,9 +4,11 @@ import logging
 import os
 from typing import Any, Dict, Optional, List
 
-from supabase import create_client, Client
-
 logger = logging.getLogger(__name__)
+
+# Module-level singleton — do NOT call create_client per request/run.
+_supabase_cached: Any = None
+_supabase_init_logged = False
 
 
 def _safe_str(x: Any) -> str:
@@ -40,13 +42,54 @@ def _normalize_tags(x: Any) -> List[str]:
     return []
 
 
-def _get_supabase() -> Optional[Client]:
+def _log_client_init_once(source: str) -> None:
+    global _supabase_init_logged
+    if _supabase_init_logged:
+        return
+    _supabase_init_logged = True
+    logger.info(
+        "Supabase REST client initialized (singleton) source=%s pid=%s",
+        source,
+        os.getpid(),
+    )
+
+
+def _get_supabase():
+    """
+    Return a cached Supabase client.
+
+    Prefer the shared singleton in services.supabase_store when the service role key
+    is configured (same client as threads/messages/catalog paths).
+
+    Falls back to a module-local singleton when only SUPABASE_ANON_KEY is set
+    (legacy path for qa_runs upsert).
+    """
+    global _supabase_cached
+
+    try:
+        from services.supabase_store import is_supabase_configured, supabase_client
+
+        if is_supabase_configured():
+            sb = supabase_client()
+            if sb is not None:
+                _log_client_init_once("supabase_store.shared")
+            return sb
+    except Exception:
+        pass
+
+    if _supabase_cached is not None:
+        return _supabase_cached
+
     url = os.getenv("SUPABASE_URL", "").strip()
     key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip() or os.getenv("SUPABASE_ANON_KEY", "").strip()
     if not url or not key:
         return None
     try:
-        return create_client(url, key)
+        from supabase import create_client
+
+        _supabase_cached = create_client(url, key)
+        _log_client_init_once("run_store_supabase.anon_fallback")
+        return _supabase_cached
     except Exception:
         return None
 
