@@ -9,7 +9,7 @@
  */
 import React, { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { listEvidences, enqueueSingle } from "../api";
+import { listEvidences, enqueueSingle, apiErrorMessage } from "../api";
 import { useLang } from "../i18n/LangContext";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -170,7 +170,7 @@ export default function EvidencePage() {
       const data = await listEvidences({ limit: 50 });
       setRows(Array.isArray(data) ? data : []);
     } catch (e) {
-      setError(e.message || "Failed to load evidence");
+      setError(apiErrorMessage(e) || t("ev.error"));
     } finally {
       setLoading(false);
     }
