@@ -139,6 +139,26 @@ def run_browser_inspection(*, url: str, timeout_ms: int, headless: bool = True) 
         except Exception:
             pass
 
+    http_error_responses: List[Dict[str, Any]] = []
+
+    def on_response(response) -> None:
+        try:
+            if len(http_error_responses) >= _MAX_NETWORK_FAIL:
+                return
+            status = int(response.status)
+            if status < 400:
+                return
+            req = response.request
+            http_error_responses.append(
+                {
+                    "url": (response.url or "")[:2000],
+                    "status": status,
+                    "method": (req.method if req else "")[:20],
+                }
+            )
+        except Exception:
+            pass
+
     title = ""
     final_url = url
     status_code: Optional[int] = None
@@ -155,6 +175,7 @@ def run_browser_inspection(*, url: str, timeout_ms: int, headless: bool = True) 
             page = context.new_page()
             page.on("console", on_console)
             page.on("requestfailed", on_request_failed)
+            page.on("response", on_response)
             try:
                 resp = page.goto(str(url), timeout=int(timeout_ms), wait_until="domcontentloaded")
                 if resp is not None:
@@ -199,5 +220,6 @@ def run_browser_inspection(*, url: str, timeout_ms: int, headless: bool = True) 
         "screenshot_logs": shot_logs,
         "console_errors": console_errors,
         "network_errors": network_errors,
+        "http_error_responses": http_error_responses,
         "navigation_error": nav_error,
     }
