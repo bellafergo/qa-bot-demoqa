@@ -15,6 +15,12 @@ from services.run_mapper import run_from_legacy_store
 
 logger = logging.getLogger("vanya.qa_runs_read")
 
+# List queries must NOT pull ``result`` (full run payload) — keeps Supabase Disk IO low.
+QA_RUNS_LIST_COLUMNS = (
+    "evidence_id,run_id,status,test_name,duration_ms,error_summary,"
+    "evidence_url,report_url,meta,created_at,thread_id,steps"
+)
+
 
 def _safe_str(x: Any) -> str:
     try:
@@ -221,7 +227,7 @@ def list_qa_runs_canonical(
             return []
         res = (
             sb.table("qa_runs")
-            .select("*")
+            .select(QA_RUNS_LIST_COLUMNS)
             .order("created_at", desc=True)
             .limit(fetch_cap)
             .execute()

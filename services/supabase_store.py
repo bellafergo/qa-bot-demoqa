@@ -203,6 +203,9 @@ def supabase_client():
                 # Best-effort for intermediaries; does not replace NOTIFY on the server.
                 "Cache-Control": "no-cache",
             },
+            # Fail fast when Supabase/PostgREST is slow (default is 120s).
+            postgrest_client_timeout=20,
+            storage_client_timeout=15,
         )
         _supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, options=opts)
         logger.info(
