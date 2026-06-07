@@ -107,13 +107,41 @@ export function throwIfNotOk(res, text) {
   throw new ApiHttpError(status, msg, text);
 }
 
+/** Default client-side timeout for API requests (ms). */
+export const DEFAULT_API_TIMEOUT_MS = 25000;
+
 /**
  * Low-level fetch to the API with Bearer token when available.
+ * Aborts after timeoutMs to avoid infinite loading states in the UI.
  */
 export async function apiFetch(path, options = {}) {
-  const { headers: ho, ...rest } = options;
+  const { headers: ho, timeoutMs = DEFAULT_API_TIMEOUT_MS, signal: outerSignal, ...rest } = options;
   const headers = mergeAuthHeaders(ho, rest.body);
-  return fetch(`${API_BASE}${path}`, { ...rest, headers });
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const onOuterAbort = () => controller.abort();
+  if (outerSignal) {
+    if (outerSignal.aborted) controller.abort();
+    else outerSignal.addEventListener("abort", onOuterAbort, { once: true });
+  }
+  try {
+    return await fetch(`${API_BASE}${path}`, { ...rest, headers, signal: controller.signal });
+  } catch (e) {
+    if (timedOut || e?.name === "AbortError") {
+      throw new ApiHttpError(
+        0,
+        "Request timed out. The server may be busy — try again in a moment.",
+      );
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+    if (outerSignal) outerSignal.removeEventListener("abort", onOuterAbort);
+  }
 }
 
 export async function apiGet(path) {

@@ -687,8 +687,22 @@ function FailureIntelMiniPanel({ fi, t }) {
 
 // ── Visual widget: Risk Summary ───────────────────────────────────────────────
 
-function RiskSummaryCard({ summary, fi, loading, t }) {
-  if (loading || !summary) {
+function RiskSummaryCard({ summary, fi, loading, loadError, t }) {
+  if (loading) {
+    return (
+      <div style={{ padding: "12px 0", fontSize: 12, color: "var(--text-3)" }}>
+        {t("dash.risk.loading")}
+      </div>
+    );
+  }
+  if (loadError) {
+    return (
+      <div style={{ padding: "12px 0", fontSize: 12, color: "var(--red-text)" }}>
+        {loadError}
+      </div>
+    );
+  }
+  if (!summary) {
     return (
       <div style={{ padding: "12px 0", fontSize: 12, color: "var(--text-3)" }}>
         {t("dash.risk.no_data")}
@@ -902,6 +916,9 @@ export default function DashboardPage() {
   const [analytics, setAnalytics]     = useState(null);
   const [execStatus, setExecStatus]   = useState(null);
   const [loading, setLoading]         = useState(true);
+  const [loadError, setLoadError]     = useState("");
+  const [fiLoading, setFiLoading]     = useState(true);
+  const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState(null);
   // MEJORA #4 — client-side filters for recent runs (no extra API calls)
   const [recentRunsFilter, setRecentRunsFilter] = useState("all");
@@ -913,29 +930,42 @@ export default function DashboardPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError("");
+    setFiLoading(true);
+    setAnalyticsLoading(true);
     try {
       const pid = projectId;
       const [s, runs, jobs, ex] = await Promise.all([
-        getDashboardSummary(pid ? { project_id: pid } : {}).catch(() => null),
-        getDashboardRecentRuns(10, pid).catch(() => []),
-        getDashboardRecentJobs(10, pid).catch(() => []),
-        getExecStatus().catch(() => null),
+        getDashboardSummary(pid ? { project_id: pid } : {}),
+        getDashboardRecentRuns(10, pid),
+        getDashboardRecentJobs(10, pid),
+        getExecStatus(),
       ]);
       setSummary(s);
       setRecentRuns(Array.isArray(runs) ? runs : []);
       setRecentJobs(Array.isArray(jobs) ? jobs : []);
       setExecStatus(ex && typeof ex === "object" ? ex : null);
       setLastRefresh(new Date());
-
-      // Non-critical — load separately so they don't block the main render
-      getFailureIntel(pid).then(f => setFi(f)).catch(() => {});
-      getRunsAnalytics(pid).then(a => setAnalytics(a)).catch(() => {});
-    } catch {
-      // partial load is fine
+    } catch (e) {
+      setSummary(null);
+      setRecentRuns([]);
+      setRecentJobs([]);
+      setExecStatus(null);
+      setLoadError(apiErrorMessage(e) || t("dash.load_error"));
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+
+    const pid = projectId;
+    getFailureIntel(pid)
+      .then((f) => setFi(f))
+      .catch(() => setFi(null))
+      .finally(() => setFiLoading(false));
+    getRunsAnalytics(pid)
+      .then((a) => setAnalytics(a))
+      .catch(() => setAnalytics(null))
+      .finally(() => setAnalyticsLoading(false));
+  }, [projectId, t]);
 
   useEffect(() => {
     load();
@@ -1090,7 +1120,7 @@ export default function DashboardPage() {
   );
 
   const showTopProblemCard =
-    loading || !!(analytics && Array.isArray(analytics.top_failures) && analytics.top_failures[0]);
+    analyticsLoading || !!(analytics && Array.isArray(analytics.top_failures) && analytics.top_failures[0]);
 
   return (
     <div style={{ height: "100%", overflow: "auto", background: "var(--bg)" }}>
@@ -1140,6 +1170,15 @@ export default function DashboardPage() {
       <SystemStatusRibbon ribbon={systemRibbon} />
 
       <div style={{ padding: "32px 40px" }}>
+
+        {loadError && !loading ? (
+          <div className="alert alert-error" style={{ marginBottom: 20, fontSize: 13 }}>
+            {loadError}{" "}
+            <button type="button" className="btn btn-secondary btn-sm" style={{ marginLeft: 8 }} onClick={load}>
+              {t("dash.refresh")}
+            </button>
+          </div>
+        ) : null}
 
         {/* ── KPI grid (MEJORA #3 — rely on .kpi-grid auto-fit for variable card count) ── */}
         <div className="kpi-grid" style={{ marginBottom: 28 }}>
@@ -1192,8 +1231,8 @@ export default function DashboardPage() {
 
         {showTopProblemCard ? (
           <TopProblemCard
-            analytics={loading ? null : analytics}
-            loading={loading}
+            analytics={analyticsLoading ? null : analytics}
+            loading={analyticsLoading}
             t={t}
             onRerun={handleTopProblemRerun}
             onView={handleTopProblemView}
@@ -1219,11 +1258,11 @@ export default function DashboardPage() {
         {/* ── Visual row 2: Failure Distribution (1/2) + Risk Summary (1/2) ── */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 28 }}>
           <WidgetCard title={t("dash.failures.title")} subtitle={t("dash.failures.subtitle")}>
-            <FailureDistributionChart fi={fi} loading={loading} t={t} />
+            <FailureDistributionChart fi={fi} loading={fiLoading} t={t} />
             <FailureIntelMiniPanel fi={fi} t={t} />
           </WidgetCard>
           <WidgetCard title={t("dash.risk.title")} subtitle={t("dash.risk.subtitle")}>
-            <RiskSummaryCard summary={summary} fi={fi} loading={loading} t={t} />
+            <RiskSummaryCard summary={summary} fi={fi} loading={loading} loadError={loadError} t={t} />
           </WidgetCard>
         </div>
 
@@ -1418,7 +1457,7 @@ export default function DashboardPage() {
 
           {!analytics && (
             <div style={{ fontSize: 13, color: "var(--text-3)" }}>
-              {loading ? t("dash.analytics.loading") : t("dash.analytics.empty")}
+              {analyticsLoading ? t("dash.analytics.loading") : t("dash.analytics.empty")}
             </div>
           )}
 
