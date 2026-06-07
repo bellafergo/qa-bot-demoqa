@@ -27,7 +27,7 @@ from models.orchestrator_job import OrchestratorJob
 from services.db.catalog_repository import catalog_repo
 from services.db.test_run_repository import test_run_repo
 from services.db.orchestrator_job_repository import orch_job_repo
-from services.qa_runs_read import list_qa_runs_canonical, supabase_qa_runs_enabled
+from services.qa_runs_read import supabase_qa_runs_enabled
 
 logger = logging.getLogger("vanya.dashboard")
 
@@ -71,9 +71,10 @@ class DashboardService:
             tc_ids: Set[str] = set()
 
         if supabase_qa_runs_enabled():
-            # Use qa_runs (Supabase) as the source of truth for run counts so
-            # dashboard and the Runs page read from the same table.
-            sb_runs = list_qa_runs_canonical(limit=500, project_id=pid)
+            # Merged history (Supabase + SQLite) — same source as Runs / Evidence list.
+            from services.run_history_service import run_history_service
+
+            sb_runs = run_history_service.list_runs(limit=500, project_id=pid)
             pass_runs = fail_runs = error_runs = 0
             last_run_at = None
             for r in sb_runs:

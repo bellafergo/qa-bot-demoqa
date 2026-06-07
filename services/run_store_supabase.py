@@ -94,6 +94,40 @@ def _get_supabase():
         return None
 
 
+def _lean_result_for_supabase(run_payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Strip heavy blobs from the ``result`` jsonb column to keep upserts reliable."""
+    import copy
+
+    lean = copy.deepcopy(run_payload)
+    lean.pop("screenshot_b64", None)
+    meta = lean.get("meta")
+    if isinstance(meta, dict):
+        meta.pop("screenshot_b64", None)
+        ev = meta.get("evidence")
+        if isinstance(ev, dict):
+            ev.pop("screenshot_b64", None)
+    return lean
+
+
+def _is_transient_supabase_error(exc: BaseException) -> bool:
+    blob = f"{type(exc).__name__} {exc}".lower()
+    return any(
+        x in blob
+        for x in (
+            "timeout",
+            "timed out",
+            "disconnected",
+            "connection reset",
+            "connection refused",
+            "remoteprotocolerror",
+            "502",
+            "503",
+            "504",
+            "broken pipe",
+        )
+    )
+
+
 def persist_run_supabase(run_payload: Dict[str, Any]) -> bool:
     """
     Upsert por evidence_id (PK legacy) + persist canonical run_id column for GET /runs/{run_id}.
@@ -182,15 +216,28 @@ def persist_run_supabase(run_payload: Dict[str, Any]) -> bool:
         "evidence_url": evidence_url or None,
         "report_url": report_url or None,
         "meta": meta,
-        "result": run_payload,          # guardas TODO para auditoría
+        "result": _lean_result_for_supabase(run_payload),
         "git_sha": git_sha or None,
         "runner_version": runner_version or None,
     }
 
-    try:
-        # upsert por evidence_id
-        sb.table("qa_runs").upsert(row, on_conflict="evidence_id").execute()
-        return True
-    except Exception as e:
-        logger.error("persist_run_supabase: upsert failed for evidence_id=%r — %s", evid, e)
-        return False
+    last_err: Optional[Exception] = None
+    for attempt in range(1, 4):
+        try:
+            sb.table("qa_runs").upsert(row, on_conflict="evidence_id").execute()
+            return True
+        except Exception as e:
+            last_err = e
+            if attempt >= 3 or not _is_transient_supabase_error(e):
+                break
+            logger.warning(
+                "persist_run_supabase: transient error attempt %s/3 evidence_id=%r — %s",
+                attempt,
+                evid,
+                e,
+            )
+            import time
+
+            time.sleep(0.15 * (2 ** (attempt - 1)))
+    logger.error("persist_run_supabase: upsert failed for evidence_id=%r — %s", evid, last_err)
+    return False

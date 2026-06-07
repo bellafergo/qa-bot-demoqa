@@ -107,6 +107,36 @@ class TestRunRepository:
             row = q.first()
             return _row_to_model(row) if row else None
 
+    def find_by_lookup_id(self, lookup_id: str):
+        """
+        Resolve a catalog run by run_id, evidence_id, or meta.correlation_id.
+        """
+        import json
+
+        lid = (lookup_id or "").strip()
+        if not lid:
+            return None
+        hit = self.get_run(lid)
+        if hit:
+            return hit
+        with get_session() as s:
+            q = self._not_deleted(s.query(TestRunRow).filter_by(evidence_id=lid))
+            row = q.first()
+            if row:
+                return _row_to_model(row)
+        # correlation_id lives in meta — scan recent rows (bounded)
+        with get_session() as s:
+            q = self._not_deleted(s.query(TestRunRow))
+            q = q.order_by(TestRunRow.executed_at.desc()).limit(500)
+            for row in q.all():
+                try:
+                    meta = json.loads(row.meta_json or "{}")
+                except Exception:
+                    meta = {}
+                if str(meta.get("correlation_id") or "").strip() == lid:
+                    return _row_to_model(row)
+        return None
+
     def list_runs(
         self,
         *,

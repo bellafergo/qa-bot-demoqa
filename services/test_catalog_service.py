@@ -53,6 +53,23 @@ def _testrun_to_qa_runs_payload(run: TestRun) -> Dict[str, Any]:
     meta.setdefault("source", "catalog")
     meta.setdefault("trigger_source", "catalog")
 
+    # Project scope for dashboard / evidence filters (qa_runs meta.project_id).
+    try:
+        tc_row = catalog_repo.get_test_case(run.test_case_id)
+        if tc_row is not None:
+            tc_pid = getattr(tc_row, "project_id", None) or (
+                tc_row.get("project_id") if isinstance(tc_row, dict) else None
+            )
+            if tc_pid and str(tc_pid).strip():
+                meta.setdefault("project_id", str(tc_pid).strip())
+    except Exception:
+        pass
+
+    # Lean mirror payload — screenshot blobs stay in SQLite only.
+    meta.pop("screenshot_b64", None)
+    if isinstance(meta.get("evidence"), dict):
+        meta["evidence"] = {k: v for k, v in meta["evidence"].items() if k != "screenshot_b64"}
+
     err_sum: Optional[str] = None
     if run.status in ("fail", "error"):
         err_sum = meta.get("runner_reason")

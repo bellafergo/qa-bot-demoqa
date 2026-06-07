@@ -92,73 +92,14 @@ def _list_canonical_for_fi(
     project_id: Optional[str] = None,
     limit: int = 100,
 ):
-    """
-    Primary read: ``run_history_service.list_runs``.
-
-    When Supabase is configured, merge in SQLite rows so local catalog history
-    (tests / mirror lag) still feeds FI when ``qa_runs`` is empty or partial.
-    Rows are ordered **SQLite first** (newest within each source), then Supabase-only
-    ids, so a capped ``limit`` does not drop local runs behind a large cloud tail.
-    The same ``run_id`` in both stores uses the Supabase payload. When Supabase
-    is off, ``run_history_service`` already reads SQLite only — no merge.
-    """
-    from services.db.test_run_repository import test_run_repo
-    from models.run_contract import CanonicalRun
-    from services.qa_runs_read import supabase_qa_runs_enabled
+    """Primary read: merged ``run_history_service.list_runs`` (SQLite + Supabase)."""
     from services.run_history_service import run_history_service
-    from services.run_mapper import run_from_catalog_testrun
 
-    # Read flag before ``list_runs`` so tests patching ``qa_runs_read`` do not fetch
-    # ``qa_runs`` first and then short-circuit with an empty cloud tail.
-    if not supabase_qa_runs_enabled():
-        return run_history_service.list_runs(
-            test_case_id=test_case_id,
-            project_id=project_id,
-            limit=limit,
-        )
-
-    crs = run_history_service.list_runs(
+    return run_history_service.list_runs(
         test_case_id=test_case_id,
         project_id=project_id,
         limit=limit,
     )
-
-    rows_sql = test_run_repo.list_runs(
-        test_case_id=test_case_id,
-        project_id=project_id,
-        limit=limit,
-    )
-    sqlite_crs = [run_from_catalog_testrun(r) for r in rows_sql]
-    if not crs:
-        return sqlite_crs
-
-    by_supa: Dict[str, CanonicalRun] = {cr.run_id: cr for cr in crs if cr.run_id}
-
-    def _sort_key(cr: CanonicalRun) -> str:
-        return str(cr.started_at or cr.finished_at or "")
-
-    sqlite_sorted = sorted(sqlite_crs, key=_sort_key, reverse=True)
-    supa_sorted = sorted(crs, key=_sort_key, reverse=True)
-    used: set[str] = set()
-    ordered: List[CanonicalRun] = []
-
-    def _emit(cr: CanonicalRun) -> None:
-        rid = cr.run_id
-        if not rid or rid in used:
-            return
-        used.add(rid)
-        # Same execution id in both stores: prefer Supabase row.
-        ordered.append(by_supa.get(rid, cr))
-
-    for sc in sqlite_sorted:
-        _emit(sc)
-        if len(ordered) >= limit:
-            return ordered
-    for cr in supa_sorted:
-        _emit(cr)
-        if len(ordered) >= limit:
-            break
-    return ordered
 
 
 def _list_test_runs_via_history(
@@ -572,12 +513,16 @@ class FailureIntelligenceService:
                 for tc_id, mod in catalog_repo.all_modules():
                     tc_module[tc_id] = mod
         except Exception:
-            pass
+            logger.warning("failure_intelligence: catalog module map unavailable", exc_info=True)
 
         allowed: Optional[Set[str]] = None
         if pid:
-            allowed = set(catalog_repo.list_test_case_ids_for_project(pid))
-            if not allowed:
+            try:
+                allowed = set(catalog_repo.list_test_case_ids_for_project(pid))
+            except Exception:
+                logger.warning("failure_intelligence: catalog project ids unavailable", exc_info=True)
+                allowed = None
+            if allowed is not None and not allowed:
                 return []
 
         patterns: List[RegressionPattern] = []
