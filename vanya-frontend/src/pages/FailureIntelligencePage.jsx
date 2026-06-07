@@ -10,7 +10,7 @@
  */
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { getFlakyTests, getRegressions, getClusters, getDeepInsights } from "../api";
+import { getFlakyTests, getRegressions, getClusters, getDeepInsights, apiErrorMessage } from "../api";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
 
@@ -479,9 +479,9 @@ export default function FailureIntelligencePage({ embedded = false }) {
   const [flaky, setFlaky]                   = useState(null);
   const [regressions, setRegressions]       = useState(null);
   const [clusters, setClusters]             = useState(null);
-  const [loadingFlaky, setLoadingFlaky]     = useState(false);
-  const [loadingReg,   setLoadingReg]       = useState(false);
-  const [loadingClusters, setLoadingClusters] = useState(false);
+  const [loadingFlaky, setLoadingFlaky]     = useState(true);
+  const [loadingReg,   setLoadingReg]       = useState(true);
+  const [loadingClusters, setLoadingClusters] = useState(true);
   const [errorFlaky, setErrorFlaky]         = useState("");
   const [errorReg,   setErrorReg]           = useState("");
   const [errorClusters, setErrorClusters]   = useState("");
@@ -493,7 +493,7 @@ export default function FailureIntelligencePage({ embedded = false }) {
       const data = await getFlakyTests(projectId);
       setFlaky(Array.isArray(data) ? data : []);
     } catch (e) {
-      setErrorFlaky(e?.message || "Failed to load flaky tests");
+      setErrorFlaky(apiErrorMessage(e) || "Failed to load flaky tests");
     } finally {
       setLoadingFlaky(false);
     }
@@ -506,7 +506,7 @@ export default function FailureIntelligencePage({ embedded = false }) {
       const data = await getRegressions(projectId);
       setRegressions(Array.isArray(data) ? data : []);
     } catch (e) {
-      setErrorReg(e?.message || "Failed to load regressions");
+      setErrorReg(apiErrorMessage(e) || "Failed to load regressions");
     } finally {
       setLoadingReg(false);
     }
@@ -519,7 +519,7 @@ export default function FailureIntelligencePage({ embedded = false }) {
       const data = await getClusters(projectId ? { project_id: projectId } : {});
       setClusters(Array.isArray(data) ? data : []);
     } catch (e) {
-      setErrorClusters(e?.message || "Failed to load clusters");
+      setErrorClusters(apiErrorMessage(e) || "Failed to load clusters");
     } finally {
       setLoadingClusters(false);
     }
