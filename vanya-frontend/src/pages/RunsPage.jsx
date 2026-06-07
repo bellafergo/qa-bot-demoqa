@@ -1489,7 +1489,11 @@ function RunHistoryTab({ initialRunId }) {
                 <button className="btn btn-secondary btn-sm" onClick={() => navigate("/generate")}>{t("runs.empty.cta_generate")}</button>
               </div>
             </div>
-          ) : !loading && filteredRuns.length === 0 ? (
+          ) : loading ? (
+            <div style={{ padding: "32px 24px", textAlign: "center", color: "var(--text-3)", fontSize: 13 }}>
+              {t("runs.history.loading")}
+            </div>
+          ) : filteredRuns.length === 0 ? (
             <div style={{ padding: "32px 24px", textAlign: "center" }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", marginBottom: 6 }}>
                 {filtersActive ? t("runs.filter.no_results") : t("runs.history.none")}
