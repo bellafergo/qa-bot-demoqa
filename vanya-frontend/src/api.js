@@ -582,3 +582,24 @@ export function disableLocalAgent(agentId) {
     body: "{}",
   });
 }
+
+// ========= Incident Investigator (Autonomous) =========
+
+/** POST /incidents/investigate */
+export function investigateIncident(body) {
+  return apiPost("/incidents/investigate", body);
+}
+
+/** GET /incidents/runs */
+export function listIncidentRuns(params = {}) {
+  const q = new URLSearchParams();
+  if (params.limit != null) q.set("limit", String(params.limit));
+  if (params.project_id) q.set("project_id", String(params.project_id));
+  const qs = q.toString();
+  return apiGet(`/incidents/runs${qs ? `?${qs}` : ""}`);
+}
+
+/** GET /incidents/runs/{id} */
+export function getIncidentRun(runId) {
+  return apiGet(`/incidents/runs/${encodeURIComponent(runId)}`);
+}

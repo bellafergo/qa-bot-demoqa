@@ -22,6 +22,7 @@ const NAV_SECTIONS_DEF = [
     labelKey: "nav.intelligence",
     items: [
       { to: "/insights", icon: "◐", labelKey: "nav.insights" },
+      { to: "/incidents", icon: "⚡", labelKey: "nav.incidents" },
       { to: "/browser-watch", icon: "◎", labelKey: "nav.browser_watch" },
       { to: "/local-agents", icon: "⎔", labelKey: "nav.local_agents" },
     ],
