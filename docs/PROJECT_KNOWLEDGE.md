@@ -41,11 +41,37 @@ Fields inside payload: `modules`, `routes`, `apis`, `components`, `forms`, `tabl
 
 ## Automatic feeding
 
-1. **Explorer** — `POST /app-explorer/explore-app` with `project_id` → `ingest_explorer_result()`
-2. **App Map** — `POST /inspect-url/map` with `project_id` → `ingest_app_map()`
+1. **Explorer** — `POST /app-explorer/explore-app` with `project_id` → `ingest_explorer_result()` (live hook only)
+2. **App Map** — `POST /inspect-url/map` with `project_id` → `ingest_app_map()` + light row in `test_runs`
 3. **Runs** — `test_catalog_service._save_run()` → `ingest_run_completed()` (test metrics)
 4. **Incidents** — after investigation → `ingest_incident_completed()`
-5. **Manual refresh** — `POST /projects/{id}/knowledge/refresh` rebuilds catalog/FI/incident slices
+5. **Refresh** — `POST /projects/{id}/knowledge/refresh?mode=replace` (default) rebuilds from sources
+
+## Refresh modes (R7)
+
+| Mode | Behaviour |
+|------|-----------|
+| `replace` (default) | Rebuild derived memory from current sources; drops stale routes/forms |
+| `merge` | Additive patch on top of existing memory (legacy) |
+
+UI: **Refresh memory** → `replace`; **Merge memory** → `merge`.
+
+## Reconstruction on refresh (R1)
+
+`refresh_project_knowledge` rebuilds from:
+
+| Source | Store | Rebuilt fields |
+|--------|-------|----------------|
+| Catalog | `test_cases` | modules, related_tests, routes (base_url) |
+| Browser Inspection | `test_runs` (`_browser_inspection`) | routes, forms (count), workflows, apis, components |
+| Runs | `run_history_service` | `run_fail_rate` in metadata |
+| Failure Intelligence | computed | failure_history |
+| Incidents | `incident_investigation_runs` | incident_history |
+
+**Not reconstructible on refresh** (documented in `metadata.reconstruction_notes`):
+
+- **Explorer** (`/app-explorer/explore-app`) — HTML inventories are ephemeral; never written to `test_runs`
+- **Full forms/tables field lists** — only bounded `app_map_summary` / counts are persisted
 
 ## Incident Investigator integration
 

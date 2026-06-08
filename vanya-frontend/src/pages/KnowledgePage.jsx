@@ -79,12 +79,12 @@ export default function KnowledgePage() {
     load();
   }, [load]);
 
-  const handleRefresh = async () => {
+  const handleRefresh = async (mode = "replace") => {
     if (!projectId) return;
     setRefreshing(true);
     setError("");
     try {
-      const data = await refreshProjectKnowledge(projectId);
+      const data = await refreshProjectKnowledge(projectId, mode);
       setKnowledge(data);
     } catch (e) {
       setError(apiErrorMessage(e) || t("knowledge.error"));
@@ -112,9 +112,14 @@ export default function KnowledgePage() {
             {t("knowledge.scope", { name: currentProject?.name || projectId })}
           </p>
         </div>
-        <button type="button" className="btn btn-primary btn-sm" onClick={handleRefresh} disabled={refreshing || loading}>
-          {refreshing ? t("knowledge.refreshing") : t("knowledge.refresh")}
-        </button>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => handleRefresh("replace")} disabled={refreshing || loading}>
+            {refreshing ? t("knowledge.refreshing") : t("knowledge.refresh")}
+          </button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleRefresh("merge")} disabled={refreshing || loading}>
+            {t("knowledge.merge")}
+          </button>
+        </div>
       </div>
 
       {error ? <div className="alert alert-error" style={{ marginBottom: 16 }}>{error}</div> : null}
@@ -124,7 +129,7 @@ export default function KnowledgePage() {
       ) : !knowledge ? (
         <div className="card" style={{ padding: 24 }}>
           <p style={{ fontSize: 13, color: "var(--text-2)", marginBottom: 16 }}>{t("knowledge.empty")}</p>
-          <button type="button" className="btn btn-primary" onClick={handleRefresh} disabled={refreshing}>
+          <button type="button" className="btn btn-primary" onClick={() => handleRefresh("replace")} disabled={refreshing}>
             {t("knowledge.build")}
           </button>
         </div>

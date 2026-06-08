@@ -611,7 +611,8 @@ export function getProjectKnowledge(projectId) {
   return apiGet(`/projects/${encodeURIComponent(projectId)}/knowledge`);
 }
 
-/** POST /projects/{id}/knowledge/refresh */
-export function refreshProjectKnowledge(projectId) {
-  return apiPost(`/projects/${encodeURIComponent(projectId)}/knowledge/refresh`, {});
+/** POST /projects/{id}/knowledge/refresh — mode: "replace" (default) | "merge" */
+export function refreshProjectKnowledge(projectId, mode = "replace") {
+  const q = new URLSearchParams({ mode: String(mode || "replace") });
+  return apiPost(`/projects/${encodeURIComponent(projectId)}/knowledge/refresh?${q}`, {});
 }

@@ -118,11 +118,16 @@ class ProjectKnowledge(BaseModel):
     model_config = {"extra": "ignore"}
 
 
+KnowledgeRefreshMode = Literal["replace", "merge"]
+
+
 class ProjectKnowledgeRefreshRequest(BaseModel):
     include_catalog: bool = True
     include_runs: bool = True
     include_failures: bool = True
     include_incidents: bool = True
+    include_discovery: bool = True
+    mode: KnowledgeRefreshMode = "replace"
 
 
 class ProjectKnowledgeContext(BaseModel):

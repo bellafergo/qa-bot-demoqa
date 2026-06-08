@@ -352,6 +352,149 @@ def app_map_to_entities(app_map: Dict[str, Any], *, source: str = "app_map") -> 
     return routes, forms, tables, workflows, nav_routes
 
 
+def inspection_summaries_to_entities(
+    *,
+    url: str,
+    title: str = "",
+    executed_at: str = "",
+    browser_inspection_summary: Optional[Dict[str, Any]] = None,
+    app_map_summary: Optional[Dict[str, Any]] = None,
+    source: str = "browser_inspection",
+) -> Dict[str, List[Any]]:
+    """
+    Rebuild discovery entities from persisted light summaries (Phase 3A rows).
+
+    Full Explorer HTML inventories and full AppMap forms/tables arrays are NOT
+    stored in ``test_runs`` — only bounded summaries are available here.
+    """
+    now = executed_at or _utc_now_iso()
+    bis = browser_inspection_summary if isinstance(browser_inspection_summary, dict) else {}
+    ams = app_map_summary if isinstance(app_map_summary, dict) else {}
+
+    page_url = _clip(str(bis.get("final_url") or bis.get("url") or url or ""), 2048)
+    page_title = _clip(str(bis.get("title") or title or ""), 200)
+    page_types = [str(x) for x in (ams.get("page_type") or []) if x]
+
+    routes: List[KnowledgeRoute] = []
+    forms: List[KnowledgeForm] = []
+    tables: List[KnowledgeTable] = []
+    apis: List[KnowledgeApi] = []
+    workflows: List[KnowledgeWorkflow] = []
+    components: List[Dict[str, Any]] = []
+
+    if page_url:
+        routes.append(KnowledgeRoute(
+            url=page_url,
+            title=page_title,
+            page_types=page_types,
+            source=source,
+            last_seen_at=now,
+        ))
+
+    counts = bis.get("counts") if isinstance(bis.get("counts"), dict) else {}
+    forms_n = int(counts.get("forms_count") or 0)
+    if forms_n > 0 and page_url:
+        forms.append(KnowledgeForm(
+            name=f"detected_forms_{forms_n}",
+            url=page_url,
+            fields=[],
+            source=source,
+            last_seen_at=now,
+        ))
+
+    for nav in ams.get("main_navigation_summary") or []:
+        if not isinstance(nav, dict):
+            continue
+        href = _clip(str(nav.get("href") or ""), 400)
+        if href.startswith("http"):
+            routes.append(KnowledgeRoute(
+                url=href,
+                title=_clip(str(nav.get("text") or ""), 120),
+                source="app_map",
+                last_seen_at=now,
+            ))
+            if _API_PATH_RE.search(href):
+                apis.append(KnowledgeApi(url=href, source="app_map", last_seen_at=now))
+
+    for act in ams.get("primary_actions_summary") or []:
+        if not isinstance(act, dict):
+            continue
+        components.append({
+            "kind": str(act.get("kind") or "action"),
+            "name": _clip(str(act.get("text") or act.get("label") or ""), 120),
+            "url": page_url,
+            "source": "app_map",
+        })
+
+    for i, flow in enumerate(ams.get("suggested_test_flows") or []):
+        if not flow:
+            continue
+        workflows.append(KnowledgeWorkflow(
+            name=_clip(f"flow_{i + 1}", 80),
+            steps=[_clip(str(flow), 300)],
+            source="app_map",
+            last_seen_at=now,
+        ))
+
+    for row in bis.get("network_errors") or []:
+        if not isinstance(row, dict):
+            continue
+        nu = _clip(str(row.get("url") or ""), 400)
+        if nu.startswith("http") and _API_PATH_RE.search(nu):
+            apis.append(KnowledgeApi(url=nu, source=source, last_seen_at=now))
+
+    return {
+        "routes": routes,
+        "forms": forms,
+        "tables": tables,
+        "apis": apis,
+        "workflows": workflows,
+        "components": components[:20],
+    }
+
+
+def assemble_fresh_knowledge(
+    *,
+    project_id: str,
+    project_name: str,
+    modules: List[KnowledgeModule],
+    routes: List[KnowledgeRoute],
+    forms: List[KnowledgeForm],
+    tables: List[KnowledgeTable],
+    apis: List[KnowledgeApi],
+    workflows: List[KnowledgeWorkflow],
+    components: List[Dict[str, Any]],
+    related_tests: List[KnowledgeRelatedTest],
+    failure_history: List[KnowledgeFailureEntry],
+    incident_history: List[KnowledgeIncidentEntry],
+    metadata: Dict[str, Any],
+    run_fail_rate: float = 0.0,
+) -> ProjectKnowledge:
+    """Dedupe within a fresh rebuild batch (replace mode)."""
+    pk = ProjectKnowledge(
+        project_id=project_id,
+        project_name=project_name,
+        modules=merge_modules([], modules),
+        routes=merge_routes([], routes),
+        forms=merge_forms([], forms),
+        tables=merge_tables([], tables),
+        apis=merge_apis([], apis),
+        workflows=merge_workflows([], workflows),
+        components=components[:100],
+        related_tests=merge_related_tests([], related_tests),
+        failure_history=replace_failure_history(failure_history),
+        incident_history=replace_incident_history(incident_history),
+        metadata=metadata,
+        updated_at=_utc_now_iso(),
+    )
+    pk.risk_score = compute_risk_score(
+        failure_history=pk.failure_history,
+        incident_history=pk.incident_history,
+        run_fail_rate=run_fail_rate,
+    )
+    return pk
+
+
 def apply_patch(knowledge: ProjectKnowledge, patch: Dict[str, Any]) -> ProjectKnowledge:
     """Merge a partial patch into existing knowledge."""
     data = knowledge.model_dump()

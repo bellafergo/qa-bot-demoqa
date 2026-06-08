@@ -7,7 +7,11 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
-from models.project_knowledge_models import ProjectKnowledge, ProjectKnowledgeRefreshRequest
+from models.project_knowledge_models import (
+    KnowledgeRefreshMode,
+    ProjectKnowledge,
+    ProjectKnowledgeRefreshRequest,
+)
 from services.project_knowledge_service import (
     get_project_knowledge,
     refresh_project_knowledge,
@@ -29,19 +33,23 @@ def get_knowledge(project_id: str):
 @router.post("/{project_id}/knowledge/refresh", response_model=ProjectKnowledge)
 def refresh_knowledge(
     project_id: str,
+    mode: KnowledgeRefreshMode = Query(default="replace"),
     include_catalog: bool = Query(default=True),
     include_runs: bool = Query(default=True),
     include_failures: bool = Query(default=True),
     include_incidents: bool = Query(default=True),
+    include_discovery: bool = Query(default=True),
 ):
     try:
         return refresh_project_knowledge(
             project_id,
             ProjectKnowledgeRefreshRequest(
+                mode=mode,
                 include_catalog=include_catalog,
                 include_runs=include_runs,
                 include_failures=include_failures,
                 include_incidents=include_incidents,
+                include_discovery=include_discovery,
             ),
         )
     except ValueError as e:

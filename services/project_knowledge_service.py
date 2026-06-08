@@ -23,8 +23,10 @@ from models.project_knowledge_models import (
 )
 from services.app_knowledge_graph import (
     app_map_to_entities,
+    assemble_fresh_knowledge,
     compute_risk_score,
     explorer_page_to_entities,
+    inspection_summaries_to_entities,
 )
 from services.project_memory_service import get_memory, get_or_create, merge_memory_patch, save_memory
 
@@ -162,6 +164,51 @@ def ingest_incident_completed(project_id: str, incident: Dict[str, Any]) -> None
         logger.exception("ingest_incident_completed failed project_id=%s", pid)
 
 
+def _collect_discovery_from_inspection_history(project_id: str) -> Dict[str, List[Any]]:
+    """Rebuild routes/forms/workflows/apis/components from persisted browser inspection rows."""
+    pid = (project_id or "").strip()
+    out: Dict[str, List[Any]] = {
+        "routes": [],
+        "forms": [],
+        "tables": [],
+        "apis": [],
+        "workflows": [],
+        "components": [],
+    }
+    if not pid:
+        return out
+    try:
+        from services.db.test_run_repository import test_run_repo
+
+        rows = test_run_repo.list_browser_inspection_runs(project_id=pid, limit=100)
+        for row in rows or []:
+            meta = getattr(row, "meta", None) or {}
+            if not isinstance(meta, dict):
+                continue
+            bis = meta.get("browser_inspection_summary")
+            ams = meta.get("app_map_summary")
+            executed_at = ""
+            ex = getattr(row, "executed_at", None)
+            if hasattr(ex, "isoformat"):
+                executed_at = ex.isoformat()
+            elif ex:
+                executed_at = str(ex)
+            src = str(meta.get("source") or "browser_inspection").strip() or "browser_inspection"
+            chunk = inspection_summaries_to_entities(
+                url="",
+                title=getattr(row, "test_name", None) or "",
+                executed_at=executed_at,
+                browser_inspection_summary=bis if isinstance(bis, dict) else None,
+                app_map_summary=ams if isinstance(ams, dict) else None,
+                source=src,
+            )
+            for key in out:
+                out[key].extend(chunk.get(key) or [])
+    except Exception:
+        logger.exception("refresh: browser inspection history failed project_id=%s", pid)
+    return out
+
+
 def refresh_project_knowledge(
     project_id: str,
     req: Optional[ProjectKnowledgeRefreshRequest] = None,
@@ -171,12 +218,20 @@ def refresh_project_knowledge(
     if not pid:
         raise ValueError("project_id is required")
     opts = req or ProjectKnowledgeRefreshRequest()
+    mode = (opts.mode or "replace").strip().lower()
+    if mode not in ("replace", "merge"):
+        raise ValueError("mode must be 'replace' or 'merge'")
     name = _resolve_project_name(pid)
-    knowledge = get_or_create(pid, project_name=name)
+    existing = get_memory(pid)
 
     modules: List[KnowledgeModule] = []
     related_tests: List[KnowledgeRelatedTest] = []
-    routes: List[KnowledgeRoute] = list(knowledge.routes)
+    routes: List[KnowledgeRoute] = []
+    forms: List[Any] = []
+    tables: List[Any] = []
+    apis: List[Any] = []
+    workflows: List[Any] = []
+    components: List[Dict[str, Any]] = []
 
     if opts.include_catalog:
         try:
@@ -233,7 +288,7 @@ def refresh_project_knowledge(
         except Exception:
             logger.exception("refresh: failure intelligence failed project_id=%s", pid)
 
-    incident_history: List[KnowledgeIncidentEntry] = list(knowledge.incident_history)
+    incident_history: List[KnowledgeIncidentEntry] = []
     if opts.include_incidents:
         try:
             from services.db.incident_investigation_repository import incident_investigation_repo
@@ -265,17 +320,79 @@ def refresh_project_knowledge(
     except Exception:
         pass
 
+    discovery_rows = 0
+    if opts.include_discovery:
+        disc = _collect_discovery_from_inspection_history(pid)
+        routes.extend(disc["routes"])
+        forms.extend(disc["forms"])
+        tables.extend(disc["tables"])
+        apis.extend(disc["apis"])
+        workflows.extend(disc["workflows"])
+        components.extend(disc["components"])
+        discovery_rows = len(disc["routes"])
+
+    reconstruction_sources = []
+    if opts.include_catalog:
+        reconstruction_sources.append("catalog")
+    if opts.include_discovery:
+        reconstruction_sources.append("browser_inspection")
+    if opts.include_runs:
+        reconstruction_sources.append("runs")
+    if opts.include_failures:
+        reconstruction_sources.append("failure_intelligence")
+    if opts.include_incidents:
+        reconstruction_sources.append("incidents")
+
+    refresh_meta: Dict[str, Any] = {
+        "last_refresh_at": _utc_now_iso(),
+        "run_fail_rate": round(run_fail_rate, 4),
+        "refresh_mode": mode,
+        "reconstruction_sources": reconstruction_sources,
+        "discovery_inspection_rows": discovery_rows,
+        "explorer_reconstructible": False,
+        "reconstruction_notes": (
+            "Explorer (/app-explorer) HTML inventories are not persisted in test_runs; "
+            "only browser_inspection + app_map_summary rows are rebuilt on refresh. "
+            "Full forms/tables field lists require live ingest hooks."
+        ),
+    }
+
+    if mode == "replace":
+        updated = assemble_fresh_knowledge(
+            project_id=pid,
+            project_name=name,
+            modules=modules,
+            routes=routes,
+            forms=forms,
+            tables=tables,
+            apis=apis,
+            workflows=workflows,
+            components=components,
+            related_tests=related_tests,
+            failure_history=failure_history,
+            incident_history=incident_history,
+            metadata=refresh_meta,
+            run_fail_rate=run_fail_rate,
+        )
+        return save_memory(updated)
+
+    # merge — additive refresh (legacy behaviour)
+    knowledge = existing or get_or_create(pid, project_name=name)
     patch = {
         "project_name": name,
         "modules": [m.model_dump() for m in modules],
         "routes": [r.model_dump() for r in routes],
+        "forms": [f.model_dump() if hasattr(f, "model_dump") else f for f in forms],
+        "tables": [t.model_dump() if hasattr(t, "model_dump") else t for t in tables],
+        "apis": [a.model_dump() if hasattr(a, "model_dump") else a for a in apis],
+        "workflows": [w.model_dump() if hasattr(w, "model_dump") else w for w in workflows],
+        "components": components,
         "related_tests": [t.model_dump() for t in related_tests],
         "failure_history": [f.model_dump() for f in failure_history],
         "incident_history": [i.model_dump() for i in incident_history],
         "metadata": {
             **(knowledge.metadata or {}),
-            "last_refresh_at": _utc_now_iso(),
-            "run_fail_rate": round(run_fail_rate, 4),
+            **refresh_meta,
         },
     }
     updated = merge_memory_patch(pid, patch, project_name=name)
