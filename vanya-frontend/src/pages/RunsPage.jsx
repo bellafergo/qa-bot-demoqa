@@ -1120,7 +1120,7 @@ function EvidenceLookupTab() {
       <div className="card" style={{ marginBottom: 24 }}>
         <div className="page-header" style={{ marginBottom: 16 }}>
           <h1 className="page-title">{t("runs.lookup.title")}</h1>
-          <p className="page-subtitle">{t("runs.lookup.subtitle")}</p>
+          <p className="page-subtitle" style={{ whiteSpace: "pre-wrap" }}>{t("runs.lookup.subtitle")}</p>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
           <input

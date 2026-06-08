@@ -859,9 +859,9 @@ export const translations = {
     "runs.clusters.col.target": "Target",
     "runs.clusters.col.count":  "Count",
 
-    "runs.lookup.title":       "Evidence Lookup",
-    "runs.lookup.subtitle":    "Enter the canonical run id (UUID from the Evidence Library or run history). GET /runs/{run_id} resolves only by run_id.",
-    "runs.lookup.placeholder": "Run id (UUID)",
+    "runs.lookup.title":       "Run Lookup",
+    "runs.lookup.subtitle":    "You can look up a run using any of the following identifiers:\n\n• Run ID (UUID)\n• Correlation ID\n• Evidence ID\n\nThe system will automatically resolve the identifier you enter.",
+    "runs.lookup.placeholder": "Run ID, Correlation ID, or Evidence ID",
     "runs.lookup.loading":     "Loading…",
     "runs.lookup.fetch":       "Fetch Run",
 
@@ -2499,9 +2499,9 @@ export const translations = {
     "runs.clusters.col.target": "Destino",
     "runs.clusters.col.count":  "Cantidad",
 
-    "runs.lookup.title":       "Búsqueda de Evidencia",
-    "runs.lookup.subtitle":    "Ingresá el run_id canónico (UUID de la Biblioteca de Evidencias o del historial). GET /runs/{run_id} resuelve solo por run_id.",
-    "runs.lookup.placeholder": "run_id (UUID)",
+    "runs.lookup.title":       "Búsqueda de Ejecuciones",
+    "runs.lookup.subtitle":    "Podés buscar una ejecución utilizando cualquiera de los siguientes identificadores:\n\n• Run ID (UUID)\n• Correlation ID\n• Evidence ID\n\nEl sistema intentará resolver automáticamente el identificador ingresado.",
+    "runs.lookup.placeholder": "Run ID, Correlation ID o Evidence ID",
     "runs.lookup.loading":     "Cargando…",
     "runs.lookup.fetch":       "Buscar Ejecución",
 
