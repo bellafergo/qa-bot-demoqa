@@ -96,7 +96,7 @@ def test_analyze_for_project_uses_risk_engine_without_recalc():
     assert report.pr_risk_level != "CRITICAL"
     assert report.risk_score == report.pr_risk_score
     assert report.risk_level == report.pr_risk_level
-    assert report.engine_version == "pr-v1.2"
+    assert report.engine_version == "pr-v1.3"
     assert report.changed_files_count == 2
     assert any(m.module == "Candidates" for m in report.impacted_modules)
     rec_ids = [t.test_case_id for t in report.recommended_tests]

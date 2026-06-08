@@ -10,6 +10,8 @@ import {
   computeV1Confidence,
   resolvePrRisk,
   resolveProjectRisk,
+  resolveRiskSignals,
+  formatRiskSignalImpact,
   toEnterpriseRiskTier,
 } from "../../utils/prAnalysisViewUtils";
 
@@ -45,6 +47,62 @@ function fmtDate(iso) {
   } catch {
     return "—";
   }
+}
+
+function RiskExplainabilityPanel({ signals, finalScore, t }) {
+  if (!signals?.length) {
+    return (
+      <div className="card" style={{ padding: "16px 22px" }}>
+        <div className="section-title" style={{ marginBottom: 8 }}>{t("pr.enterprise.why_risk_score")}</div>
+        <p style={{ fontSize: 13, color: "var(--text-3)", margin: 0 }}>{t("pr.enterprise.risk_signals_empty")}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card" style={{ padding: "16px 22px" }}>
+      <div className="section-title" style={{ marginBottom: 12 }}>{t("pr.enterprise.why_risk_score")}</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {signals.map((sig, idx) => (
+          <div
+            key={`${sig.category}-${sig.title}-${idx}`}
+            style={{ display: "flex", gap: 12, alignItems: "flex-start", fontSize: 13, lineHeight: 1.5 }}
+          >
+            <span
+              style={{
+                minWidth: 44,
+                fontWeight: 700,
+                fontFamily: "monospace",
+                color: Number(sig.impact) < 0 ? "var(--green)" : Number(sig.impact) > 0 ? "var(--orange)" : "var(--text-3)",
+              }}
+            >
+              {formatRiskSignalImpact(sig.impact)}
+            </span>
+            <div>
+              <div style={{ fontWeight: 600, color: "var(--text-1)" }}>{sig.title}</div>
+              {sig.explanation ? (
+                <div style={{ color: "var(--text-3)", marginTop: 2 }}>{sig.explanation}</div>
+              ) : null}
+            </div>
+          </div>
+        ))}
+      </div>
+      {finalScore != null ? (
+        <div
+          style={{
+            marginTop: 14,
+            paddingTop: 12,
+            borderTop: "1px solid var(--border)",
+            fontSize: 14,
+            fontWeight: 700,
+            color: "var(--text-1)",
+          }}
+        >
+          {t("pr.enterprise.final_pr_risk")}: {Math.round(finalScore)}/100
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function FileTypeCell({ row, t }) {
@@ -197,6 +255,16 @@ export default function PRAnalysisEnterpriseView({
     [mode, v1],
   );
 
+  const riskSignals = useMemo(
+    () => (mode === "v1" && v1 ? resolveRiskSignals(v1) : []),
+    [mode, v1],
+  );
+
+  const prRiskForSignals = useMemo(
+    () => (mode === "v1" && v1 ? resolvePrRisk(v1).score : null),
+    [mode, v1],
+  );
+
   if (!executive) return null;
 
   const testCount = recommendedTests.length;
@@ -260,6 +328,10 @@ export default function PRAnalysisEnterpriseView({
           </div>
         ) : null}
       </div>
+
+      {mode === "v1" && v1 ? (
+        <RiskExplainabilityPanel signals={riskSignals} finalScore={prRiskForSignals} t={t} />
+      ) : null}
 
       {/* Modified files */}
       {modifiedFiles.length > 0 ? (

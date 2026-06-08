@@ -12,6 +12,9 @@ import {
   resolvePrRisk,
   resolveProjectRisk,
   resolveFileChangeType,
+  resolveRiskSignals,
+  formatRiskSignalImpact,
+  sumRiskSignalImpacts,
 } from "./prAnalysisViewUtils";
 
 describe("toEnterpriseRiskTier", () => {
@@ -150,6 +153,35 @@ describe("resolveFileChangeType", () => {
     const r = resolveFileChangeType("src/foo.py", []);
     expect(r.fromCce).toBe(false);
     expect(r.type).toBe("python");
+  });
+});
+
+describe("risk explainability utils", () => {
+  it("resolveRiskSignals returns backend signals", () => {
+    const v1 = {
+      risk_signals: [
+        { category: "module", title: "Critical module: AUTH", impact: 12, explanation: "Auth scrutiny." },
+        { category: "change_type", title: "Comment-only change", impact: 2.5, explanation: "Comments only." },
+      ],
+    };
+    expect(resolveRiskSignals(v1)).toHaveLength(2);
+    expect(resolveRiskSignals(null)).toEqual([]);
+    expect(resolveRiskSignals({})).toEqual([]);
+  });
+
+  it("formatRiskSignalImpact renders signed values", () => {
+    expect(formatRiskSignalImpact(12)).toBe("+12");
+    expect(formatRiskSignalImpact(-7.9)).toBe("-7.9");
+    expect(formatRiskSignalImpact(0)).toBe("0");
+  });
+
+  it("sumRiskSignalImpacts adds impacts", () => {
+    const signals = [
+      { impact: 2.5 },
+      { impact: 12 },
+      { impact: -7.9 },
+    ];
+    expect(sumRiskSignalImpacts(signals)).toBeCloseTo(6.6, 1);
   });
 });
 

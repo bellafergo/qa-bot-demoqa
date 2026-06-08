@@ -66,6 +66,26 @@ export function resolveProjectRisk(v1) {
   };
 }
 
+/** Risk explainability signals from PR Risk Composer (v1.3+). */
+export function resolveRiskSignals(v1) {
+  if (!v1 || !Array.isArray(v1.risk_signals)) return [];
+  return v1.risk_signals.filter((s) => s && (s.title || s.explanation));
+}
+
+export function formatRiskSignalImpact(impact) {
+  const n = Number(impact);
+  if (!Number.isFinite(n) || n === 0) return "0";
+  const rounded = Math.round(n * 10) / 10;
+  return rounded > 0 ? `+${rounded}` : `${rounded}`;
+}
+
+export function sumRiskSignalImpacts(signals) {
+  return (signals || []).reduce((total, s) => {
+    const n = Number(s?.impact);
+    return total + (Number.isFinite(n) ? n : 0);
+  }, 0);
+}
+
 function _classificationByPath(fileClassifications) {
   const map = {};
   for (const entry of fileClassifications || []) {

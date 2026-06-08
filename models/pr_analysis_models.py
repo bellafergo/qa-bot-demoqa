@@ -147,6 +147,15 @@ class PRRecommendedTest(BaseModel):
     reason: str = ""
 
 
+class PRRiskSignal(BaseModel):
+    """Audit-friendly contributor to the PR risk score."""
+
+    category: Literal["change_type", "module", "history", "tests", "cap"] = "change_type"
+    title: str
+    impact: float = 0.0
+    explanation: str = ""
+
+
 class ProjectPRAnalysisReport(BaseModel):
     """PR Analysis Report v1 — project baseline risk + PR-scoped fields + CCE."""
 
@@ -171,9 +180,10 @@ class ProjectPRAnalysisReport(BaseModel):
 
     recommended_tests: List[PRRecommendedTest] = Field(default_factory=list)
     recommended_tests_raw: List[PRRecommendedTest] = Field(default_factory=list)
+    risk_signals: List[PRRiskSignal] = Field(default_factory=list)
     reasoning: List[str] = Field(default_factory=list)
     summary: str = ""
-    engine_version: str = "pr-v1.2"
+    engine_version: str = "pr-v1.3"
 
     @model_validator(mode="after")
     def _sync_deprecated_risk_aliases(self) -> "ProjectPRAnalysisReport":

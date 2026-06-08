@@ -34,6 +34,7 @@ from models.pr_analysis_models import (
     PRRecommendedTest,
     ProjectPRAnalysisReport,
     ProjectPRAnalysisRequest,
+    PRRiskSignal,
 )
 from models.risk_engine_models import ModuleRisk
 
@@ -414,7 +415,7 @@ def _compose_and_filter_pr_outputs(
     module_risks: List[ModuleRisk],
     recommended_raw: List[PRRecommendedTest],
     unmatched_files: List[str],
-) -> Tuple[Dict[str, object], List[PRRecommendedTest], List[PRRecommendedTest], List[str]]:
+) -> Tuple[Dict[str, object], List[PRRecommendedTest], List[PRRecommendedTest], List[str], List[PRRiskSignal]]:
     from services.pr_risk_composer_service import compose_pr_risk
     from services.pr_test_policy_service import filter_recommended_tests_for_pr
 
@@ -439,7 +440,7 @@ def _compose_and_filter_pr_outputs(
         "risk_score": risk.pr_risk_score,
         "risk_level": risk.pr_risk_level,
     }
-    return pr_fields, policy.recommended_tests, policy.recommended_tests_raw, extra_reasoning
+    return pr_fields, policy.recommended_tests, policy.recommended_tests_raw, extra_reasoning, risk.risk_signals
 
 
 class PRAnalysisService:
@@ -876,7 +877,7 @@ class PRAnalysisService:
                 reasoning.append(
                     "Automatic System Memory refresh did not produce project knowledge."
                 )
-            pr_fields, filtered_tests, raw_tests, composer_reasoning = _compose_and_filter_pr_outputs(
+            pr_fields, filtered_tests, raw_tests, composer_reasoning, risk_signals = _compose_and_filter_pr_outputs(
                 file_classifications=file_classifications,
                 impacted_modules=[],
                 project_risk_score=0.0,
@@ -895,6 +896,7 @@ class PRAnalysisService:
                 summary=f"Analyzed {len(changed)} file(s) — no project knowledge available.",
                 recommended_tests=filtered_tests,
                 recommended_tests_raw=raw_tests,
+                risk_signals=risk_signals,
                 **baseline,
                 **pr_fields,
             )
@@ -1017,7 +1019,7 @@ class PRAnalysisService:
         recommended_raw = recommended[:12]
 
         baseline = _project_baseline_risk_fields(knowledge)
-        pr_fields, filtered_tests, raw_tests, composer_reasoning = _compose_and_filter_pr_outputs(
+        pr_fields, filtered_tests, raw_tests, composer_reasoning, risk_signals = _compose_and_filter_pr_outputs(
             file_classifications=file_classifications,
             impacted_modules=impacted_modules,
             project_risk_score=float(baseline["project_risk_score"]),
@@ -1056,6 +1058,7 @@ class PRAnalysisService:
             file_classifications=file_classifications,
             recommended_tests=filtered_tests,
             recommended_tests_raw=raw_tests,
+            risk_signals=risk_signals,
             reasoning=reasoning[:14],
             summary=" ".join(summary_parts),
             **baseline,

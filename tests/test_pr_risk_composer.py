@@ -8,7 +8,7 @@ from models.pr_analysis_models import ProjectPRAnalysisRequest
 from models.project_knowledge_models import KnowledgeModule, ProjectKnowledge
 from models.risk_engine_models import ModuleRisk, RecommendedTest
 from services.pr_analysis_service import pr_analysis_service
-from services.pr_risk_composer_service import dominant_change_class
+from services.pr_risk_composer_service import dominant_change_class, risk_signals_total
 from services.change_classification_service import classify_diff
 
 
@@ -97,6 +97,11 @@ PATCH_FUNCTIONAL = """@@ -1,3 +1,4 @@
 """
 
 
+def _assert_risk_signals_sum(report):
+    assert report.risk_signals
+    assert risk_signals_total(report.risk_signals) == report.pr_risk_score
+
+
 def test_candidates_comment_only_low_pr_risk_and_few_tests():
     report = _analyze(
         ["lib/candidates/queries.ts"],
@@ -109,7 +114,8 @@ def test_candidates_comment_only_low_pr_risk_and_few_tests():
     assert report.pr_risk_score < report.project_risk_score
     assert len(report.recommended_tests) <= 1
     assert len(report.recommended_tests_raw) >= 2
-    assert report.engine_version == "pr-v1.2"
+    assert report.engine_version == "pr-v1.3"
+    _assert_risk_signals_sum(report)
 
 
 def test_candidates_imports_only_moderate_pr_risk():
@@ -189,3 +195,48 @@ def test_schema_pr_risk_above_candidates_comments():
     )
     schema = _analyze(["prisma/schema.prisma"], {"prisma/schema.prisma": PATCH_SCHEMA_COMMENT})
     assert schema.pr_risk_score > comments.pr_risk_score
+
+
+def test_candidates_comment_generates_expected_risk_signals():
+    report = _analyze(
+        ["lib/candidates/queries.ts"],
+        {"lib/candidates/queries.ts": PATCH_COMMENT},
+    )
+    _assert_risk_signals_sum(report)
+    titles = [s.title for s in report.risk_signals]
+    assert any("Comment-only" in t for t in titles)
+    assert any("Candidatos" in t or "module" in t.lower() for t in titles)
+    assert any(s.category == "history" for s in report.risk_signals)
+    assert report.pr_risk_score <= 8.0
+
+
+def test_auth_comment_generates_critical_module_signal():
+    report = _analyze(
+        ["lib/auth/access.ts"],
+        {"lib/auth/access.ts": PATCH_AUTH_COMMENT},
+    )
+    _assert_risk_signals_sum(report)
+    assert any("Critical module" in s.title for s in report.risk_signals)
+    assert any("Comment-only" in s.title for s in report.risk_signals)
+    assert 15.0 <= report.pr_risk_score <= 30.0
+
+
+def test_schema_generates_schema_change_signal():
+    report = _analyze(
+        ["prisma/schema.prisma"],
+        {"prisma/schema.prisma": PATCH_SCHEMA_COMMENT},
+    )
+    _assert_risk_signals_sum(report)
+    assert any("Schema-related" in s.title for s in report.risk_signals)
+    assert report.pr_risk_score >= 30.0
+
+
+def test_project_risk_generates_history_signal():
+    report = _analyze(
+        ["lib/candidates/queries.ts"],
+        {"lib/candidates/queries.ts": PATCH_COMMENT},
+    )
+    history = [s for s in report.risk_signals if s.category == "history"]
+    assert history
+    assert history[0].impact > 0
+    assert history[0].impact <= 15.0

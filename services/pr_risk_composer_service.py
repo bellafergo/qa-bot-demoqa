@@ -12,7 +12,12 @@ import re
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-from models.pr_analysis_models import FileChangeClassification, ImpactedModuleReport, PRRecommendedTest
+from models.pr_analysis_models import (
+    FileChangeClassification,
+    ImpactedModuleReport,
+    PRRecommendedTest,
+    PRRiskSignal,
+)
 from models.risk_engine_models import ModuleRisk
 from services.risk_engine_service import risk_level_from_score
 
@@ -67,7 +72,76 @@ class PRRiskComposeResult:
     pr_risk_level: str
     reasoning: List[str] = field(default_factory=list)
     signals: List[str] = field(default_factory=list)
+    risk_signals: List[PRRiskSignal] = field(default_factory=list)
     dominant_change_class: str = "functional"
+
+
+_CHANGE_TYPE_SIGNAL: dict[str, tuple[str, str]] = {
+    "comments": (
+        "Comment-only change",
+        "All modified lines are comments; functional behavior is unchanged.",
+    ),
+    "docs": (
+        "Documentation change",
+        "Documentation-only paths or comment content.",
+    ),
+    "formatting": (
+        "Formatting-only change",
+        "Whitespace or formatting adjustments without logic changes.",
+    ),
+    "imports": (
+        "Import-only change",
+        "Only import or export statements were modified.",
+    ),
+    "test_only": (
+        "Test-only change",
+        "Changes are confined to test files.",
+    ),
+    "config": (
+        "Configuration change",
+        "Configuration files were modified.",
+    ),
+    "schema": (
+        "Schema-related change",
+        "Schema or migration paths were modified.",
+    ),
+    "functional": (
+        "Functional code change",
+        "Non-cosmetic logic changes detected or assumed from the diff.",
+    ),
+}
+
+
+def _change_type_signal(dominant: str, impact: float) -> PRRiskSignal:
+    title, explanation = _CHANGE_TYPE_SIGNAL.get(
+        dominant,
+        ("Change type", "Change classification from the Change Classification Engine."),
+    )
+    return PRRiskSignal(
+        category="change_type",
+        title=title,
+        impact=round(impact, 1),
+        explanation=explanation,
+    )
+
+
+def _primary_critical_module(impacted_modules: List[ImpactedModuleReport]) -> Optional[str]:
+    for im in impacted_modules:
+        if module_is_critical(im.module, im.matched_files):
+            return im.module
+    return None
+
+
+def _primary_normal_module(impacted_modules: List[ImpactedModuleReport]) -> Optional[str]:
+    for im in impacted_modules:
+        if module_is_normal(im.module):
+            return im.module
+    return None
+
+
+def risk_signals_total(signals: List[PRRiskSignal]) -> float:
+    """Sum of signal impacts — should match pr_risk_score after caps."""
+    return round(sum(float(s.impact) for s in signals), 1)
 
 
 def effective_change_class(entry: FileChangeClassification) -> str:
@@ -217,32 +291,68 @@ def compose_pr_risk(
     normal = any_normal_module(impacted_modules)
     reasoning: List[str] = []
     signals: List[str] = []
+    risk_signals: List[PRRiskSignal] = []
 
     score = _BASE_MID.get(dominant, 35.0)
+    risk_signals.append(_change_type_signal(dominant, score))
     reasoning.append(f"PR Risk Composer: dominant change class '{dominant}' (base {score:.0f}/100).")
     signals.append(f"dominant_class={dominant}")
 
     if critical:
         boost = _critical_module_boost(dominant)
         score += boost
+        mod_label = (_primary_critical_module(impacted_modules) or "Critical").upper()
+        risk_signals.append(PRRiskSignal(
+            category="module",
+            title=f"Critical module: {mod_label}",
+            impact=round(boost, 1),
+            explanation="Authentication or security-related modules require additional scrutiny.",
+        ))
         reasoning.append(f"Critical module in scope (+{boost:.0f}).")
         signals.append("critical_module=true")
     elif normal:
         boost = _normal_module_boost(dominant)
         score += boost
+        mod_label = _primary_normal_module(impacted_modules) or "Business module"
+        risk_signals.append(PRRiskSignal(
+            category="module",
+            title=f"{mod_label} module",
+            impact=round(boost, 1),
+            explanation="Standard business module impacted by this change.",
+        ))
         reasoning.append(f"Normal business module in scope (+{boost:.0f}).")
         signals.append("normal_module=true")
     elif not impacted_modules:
         if dominant in ("comments", "docs", "imports", "formatting", "test_only"):
+            before = score
             score = min(score, _BASE_MID[dominant])
+            if score < before:
+                risk_signals.append(PRRiskSignal(
+                    category="module",
+                    title="No catalog module mapped",
+                    impact=round(score - before, 1),
+                    explanation="Files could not be mapped to a catalog module; cosmetic change stays low.",
+                ))
             reasoning.append("No catalog module mapped — low PR risk for cosmetic/import-only change.")
         elif dominant in ("schema", "config"):
+            risk_signals.append(PRRiskSignal(
+                category="module",
+                title="No catalog module mapped",
+                impact=0.0,
+                explanation="Risk is driven by schema or configuration change type rather than module mapping.",
+            ))
             reasoning.append("No catalog module mapped — risk driven by change type (schema/config).")
         signals.append("unmapped_files=true")
 
     ctx = _project_context_boost(project_risk_score)
     if ctx > 0:
         score += ctx
+        risk_signals.append(PRRiskSignal(
+            category="history",
+            title="Project baseline risk",
+            impact=round(ctx, 1),
+            explanation="Historical project risk contributes lightly to PR risk (capped contribution).",
+        ))
         reasoning.append(
             f"Project historical risk context (+{ctx:.0f}, capped contribution from "
             f"project score {project_risk_score:.0f}/100)."
@@ -252,21 +362,53 @@ def compose_pr_risk(
     test_boost = _critical_test_boost(recommended_tests, dominant)
     if test_boost > 0:
         score += test_boost
+        risk_signals.append(PRRiskSignal(
+            category="tests",
+            title="Critical tests in scope",
+            impact=round(test_boost, 1),
+            explanation="High-priority or regression-related tests are associated with impacted modules.",
+        ))
         reasoning.append(f"Critical/high-priority tests in scope (+{test_boost:.0f}).")
         signals.append(f"critical_tests=+{test_boost:.0f}")
 
     mod_boost = _high_risk_module_boost(impacted_modules, dominant)
     if mod_boost > 0:
         score += mod_boost
+        risk_signals.append(PRRiskSignal(
+            category="tests",
+            title="High-risk module history",
+            impact=round(mod_boost, 1),
+            explanation="Impacted modules have elevated historical failure or incident rates.",
+        ))
         reasoning.append(f"High-risk impacted module history (+{mod_boost:.0f}).")
 
     schema_boost = _unmatched_schema_boost(unmatched_files, dominant)
     if schema_boost > 0:
         score += schema_boost
+        risk_signals.append(PRRiskSignal(
+            category="module",
+            title="Unmapped schema/config paths",
+            impact=round(schema_boost, 1),
+            explanation="Schema or migration files could not be mapped to a catalog module.",
+        ))
         reasoning.append(f"Unmapped schema/config paths (+{schema_boost:.0f}).")
 
+    pre_cap = round(score, 1)
     final = _apply_caps(score, dominant, critical)
-    if final != round(score, 1):
+    if final != pre_cap:
+        cap_delta = round(final - pre_cap, 1)
+        cap_title = "Policy floor applied" if cap_delta > 0 else "Policy cap applied"
+        cap_expl = (
+            f"PR risk policy enforces a minimum score for '{dominant}' changes."
+            if cap_delta > 0
+            else f"PR risk policy caps the score for '{dominant}' changes with this module context."
+        )
+        risk_signals.append(PRRiskSignal(
+            category="cap",
+            title=cap_title,
+            impact=cap_delta,
+            explanation=cap_expl,
+        ))
         reasoning.append(f"PR risk capped/adjusted to {final:.0f}/100 for '{dominant}' policy.")
 
     level = risk_level_from_score(final)
@@ -280,5 +422,6 @@ def compose_pr_risk(
         pr_risk_level=level,
         reasoning=reasoning,
         signals=signals,
+        risk_signals=risk_signals,
         dominant_change_class=dominant,
     )
