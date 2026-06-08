@@ -353,7 +353,7 @@ export default function ProjectModal({ open, mode, project, onClose }) {
             ) : null}
             {mode === "edit" ? (
               <Link
-                to="/pr-analysis"
+                to="/integrations"
                 className="btn btn-secondary btn-sm"
                 onClick={onClose}
                 style={{ display: "inline-block", textDecoration: "none" }}

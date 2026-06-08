@@ -539,12 +539,12 @@ export const translations = {
     "projects.field_base_url":        "Base URL (optional)",
     "projects.github_section":        "GitHub (optional)",
     "projects.github_section_hint":
-      "Connect repositories via GitHub App on the PR Analysis page. This modal shows read-only metadata only.",
+      "Connect repositories via GitHub App in Integrations. This modal shows read-only metadata only.",
     "projects.github_create_hint":
-      "After creating the project, open PR Analysis to connect GitHub App.",
+      "After creating the project, open Integrations to connect GitHub App.",
     "projects.github_legacy_pat_warning":
-      "Legacy PAT detected — reconnect using GitHub App on the PR Analysis page.",
-    "projects.github_connect_via_pr_analysis": "Open PR Analysis → Connect GitHub",
+      "Legacy PAT detected — reconnect using GitHub App in Integrations.",
+    "projects.github_connect_via_pr_analysis": "Open Integrations to connect GitHub",
     "projects.github_status":           "Status",
     "projects.github_status_none":      "Not connected",
     "projects.github_status_enabled":   "Enabled (metadata only)",
@@ -1448,12 +1448,12 @@ export const translations = {
 
     // ── PR Analysis page ────────────────────────────────────────────────────
     "pr.fetch.title":       "Fetch from GitHub",
-    "pr.fetch.desc":        "Paste a GitHub PR URL. Uses the current catalog project’s GitHub App connection when configured.",
+    "pr.fetch.desc":        "Paste a GitHub PR URL. Requires an active GitHub integration configured in Integrations.",
     "pr.fetch.placeholder": "https://github.com/owner/repo/pull/123",
     "pr.fetch.btn":         "Fetch PR",
     "pr.fetch.fetching":    "Fetching…",
     "pr.fetch.hint_project": "Select a catalog project (header) so GitHub credentials resolve from that project.",
-    "pr.fetch.error":       "Failed to fetch PR. Check the URL, project GitHub App connection on PR Analysis, and that the PR repo matches the project.",
+    "pr.fetch.error":       "Failed to fetch PR. Check the URL, GitHub integration in Integrations, and that the PR repo matches the project.",
     "pr.diff.loaded":       "GitHub PR loaded · real diff attached",
     "pr.diff.truncated":    "truncated",
     "pr.test.suggested":    "Suggested",
@@ -1521,6 +1521,13 @@ export const translations = {
 
     "gh.title":              "GitHub / Repository",
     "gh.subtitle":           "Connect via GitHub App to list open PRs and run PR Analysis v1 with real changed files. No personal tokens stored.",
+    "gh.read_only_subtitle": "Read-only integration status for the selected project. Configure GitHub in Integrations.",
+    "gh.connected_badge":    "GitHub connected",
+    "gh.workspace":          "Org / user",
+    "gh.health_ok":          "Healthy",
+    "gh.not_configured_desc":"GitHub is not configured for this project. To analyze Pull Requests from GitHub, connect GitHub from Integrations.",
+    "gh.go_integrations":    "Go to Integrations",
+    "gh.requires_integration":"An active GitHub integration is required.",
     "gh.connect_github":     "Connect GitHub",
     "gh.not_connected":      "Not connected",
     "gh.installation_linked":"Installation linked",
@@ -2313,12 +2320,12 @@ export const translations = {
     "projects.field_base_url":        "URL base (opcional)",
     "projects.github_section":        "GitHub (opcional)",
     "projects.github_section_hint":
-      "Conectá repositorios vía GitHub App en la página PR Analysis. Este modal solo muestra metadata de solo lectura.",
+      "Conectá repositorios vía GitHub App en Integraciones. Este modal solo muestra metadata de solo lectura.",
     "projects.github_create_hint":
-      "Después de crear el proyecto, abrí PR Analysis para conectar GitHub App.",
+      "Después de crear el proyecto, abrí Integraciones para conectar GitHub App.",
     "projects.github_legacy_pat_warning":
-      "PAT legacy detectado — reconectá usando GitHub App en la página PR Analysis.",
-    "projects.github_connect_via_pr_analysis": "Abrir PR Analysis → Conectar GitHub",
+      "PAT legacy detectado — reconectá usando GitHub App en Integraciones.",
+    "projects.github_connect_via_pr_analysis": "Abrir Integraciones para conectar GitHub",
     "projects.github_status":           "Estado",
     "projects.github_status_none":      "Sin conectar",
     "projects.github_status_enabled":   "Habilitado (solo metadata)",
@@ -3220,12 +3227,12 @@ export const translations = {
 
     // ── PR Analysis page ────────────────────────────────────────────────────
     "pr.fetch.title":       "Obtener desde GitHub",
-    "pr.fetch.desc":        "Pegá una URL de PR. Usa la conexión GitHub App del proyecto de catálogo actual cuando esté configurada.",
+    "pr.fetch.desc":        "Pegá una URL de PR. Requiere una integración GitHub activa configurada en Integraciones.",
     "pr.fetch.placeholder": "https://github.com/owner/repo/pull/123",
     "pr.fetch.btn":         "Obtener PR",
     "pr.fetch.fetching":    "Obteniendo…",
     "pr.fetch.hint_project": "Elegí un proyecto de catálogo (header) para que las credenciales GitHub salgan de ese proyecto.",
-    "pr.fetch.error":       "Error al obtener el PR. Revisá la URL, la conexión GitHub App en PR Analysis y que el repo del PR coincida con el proyecto.",
+    "pr.fetch.error":       "Error al obtener el PR. Revisá la URL, la integración GitHub en Integraciones y que el repo del PR coincida con el proyecto.",
     "pr.diff.loaded":       "PR cargado desde GitHub · diff real incluido",
     "pr.diff.truncated":    "truncado",
     "pr.test.suggested":    "Sugerido",
@@ -3293,6 +3300,13 @@ export const translations = {
 
     "gh.title":              "GitHub / Repositorio",
     "gh.subtitle":           "Conectá vía GitHub App para listar PRs abiertos y ejecutar PR Analysis v1 con archivos reales. Sin tokens personales guardados.",
+    "gh.read_only_subtitle": "Estado de integración de solo lectura para el proyecto seleccionado. Configurá GitHub en Integraciones.",
+    "gh.connected_badge":    "GitHub conectado",
+    "gh.workspace":          "Org / usuario",
+    "gh.health_ok":          "Saludable",
+    "gh.not_configured_desc":"GitHub no está configurado para este proyecto. Para analizar Pull Requests desde GitHub, conectá GitHub desde Integraciones.",
+    "gh.go_integrations":    "Ir a Integraciones",
+    "gh.requires_integration":"Se requiere una integración GitHub activa.",
     "gh.connect_github":     "Conectar GitHub",
     "gh.not_connected":      "Sin conectar",
     "gh.installation_linked":"Instalación vinculada",
