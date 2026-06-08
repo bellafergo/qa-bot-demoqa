@@ -95,13 +95,34 @@ def mask_settings_for_api(settings: Optional[Dict[str, Any]]) -> Optional[Dict[s
     gh_out: Dict[str, Any] = {}
     if gh_in:
         gh_out["enabled"] = bool(gh_in.get("enabled"))
-        for key in ("repo_url", "owner", "repo", "default_branch", "installation_id", "api_base"):
+        provider = str(gh_in.get("provider") or "").strip().lower()
+        if provider:
+            gh_out["provider"] = provider
+        elif gh_in.get("github_token"):
+            gh_out["provider"] = "legacy_pat"
+            gh_out["needs_migration"] = True
+        for key in (
+            "repo_url",
+            "owner",
+            "repo",
+            "default_branch",
+            "installation_id",
+            "api_base",
+            "connected_by",
+            "connected_at",
+            "repo_selected_at",
+            "last_validated_at",
+        ):
             v = gh_in.get(key)
             if v is not None and str(v).strip():
                 gh_out[key] = str(v).strip()
+        perms = gh_in.get("permissions") if isinstance(gh_in.get("permissions"), dict) else {}
+        if perms:
+            gh_out["permissions"] = {str(k): str(v) for k, v in perms.items() if v}
         tok = gh_in.get("github_token")
         tok_present = bool(tok is not None and str(tok).strip())
-        gh_out["github_token"] = {"sensitive": True, "present": tok_present}
+        if tok_present:
+            gh_out["github_token"] = {"sensitive": True, "present": True, "deprecated": True}
 
     out: Dict[str, Any] = {
         "login_profile": lp_out,

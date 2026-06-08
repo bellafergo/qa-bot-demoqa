@@ -2,12 +2,8 @@
 """
 Resolve GitHub API credentials and defaults **per catalog project**.
 
-Architecture
-------------
-- Project-specific repo metadata and optional PAT live under ``project.settings["github"]``.
-- Global ``GITHUB_TOKEN`` / ``GITHUB_API_BASE`` (``core.settings``) remain the **legacy /
-  default** credential when a project has no PAT, and for webhooks when no project
-  matches ``owner/repo``.
+SaaS (preferred): GitHub App installation tokens via ``project.settings.github.installation_id``.
+Legacy: per-project PAT or global ``GITHUB_TOKEN`` (deprecated — migrate to GitHub App).
 
 Callers must not read ``os.getenv("GITHUB_OWNER")`` etc.; use the helpers here.
 """
@@ -46,7 +42,17 @@ def _raw_github_dict(project: Any) -> Dict[str, Any]:
     return gh if isinstance(gh, dict) else {}
 
 
+def _provider(gh: Dict[str, Any]) -> str:
+    p = str(gh.get("provider") or "").strip().lower()
+    if p == "github_app":
+        return "github_app"
+    if gh.get("github_token"):
+        return "legacy_pat"
+    return "none"
+
+
 def _http_from_github_dict(gh: Dict[str, Any], *, require_token: bool = True) -> Optional[GitHubHttpConfig]:
+    """Legacy PAT resolution from project settings + global fallback."""
     from core.settings import settings
 
     ptok = str(gh.get("github_token") or "").strip()
@@ -65,7 +71,7 @@ def resolve_legacy_github_http() -> Optional[GitHubHttpConfig]:
     """
     **Legacy / compatibility** — global PAT from environment (via ``core.settings``).
 
-    Prefer ``resolve_github_for_pr_fetch`` with a ``project_id`` for new integrations.
+    Deprecated for SaaS — use GitHub App installation tokens per project.
     """
     from core.settings import settings
 
@@ -80,15 +86,34 @@ def resolve_legacy_github_http() -> Optional[GitHubHttpConfig]:
     )
 
 
+def _http_for_project_github_dict(gh: Dict[str, Any]) -> Optional[GitHubHttpConfig]:
+    """Resolve HTTP config from a project's github settings block."""
+    if not gh.get("enabled"):
+        return None
+
+    provider = _provider(gh)
+    if provider == "github_app":
+        iid = str(gh.get("installation_id") or gh.get("github_installation_id") or "").strip()
+        if not iid:
+            return None
+        try:
+            from services.github_app_service import http_config_for_installation
+
+            return http_config_for_installation(iid)
+        except Exception:
+            logger.exception("github: installation token resolution failed")
+            return None
+
+    return _http_from_github_dict(gh, require_token=True)
+
+
 def resolve_github_http_for_repository(owner: str, repo: str) -> Optional[GitHubHttpConfig]:
     """
     Pick HTTP credentials for a GitHub ``owner/repo`` (webhooks, PR comments).
 
-    1) Project with ``settings.github.enabled`` and matching ``owner`` + ``repo``.
+    1) Project with matching owner/repo (GitHub App or legacy PAT).
     2) Else legacy global ``GITHUB_TOKEN`` from settings.
     """
-    from core.settings import settings
-
     o = (owner or "").strip().lower()
     r = (repo or "").strip().lower()
     if not o or not r:
@@ -106,12 +131,12 @@ def resolve_github_http_for_repository(owner: str, repo: str) -> Optional[GitHub
             if not po or not pr:
                 continue
             if po == o and pr == r:
-                cfg = _http_from_github_dict(gh, require_token=True)
+                cfg = _http_for_project_github_dict(gh)
                 if cfg:
                     logger.info("github: using project-scoped config project_id=%s repo=%s/%s", p.id, o, r)
                     return cfg
                 logger.warning(
-                    "github: project %s matches repo but has no token (set github_token or GITHUB_TOKEN)",
+                    "github: project %s matches repo but credentials are not configured",
                     p.id,
                 )
     except Exception:
@@ -126,7 +151,7 @@ def get_github_context_for_project(project_id: str) -> Tuple[Dict[str, Any], Git
 
     Raises:
         LookupError — project not found
-        ValueError — GitHub disabled or incomplete / no token
+        ValueError — GitHub disabled or incomplete credentials
     """
     from services.db.project_repository import project_repo
 
@@ -142,11 +167,18 @@ def get_github_context_for_project(project_id: str) -> Tuple[Dict[str, Any], Git
     if not gh.get("enabled"):
         raise ValueError("GitHub is not enabled for this project")
 
+    provider = _provider(gh)
+    if provider == "github_app":
+        from services.project_github_settings_service import resolve_http_for_project
+
+        gh2, http, _owner, _repo = resolve_http_for_project(pid)
+        return gh2, http
+
     cfg = _http_from_github_dict(gh, require_token=True)
     if cfg is None or not cfg.token:
         raise ValueError(
-            "No GitHub token available: set project settings.github.github_token "
-            "or configure legacy GITHUB_TOKEN on the server"
+            "No GitHub credentials available. Connect GitHub App for this project "
+            "or migrate from legacy PAT."
         )
     return gh, cfg
 
@@ -161,7 +193,7 @@ def resolve_github_for_pr_fetch(
     Resolve GitHub HTTP config for ``POST /github/pr/fetch`` scoped to ``project_id``.
 
     If the project defines ``owner`` and ``repo``, the PR URL must match (prevents
-    using one project's token against another org's PR).
+    using one project's credentials against another org's PR).
     """
     gh, http = get_github_context_for_project(project_id)
     co = str(gh.get("owner") or "").strip()

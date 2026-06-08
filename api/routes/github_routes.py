@@ -180,3 +180,44 @@ def fetch_pr(body: PRFetchRequest):
         changed_files=changed_files,
         diff=diff_text,
     )
+
+
+@router.get("/app/setup")
+def github_app_setup(
+    installation_id: str = "",
+    state: str = "",
+    setup_action: str = "",
+):
+    """
+    GitHub App setup callback after installation.
+
+    Configure ``GITHUB_APP_SETUP_URL`` to point here (e.g. ``https://api.example.com/github/app/setup``).
+    ``state`` should be the project_id. Links installation to project without persisting tokens.
+    """
+    from models.github_integration_models import GitHubConnectAppRequest
+    from services.project_github_settings_service import connect_project_github_app
+
+    iid = (installation_id or "").strip()
+    pid = (state or "").strip().lower()
+    if not iid or not pid:
+        raise HTTPException(
+            status_code=400,
+            detail="installation_id and state (project_id) are required",
+        )
+    try:
+        status = connect_project_github_app(pid, GitHubConnectAppRequest(installation_id=iid))
+        return {
+            "ok": True,
+            "project_id": pid,
+            "installation_id": iid,
+            "setup_action": setup_action or "install",
+            "status": status.model_dump(),
+            "next_step": f"Select a repository via POST /projects/{pid}/github/select-repository",
+        }
+    except Exception as exc:
+        if isinstance(exc, LookupError):
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        if isinstance(exc, ValueError):
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        logger.exception("github app setup failed")
+        raise HTTPException(status_code=500, detail="GitHub App setup failed") from None

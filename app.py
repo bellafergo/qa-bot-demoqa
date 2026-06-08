@@ -56,6 +56,7 @@ from api.routes.local_agent_routes import admin_router as local_agent_admin_rout
 from api.routes.local_agent_routes import agent_router as local_agent_api_router
 from api.routes.drafts_routes import router as drafts_router
 from api.routes.github_routes import router as github_router
+from api.routes.github_project_routes import router as github_project_router
 from api.routes.analytics_routes import router as analytics_router
 from api.routes.planner_routes import router as planner_router
 from api.routes.evidence_routes import router as evidence_router
@@ -471,6 +472,7 @@ app.include_router(local_agent_api_router)            # /agent-api (local agent)
 app.include_router(browser_inspection_history_router)  # GET /browser-inspections, diff, …
 app.include_router(drafts_router)                # POST /drafts/generate, POST /drafts/approve
 app.include_router(github_router)               # POST /github/pr/fetch
+app.include_router(github_project_router)       # /projects/{id}/github/*
 app.include_router(analytics_router)           # GET /analytics/runs/dashboard
 app.include_router(planner_router)             # POST /plan_from_text, POST /execute_text
 app.include_router(evidence_router)           # GET /evidences

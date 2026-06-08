@@ -72,8 +72,13 @@ class Settings:
     EXEC_MAX_TOKENS: int = int(os.getenv("EXEC_MAX_TOKENS", "700"))
 
     # ----------------------------
-    # GitHub (global defaults — prefer per-project settings under project.settings["github"])
+    # GitHub — SaaS: GitHub App (preferred). Legacy PAT only for old integrations.
     # ----------------------------
+    GITHUB_APP_ID: str = (os.getenv("GITHUB_APP_ID") or "").strip()
+    GITHUB_APP_SLUG: str = (os.getenv("GITHUB_APP_SLUG") or "").strip()
+    GITHUB_APP_PRIVATE_KEY: str = (os.getenv("GITHUB_APP_PRIVATE_KEY") or "").strip()
+    GITHUB_APP_PRIVATE_KEY_PATH: str = (os.getenv("GITHUB_APP_PRIVATE_KEY_PATH") or "").strip()
+    GITHUB_APP_SETUP_URL: str = (os.getenv("GITHUB_APP_SETUP_URL") or "").strip()
     GITHUB_TOKEN: str = (os.getenv("GITHUB_TOKEN") or "").strip()
     GITHUB_WEBHOOK_SECRET: str = (os.getenv("GITHUB_WEBHOOK_SECRET") or "").strip()
     GITHUB_API_BASE: str = (os.getenv("GITHUB_API_BASE") or "https://api.github.com").strip().rstrip("/")
@@ -81,8 +86,12 @@ class Settings:
     PR_AGENT_EXECUTE_RUNS: bool = _truthy(os.getenv("PR_AGENT_EXECUTE_RUNS", "false"))
 
     @property
+    def HAS_GITHUB_APP(self) -> bool:
+        return bool(self.GITHUB_APP_ID and (self.GITHUB_APP_PRIVATE_KEY or self.GITHUB_APP_PRIVATE_KEY_PATH))
+
+    @property
     def HAS_GITHUB(self) -> bool:
-        """True when a legacy global PAT is configured (optional; projects may use their own token)."""
+        """Legacy global PAT (deprecated — use GitHub App for SaaS)."""
         return bool(self.GITHUB_TOKEN)
 
     # ----------------------------
