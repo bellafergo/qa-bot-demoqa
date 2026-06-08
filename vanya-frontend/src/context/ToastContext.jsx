@@ -8,7 +8,7 @@ import React, {
   useState,
 } from "react";
 import { useLang } from "../i18n/LangContext.jsx";
-import { setApiErrorNotifier } from "../api.js";
+import { normalizeErrorText, setApiErrorNotifier } from "../api.js";
 
 const ToastContext = createContext(null);
 
@@ -27,8 +27,9 @@ export function ToastProvider({ children }) {
 
   useEffect(() => {
     setApiErrorNotifier(({ status, detail }) => {
+      const cleaned = normalizeErrorText(detail);
       const msg =
-        (detail && String(detail).trim()) ||
+        cleaned ||
         (status === 403
           ? t("http.forbidden")
           : status === 429

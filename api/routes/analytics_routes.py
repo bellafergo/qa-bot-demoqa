@@ -20,6 +20,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Query
 
+from core.json_api import json_error_response
 from models.analytics_models import RunsDashboard
 from services.run_analytics_service import get_runs_dashboard
 
@@ -35,4 +36,8 @@ def runs_analytics_dashboard(project_id: Optional[str] = Query(None)):
     Computes in real-time from the last 500 persisted runs.
     No caching — suitable for dashboard polling.
     """
-    return get_runs_dashboard(project_id=project_id)
+    try:
+        return get_runs_dashboard(project_id=project_id)
+    except Exception as exc:
+        logger.exception("analytics/runs/dashboard failed")
+        return json_error_response(500, "Run analytics dashboard failed", error=str(exc))

@@ -15,8 +15,9 @@ from __future__ import annotations
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 
+from core.json_api import json_error_response
 from models.dashboard_models import (
     DashboardSummary,
     DashboardModuleMetrics,
@@ -45,7 +46,7 @@ def get_summary(project_id: Optional[str] = Query(None, description="Scope metri
         return dashboard_service.get_summary(project_id=project_id)
     except Exception as e:
         logger.exception("dashboard: get_summary failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        return json_error_response(500, "Dashboard summary failed", error=str(e))
 
 
 @router.get("/recent-runs", response_model=List[CanonicalRun])
@@ -62,7 +63,7 @@ def get_recent_runs(
         return run_history_service.list_runs(limit=limit, project_id=project_id)
     except Exception as e:
         logger.exception("dashboard: get_recent_runs failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        return json_error_response(500, "Dashboard recent runs failed", error=str(e))
 
 
 @router.get("/recent-jobs", response_model=List[OrchestratorJob])
@@ -75,7 +76,7 @@ def get_recent_jobs(
         return dashboard_service.get_recent_jobs(limit=limit, project_id=project_id)
     except Exception as e:
         logger.exception("dashboard: get_recent_jobs failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        return json_error_response(500, "Dashboard recent jobs failed", error=str(e))
 
 
 @router.get("/by-module", response_model=List[DashboardModuleMetrics])
@@ -90,7 +91,7 @@ def get_by_module(project_id: Optional[str] = Query(None)):
         return dashboard_service.get_by_module(project_id=project_id)
     except Exception as e:
         logger.exception("dashboard: get_by_module failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        return json_error_response(500, "Dashboard by-module failed", error=str(e))
 
 
 @router.get("/run-status-breakdown", response_model=RunStatusBreakdown)
@@ -100,7 +101,7 @@ def get_run_status_breakdown(project_id: Optional[str] = Query(None)):
         return dashboard_service.get_run_status_breakdown(project_id=project_id)
     except Exception as e:
         logger.exception("dashboard: get_run_status_breakdown failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        return json_error_response(500, "Dashboard run status breakdown failed", error=str(e))
 
 
 @router.get("/job-status-breakdown", response_model=JobStatusBreakdown)
@@ -110,4 +111,4 @@ def get_job_status_breakdown(project_id: Optional[str] = Query(None)):
         return dashboard_service.get_job_status_breakdown(project_id=project_id)
     except Exception as e:
         logger.exception("dashboard: get_job_status_breakdown failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        return json_error_response(500, "Dashboard job status breakdown failed", error=str(e))

@@ -15,6 +15,8 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
+from core.json_api import json_error_response
+
 from models.execution_scheduler_models import (
     BatchExecutionRequest,
     BatchExecutionResponse,
@@ -43,10 +45,10 @@ def status():
     from services.catalog_orchestrator import get_execution_status
     try:
         stats = get_execution_status()
+        return ExecutionStatusResponse(**stats)
     except Exception as exc:
         logger.exception("execution/status failed")
-        raise HTTPException(status_code=500, detail=f"Status error: {exc}")
-    return ExecutionStatusResponse(**stats)
+        return json_error_response(500, "Execution status failed", error=str(exc))
 
 
 # ── Batch execution ───────────────────────────────────────────────────────────

@@ -287,9 +287,18 @@ function projectCapacityAccent(reserved, max) {
   return { border: "var(--green)", bar: "var(--green)", label: "var(--green)" };
 }
 
-function ProjectCapacitySection({ execStatus, projects, t }) {
+function ProjectCapacitySection({ execStatus, execError, projects, t }) {
   const rows = buildProjectCapacityRows(execStatus);
-  if (rows.length === 0) return null;
+  if (rows.length === 0) {
+    if (execError) {
+      return (
+        <div className="card" style={{ padding: "16px 20px", marginBottom: 28, fontSize: 13, color: "var(--red-text)" }}>
+          {execError}
+        </div>
+      );
+    }
+    return null;
+  }
 
   return (
     <div className="card" style={{ padding: "20px 24px", marginBottom: 28 }}>
@@ -687,18 +696,18 @@ function FailureIntelMiniPanel({ fi, t }) {
 
 // ── Visual widget: Risk Summary ───────────────────────────────────────────────
 
-function RiskSummaryCard({ summary, fi, loading, loadError, t }) {
-  if (loading) {
+function RiskSummaryCard({ summary, fi, loading, sectionError, t }) {
+  if (loading && !summary) {
     return (
       <div style={{ padding: "12px 0", fontSize: 12, color: "var(--text-3)" }}>
         {t("dash.risk.loading")}
       </div>
     );
   }
-  if (loadError) {
+  if (sectionError && !summary) {
     return (
       <div style={{ padding: "12px 0", fontSize: 12, color: "var(--red-text)" }}>
-        {loadError}
+        {sectionError}
       </div>
     );
   }
@@ -916,9 +925,14 @@ export default function DashboardPage() {
   const [analytics, setAnalytics]     = useState(null);
   const [execStatus, setExecStatus]   = useState(null);
   const [loading, setLoading]         = useState(true);
-  const [loadError, setLoadError]     = useState("");
+  const [summaryError, setSummaryError] = useState("");
+  const [runsError, setRunsError]     = useState("");
+  const [jobsError, setJobsError]     = useState("");
+  const [execError, setExecError]     = useState("");
   const [fiLoading, setFiLoading]     = useState(true);
+  const [fiError, setFiError]         = useState("");
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [analyticsError, setAnalyticsError] = useState("");
   const [lastRefresh, setLastRefresh] = useState(null);
   // MEJORA #4 — client-side filters for recent runs (no extra API calls)
   const [recentRunsFilter, setRecentRunsFilter] = useState("all");
@@ -930,40 +944,75 @@ export default function DashboardPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    setLoadError("");
+    setSummaryError("");
+    setRunsError("");
+    setJobsError("");
+    setExecError("");
     setFiLoading(true);
+    setFiError("");
     setAnalyticsLoading(true);
-    try {
-      const pid = projectId;
-      const [s, runs, jobs, ex] = await Promise.all([
-        getDashboardSummary(pid ? { project_id: pid } : {}),
-        getDashboardRecentRuns(10, pid),
-        getDashboardRecentJobs(10, pid),
-        getExecStatus(),
-      ]);
-      setSummary(s);
-      setRecentRuns(Array.isArray(runs) ? runs : []);
-      setRecentJobs(Array.isArray(jobs) ? jobs : []);
-      setExecStatus(ex && typeof ex === "object" ? ex : null);
-      setLastRefresh(new Date());
-    } catch (e) {
-      setSummary(null);
-      setRecentRuns([]);
-      setRecentJobs([]);
-      setExecStatus(null);
-      setLoadError(apiErrorMessage(e) || t("dash.load_error"));
-    } finally {
-      setLoading(false);
-    }
+    setAnalyticsError("");
 
     const pid = projectId;
+    const summaryParams = pid ? { project_id: pid } : {};
+
+    const [summaryRes, runsRes, jobsRes, execRes] = await Promise.allSettled([
+      getDashboardSummary(summaryParams),
+      getDashboardRecentRuns(10, pid),
+      getDashboardRecentJobs(10, pid),
+      getExecStatus(),
+    ]);
+
+    if (summaryRes.status === "fulfilled") {
+      setSummary(summaryRes.value);
+      setSummaryError("");
+      setLastRefresh(new Date());
+    } else {
+      setSummaryError(apiErrorMessage(summaryRes.reason) || t("dash.load_error"));
+    }
+
+    if (runsRes.status === "fulfilled") {
+      setRecentRuns(Array.isArray(runsRes.value) ? runsRes.value : []);
+      setRunsError("");
+    } else {
+      setRunsError(apiErrorMessage(runsRes.reason) || t("dash.load_error"));
+    }
+
+    if (jobsRes.status === "fulfilled") {
+      setRecentJobs(Array.isArray(jobsRes.value) ? jobsRes.value : []);
+      setJobsError("");
+    } else {
+      setJobsError(apiErrorMessage(jobsRes.reason) || t("dash.load_error"));
+    }
+
+    if (execRes.status === "fulfilled") {
+      const ex = execRes.value;
+      setExecStatus(ex && typeof ex === "object" ? ex : null);
+      setExecError("");
+    } else {
+      setExecError(apiErrorMessage(execRes.reason) || t("dash.load_error"));
+    }
+
+    setLoading(false);
+
     getFailureIntel(pid)
-      .then((f) => setFi(f))
-      .catch(() => setFi(null))
+      .then((f) => {
+        setFi(f);
+        setFiError("");
+      })
+      .catch((e) => {
+        setFiError(apiErrorMessage(e) || t("dash.load_error"));
+      })
       .finally(() => setFiLoading(false));
+
     getRunsAnalytics(pid)
-      .then((a) => setAnalytics(a))
-      .catch(() => setAnalytics(null))
+      .then((a) => {
+        setAnalytics(a);
+        setAnalyticsError("");
+      })
+      .catch((e) => {
+        setAnalyticsError(apiErrorMessage(e) || t("dash.load_error"));
+      })
       .finally(() => setAnalyticsLoading(false));
   }, [projectId, t]);
 
@@ -1171,9 +1220,9 @@ export default function DashboardPage() {
 
       <div style={{ padding: "32px 40px" }}>
 
-        {loadError && !loading ? (
+        {summaryError && !loading ? (
           <div className="alert alert-error" style={{ marginBottom: 20, fontSize: 13 }}>
-            {loadError}{" "}
+            {summaryError}{" "}
             <button type="button" className="btn btn-secondary btn-sm" style={{ marginLeft: 8 }} onClick={load}>
               {t("dash.refresh")}
             </button>
@@ -1242,7 +1291,7 @@ export default function DashboardPage() {
         ) : null}
 
         {!loading && (
-          <ProjectCapacitySection execStatus={execStatus} projects={projects} t={t} />
+          <ProjectCapacitySection execStatus={execStatus} execError={execError} projects={projects} t={t} />
         )}
 
         {/* ── Visual row 1: Trend (2/3) + Coverage Donut (1/3) ─────────────── */}
@@ -1262,7 +1311,13 @@ export default function DashboardPage() {
             <FailureIntelMiniPanel fi={fi} t={t} />
           </WidgetCard>
           <WidgetCard title={t("dash.risk.title")} subtitle={t("dash.risk.subtitle")}>
-            <RiskSummaryCard summary={summary} fi={fi} loading={loading} loadError={loadError} t={t} />
+            <RiskSummaryCard
+              summary={summary}
+              fi={fi}
+              loading={loading}
+              sectionError={summaryError || fiError}
+              t={t}
+            />
           </WidgetCard>
         </div>
 
@@ -1273,7 +1328,9 @@ export default function DashboardPage() {
 
             {/* Recent Runs */}
             <SectionCard title={t("dash.recent_runs")} link="/runs" linkLabel={t("dash.recent_runs.link")}>
-              {loading ? (
+              {runsError && !recentRuns.length ? (
+                <div style={{ padding: "20px", color: "var(--red-text)", fontSize: 13 }}>{runsError}</div>
+              ) : loading && !recentRuns.length ? (
                 <div style={{ padding: "20px", color: "var(--text-3)", fontSize: 13 }}>{t("dash.loading_runs")}</div>
               ) : recentRuns.length === 0 ? (
                 <div style={{ padding: "20px", color: "var(--text-3)", fontSize: 13 }}>
@@ -1388,7 +1445,9 @@ export default function DashboardPage() {
 
             {/* Recent Jobs */}
             <SectionCard title={t("dash.recent_jobs")} link="/batch" linkLabel={t("dash.recent_jobs.link")}>
-              {loading ? (
+              {jobsError && !recentJobs.length ? (
+                <div style={{ padding: "20px", color: "var(--red-text)", fontSize: 13 }}>{jobsError}</div>
+              ) : loading && !recentJobs.length ? (
                 <div style={{ padding: "20px", color: "var(--text-3)", fontSize: 13 }}>{t("dash.loading_jobs")}</div>
               ) : recentJobs.length === 0 ? (
                 <div style={{ padding: "20px", color: "var(--text-3)", fontSize: 13 }}>
@@ -1455,11 +1514,14 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {!analytics && (
+          {analyticsError && !analytics ? (
+            <div style={{ fontSize: 13, color: "var(--red-text)" }}>{analyticsError}</div>
+          ) : null}
+          {!analytics && !analyticsError ? (
             <div style={{ fontSize: 13, color: "var(--text-3)" }}>
               {analyticsLoading ? t("dash.analytics.loading") : t("dash.analytics.empty")}
             </div>
-          )}
+          ) : null}
 
           {analytics && (
             <>

@@ -31,23 +31,55 @@ function mergeAuthHeaders(headersInit, body) {
   return h;
 }
 
+/** Strip HTML / proxy noise and shorten noisy transport errors for UI toasts. */
+export function normalizeErrorText(text) {
+  if (text == null) return null;
+  const raw = String(text).trim();
+  if (!raw) return null;
+
+  if (/Trailers must have END_STREAM/i.test(raw)) {
+    return "Connection interrupted. Please refresh.";
+  }
+  if (/ConnectionTerminated/i.test(raw)) {
+    return "Connection lost. Please try again.";
+  }
+  if (/JSON could not be generated/i.test(raw)) {
+    return "Server returned an invalid response. Please try again.";
+  }
+  if (
+    /<title>\s*400 Bad Request\s*<\/title>/i.test(raw) ||
+    /<h1>\s*400 Bad Request\s*<\/h1>/i.test(raw)
+  ) {
+    return "Gateway error (400). Please refresh in a moment.";
+  }
+  if (/<html[\s>]/i.test(raw)) {
+    const titleMatch = raw.match(/<title[^>]*>([^<]+)<\/title>/i);
+    if (titleMatch?.[1]) return String(titleMatch[1]).trim().slice(0, 120);
+    return "Unexpected HTML response from server.";
+  }
+
+  return raw.length > 300 ? `${raw.slice(0, 300)}…` : raw;
+}
+
 /** Parse FastAPI-style JSON error body into a single string (or plain text). */
 export function parseResponseDetail(text) {
   if (text == null || String(text).trim() === "") return null;
   try {
     const j = JSON.parse(text);
-    if (typeof j.detail === "string") return j.detail;
+    if (typeof j.detail === "string") return normalizeErrorText(j.detail);
     if (Array.isArray(j.detail)) {
-      return j.detail
-        .map((d) => (typeof d === "string" ? d : d?.msg || JSON.stringify(d)))
-        .join(" ");
+      return normalizeErrorText(
+        j.detail
+          .map((d) => (typeof d === "string" ? d : d?.msg || JSON.stringify(d)))
+          .join(" "),
+      );
     }
-    if (j.message) return String(j.message);
+    if (j.message) return normalizeErrorText(String(j.message));
+    if (j.error) return normalizeErrorText(String(j.error));
   } catch {
     /* plain text */
   }
-  const s = String(text).trim();
-  return s.length > 800 ? `${s.slice(0, 800)}…` : s;
+  return normalizeErrorText(String(text).trim());
 }
 
 export class ApiHttpError extends Error {
@@ -107,6 +139,50 @@ export function throwIfNotOk(res, text) {
   throw new ApiHttpError(status, msg, text);
 }
 
+function parseJsonBody(res, text) {
+  const trimmed = (text || "").trim();
+  if (!trimmed) return null;
+
+  const contentType = (res.headers.get("content-type") || "").toLowerCase();
+  const looksJson =
+    !contentType ||
+    contentType.includes("application/json") ||
+    contentType.includes("+json");
+
+  if (res.ok && contentType && !looksJson) {
+    throw new ApiHttpError(
+      res.status,
+      `Expected JSON but received ${contentType.split(";")[0].trim()}`,
+      text,
+    );
+  }
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    throw new ApiHttpError(res.status, "Invalid JSON response from server.", text);
+  }
+}
+
+/**
+ * Safe JSON GET — reads text first, validates status/content-type, then parses.
+ * @template T
+ * @returns {Promise<T|null>}
+ */
+export async function safeJsonFetch(path, options = {}) {
+  const res = await apiFetch(path, {
+    ...options,
+    method: options.method || "GET",
+    headers: {
+      Accept: "application/json",
+      ...(options.headers || {}),
+    },
+  });
+  const text = await res.text();
+  throwIfNotOk(res, text);
+  return parseJsonBody(res, text);
+}
+
 /** Default client-side timeout for API requests (ms). */
 export const DEFAULT_API_TIMEOUT_MS = 25000;
 
@@ -145,20 +221,22 @@ export async function apiFetch(path, options = {}) {
 }
 
 export async function apiGet(path) {
-  const res = await apiFetch(path, { method: "GET", headers: { "Content-Type": "application/json" } });
-  const txt = await res.text();
-  throwIfNotOk(res, txt);
-  if (!txt || !txt.trim()) return null;
-  return JSON.parse(txt);
+  return safeJsonFetch(path, {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 export async function apiDelete(path) {
-  const res = await apiFetch(path, { method: "DELETE", headers: { "Content-Type": "application/json" } });
+  const res = await apiFetch(path, {
+    method: "DELETE",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+  });
   const txt = await res.text();
   throwIfNotOk(res, txt);
   if (!txt || !txt.trim()) return null;
   try {
-    return JSON.parse(txt);
+    return parseJsonBody(res, txt);
   } catch {
     return null;
   }
@@ -167,55 +245,60 @@ export async function apiDelete(path) {
 export async function apiPut(path, body) {
   const res = await apiFetch(path, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
     body: JSON.stringify(body || {}),
   });
   const txt = await res.text();
   throwIfNotOk(res, txt);
   if (!txt || !txt.trim()) return null;
-  return JSON.parse(txt);
+  return parseJsonBody(res, txt);
 }
 
 export async function apiPatch(path, body) {
   const res = await apiFetch(path, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
     body: JSON.stringify(body ?? {}),
   });
   const txt = await res.text();
   throwIfNotOk(res, txt);
   if (!txt || !txt.trim()) return null;
-  return JSON.parse(txt);
+  return parseJsonBody(res, txt);
 }
 
 /** Human-readable message from fetch errors (FastAPI JSON detail or plain text). */
 export function apiErrorMessage(err) {
-  if (err instanceof ApiHttpError) return err.message || "Request failed";
+  if (err instanceof ApiHttpError) {
+    return normalizeErrorText(err.message) || "Request failed";
+  }
   const raw = err?.message ?? String(err);
   if (!raw) return "Request failed";
   const parsed = parseResponseDetail(raw);
-  return parsed || raw;
+  return normalizeErrorText(parsed) || normalizeErrorText(raw) || "Request failed";
 }
 
 export async function apiPost(path, body) {
   const res = await apiFetch(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
     body: JSON.stringify(body || {}),
   });
   const txt = await res.text();
   throwIfNotOk(res, txt);
   if (!txt || !txt.trim()) return null;
-  return JSON.parse(txt);
+  return parseJsonBody(res, txt);
 }
 
 /** JSON request + JSON response with centralized error handling. */
 export async function apiFetchJson(path, options = {}) {
-  const res = await apiFetch(path, options);
+  const res = await apiFetch(path, {
+    ...options,
+    headers: { Accept: "application/json", ...(options.headers || {}) },
+  });
   const txt = await res.text();
   throwIfNotOk(res, txt);
   if (!txt || !txt.trim()) return null;
-  return JSON.parse(txt);
+  return parseJsonBody(res, txt);
 }
 
 // ========= Convenience =========
