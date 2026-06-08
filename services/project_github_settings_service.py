@@ -396,3 +396,39 @@ def get_project_github_status(project_id: str, *, validate: bool = True) -> GitH
         )
     except (ValueError, GitHubAPIError) as e:
         return build_connection_status(pid, gh=gh, validation_ok=False, validation_message=str(e))
+
+
+def disconnect_project_github(project_id: str) -> GitHubConnectionStatus:
+    """
+    Remove GitHub App configuration from a project.
+
+    Does not uninstall the GitHub App on GitHub — only clears ``project.settings.github``.
+    """
+    from services.db.project_repository import project_repo
+    from services.github_installation_token_cache import installation_token_cache
+
+    pid = (project_id or "").strip().lower()
+    if not pid:
+        raise ValueError("project_id is required")
+
+    project = project_repo.get_project(pid)
+    if project is None:
+        raise LookupError(f"project not found: {pid}")
+
+    gh = _github_dict(project)
+    iid = str(gh.get("installation_id") or gh.get("github_installation_id") or "").strip()
+    if iid:
+        installation_token_cache.invalidate(iid)
+
+    merged = dict(project.settings or {})
+    merged.pop("github", None)
+    updated = project_repo.update_project(pid, {"settings": merged})
+    if updated is None:
+        raise LookupError(f"project not found: {pid}")
+
+    logger.info("github_app disconnected project_id=%s", pid)
+    return build_connection_status(
+        pid,
+        gh={},
+        validation_message="GitHub is not connected for this project.",
+    )

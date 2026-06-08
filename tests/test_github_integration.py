@@ -12,6 +12,7 @@ from models.project_knowledge_models import ProjectKnowledge
 from services.github_repository_service import GitHubAPIError, GitHubRepositoryClient
 from services.project_github_settings_service import (
     connect_project_github_app,
+    disconnect_project_github,
     get_project_github_status,
     select_project_repository,
 )
@@ -172,6 +173,38 @@ def test_analyze_pull_request_invokes_pr_analysis_v1():
 def test_pr_analyze_endpoint_registered(client):
     res = client.post("/projects/nonexistent-proj-xyz/github/pull-requests/1/analyze")
     assert res.status_code == 404
+
+
+def test_disconnect_clears_github_settings():
+    project = _mock_project(_app_github_settings())
+    with patch("services.db.project_repository.project_repo") as repo:
+        repo.get_project.return_value = project
+        repo.update_project.return_value = MagicMock(id="demo", settings={})
+        with patch("services.github_installation_token_cache.installation_token_cache") as cache:
+            status = disconnect_project_github("demo")
+
+    assert status.connected is False
+    assert status.installation_id == ""
+    assert status.provider == "none"
+    saved = repo.update_project.call_args[0][1]["settings"]
+    assert "github" not in saved
+    cache.invalidate.assert_called_once_with("12345")
+
+
+def test_disconnect_endpoint(client):
+    from models.github_integration_models import GitHubConnectionStatus
+
+    with patch("api.routes.github_project_routes.disconnect_project_github") as mock_disc:
+        mock_disc.return_value = GitHubConnectionStatus(
+            project_id="demo",
+            connected=False,
+            installation_id="",
+            provider="none",
+            validation_message="GitHub is not connected for this project.",
+        )
+        res = client.post("/projects/demo/github/disconnect")
+    assert res.status_code == 200
+    mock_disc.assert_called_once_with("demo")
 
 
 @patch("services.project_github_settings_service.is_github_app_configured", return_value=True)

@@ -27,6 +27,7 @@ from services.github_integration_service import (
 from services.github_repository_service import GitHubAPIError
 from services.project_github_settings_service import (
     connect_project_github_app,
+    disconnect_project_github,
     get_install_url,
     get_project_github_status,
     list_authorized_repositories,
@@ -92,6 +93,15 @@ def github_status(project_id: str, validate: bool = Query(default=True)):
     """Connection status; optional live validation against GitHub API."""
     try:
         return get_project_github_status(project_id, validate=validate)
+    except Exception as exc:
+        raise _http_error(exc) from None
+
+
+@router.post("/{project_id}/github/disconnect", response_model=GitHubConnectionStatus)
+def github_disconnect(project_id: str):
+    """Clear GitHub App settings for this project (does not uninstall the app on GitHub)."""
+    try:
+        return disconnect_project_github(project_id)
     except Exception as exc:
         raise _http_error(exc) from None
 

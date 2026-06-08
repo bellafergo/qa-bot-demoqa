@@ -639,6 +639,10 @@ export function getProjectGitHubStatus(projectId, validate = true) {
   return apiGet(`/projects/${encodeURIComponent(projectId)}/github/status?${q}`);
 }
 
+export function disconnectProjectGitHub(projectId) {
+  return apiPost(`/projects/${encodeURIComponent(projectId)}/github/disconnect`, {});
+}
+
 export function listProjectGitHubPRs(projectId, limit = 20) {
   const q = new URLSearchParams({ limit: String(limit) });
   return apiGet(`/projects/${encodeURIComponent(projectId)}/github/pull-requests?${q}`);

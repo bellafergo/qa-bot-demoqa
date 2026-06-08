@@ -13,6 +13,7 @@ import {
   listProjectGitHubRepositories,
   selectProjectGitHubRepository,
   getProjectGitHubStatus,
+  disconnectProjectGitHub,
 } from "../api";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
@@ -43,10 +44,10 @@ const CONNECTOR_ICONS = {
   qmetry:  "⊞",
 };
 
-function HealthBadge({ health }) {
+function HealthBadge({ health, labelOverride }) {
   const { t } = useLang();
   const color = HEALTH_COLOR[health] || HEALTH_COLOR.unknown;
-  const label = HEALTH_KEY[health] ? t(HEALTH_KEY[health]) : (health || t("integrations.health.unknown"));
+  const label = labelOverride || (HEALTH_KEY[health] ? t(HEALTH_KEY[health]) : (health || t("integrations.health.unknown")));
   return (
     <span style={{
       display: "inline-flex", alignItems: "center", gap: 5,
@@ -60,6 +61,17 @@ function HealthBadge({ health }) {
       {label}
     </span>
   );
+}
+
+/** Single source of truth for GitHub App header badges (card + panel). */
+function deriveGitHubHeaderState(status) {
+  if (!status?.installation_id) {
+    return { enabled: false, health: "unconfigured", labelKey: "integrations.health.unconfigured" };
+  }
+  if (status.connected && status.validation_ok) {
+    return { enabled: true, health: "ok", labelKey: "integrations.github.header_healthy" };
+  }
+  return { enabled: true, health: "degraded", labelKey: "integrations.github.header_connected" };
 }
 
 function StatusPill({ enabled }) {
@@ -243,20 +255,141 @@ function ConfigForm({ connectorId, currentConfig, onSaved }) {
 
 // ── GitHub App (project-scoped) ───────────────────────────────────────────────
 
-function GitHubStatusBadge({ status }) {
-  const { t } = useLang();
-  if (!status) return null;
+function ActionsMenu({ items, disabled }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
 
-  if (status.connected && status.validation_ok) {
-    return <span className="badge badge-green">{t("integrations.github.status_healthy")}</span>;
-  }
-  if (status.installation_id && !status.connected) {
-    return <span className="badge badge-blue">{t("integrations.github.status_connected")}</span>;
-  }
-  if (status.needs_migration) {
-    return <span className="badge badge-orange">{t("gh.needs_migration")}</span>;
-  }
-  return <span className="badge badge-gray">{t("integrations.github.status_not_configured")}</span>;
+  useEffect(() => {
+    if (!open) return undefined;
+    function onDoc(e) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  if (!items.length) return null;
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative" }}>
+      <button
+        type="button"
+        className="btn btn-secondary btn-sm"
+        onClick={() => setOpen((v) => !v)}
+        disabled={disabled}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="Actions"
+      >
+        ⋮
+      </button>
+      {open ? (
+        <div
+          role="menu"
+          style={{
+            position: "absolute",
+            right: 0,
+            top: "calc(100% + 4px)",
+            minWidth: 200,
+            background: "var(--surface, #fff)",
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+            zIndex: 20,
+            padding: "4px 0",
+          }}
+        >
+          {items.map((item, idx) => (
+            item.separator ? (
+              <div key={`sep-${idx}`} style={{ height: 1, background: "var(--border)", margin: "4px 0" }} />
+            ) : (
+              <button
+                key={item.key}
+                type="button"
+                role="menuitem"
+                className="btn"
+                style={{
+                  display: "block",
+                  width: "100%",
+                  textAlign: "left",
+                  background: "transparent",
+                  border: "none",
+                  borderRadius: 0,
+                  padding: "8px 14px",
+                  fontSize: 13,
+                  color: item.danger ? "var(--red, #ef4444)" : "var(--text-1)",
+                  fontWeight: item.danger ? 500 : 400,
+                }}
+                disabled={item.disabled}
+                onClick={() => {
+                  setOpen(false);
+                  if (item.onClick) item.onClick();
+                }}
+              >
+                {item.label}
+              </button>
+            )
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function GitHubDisconnectDialog({ open, busy, onConfirm, onCancel }) {
+  const { t } = useLang();
+  if (!open) return null;
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.45)",
+        zIndex: 10040,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+      }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="gh-disconnect-title"
+    >
+      <div className="card" style={{ width: "min(520px, 100%)", padding: 0, overflow: "hidden" }}>
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)" }}>
+          <div id="gh-disconnect-title" style={{ fontSize: 16, fontWeight: 600, color: "var(--text-1)" }}>
+            {t("integrations.github.disconnect_title")}
+          </div>
+          <p style={{ fontSize: 13, color: "var(--text-2)", margin: "10px 0 0", lineHeight: 1.55 }}>
+            {t("integrations.github.disconnect_intro")}
+          </p>
+          <ul style={{ fontSize: 13, color: "var(--text-2)", margin: "12px 0 0", paddingLeft: 0, listStyle: "none", lineHeight: 1.7 }}>
+            <li>✓ {t("integrations.github.disconnect_item_installation")}</li>
+            <li>✓ {t("integrations.github.disconnect_item_repo")}</li>
+            <li>✓ {t("integrations.github.disconnect_item_state")}</li>
+          </ul>
+          <p style={{ fontSize: 13, color: "var(--text-3)", margin: "12px 0 0", lineHeight: 1.55 }}>
+            {t("integrations.github.disconnect_footer")}
+          </p>
+        </div>
+        <div style={{ padding: "14px 20px", display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={onCancel} disabled={busy}>
+            {t("common.cancel")}
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm btn-primary"
+            style={{ background: "var(--red)", borderColor: "var(--red)", color: "#fff" }}
+            onClick={onConfirm}
+            disabled={busy}
+          >
+            {busy ? t("common.working") : t("integrations.github.disconnect_confirm")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function GitHubAppPanel({ onStatusChange }) {
@@ -274,6 +407,8 @@ function GitHubAppPanel({ onStatusChange }) {
   const [selectedRepo, setSelectedRepo] = useState("");
   const [selectingRepo, setSelectingRepo] = useState(false);
   const [changingRepo, setChangingRepo] = useState(false);
+  const [disconnectOpen, setDisconnectOpen] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
   const callbackHandled = useRef(false);
 
   const loadRepos = useCallback(async () => {
@@ -394,10 +529,46 @@ function GitHubAppPanel({ onStatusChange }) {
     }
   }
 
+  async function handleDisconnect() {
+    if (!projectId) return;
+    setDisconnecting(true);
+    setError("");
+    try {
+      await disconnectProjectGitHub(projectId);
+      setChangingRepo(false);
+      setSelectedRepo("");
+      setRepos([]);
+      await refreshStatus(false);
+      setDisconnectOpen(false);
+    } catch (e) {
+      setError(e?.message || t("integrations.github.disconnect_error"));
+    } finally {
+      setDisconnecting(false);
+    }
+  }
+
   const showRepoPicker = Boolean(
     status?.installation_id && (!status.full_name || changingRepo),
   );
   const accountLabel = status?.owner || status?.connected_by || "";
+  const showActionsMenu = Boolean(status?.installation_id);
+
+  const menuItems = [];
+  if (status?.installation_id && status.full_name && !changingRepo) {
+    menuItems.push(
+      { key: "verify", label: t("integrations.github.verify"), onClick: handleVerify, disabled: verifying },
+      { key: "change", label: t("integrations.github.change_repo"), onClick: () => { setChangingRepo(true); setSelectedRepo(""); } },
+      { key: "reconnect", label: t("integrations.github.reconnect"), onClick: handleConnect, disabled: connecting },
+      { separator: true },
+      { key: "disconnect", label: t("integrations.github.disconnect"), onClick: () => setDisconnectOpen(true), danger: true },
+    );
+  } else if (status?.installation_id) {
+    menuItems.push(
+      { key: "reconnect", label: t("integrations.github.reconnect"), onClick: handleConnect, disabled: connecting },
+      { separator: true },
+      { key: "disconnect", label: t("integrations.github.disconnect"), onClick: () => setDisconnectOpen(true), danger: true },
+    );
+  }
 
   return (
     <div style={{ marginTop: 16 }}>
@@ -412,15 +583,15 @@ function GitHubAppPanel({ onStatusChange }) {
         <p style={{ fontSize: 12, color: "var(--text-3)" }}>{t("integrations.github.need_project")}</p>
       ) : (
         <>
-          <div style={{ marginBottom: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <GitHubStatusBadge status={status} />
-            {status?.provider === "github_app" ? (
-              <span className="badge badge-gray">{t("gh.provider_app")}</span>
-            ) : null}
-            {loading || connecting ? (
-              <span style={{ fontSize: 11, color: "var(--text-3)" }}>{t("gh.loading")}</span>
-            ) : null}
-          </div>
+          {loading || connecting ? (
+            <p style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 12 }}>{t("gh.loading")}</p>
+          ) : null}
+
+          {status?.needs_migration ? (
+            <div className="alert alert-error" style={{ marginBottom: 12, fontSize: 12 }}>
+              {t("gh.needs_migration")}
+            </div>
+          ) : null}
 
           {status && !status.app_configured ? (
             <div className="alert alert-error" style={{ marginBottom: 12, fontSize: 12 }}>
@@ -516,36 +687,18 @@ function GitHubAppPanel({ onStatusChange }) {
             </div>
           ) : null}
 
-          {status?.installation_id && status.full_name && !changingRepo ? (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
-              <span style={{ fontSize: 12, color: "var(--green, #22c55e)", alignSelf: "center", fontWeight: 500 }}>
-                {t("gh.connected_badge")}
-              </span>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={handleVerify}
-                disabled={verifying}
-              >
-                {verifying ? t("gh.loading") : t("integrations.github.verify")}
-              </button>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => { setChangingRepo(true); setSelectedRepo(""); }}
-              >
-                {t("integrations.github.change_repo")}
-              </button>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={handleConnect}
-                disabled={connecting}
-              >
-                {t("integrations.github.reconnect")}
-              </button>
+          {showActionsMenu ? (
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+              <ActionsMenu items={menuItems} disabled={disconnecting || connecting} />
             </div>
           ) : null}
+
+          <GitHubDisconnectDialog
+            open={disconnectOpen}
+            busy={disconnecting}
+            onConfirm={handleDisconnect}
+            onCancel={() => setDisconnectOpen(false)}
+          />
         </>
       )}
     </div>
@@ -556,12 +709,32 @@ function GitHubAppPanel({ onStatusChange }) {
 
 function ConnectorCard({ summary, onAction }) {
   const { t, lang } = useLang();
+  const { currentProject } = useProject();
+  const isGitHub = summary.connector_id === "github";
   const [expanded,  setExpanded]  = useState(false);
   const [detail,    setDetail]    = useState(null);
   const [actions,   setActions]   = useState(null);
   const [checking,  setChecking]  = useState(false);
   const [toggling,  setToggling]  = useState(false);
   const [config,    setConfig]    = useState(null);
+  const [ghStatus,  setGhStatus]  = useState(null);
+
+  const loadGitHubHeaderStatus = useCallback(async () => {
+    if (!isGitHub || !currentProject?.id) {
+      setGhStatus(null);
+      return;
+    }
+    try {
+      const st = await getProjectGitHubStatus(currentProject.id, false);
+      setGhStatus(st);
+    } catch {
+      setGhStatus(null);
+    }
+  }, [isGitHub, currentProject?.id]);
+
+  useEffect(() => {
+    loadGitHubHeaderStatus();
+  }, [loadGitHubHeaderStatus]);
 
   const loadDetail = useCallback(async () => {
     try {
@@ -606,7 +779,10 @@ function ConnectorCard({ summary, onAction }) {
   };
 
   const icon = CONNECTOR_ICONS[summary.connector_id] || "◇";
-  const health = (detail && detail.health) || summary.health;
+  const ghHeader = isGitHub ? deriveGitHubHeaderState(ghStatus) : null;
+  const health = isGitHub ? ghHeader.health : ((detail && detail.health) || summary.health);
+  const healthLabel = isGitHub && ghHeader ? t(ghHeader.labelKey) : undefined;
+  const enabled = isGitHub ? Boolean(ghHeader?.enabled) : summary.enabled;
 
   return (
     <div className="card" style={{ marginBottom: 12, transition: "box-shadow 0.15s" }}>
@@ -631,8 +807,8 @@ function ConnectorCard({ summary, onAction }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ fontWeight: 600, fontSize: 14 }}>{summary.connector_name}</span>
-            <StatusPill enabled={summary.enabled} />
-            <HealthBadge health={health} />
+            <StatusPill enabled={enabled} />
+            <HealthBadge health={health} labelOverride={healthLabel} />
           </div>
           <div style={{ fontSize: 12, color: "var(--text-2)", marginTop: 2, lineHeight: 1.4 }}>
             {summary.description}
@@ -674,8 +850,8 @@ function ConnectorCard({ summary, onAction }) {
       {/* Expanded detail */}
       {expanded && (
         <div style={{ marginTop: 16, borderTop: "1px solid var(--border)", paddingTop: 16 }}>
-          {/* Health detail */}
-          {detail && (
+          {/* Health detail — legacy connectors only */}
+          {!isGitHub && detail && (
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 12, marginBottom: 8, color: "var(--text-2)" }}>
                 <span style={{ color: detail.health === "ok" ? "var(--green, #22c55e)" : "var(--red, #ef4444)", fontWeight: 600 }}>
@@ -701,8 +877,8 @@ function ConnectorCard({ summary, onAction }) {
             </div>
           )}
 
-          {/* Supported actions */}
-          {actions && actions.length > 0 && (
+          {/* Supported actions — legacy connectors only */}
+          {!isGitHub && actions && actions.length > 0 && (
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-2)", marginBottom: 6 }}>
                 {t("integrations.card.supported")}
@@ -723,7 +899,7 @@ function ConnectorCard({ summary, onAction }) {
 
           {/* Config form — GitHub uses GitHub App panel instead of PAT */}
           {summary.connector_id === "github" ? (
-            <GitHubAppPanel />
+            <GitHubAppPanel onStatusChange={setGhStatus} />
           ) : (
             <ConfigForm
               connectorId={summary.connector_id}
