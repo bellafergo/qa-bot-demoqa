@@ -8,7 +8,9 @@ from typing import List
 from fastapi import APIRouter, HTTPException, Response
 from sqlalchemy.exc import IntegrityError
 
+from core.json_api import json_error_from_exception
 from models.project import ProjectCreate, ProjectPublic, ProjectUpdate
+from models.project_initialize_models import ProjectInitializeRequest, ProjectInitializeResponse
 from services.db.catalog_repository import catalog_repo
 from services.db.project_errors import ProjectDuplicateIdError
 from services.db.project_repository import project_repo
@@ -90,6 +92,29 @@ def patch_project(project_id: str, body: ProjectUpdate):
     if updated is None:
         raise HTTPException(status_code=404, detail="Project not found")
     return _to_public(updated)
+
+
+@router.post("/{project_id}/initialize", response_model=ProjectInitializeResponse)
+def initialize_project(project_id: str, body: ProjectInitializeRequest | None = None):
+    """
+    Prepare a project for enterprise use: rebuild system memory, inventory catalog,
+    optionally queue smoke/critical runs. Returns per-step status (partial OK).
+    """
+    from services.project_initialize_service import initialize_project as run_init
+
+    pid = _norm_pid(project_id)
+    try:
+        return run_init(pid, body)
+    except ValueError as e:
+        raise HTTPException(status_code=404 if "not found" in str(e).lower() else 400, detail=str(e)) from None
+    except Exception as exc:
+        return json_error_from_exception(
+            500,
+            "Project initialize failed",
+            exc,
+            logger=logger,
+            context={"endpoint": f"/projects/{pid}/initialize"},
+        )
 
 
 @router.delete("/{project_id}", status_code=204)

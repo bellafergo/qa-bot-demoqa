@@ -22,6 +22,7 @@ DASHBOARD_PATHS = [
     "/execution/status",
     "/failure-intelligence/summary",
     "/analytics/runs/dashboard",
+    "/evidences/summary",
 ]
 
 

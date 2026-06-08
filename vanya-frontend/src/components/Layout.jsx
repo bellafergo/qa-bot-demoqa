@@ -23,6 +23,10 @@ const ROUTE_META = {
   "/api-testing":  { titleKey: "layout.api_testing.title",   subtitleKey: "layout.api_testing.subtitle"   },
   "/coverage":     { titleKey: "layout.coverage.title",      subtitleKey: "layout.coverage.subtitle"      },
   "/integrations": { titleKey: "layout.integrations.title",  subtitleKey: "layout.integrations.subtitle"  },
+  "/evidence":     { titleKey: "ev.title",                   subtitleKey: "ev.subtitle"                   },
+  "/knowledge":    { titleKey: "knowledge.title",            subtitleKey: "knowledge.subtitle"            },
+  "/insights":     { titleKey: "nav.insights",               subtitleKey: ""                              },
+  "/incidents":    { titleKey: "incident.title",             subtitleKey: "incident.subtitle"             },
   "/browser-watch": null,
   "/local-agents": null,
 };

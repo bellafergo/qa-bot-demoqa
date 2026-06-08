@@ -9,8 +9,11 @@
  */
 import React, { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { listEvidences, enqueueSingle, apiErrorMessage } from "../api";
+import { listEvidences, getEvidenceSummary, enqueueSingle, apiErrorMessage } from "../api";
 import { useLang } from "../i18n/LangContext";
+import { useProject } from "../context/ProjectContext.jsx";
+import KpiStrip from "../components/KpiStrip.jsx";
+import InitializeProjectPanel from "../components/InitializeProjectPanel.jsx";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -154,8 +157,11 @@ function getCanonicalEvidenceUrls(row) {
 export default function EvidencePage() {
   const { t } = useLang();
   const navigate = useNavigate();
+  const { currentProject } = useProject();
+  const projectId = currentProject?.id;
 
   const [rows, setRows]         = useState([]);
+  const [kpi, setKpi]           = useState(null);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState(null);
   const [search, setSearch]     = useState("");
@@ -167,14 +173,20 @@ export default function EvidencePage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await listEvidences({ limit: 50 });
+      const opts = { limit: 50 };
+      if (projectId) opts.project_id = projectId;
+      const [data, summary] = await Promise.all([
+        listEvidences(opts),
+        getEvidenceSummary(projectId).catch(() => null),
+      ]);
       setRows(Array.isArray(data) ? data : []);
+      setKpi(summary);
     } catch (e) {
       setError(apiErrorMessage(e) || t("ev.error"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [projectId, t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -221,6 +233,38 @@ export default function EvidencePage() {
           {t("ev.subtitle")}
         </p>
       </div>
+
+      {!loading && (kpi?.total ?? 0) === 0 ? (
+        <div style={{ marginBottom: 20 }}>
+          {projectId ? (
+            <InitializeProjectPanel
+              projectId={projectId}
+              projectName={currentProject?.name}
+              compact
+              onDone={() => load()}
+            />
+          ) : (
+            <div className="card" style={{ padding: 16, fontSize: 13, color: "var(--text-2)" }}>
+              {t("ev.kpi.empty_cta")}
+            </div>
+          )}
+          <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <Link to="/batch" className="btn btn-primary btn-sm">{t("ev.kpi.batch_cta")}</Link>
+          </div>
+        </div>
+      ) : (
+        <KpiStrip
+          loading={loading}
+          items={[
+            { key: "total", label: t("ev.kpi.total"), value: kpi?.total ?? rows.length },
+            { key: "shots", label: t("ev.kpi.screenshots"), value: kpi?.screenshots ?? "—" },
+            { key: "videos", label: t("ev.kpi.videos"), value: "—" },
+            { key: "logs", label: t("ev.kpi.logs"), value: kpi?.logs_hint ?? "—" },
+            { key: "reports", label: t("ev.kpi.reports"), value: kpi?.reports ?? "—" },
+            { key: "last", label: t("ev.kpi.last"), value: fmtDate(kpi?.last_at) },
+          ]}
+        />
+      )}
 
       {/* Filters */}
       <div className="card" style={{ marginBottom: 20, padding: "14px 20px" }}>

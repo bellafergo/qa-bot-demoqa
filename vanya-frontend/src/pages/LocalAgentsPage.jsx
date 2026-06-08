@@ -186,8 +186,14 @@ export default function LocalAgentsPage() {
         }}
       >
         <div>
-          <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0, color: "var(--text-1)" }}>{t("localAgents.title")}</h1>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0, color: "var(--text-1)" }}>{t("localAgents.title")}</h1>
+            <span className="badge badge-orange">{t("localAgents.beta_badge")}</span>
+          </div>
           <p style={{ fontSize: 13, color: "var(--text-3)", margin: "6px 0 0" }}>{t("localAgents.subtitle")}</p>
+          <p style={{ fontSize: 12, color: "var(--text-2)", margin: "8px 0 0", maxWidth: 560, lineHeight: 1.5 }}>
+            {t("localAgents.beta_desc")}
+          </p>
           <p style={{ fontSize: 12, color: "var(--text-2)", margin: "8px 0 0" }}>
             {currentProject ? t("localAgents.scope_project", { name: currentProject.name }) : t("localAgents.scope_all")}
           </p>
@@ -206,9 +212,16 @@ export default function LocalAgentsPage() {
             </div>
           )}
           {!loading && !error && agents.length === 0 && (
-            <div className="card" style={{ padding: 24, textAlign: "center" }}>
+            <div className="card" style={{ padding: 28, textAlign: "center" }}>
+              <div style={{ fontSize: 32, marginBottom: 12, opacity: 0.35 }}>⎔</div>
               <div style={{ fontSize: 15, fontWeight: 600 }}>{t("localAgents.empty_title")}</div>
-              <div style={{ fontSize: 13, color: "var(--text-2)", marginTop: 8 }}>{t("localAgents.empty_desc")}</div>
+              <div style={{ fontSize: 13, color: "var(--text-2)", marginTop: 8, maxWidth: 420, margin: "8px auto 0", lineHeight: 1.55 }}>
+                {t("localAgents.empty_desc")}
+              </div>
+              <button type="button" className="btn btn-primary btn-sm" style={{ marginTop: 18 }} disabled title={t("localAgents.register_hint")}>
+                {t("localAgents.register_cta")}
+              </button>
+              <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 10 }}>{t("localAgents.register_hint")}</div>
             </div>
           )}
           {!loading && !error && agents.length > 0 && (

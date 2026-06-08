@@ -6,6 +6,8 @@ import React, { useCallback, useEffect, useState } from "react";
 import { getProjectKnowledge, refreshProjectKnowledge, apiErrorMessage } from "../api";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
+import KpiStrip from "../components/KpiStrip.jsx";
+import InitializeProjectPanel from "../components/InitializeProjectPanel.jsx";
 
 function fmtTs(iso) {
   if (!iso) return "—";
@@ -24,6 +26,31 @@ function riskBadge(score) {
   if (v >= 50) return "badge badge-orange";
   if (v >= 25) return "badge badge-blue";
   return "badge badge-gray";
+}
+
+function knowledgeKpiItems(knowledge, t) {
+  if (!knowledge) return [];
+  const modN = (knowledge.modules || []).length;
+  const routeN = (knowledge.routes || []).length;
+  const apiN = (knowledge.apis || []).length;
+  const testN = (knowledge.related_tests || []).length;
+  const relN = (knowledge.workflows || []).length + (knowledge.forms || []).length;
+  const coveragePct = modN > 0 ? Math.min(100, Math.round((testN / modN) * 100)) : (testN > 0 ? 50 : 0);
+  const signalCount = modN + routeN + apiN;
+  const confKey =
+    signalCount >= 5 && testN >= 3 ? "knowledge.kpi.conf_high"
+      : signalCount >= 2 || testN >= 1 ? "knowledge.kpi.conf_medium"
+        : "knowledge.kpi.conf_low";
+  return [
+    { key: "mod", label: t("knowledge.kpi.modules"), value: modN },
+    { key: "routes", label: t("knowledge.kpi.routes"), value: routeN },
+    { key: "apis", label: t("knowledge.kpi.apis"), value: apiN },
+    { key: "tests", label: t("knowledge.kpi.tests"), value: testN },
+    { key: "rel", label: t("knowledge.kpi.relations"), value: relN },
+    { key: "cov", label: t("knowledge.kpi.coverage"), value: `${coveragePct}%` },
+    { key: "conf", label: t("knowledge.kpi.confidence"), value: t(confKey) },
+    { key: "upd", label: t("knowledge.updated"), value: fmtTs(knowledge.updated_at) },
+  ];
 }
 
 function riskLevelBadge(level) {
@@ -135,14 +162,22 @@ export default function KnowledgePage() {
       {loading ? (
         <div style={{ fontSize: 13, color: "var(--text-3)", padding: 24 }}>{t("knowledge.loading")}</div>
       ) : !knowledge ? (
-        <div className="card" style={{ padding: 24 }}>
-          <p style={{ fontSize: 13, color: "var(--text-2)", marginBottom: 16 }}>{t("knowledge.empty")}</p>
-          <button type="button" className="btn btn-primary" onClick={() => handleRefresh("replace")} disabled={refreshing}>
-            {t("knowledge.build")}
-          </button>
-        </div>
+        <>
+          <InitializeProjectPanel
+            projectId={projectId}
+            projectName={currentProject?.name}
+            onDone={() => load()}
+          />
+          <div className="card" style={{ padding: 24 }}>
+            <p style={{ fontSize: 13, color: "var(--text-2)", marginBottom: 16 }}>{t("knowledge.empty")}</p>
+            <button type="button" className="btn btn-primary" onClick={() => handleRefresh("replace")} disabled={refreshing}>
+              {t("knowledge.build")}
+            </button>
+          </div>
+        </>
       ) : (
         <>
+          <KpiStrip items={knowledgeKpiItems(knowledge, t)} />
           <div className="card" style={{ padding: "16px 20px", marginBottom: 16, display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
             <div>
               <div style={{ fontSize: 11, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("knowledge.risk")}</div>

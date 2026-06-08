@@ -18,6 +18,7 @@ import {
 } from "../api";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
+import ProjectHealthStrip from "../components/ProjectHealthStrip.jsx";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -1217,6 +1218,21 @@ export default function DashboardPage() {
       </div>
 
       <SystemStatusRibbon ribbon={systemRibbon} />
+
+      <div style={{ padding: "24px 40px 0" }}>
+        <ProjectHealthStrip
+          t={t}
+          projectId={projectId}
+          projectName={currentProject?.name}
+          summary={s}
+          fi={fi}
+          loading={loading}
+          passRateValid={passRateValid}
+          passRateNum={passRateNum}
+          lastRefresh={lastRefresh}
+          onInitialized={() => load()}
+        />
+      </div>
 
       <div style={{ padding: "32px 40px" }}>
 

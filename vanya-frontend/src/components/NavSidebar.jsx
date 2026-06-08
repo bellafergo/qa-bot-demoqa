@@ -8,9 +8,8 @@ import { SidebarBrand } from "../ui";
 
 const NAV_SECTIONS_DEF = [
   {
-    labelKey: "nav.core",
+    labelKey: "nav.operation",
     items: [
-      { to: "/projects", icon: "▤", labelKey: "nav.projects" },
       { to: "/dashboard", icon: "⊞", labelKey: "nav.dashboard" },
       { to: "/catalog",   icon: "☰", labelKey: "nav.catalog"   },
       { to: "/runs",      icon: "◈", labelKey: "nav.runs"      },
@@ -25,19 +24,19 @@ const NAV_SECTIONS_DEF = [
       { to: "/incidents", icon: "⚡", labelKey: "nav.incidents" },
       { to: "/pr-analysis", icon: "⎇", labelKey: "nav.pr_analysis" },
       { to: "/knowledge", icon: "◫", labelKey: "nav.knowledge" },
+    ],
+  },
+  {
+    labelKey: "nav.automation",
+    items: [
       { to: "/browser-watch", icon: "◎", labelKey: "nav.browser_watch" },
       { to: "/local-agents", icon: "⎔", labelKey: "nav.local_agents" },
     ],
   },
   {
-    labelKey: "nav.tools",
-    items: [
-      { to: "/chat", icon: "✦", labelKey: "nav.chat" },
-    ],
-  },
-  {
     labelKey: "nav.platform",
     items: [
+      { to: "/projects",     icon: "▤", labelKey: "nav.projects"     },
       { to: "/integrations", icon: "◇", labelKey: "nav.integrations" },
       { to: "/documents",    icon: "⊟", labelKey: "nav.documents"    },
       { to: "/settings",     icon: "⊛", labelKey: "nav.settings"     },

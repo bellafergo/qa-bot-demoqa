@@ -402,8 +402,19 @@ export function listEvidences(params = {}) {
   const q = new URLSearchParams();
   if (params.test_case_id) q.set("test_case_id", params.test_case_id);
   if (params.limit)        q.set("limit",        params.limit);
+  if (params.project_id != null && String(params.project_id).trim()) {
+    q.set("project_id", String(params.project_id).trim());
+  }
   const qs = q.toString();
   return apiGet(`/evidences${qs ? "?" + qs : ""}`);
+}
+export function getEvidenceSummary(project_id) {
+  const q = new URLSearchParams();
+  if (project_id != null && String(project_id).trim()) {
+    q.set("project_id", String(project_id).trim());
+  }
+  const qs = q.toString();
+  return apiGet(`/evidences/summary${qs ? `?${qs}` : ""}`);
 }
 
 // ========= Orchestrator / Execution =========
@@ -580,6 +591,13 @@ export const getProject     = (projectId)           => apiGet(`/projects/${encod
 export const createProject  = (payload)           => apiPost("/projects", payload);
 export const updateProject  = (projectId, payload) => apiPatch(`/projects/${encodeURIComponent(projectId)}`, payload);
 export const deleteProject  = (projectId)           => apiDelete(`/projects/${encodeURIComponent(projectId)}`);
+/** POST /projects/{id}/initialize — rebuild memory, inventory catalog, optional smoke queue. */
+export function initializeProject(projectId, body = {}) {
+  return apiPost(`/projects/${encodeURIComponent(projectId)}/initialize`, {
+    run_smoke: body.run_smoke !== false,
+    refresh_knowledge: body.refresh_knowledge !== false,
+  });
+}
 
 // ========= Browser inspection watches (Phase 3G–4E) =========
 /** POST /browser-inspections/watch — create watch (execution_mode: cloud | local_agent). */

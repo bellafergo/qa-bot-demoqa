@@ -4,7 +4,7 @@
  * GET /runs/{run_id} | GET /test-runs | POST /rca/analyze | POST /business-risk/analyze
  */
 import React, { useState, useEffect, useCallback, useRef, Fragment } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   listTestRuns,
   getTestRun,
@@ -16,15 +16,115 @@ import {
   analyzeRisk,
   getRunClusters,
   enqueueSingle,
+  getRunsAnalytics,
   apiGet,
   apiErrorMessage,
   ApiHttpError,
 } from "../api";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
-
+import KpiStrip from "../components/KpiStrip.jsx";
+import InitializeProjectPanel from "../components/InitializeProjectPanel.jsx";
 // Tab identifiers — rendered via t() in the component
 const TAB_KEYS = ["runs.tab.history", "runs.tab.lookup"];
+
+function fmtRunsKpiDate(iso) {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+    });
+  } catch {
+    return "—";
+  }
+}
+
+function fmtRunsKpiMs(ms) {
+  if (ms == null || ms === 0) return "—";
+  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
+}
+
+function RunsAnalyticsKpi({ onInitialized }) {
+  const { t } = useLang();
+  const { currentProject } = useProject();
+  const projectId = currentProject?.id;
+  const [analytics, setAnalytics] = useState(null);
+  const [lastRunAt, setLastRunAt] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    const runOpts = { limit: 1 };
+    if (projectId) runOpts.project_id = projectId;
+    Promise.all([
+      getRunsAnalytics(projectId),
+      listTestRuns(runOpts).catch(() => []),
+    ])
+      .then(([a, runs]) => {
+        setAnalytics(a);
+        const first = Array.isArray(runs) ? runs[0] : runs?.runs?.[0];
+        setLastRunAt(first?.started_at || first?.finished_at || null);
+      })
+      .catch(() => {
+        setAnalytics(null);
+        setLastRunAt(null);
+      })
+      .finally(() => setLoading(false));
+  }, [projectId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const s = analytics?.summary;
+  const total = s?.total_runs ?? 0;
+  const passRate = s?.pass_rate != null ? `${Number(s.pass_rate).toFixed(1)}%` : "—";
+  const failRate =
+    s?.total_runs > 0 && s?.failed_runs != null
+      ? `${((s.failed_runs / s.total_runs) * 100).toFixed(1)}%`
+      : "—";
+
+  if (!loading && total === 0) {
+    return (
+      <div style={{ marginBottom: 20 }}>
+        {projectId ? (
+          <InitializeProjectPanel
+            projectId={projectId}
+            projectName={currentProject?.name}
+            compact
+            onDone={() => {
+              onInitialized?.();
+              load();
+            }}
+          />
+        ) : (
+          <div className="card" style={{ padding: 16, fontSize: 13, color: "var(--text-2)" }}>
+            {t("runs.kpi.empty_cta")}
+          </div>
+        )}
+        <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {projectId ? (
+            <Link to="/dashboard" className="btn btn-secondary btn-sm">{t("runs.kpi.init_cta")}</Link>
+          ) : null}
+          <Link to="/batch" className="btn btn-primary btn-sm">{t("runs.kpi.batch_cta")}</Link>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <KpiStrip
+      loading={loading}
+      items={[
+        { key: "total", label: t("runs.kpi.total"), value: total },
+        { key: "pass", label: t("runs.kpi.pass_rate"), value: passRate, accent: "var(--green)" },
+        { key: "fail", label: t("runs.kpi.fail_rate"), value: failRate, accent: "var(--red)" },
+        { key: "dur", label: t("runs.kpi.avg_duration"), value: fmtRunsKpiMs(s?.avg_duration_ms) },
+        { key: "last", label: t("runs.kpi.last_run"), value: fmtRunsKpiDate(lastRunAt) },
+      ]}
+    />
+  );
+}
 
 /** Structured API failure evidence (runners/api_evidence.py → step.evidence). */
 function ApiStepEvidencePanel({ evidence, t }) {
@@ -2251,6 +2351,8 @@ export default function RunsPage() {
           {t("runs.page.batch_link")}
         </button>
       </div>
+
+      <RunsAnalyticsKpi />
 
       {/* Tab bar */}
       <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: "2px solid var(--border)", paddingBottom: 0 }}>

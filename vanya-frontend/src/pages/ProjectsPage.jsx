@@ -5,7 +5,8 @@ import { useLang } from "../i18n/LangContext.jsx";
 import { useProject } from "../context/ProjectContext.jsx";
 import ProjectModal from "../components/ProjectModal.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
-import { apiErrorMessage } from "../api.js";
+import { apiErrorMessage, initializeProject } from "../api.js";
+import { useToast } from "../context/ToastContext.jsx";
 import { PageHeader, Button, EmptyState } from "../ui";
 
 export default function ProjectsPage() {
@@ -22,6 +23,8 @@ export default function ProjectsPage() {
   const [deleteErr, setDeleteErr] = useState("");
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [initBusyId, setInitBusyId] = useState(null);
+  const { showToast } = useToast();
 
   function clearNewQuery() {
     if (!openCreateFromQuery) return;
@@ -56,6 +59,19 @@ export default function ProjectsPage() {
   async function handleOpen(p) {
     setCurrentProject(p);
     navigate("/dashboard");
+  }
+
+  async function handleInitialize(p) {
+    if (!p?.id || initBusyId) return;
+    setInitBusyId(p.id);
+    try {
+      const res = await initializeProject(p.id);
+      showToast(res?.message || t("init.status_ok"), res?.ok ? "success" : "warning");
+    } catch (e) {
+      showToast(apiErrorMessage(e) || t("init.error"), "error");
+    } finally {
+      setInitBusyId(null);
+    }
   }
 
   function requestDeleteProject(p) {
@@ -194,6 +210,14 @@ export default function ProjectsPage() {
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: "auto", paddingTop: 8 }}>
                 <button type="button" className="btn btn-primary btn-sm" onClick={() => handleOpen(p)}>
                   {t("projects.open")}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => handleInitialize(p)}
+                  disabled={initBusyId === p.id}
+                >
+                  {initBusyId === p.id ? t("init.working") : t("projects.init")}
                 </button>
                 <button type="button" className="btn btn-secondary btn-sm" onClick={() => openEdit(p)}>
                   {t("projects.edit")}
