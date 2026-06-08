@@ -10,7 +10,11 @@ same normalized inventory contract; keep HTML-parser explorer for backward compa
 """
 from __future__ import annotations
 
+import logging
+
 from models.app_map_models import AppMapResponse, InspectUrlMapRequest
+
+logger = logging.getLogger("vanya.app_map_builder")
 from services.browser_inspection_persistence import (
     merge_persist_fields_into_app_map,
     persist_light_browser_inspection,
@@ -86,4 +90,14 @@ def build_app_map(req: InspectUrlMapRequest) -> AppMapResponse:
         ph = dict(resp.persist_hints)
         ph["persisted_run_id"] = rid
         resp = resp.model_copy(update={"persist_hints": ph})
+
+    pid = (req.project_id or "").strip()
+    if pid:
+        try:
+            from services.project_knowledge_service import ingest_app_map
+
+            ingest_app_map(pid, resp.model_dump())
+        except Exception:
+            logger.exception("knowledge ingest failed project_id=%s", pid)
+
     return resp

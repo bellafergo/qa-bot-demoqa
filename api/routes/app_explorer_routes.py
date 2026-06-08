@@ -81,4 +81,13 @@ def explore_app_endpoint(req: ExploreAppRequest):
     except Exception as exc:
         logger.exception("app-explorer/explore-app failed for url=%s", req.url)
         raise HTTPException(status_code=500, detail=f"Multi-page exploration error: {exc}")
+
+    if pid:
+        try:
+            from services.project_knowledge_service import ingest_explorer_result
+
+            ingest_explorer_result(pid, result, source="explorer")
+        except Exception:
+            logger.exception("app-explorer: knowledge ingest failed project_id=%s", pid)
+
     return result

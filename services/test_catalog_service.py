@@ -1156,6 +1156,22 @@ class TestCatalogService:
             run.test_case_id,
         )
 
+        try:
+            meta = getattr(run, "meta", None) or {}
+            pid = str(meta.get("project_id") or "").strip() if isinstance(meta, dict) else ""
+            if pid and run.test_case_id:
+                from services.project_knowledge_service import ingest_run_completed
+
+                ingest_run_completed(
+                    pid,
+                    test_case_id=str(run.test_case_id),
+                    status=str(run.status or ""),
+                    module=str(getattr(run, "module", None) or meta.get("module") or ""),
+                    test_name=str(getattr(run, "test_name", None) or meta.get("test_name") or run.test_case_id),
+                )
+        except Exception:
+            logger.debug("catalog: knowledge ingest skipped", exc_info=True)
+
         payload = _testrun_to_qa_runs_payload(run)
         pevid = str(payload.get("evidence_id") or "").strip()
         prid = str(payload.get("run_id") or "").strip()

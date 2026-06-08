@@ -193,6 +193,22 @@ def investigate_incident(req: InvestigateIncidentRequest) -> IncidentInvestigati
         network_errors = _clip_errors(raw.get("network_errors") or [])
         http_errors = _clip_errors(raw.get("http_error_responses") or [])
 
+        steps.append("consult_project_knowledge")
+        knowledge_ctx = None
+        knowledge_hints: List[str] = []
+        try:
+            from services.project_knowledge_service import get_knowledge_context
+
+            knowledge_ctx = get_knowledge_context(
+                req.project_id,
+                target_url=validated,
+                incident_description=req.incident_description,
+            )
+            if knowledge_ctx and knowledge_ctx.hints:
+                knowledge_hints = list(knowledge_ctx.hints)
+        except Exception as e:
+            logger.debug("incident: knowledge context unavailable: %s", e)
+
         steps.append("generate_diagnosis")
         (
             severity,
@@ -214,6 +230,8 @@ def investigate_incident(req: InvestigateIncidentRequest) -> IncidentInvestigati
             page_title=raw.get("title"),
             status_code=raw.get("status_code"),
         )
+        if knowledge_hints:
+            recommendations = list(recommendations) + [f"[Memory] {h}" for h in knowledge_hints[:5]]
 
         screenshot_b64 = raw.get("screenshot_b64")
         payload.update(
@@ -247,11 +265,20 @@ def investigate_incident(req: InvestigateIncidentRequest) -> IncidentInvestigati
                 "meta": {
                     "url_inference": inference_source,
                     "inspection_succeeded": inspection.inspection_succeeded,
+                    "knowledge_context": knowledge_ctx.model_dump() if knowledge_ctx else None,
+                    "knowledge_risk_score": knowledge_ctx.risk_score if knowledge_ctx else None,
                 },
             }
         )
         incident_investigation_repo.save_payload(run_id, payload)
-        return IncidentInvestigationRun.model_validate(payload)
+        result = IncidentInvestigationRun.model_validate(payload)
+        try:
+            from services.project_knowledge_service import ingest_incident_completed
+
+            ingest_incident_completed(req.project_id, result.model_dump())
+        except Exception:
+            logger.debug("incident: knowledge ingest failed", exc_info=True)
+        return result
 
     except TargetURLNotAllowed as e:
         steps.append("target_url_rejected")
