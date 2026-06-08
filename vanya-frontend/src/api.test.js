@@ -15,6 +15,10 @@ describe("normalizeErrorText", () => {
   it("handles Supabase JSON generation errors", () => {
     expect(normalizeErrorText("JSON could not be generated")).toMatch(/invalid response/i);
   });
+
+  it("handles HTTP/2 KeyError stream ids from backend", () => {
+    expect(normalizeErrorText("KeyError: 3")).toMatch(/connection interrupted/i);
+  });
 });
 
 describe("parseResponseDetail", () => {
