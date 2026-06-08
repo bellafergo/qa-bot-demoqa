@@ -7,6 +7,7 @@ domains (Zuperio, DemoQA, etc.).
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
 from typing import Dict, List, Optional, Set, Tuple
@@ -14,9 +15,12 @@ from typing import Dict, List, Optional, Set, Tuple
 from models.project_knowledge_models import ProjectKnowledge
 from services.module_aliases import alias_equivalent
 
+logger = logging.getLogger("vanya.change_impact")
+
 _TOKEN_SPLIT_RE = re.compile(r"[/\\._\-\s]+")
 _MIN_TOKEN_LEN = 3
 _MATCH_THRESHOLD = 0.65
+_DEBUG_PREFIX = "PR_ANALYSIS_DEBUG"
 
 
 def _normalize(s: str) -> str:
@@ -72,6 +76,31 @@ def _score_token_module(token: str, module: str) -> float:
     if alias_equivalent(t, m) or alias_equivalent(ts, ms):
         return 0.8
     return 0.0
+
+
+def _debug_log(lines: str) -> None:
+    logger.debug("%s\n%s", _DEBUG_PREFIX, lines)
+
+
+def _memory_module_names(knowledge: Optional[ProjectKnowledge]) -> List[str]:
+    names: Set[str] = set()
+    if knowledge:
+        for mod in knowledge.modules or []:
+            if mod.name and mod.name.strip():
+                names.add(mod.name.strip())
+        for tc in knowledge.related_tests or []:
+            if tc.module and tc.module.strip():
+                names.add(tc.module.strip())
+    return sorted(names, key=str.lower)
+
+
+def _alias_match_for_pair(token: str, module: str) -> bool:
+    t = _normalize(token)
+    m = _normalize(module)
+    if not t or not m:
+        return False
+    ts, ms = _singular(t), _singular(m)
+    return alias_equivalent(t, m) or alias_equivalent(ts, ms)
 
 
 def _known_modules(knowledge: Optional[ProjectKnowledge], catalog_modules: List[str]) -> List[str]:
@@ -141,11 +170,20 @@ def map_file_to_modules(
     Each tuple: (module_name, confidence 0–1, match_reason).
     """
     if not file_path or not known_modules:
+        if file_path and logger.isEnabledFor(logging.DEBUG):
+            _debug_log(f"file={file_path}\ntokens=[]\nknown_modules={known_modules!r}\nresult=unmapped (no known modules)")
         return []
 
     tokens = _tokenize_path(file_path)
     path_lower = file_path.replace("\\", "/").lower()
     matches: Dict[str, Tuple[float, str]] = {}
+
+    if logger.isEnabledFor(logging.DEBUG):
+        _debug_log(
+            f"file={file_path}\n"
+            f"tokens={tokens!r}\n"
+            f"known_modules={known_modules!r}"
+        )
 
     route_hints = _route_hints(knowledge)
     for seg, mod in route_hints.items():
@@ -157,11 +195,22 @@ def map_file_to_modules(
     for mod in known_modules:
         best_score = 0.0
         best_token = ""
+        best_alias_match = False
         for token in tokens:
             sc = _score_token_module(token, mod)
+            alias_match = _alias_match_for_pair(token, mod)
             if sc > best_score:
                 best_score = sc
                 best_token = token
+                best_alias_match = alias_match
+        if logger.isEnabledFor(logging.DEBUG):
+            _debug_log(
+                f"file={file_path}\n"
+                f"tokens={tokens!r}\n"
+                f"module={mod!r}\n"
+                f"score={best_score}\n"
+                f"alias_match={'true' if best_alias_match else 'false'}"
+            )
         if best_score >= _MATCH_THRESHOLD:
             prev = matches.get(mod)
             if not prev or best_score > prev[0]:
@@ -180,7 +229,13 @@ def map_file_to_modules(
                         matches[mod] = (0.72, f"related test '{key}'")
 
     ranked = sorted(matches.items(), key=lambda x: (-x[1][0], x[0].lower()))
-    return [(mod, sc, reason) for mod, (sc, reason) in ranked]
+    result = [(mod, sc, reason) for mod, (sc, reason) in ranked]
+    if logger.isEnabledFor(logging.DEBUG):
+        _debug_log(
+            f"file={file_path}\n"
+            f"file_mappings={result!r}"
+        )
+    return result
 
 
 def map_changed_files(
@@ -190,7 +245,16 @@ def map_changed_files(
     catalog_modules: Optional[List[str]] = None,
 ) -> Dict[str, List[Tuple[str, float, str]]]:
     """Map each changed file to ranked module matches."""
-    modules = _known_modules(knowledge, catalog_modules or [])
+    catalog = [m for m in (catalog_modules or []) if m and m.strip()]
+    memory_modules = _memory_module_names(knowledge)
+    modules = _known_modules(knowledge, catalog)
+    if logger.isEnabledFor(logging.DEBUG):
+        _debug_log(
+            f"changed_files={changed_files!r}\n"
+            f"catalog_modules={catalog!r}\n"
+            f"memory_modules={memory_modules!r}\n"
+            f"known_modules={modules!r}"
+        )
     out: Dict[str, List[Tuple[str, float, str]]] = {}
     for f in changed_files or []:
         fp = (f or "").strip()
@@ -222,4 +286,6 @@ def resolve_impacted_modules(
         for mod, data in agg.items()
     ]
     result.sort(key=lambda x: (-x[2], x[0].lower()))
+    if logger.isEnabledFor(logging.DEBUG):
+        _debug_log(f"impacted_modules={result!r}")
     return result
