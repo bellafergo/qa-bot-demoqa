@@ -29,6 +29,7 @@ from services.app_knowledge_graph import (
     inspection_summaries_to_entities,
 )
 from services.project_memory_service import get_memory, get_or_create, merge_memory_patch, save_memory
+from services.pr_analysis_project_debug import log_project_id_lookup
 
 logger = logging.getLogger("vanya.project_knowledge")
 
@@ -483,7 +484,9 @@ def _enrich_with_risk(knowledge: ProjectKnowledge) -> ProjectKnowledge:
 
 
 def get_project_knowledge(project_id: str) -> Optional[ProjectKnowledge]:
+    log_project_id_lookup(project_id=project_id)
     mem = get_memory((project_id or "").strip())
+    log_project_id_lookup(project_id=project_id, memory_found=mem is not None)
     if not mem:
         return None
     return _enrich_with_risk(mem)

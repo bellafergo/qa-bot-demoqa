@@ -792,11 +792,14 @@ class PRAnalysisService:
         """
         from services.change_impact_service import map_changed_files, resolve_impacted_modules
         from services.db.catalog_repository import catalog_repo
+        from services.pr_analysis_project_debug import log_project_id_lookup
         from services.project_knowledge_service import get_project_knowledge, _resolve_project_name
 
         pid = (project_id or "").strip()
         if not pid:
             raise ValueError("project_id is required")
+
+        log_project_id_lookup(project_id=project_id)
 
         changed = [f.strip() for f in (req.changed_files or []) if f and f.strip()]
         if not changed:
@@ -804,6 +807,7 @@ class PRAnalysisService:
 
         project_name = _resolve_project_name(pid)
         knowledge = get_project_knowledge(pid)
+        log_project_id_lookup(project_id=pid, memory_found=knowledge is not None)
 
         catalog_modules = sorted({
             m for _, m in (catalog_repo.all_modules_for_project(pid) or []) if m and m.strip()

@@ -18,6 +18,7 @@ from models.github_integration_models import (
 )
 from models.pr_analysis_models import ProjectPRAnalysisRequest
 from services.github_repository_service import GitHubAPIError
+from services.pr_analysis_project_debug import log_project_id_lookup
 from services.project_github_settings_service import _client_for_project, _github_dict
 from services.pr_analysis_service import pr_analysis_service
 
@@ -130,6 +131,7 @@ def get_pull_request_files(project_id: str, number: int) -> GitHubPRFilesRespons
 
 
 def analyze_pull_request(project_id: str, number: int) -> GitHubPRAnalyzeResponse:
+    log_project_id_lookup(project_id=project_id)
     pr_files = get_pull_request_files(project_id, number)
     if not pr_files.changed_files:
         raise ValueError(f"PR #{number} has no changed files to analyze")

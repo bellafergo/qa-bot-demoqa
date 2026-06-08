@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 from models.project_knowledge_models import ProjectKnowledge, _utc_now_iso
 from services.app_knowledge_graph import apply_patch
 from services.db.project_knowledge_repository import project_knowledge_repo
+from services.pr_analysis_project_debug import log_project_id_lookup
 
 logger = logging.getLogger("vanya.project_memory")
 
@@ -32,7 +33,10 @@ def get_or_create(project_id: str, *, project_name: str = "") -> ProjectKnowledg
 
 
 def get_memory(project_id: str) -> Optional[ProjectKnowledge]:
-    return project_knowledge_repo.get((project_id or "").strip())
+    pid = (project_id or "").strip()
+    mem = project_knowledge_repo.get(pid)
+    log_project_id_lookup(project_id=project_id, memory_found=mem is not None)
+    return mem
 
 
 def save_memory(knowledge: ProjectKnowledge) -> ProjectKnowledge:
