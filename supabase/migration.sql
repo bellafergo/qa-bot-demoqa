@@ -21,6 +21,7 @@
 --   - Bucket de Storage `documents`: crear en Dashboard (Storage) si usás RAG;
 --     este script no crea buckets.
 --
+-- CCE validation: innocuous documentation note (no DDL/DML changes).
 -- =============================================================================
 -- PART 1 — Tablas requeridas para Supabase (API Python: supabase_store, etc.)
 -- =============================================================================
