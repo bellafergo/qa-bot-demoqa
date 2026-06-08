@@ -5,9 +5,23 @@
  * POST /pr-analysis/analyze      — analyze impact and match catalog tests
  * POST /execution/run-batch      — enqueue matched test IDs via Execution Center
  */
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { analyzePR, analyzeProjectPR, runBatch, fetchGithubPR, batchSaveDrafts, suggestModules } from "../api";
+import {
+  analyzePR,
+  analyzeProjectPR,
+  analyzeProjectGitHubPR,
+  connectProjectGitHubApp,
+  getProjectGitHubInstallUrl,
+  getProjectGitHubStatus,
+  listProjectGitHubPRs,
+  listProjectGitHubRepositories,
+  selectProjectGitHubRepository,
+  runBatch,
+  fetchGithubPR,
+  batchSaveDrafts,
+  suggestModules,
+} from "../api";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
 
@@ -56,11 +70,150 @@ export default function PRAnalysisPage() {
   // Risk Selection bridge
   const [sendingRisk, setSendingRisk] = useState(false);
 
-  // GitHub fetch
+  // GitHub Integration — SaaS GitHub App
+  const [ghStatus, setGhStatus] = useState(null);
+  const [ghLoading, setGhLoading] = useState(false);
+  const [ghConnecting, setGhConnecting] = useState(false);
+  const [ghSelectingRepo, setGhSelectingRepo] = useState(false);
+  const [ghError, setGhError] = useState("");
+  const [ghInstallationId, setGhInstallationId] = useState("");
+  const [ghRepos, setGhRepos] = useState([]);
+  const [ghReposLoading, setGhReposLoading] = useState(false);
+  const [ghSelectedRepo, setGhSelectedRepo] = useState("");
+  const [ghPRs, setGhPRs] = useState([]);
+  const [ghPRsLoading, setGhPRsLoading] = useState(false);
+  const [ghAnalyzingPR, setGhAnalyzingPR] = useState(null);
+
+  // GitHub legacy URL fetch
   const [prUrl, setPrUrl]           = useState("");
   const [fetching, setFetching]     = useState(false);
   const [fetchError, setFetchError] = useState("");
   const [prDiff, setPrDiff]         = useState("");
+
+  const loadGhStatus = useCallback(async () => {
+    if (!currentProject?.id) {
+      setGhStatus(null);
+      setGhPRs([]);
+      return;
+    }
+    setGhLoading(true);
+    setGhError("");
+    try {
+      const st = await getProjectGitHubStatus(currentProject.id, false);
+      setGhStatus(st);
+      if (st?.installation_id) setGhInstallationId(st.installation_id);
+      if (st?.full_name) setGhSelectedRepo(st.full_name);
+      if (st?.connected) {
+        setGhPRsLoading(true);
+        const prs = await listProjectGitHubPRs(currentProject.id);
+        setGhPRs(prs.pull_requests || []);
+        setGhRepos([]);
+      } else if (st?.installation_id && !st?.owner) {
+        setGhReposLoading(true);
+        try {
+          const repos = await listProjectGitHubRepositories(currentProject.id);
+          setGhRepos(repos.repositories || []);
+        } catch {
+          setGhRepos([]);
+        } finally {
+          setGhReposLoading(false);
+        }
+        setGhPRs([]);
+      } else {
+        setGhRepos([]);
+        setGhPRs([]);
+      }
+    } catch (e) {
+      setGhError(e?.message || t("gh.error.status"));
+      setGhStatus(null);
+      setGhPRs([]);
+    } finally {
+      setGhLoading(false);
+      setGhPRsLoading(false);
+    }
+  }, [currentProject?.id, t]);
+
+  useEffect(() => {
+    loadGhStatus();
+  }, [loadGhStatus]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const iid = params.get("installation_id") || params.get("github_installation_id");
+    if (iid) setGhInstallationId(iid);
+  }, []);
+
+  async function handleGhInstallApp() {
+    if (!currentProject?.id) return;
+    setGhError("");
+    try {
+      const { install_url: url } = await getProjectGitHubInstallUrl(currentProject.id);
+      if (url) window.open(url, "_blank", "noopener,noreferrer");
+    } catch (e) {
+      setGhError(e?.message || t("gh.error.install"));
+    }
+  }
+
+  async function handleGhLinkInstallation() {
+    if (!currentProject?.id || !ghInstallationId.trim()) return;
+    setGhConnecting(true);
+    setGhError("");
+    try {
+      const st = await connectProjectGitHubApp(currentProject.id, {
+        installation_id: ghInstallationId.trim(),
+      });
+      setGhStatus(st);
+      await loadGhStatus();
+    } catch (e) {
+      setGhError(e?.message || t("gh.error.connect"));
+    } finally {
+      setGhConnecting(false);
+    }
+  }
+
+  async function handleGhSelectRepo() {
+    if (!currentProject?.id || !ghSelectedRepo) return;
+    const [owner, repo] = ghSelectedRepo.split("/");
+    if (!owner || !repo) return;
+    setGhSelectingRepo(true);
+    setGhError("");
+    try {
+      const repoMeta = ghRepos.find((r) => r.full_name === ghSelectedRepo);
+      await selectProjectGitHubRepository(currentProject.id, {
+        owner,
+        repo,
+        default_branch: repoMeta?.default_branch || "main",
+      });
+      await loadGhStatus();
+    } catch (e) {
+      setGhError(e?.message || t("gh.error.select_repo"));
+    } finally {
+      setGhSelectingRepo(false);
+    }
+  }
+
+  async function handleGhAnalyzePR(prNumber) {
+    if (!currentProject?.id) return;
+    setGhAnalyzingPR(prNumber);
+    setError("");
+    setV1Result(null);
+    setResult(null);
+    try {
+      const res = await analyzeProjectGitHubPR(currentProject.id, prNumber);
+      setV1Result(res.analysis);
+      setForm((f) => ({
+        ...f,
+        title: res.pull_request?.title || f.title,
+        branch: res.pull_request?.branch || f.branch,
+        pr_id: String(prNumber),
+        changed_files: (res.pull_request?.changed_files || []).join("\n"),
+      }));
+    } catch (e) {
+      setError(e?.message || t("gh.error.analyze"));
+    } finally {
+      setGhAnalyzingPR(null);
+    }
+  }
 
   function set(key, val) { setForm(f => ({ ...f, [key]: val })); }
 
@@ -248,7 +401,127 @@ export default function PRAnalysisPage() {
   return (
     <div className="page-wrap">
 
-      {/* GitHub PR fetch */}
+      {/* GitHub Integration — SaaS GitHub App */}
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div className="section-title" style={{ marginBottom: 8 }}>{t("gh.title")}</div>
+        <p style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 12 }}>{t("gh.subtitle")}</p>
+        {!currentProject?.id ? (
+          <p style={{ fontSize: 12, color: "var(--text-3)" }}>{t("pr.v1.need_project")}</p>
+        ) : (
+          <>
+            <div style={{ marginBottom: 14, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              {ghStatus?.connected ? (
+                <span className="badge badge-green">{t("gh.connected")}</span>
+              ) : ghStatus?.installation_id ? (
+                <span className="badge badge-blue">{t("gh.installation_linked")}</span>
+              ) : (
+                <span className="badge badge-gray">{t("gh.not_connected")}</span>
+              )}
+              {ghStatus?.full_name ? <span className="badge badge-gray">{ghStatus.full_name}</span> : null}
+              {ghStatus?.default_branch ? <span className="badge badge-gray">{t("gh.branch")}: {ghStatus.default_branch}</span> : null}
+              {ghStatus?.provider === "github_app" ? <span className="badge badge-gray">{t("gh.provider_app")}</span> : null}
+              {ghStatus?.needs_migration ? <span className="badge badge-orange">{t("gh.needs_migration")}</span> : null}
+              {ghStatus?.validation_ok === false && ghStatus?.validation_message ? (
+                <span className="badge badge-orange">{ghStatus.validation_message}</span>
+              ) : null}
+            </div>
+
+            {ghStatus && !ghStatus.app_configured ? (
+              <div className="alert alert-error" style={{ marginBottom: 12, fontSize: 12 }}>{t("gh.app_not_configured")}</div>
+            ) : null}
+
+            {!ghStatus?.installation_id ? (
+              <div style={{ marginBottom: 12 }}>
+                <button type="button" className="btn btn-primary btn-sm" onClick={handleGhInstallApp} disabled={!ghStatus?.app_configured}>
+                  {t("gh.connect_github")}
+                </button>
+                <p style={{ fontSize: 11, color: "var(--text-3)", marginTop: 8 }}>{t("gh.install_hint")}</p>
+                <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                  <input
+                    className="input"
+                    style={{ flex: 1, minWidth: 200 }}
+                    placeholder={t("gh.installation_id")}
+                    value={ghInstallationId}
+                    onChange={(e) => setGhInstallationId(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={handleGhLinkInstallation}
+                    disabled={ghConnecting || !ghInstallationId.trim()}
+                  >
+                    {ghConnecting ? t("gh.connecting") : t("gh.link_installation")}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {ghStatus?.installation_id && !ghStatus?.connected ? (
+              <div style={{ marginBottom: 12 }}>
+                <div className="section-title" style={{ fontSize: 13, marginBottom: 8 }}>{t("gh.select_repo")}</div>
+                {ghReposLoading ? (
+                  <p style={{ fontSize: 12, color: "var(--text-3)" }}>{t("gh.loading_repos")}</p>
+                ) : (
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <select
+                      className="input"
+                      style={{ flex: 1, minWidth: 220 }}
+                      value={ghSelectedRepo}
+                      onChange={(e) => setGhSelectedRepo(e.target.value)}
+                    >
+                      <option value="">{t("gh.select_repo_placeholder")}</option>
+                      {ghRepos.map((r) => (
+                        <option key={r.full_name} value={r.full_name}>{r.full_name}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={handleGhSelectRepo}
+                      disabled={ghSelectingRepo || !ghSelectedRepo}
+                    >
+                      {ghSelectingRepo ? t("gh.selecting_repo") : t("gh.select_repo_btn")}
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : null}
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={loadGhStatus} disabled={ghLoading}>
+                {ghLoading ? t("gh.loading") : t("gh.refresh_status")}
+              </button>
+            </div>
+            {ghError ? <div className="alert alert-error" style={{ marginTop: 10, fontSize: 12 }}>{ghError}</div> : null}
+            {ghStatus?.connected ? (
+              <div style={{ marginTop: 16 }}>
+                <div className="section-title" style={{ fontSize: 13, marginBottom: 8 }}>{t("gh.open_prs")}</div>
+                {ghPRsLoading ? (
+                  <p style={{ fontSize: 12, color: "var(--text-3)" }}>{t("gh.loading_prs")}</p>
+                ) : ghPRs.length === 0 ? (
+                  <p style={{ fontSize: 12, color: "var(--text-3)" }}>{t("gh.no_prs")}</p>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {ghPRs.map((pr) => (
+                      <div key={pr.number} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "10px 12px", border: "1px solid var(--border)", borderRadius: 6 }}>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 600 }}>#{pr.number} {pr.title}</div>
+                          <div style={{ fontSize: 11, color: "var(--text-3)" }}>{pr.branch} → {pr.base_branch} · {pr.author}</div>
+                        </div>
+                        <button type="button" className="btn btn-primary btn-sm" onClick={() => handleGhAnalyzePR(pr.number)} disabled={ghAnalyzingPR === pr.number}>
+                          {ghAnalyzingPR === pr.number ? t("gh.analyzing") : t("gh.analyze_pr")}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </>
+        )}
+      </div>
+
+      {/* GitHub PR fetch (legacy URL) */}
       <div className="card" style={{ marginBottom: 20 }}>
         <div className="section-title" style={{ marginBottom: 8 }}>{t("pr.fetch.title")}</div>
         <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 10 }}>

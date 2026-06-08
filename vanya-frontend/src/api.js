@@ -616,6 +616,38 @@ export function analyzeProjectPR(projectId, body) {
   return apiPost(`/projects/${encodeURIComponent(projectId)}/pr-analysis`, body);
 }
 
+// ========= GitHub Integration — SaaS GitHub App (project-scoped) =========
+
+export function getProjectGitHubInstallUrl(projectId) {
+  return apiGet(`/projects/${encodeURIComponent(projectId)}/github/install-url`);
+}
+
+export function connectProjectGitHubApp(projectId, body) {
+  return apiPost(`/projects/${encodeURIComponent(projectId)}/github/connect-app`, body);
+}
+
+export function listProjectGitHubRepositories(projectId) {
+  return apiGet(`/projects/${encodeURIComponent(projectId)}/github/repositories`);
+}
+
+export function selectProjectGitHubRepository(projectId, body) {
+  return apiPost(`/projects/${encodeURIComponent(projectId)}/github/select-repository`, body);
+}
+
+export function getProjectGitHubStatus(projectId, validate = true) {
+  const q = new URLSearchParams({ validate: validate ? "true" : "false" });
+  return apiGet(`/projects/${encodeURIComponent(projectId)}/github/status?${q}`);
+}
+
+export function listProjectGitHubPRs(projectId, limit = 20) {
+  const q = new URLSearchParams({ limit: String(limit) });
+  return apiGet(`/projects/${encodeURIComponent(projectId)}/github/pull-requests?${q}`);
+}
+
+export function analyzeProjectGitHubPR(projectId, prNumber) {
+  return apiPost(`/projects/${encodeURIComponent(projectId)}/github/pull-requests/${prNumber}/analyze`, {});
+}
+
 /** POST /projects/{id}/knowledge/refresh — mode: "replace" (default) | "merge" */
 export function refreshProjectKnowledge(projectId, mode = "replace") {
   const q = new URLSearchParams({ mode: String(mode || "replace") });
