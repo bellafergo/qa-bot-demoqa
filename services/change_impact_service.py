@@ -12,6 +12,7 @@ import re
 from typing import Dict, List, Optional, Set, Tuple
 
 from models.project_knowledge_models import ProjectKnowledge
+from services.module_aliases import alias_equivalent
 
 _TOKEN_SPLIT_RE = re.compile(r"[/\\._\-\s]+")
 _MIN_TOKEN_LEN = 3
@@ -68,6 +69,8 @@ def _score_token_module(token: str, module: str) -> float:
         return 0.8
     if ts in ms or ms in ts:
         return 0.75
+    if alias_equivalent(t, m) or alias_equivalent(ts, ms):
+        return 0.8
     return 0.0
 
 
