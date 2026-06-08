@@ -22,12 +22,17 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple  # noqa: F401 — Set used in analyze_for_project
 
 from models.pr_analysis_models import (
     DraftTestSuggestion,
+    FileModuleMapping,
+    ImpactedModuleReport,
     PRAnalysisRequest,
     PRAnalysisResult,
+    PRRecommendedTest,
+    ProjectPRAnalysisReport,
+    ProjectPRAnalysisRequest,
 )
 
 logger = logging.getLogger("vanya.pr_analysis")
@@ -771,6 +776,166 @@ class PRAnalysisService:
             orchestrator_job_id = job_id,
             summary             = summary,
             confidence          = confidence,
+        )
+
+    # ── Project-scoped v1 (System Memory + Risk Engine) ─────────────────────
+
+    def analyze_for_project(
+        self,
+        project_id: str,
+        req: ProjectPRAnalysisRequest,
+    ) -> ProjectPRAnalysisReport:
+        """
+        PR Analysis v1: map changed files → catalog modules using System Memory,
+        then consume ``module_risks`` and ``recommended_tests`` from Risk Engine
+        without recalculating project risk.
+        """
+        from services.change_impact_service import map_changed_files, resolve_impacted_modules
+        from services.db.catalog_repository import catalog_repo
+        from services.project_knowledge_service import get_project_knowledge, _resolve_project_name
+
+        pid = (project_id or "").strip()
+        if not pid:
+            raise ValueError("project_id is required")
+
+        changed = [f.strip() for f in (req.changed_files or []) if f and f.strip()]
+        if not changed:
+            raise ValueError("changed_files must contain at least one path")
+
+        project_name = _resolve_project_name(pid)
+        knowledge = get_project_knowledge(pid)
+
+        catalog_modules = sorted({
+            m for _, m in (catalog_repo.all_modules_for_project(pid) or []) if m and m.strip()
+        })
+
+        if not knowledge:
+            return ProjectPRAnalysisReport(
+                project_id=pid,
+                project_name=project_name,
+                changed_files_count=len(changed),
+                reasoning=[
+                    "No System Memory found for this project.",
+                    "Refresh memory at /knowledge before running PR Analysis.",
+                ],
+                summary=f"Analyzed {len(changed)} file(s) — no project knowledge available.",
+            )
+
+        file_map = map_changed_files(
+            changed,
+            knowledge=knowledge,
+            catalog_modules=catalog_modules,
+        )
+        impacted_raw = resolve_impacted_modules(file_map)
+
+        risk_by_mod = {m.module.lower(): m for m in (knowledge.module_risks or []) if m.module}
+        file_mappings: List[FileModuleMapping] = []
+        for fp, matches in file_map.items():
+            if matches:
+                mod, conf, reason = matches[0]
+                file_mappings.append(FileModuleMapping(
+                    file_path=fp, module=mod, confidence=round(conf, 2), reason=reason,
+                ))
+
+        impacted_modules: List[ImpactedModuleReport] = []
+        impacted_names: Set[str] = set()
+        for mod, files, conf in impacted_raw:
+            impacted_names.add(mod.lower())
+            mr = risk_by_mod.get(mod.lower())
+            reasons: List[str] = [f"Matched {len(files)} changed file(s) (confidence {conf:.0%})"]
+            if mr:
+                if mr.regression_count:
+                    reasons.append(f"{mr.regression_count} regression(s) in module")
+                if mr.flaky_count:
+                    reasons.append(f"{mr.flaky_count} flaky test(s) in module")
+                if mr.incident_count:
+                    reasons.append(f"{mr.incident_count} incident(s) in module")
+                if mr.pass_rate is not None:
+                    reasons.append(f"{mr.pass_rate:.0f}% module pass rate")
+            impacted_modules.append(ImpactedModuleReport(
+                module=mod,
+                module_risk_score=mr.module_risk_score if mr else 0.0,
+                module_risk_level=mr.module_risk_level if mr else "LOW",
+                matched_files=files,
+                reasons=reasons,
+            ))
+
+        unmatched = [f for f, m in file_map.items() if not m]
+
+        recommended: List[PRRecommendedTest] = []
+        seen_tc: Set[str] = set()
+        for rec in knowledge.recommended_tests or []:
+            if (rec.module or "").lower() in impacted_names and rec.test_case_id:
+                if rec.test_case_id not in seen_tc:
+                    seen_tc.add(rec.test_case_id)
+                    recommended.append(PRRecommendedTest(
+                        test_case_id=rec.test_case_id,
+                        name=rec.name or rec.test_case_id,
+                        module=rec.module or "",
+                        reason=rec.reason or "Risk Engine recommendation",
+                    ))
+
+        if len(recommended) < 3:
+            for tc in knowledge.related_tests or []:
+                if (tc.module or "").lower() not in impacted_names:
+                    continue
+                if not tc.test_case_id or tc.test_case_id in seen_tc:
+                    continue
+                status = (tc.last_run_status or "").lower()
+                if status in ("fail", "error", "failed") or len(recommended) < 5:
+                    seen_tc.add(tc.test_case_id)
+                    reason = "related test in impacted module"
+                    if status in ("fail", "error", "failed"):
+                        reason = f"recent {status} in impacted module"
+                    recommended.append(PRRecommendedTest(
+                        test_case_id=tc.test_case_id,
+                        name=tc.name or tc.test_case_id,
+                        module=tc.module or "",
+                        reason=reason,
+                    ))
+                if len(recommended) >= 12:
+                    break
+
+        reasoning: List[str] = []
+        if knowledge.risk_explanation:
+            reasoning.extend(knowledge.risk_explanation[:5])
+        for im in impacted_modules[:5]:
+            if im.module_risk_level in ("HIGH", "CRITICAL"):
+                reasoning.append(
+                    f"Impacted module '{im.module}' has {im.module_risk_level} risk "
+                    f"({im.module_risk_score:.0f}/100)"
+                )
+        if unmatched:
+            reasoning.append(
+                f"{len(unmatched)} file(s) could not be mapped to a catalog module "
+                f"(add tests or refresh System Memory)"
+            )
+
+        mod_labels = [im.module for im in impacted_modules[:5]]
+        summary_parts = [
+            f"Analyzed {len(changed)} file(s) for {project_name}.",
+        ]
+        if mod_labels:
+            summary_parts.append(f"Impacted modules: {', '.join(mod_labels)}.")
+        summary_parts.append(
+            f"Project risk {knowledge.risk_level} ({knowledge.risk_score:.0f}/100)."
+        )
+        if recommended:
+            summary_parts.append(
+                f"Recommended {len(recommended)} test(s) from Risk Engine memory."
+            )
+
+        return ProjectPRAnalysisReport(
+            project_id=pid,
+            project_name=project_name,
+            changed_files_count=len(changed),
+            impacted_modules=impacted_modules,
+            file_mappings=file_mappings,
+            risk_score=knowledge.risk_score,
+            risk_level=knowledge.risk_level,
+            recommended_tests=recommended[:12],
+            reasoning=reasoning[:10],
+            summary=" ".join(summary_parts),
         )
 
 

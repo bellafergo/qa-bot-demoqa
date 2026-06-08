@@ -88,3 +88,54 @@ class PRAnalysisResult(BaseModel):
     # Human-readable summary
     summary:                str            = ""
     confidence:             Literal["low", "medium", "high"] = "medium"
+
+
+# ── Project-scoped PR Analysis v1 (System Memory + Risk Engine) ───────────────
+
+class ProjectPRAnalysisRequest(BaseModel):
+    """Manual or PR-based change list scoped to a catalog project."""
+
+    changed_files: List[str] = Field(default_factory=list)
+    repo: Optional[str] = None
+    branch: Optional[str] = None
+    pr_id: Optional[str] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+
+
+class FileModuleMapping(BaseModel):
+    file_path: str
+    module: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    reason: str = ""
+
+
+class ImpactedModuleReport(BaseModel):
+    module: str
+    module_risk_score: float = 0.0
+    module_risk_level: str = "LOW"
+    matched_files: List[str] = Field(default_factory=list)
+    reasons: List[str] = Field(default_factory=list)
+
+
+class PRRecommendedTest(BaseModel):
+    test_case_id: str
+    name: str = ""
+    module: str = ""
+    reason: str = ""
+
+
+class ProjectPRAnalysisReport(BaseModel):
+    """PR Analysis Report v1 — consumes Risk Engine output, no risk recalculation."""
+
+    project_id: str
+    project_name: str = ""
+    changed_files_count: int = 0
+    impacted_modules: List[ImpactedModuleReport] = Field(default_factory=list)
+    file_mappings: List[FileModuleMapping] = Field(default_factory=list)
+    risk_score: float = Field(default=0.0, ge=0.0, le=100.0)
+    risk_level: str = "LOW"
+    recommended_tests: List[PRRecommendedTest] = Field(default_factory=list)
+    reasoning: List[str] = Field(default_factory=list)
+    summary: str = ""
+    engine_version: str = "pr-v1"

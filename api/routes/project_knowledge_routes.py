@@ -12,7 +12,9 @@ from models.project_knowledge_models import (
     ProjectKnowledge,
     ProjectKnowledgeRefreshRequest,
 )
+from models.pr_analysis_models import ProjectPRAnalysisReport, ProjectPRAnalysisRequest
 from models.risk_engine_models import RiskAssessment
+from services.pr_analysis_service import pr_analysis_service
 from services.project_knowledge_service import (
     get_project_knowledge,
     refresh_project_knowledge,
@@ -22,6 +24,21 @@ from services.project_risk_service import assess_project_risk
 logger = logging.getLogger("vanya.project_knowledge_routes")
 
 router = APIRouter(prefix="/projects", tags=["project-knowledge"])
+
+
+@router.post("/{project_id}/pr-analysis", response_model=ProjectPRAnalysisReport)
+def analyze_project_pr(project_id: str, req: ProjectPRAnalysisRequest):
+    """
+    PR Analysis v1 — map changed files to modules via System Memory,
+    consume Risk Engine ``module_risks`` and ``recommended_tests`` (no risk recalc).
+    """
+    try:
+        return pr_analysis_service.analyze_for_project(project_id, req)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+    except Exception as exc:
+        logger.exception("POST /projects/%s/pr-analysis failed", project_id)
+        raise HTTPException(status_code=500, detail=f"PR analysis failed: {exc}") from exc
 
 
 @router.get("/{project_id}/risk", response_model=RiskAssessment)
