@@ -17,7 +17,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
-from core.json_api import json_error_response
+from core.json_api import json_error_from_exception, json_error_response
 
 from models.failure_intelligence_models import (
     FailureCluster,
@@ -48,8 +48,13 @@ def get_summary(project_id: Optional[str] = Query(None)):
     try:
         return failure_intelligence_service.get_summary(project_id=project_id)
     except Exception as exc:
-        logger.exception("failure-intelligence/summary failed")
-        return json_error_response(500, "Failure intelligence summary failed", error=str(exc))
+        return json_error_from_exception(
+            500,
+            "Failure intelligence summary failed",
+            exc,
+            logger=logger,
+            context={"endpoint": "/failure-intelligence/summary", "project_id": project_id},
+        )
 
 
 # ── Clusters ───────────────────────────────────────────────────────────────────

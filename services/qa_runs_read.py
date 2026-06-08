@@ -8,12 +8,49 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+import time
+from typing import Any, Callable, Dict, List, Optional, TypeVar
+
+from services.supabase_http import is_transient_supabase_transport_error
+
+T = TypeVar("T")
 
 from models.run_contract import CanonicalRun
 from services.run_mapper import run_from_legacy_store
 
 logger = logging.getLogger("vanya.qa_runs_read")
+
+_QA_RUNS_MAX_ATTEMPTS = 3
+_QA_RUNS_RETRY_BASE_S = 0.15
+
+
+def _with_transport_retry(op: Callable[[], T], *, what: str) -> T:
+    last: Optional[BaseException] = None
+    for attempt in range(1, _QA_RUNS_MAX_ATTEMPTS + 1):
+        try:
+            return op()
+        except Exception as e:
+            last = e
+            if attempt >= _QA_RUNS_MAX_ATTEMPTS or not is_transient_supabase_transport_error(e):
+                logger.exception(
+                    "qa_runs_read: %s failed (attempt %s/%s) type=%s",
+                    what,
+                    attempt,
+                    _QA_RUNS_MAX_ATTEMPTS,
+                    type(e).__name__,
+                )
+                raise
+            sleep_s = _QA_RUNS_RETRY_BASE_S * (2 ** (attempt - 1))
+            logger.warning(
+                "qa_runs_read: transient transport error on %s (%s: %s) — retry in %.2fs",
+                what,
+                type(e).__name__,
+                e,
+                sleep_s,
+            )
+            time.sleep(sleep_s)
+    assert last is not None
+    raise last
 
 # List queries must NOT pull ``result`` (full run payload) — keeps Supabase Disk IO low.
 QA_RUNS_LIST_COLUMNS = (
@@ -248,19 +285,29 @@ def list_qa_runs_canonical(
     try:
         from services.supabase_store import supabase_client
 
-        sb = supabase_client()
-        if sb is None:
-            return []
-        res = (
-            sb.table("qa_runs")
-            .select(QA_RUNS_LIST_COLUMNS)
-            .order("created_at", desc=True)
-            .limit(fetch_cap)
-            .execute()
+        def _fetch_rows():
+            sb = supabase_client()
+            if sb is None:
+                return []
+            res = (
+                sb.table("qa_runs")
+                .select(QA_RUNS_LIST_COLUMNS)
+                .order("created_at", desc=True)
+                .limit(fetch_cap)
+                .execute()
+            )
+            return getattr(res, "data", None) or []
+
+        raw_rows = _with_transport_retry(
+            _fetch_rows,
+            what=f"list_qa_runs(limit={fetch_cap}, project_id={project_id!r})",
         )
-        raw_rows = getattr(res, "data", None) or []
     except Exception:
-        logger.exception("qa_runs_read: list failed")
+        logger.exception(
+            "qa_runs_read: list failed after retries (project_id=%r, limit=%s)",
+            project_id,
+            limit,
+        )
         return []
 
     out: List[CanonicalRun] = []

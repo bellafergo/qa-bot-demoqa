@@ -20,7 +20,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Query
 
-from core.json_api import json_error_response
+from core.json_api import json_error_from_exception
 from models.analytics_models import RunsDashboard
 from services.run_analytics_service import get_runs_dashboard
 
@@ -39,5 +39,10 @@ def runs_analytics_dashboard(project_id: Optional[str] = Query(None)):
     try:
         return get_runs_dashboard(project_id=project_id)
     except Exception as exc:
-        logger.exception("analytics/runs/dashboard failed")
-        return json_error_response(500, "Run analytics dashboard failed", error=str(exc))
+        return json_error_from_exception(
+            500,
+            "Run analytics dashboard failed",
+            exc,
+            logger=logger,
+            context={"endpoint": "/analytics/runs/dashboard", "project_id": project_id},
+        )

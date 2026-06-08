@@ -190,6 +190,10 @@ def supabase_client():
         return None
 
     try:
+        from services.supabase_http import patch_postgrest_disable_http2
+
+        patch_postgrest_disable_http2()
+
         from supabase import create_client  # type: ignore
         from supabase.lib.client_options import SyncClientOptions
 

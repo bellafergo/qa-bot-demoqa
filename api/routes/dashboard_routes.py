@@ -17,7 +17,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Query
 
-from core.json_api import json_error_response
+from core.json_api import json_error_from_exception, json_error_response
 from models.dashboard_models import (
     DashboardSummary,
     DashboardModuleMetrics,
@@ -45,8 +45,13 @@ def get_summary(project_id: Optional[str] = Query(None, description="Scope metri
     try:
         return dashboard_service.get_summary(project_id=project_id)
     except Exception as e:
-        logger.exception("dashboard: get_summary failed")
-        return json_error_response(500, "Dashboard summary failed", error=str(e))
+        return json_error_from_exception(
+            500,
+            "Dashboard summary failed",
+            e,
+            logger=logger,
+            context={"endpoint": "/dashboard/summary", "project_id": project_id},
+        )
 
 
 @router.get("/recent-runs", response_model=List[CanonicalRun])
@@ -62,8 +67,17 @@ def get_recent_runs(
     try:
         return run_history_service.list_runs(limit=limit, project_id=project_id)
     except Exception as e:
-        logger.exception("dashboard: get_recent_runs failed")
-        return json_error_response(500, "Dashboard recent runs failed", error=str(e))
+        return json_error_from_exception(
+            500,
+            "Dashboard recent runs failed",
+            e,
+            logger=logger,
+            context={
+                "endpoint": "/dashboard/recent-runs",
+                "project_id": project_id,
+                "limit": limit,
+            },
+        )
 
 
 @router.get("/recent-jobs", response_model=List[OrchestratorJob])

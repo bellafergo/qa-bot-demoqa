@@ -43,6 +43,9 @@ export function normalizeErrorText(text) {
   if (/ConnectionTerminated/i.test(raw)) {
     return "Connection lost. Please try again.";
   }
+  if (/^KeyError:\s*\d+$/i.test(raw) || /^KeyError\(\d+\)$/i.test(raw)) {
+    return "Database connection interrupted. Please refresh.";
+  }
   if (/JSON could not be generated/i.test(raw)) {
     return "Server returned an invalid response. Please try again.";
   }
