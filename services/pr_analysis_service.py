@@ -391,6 +391,25 @@ def _match_domain_keywords(text: str) -> Set[str]:
 
 # ── Main service ──────────────────────────────────────────────────────────────
 
+def _project_pr_risk_fields(knowledge: Optional["ProjectKnowledge"]) -> Dict[str, object]:
+    """
+    Phase 0 risk split: project baseline from knowledge; pr_risk mirrors project until
+    PR Risk Composer (future sprint).
+    """
+    if knowledge:
+        project_score = float(knowledge.risk_score or 0.0)
+        project_level = str(knowledge.risk_level or "LOW")
+    else:
+        project_score = 0.0
+        project_level = "LOW"
+    return {
+        "project_risk_score": project_score,
+        "project_risk_level": project_level,
+        "pr_risk_score": project_score,
+        "pr_risk_level": project_level,
+    }
+
+
 class PRAnalysisService:
 
     # ── Entry points ──────────────────────────────────────────────────────────
@@ -790,6 +809,7 @@ class PRAnalysisService:
         then consume ``module_risks`` and ``recommended_tests`` from Risk Engine
         without recalculating project risk.
         """
+        from services.change_classification_service import classify_changed_files
         from services.change_impact_service import map_changed_files, resolve_impacted_modules
         from services.db.catalog_repository import catalog_repo
         from services.pr_analysis_project_debug import log_project_id_lookup
@@ -804,6 +824,8 @@ class PRAnalysisService:
         changed = [f.strip() for f in (req.changed_files or []) if f and f.strip()]
         if not changed:
             raise ValueError("changed_files must contain at least one path")
+
+        file_classifications = classify_changed_files(changed, req.file_patches)
 
         project_name = _resolve_project_name(pid)
         knowledge, refresh_attempted = load_project_knowledge_for_analysis(pid)
@@ -826,8 +848,10 @@ class PRAnalysisService:
                 project_id=pid,
                 project_name=project_name,
                 changed_files_count=len(changed),
+                file_classifications=file_classifications,
                 reasoning=reasoning,
                 summary=f"Analyzed {len(changed)} file(s) — no project knowledge available.",
+                **_project_pr_risk_fields(None),
             )
 
         file_map = map_changed_files(
@@ -920,14 +944,22 @@ class PRAnalysisService:
                 f"(add tests or refresh System Memory)"
             )
 
+        comment_only = [c.file_path for c in file_classifications if c.primary_class == "comments"]
+        if comment_only:
+            reasoning.append(
+                f"Change classification: {len(comment_only)} file(s) with comment-only diff"
+            )
+
         mod_labels = [im.module for im in impacted_modules[:5]]
+        risk_fields = _project_pr_risk_fields(knowledge)
         summary_parts = [
             f"Analyzed {len(changed)} file(s) for {project_name}.",
         ]
         if mod_labels:
             summary_parts.append(f"Impacted modules: {', '.join(mod_labels)}.")
         summary_parts.append(
-            f"Project risk {knowledge.risk_level} ({knowledge.risk_score:.0f}/100)."
+            f"Project risk baseline {risk_fields['project_risk_level']} "
+            f"({risk_fields['project_risk_score']:.0f}/100)."
         )
         if recommended:
             summary_parts.append(
@@ -940,11 +972,11 @@ class PRAnalysisService:
             changed_files_count=len(changed),
             impacted_modules=impacted_modules,
             file_mappings=file_mappings,
-            risk_score=knowledge.risk_score,
-            risk_level=knowledge.risk_level,
+            file_classifications=file_classifications,
             recommended_tests=recommended[:12],
             reasoning=reasoning[:10],
             summary=" ".join(summary_parts),
+            **risk_fields,
         )
 
 

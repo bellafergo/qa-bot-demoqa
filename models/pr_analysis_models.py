@@ -7,7 +7,7 @@ from __future__ import annotations
 import uuid
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 def _new_id() -> str:
@@ -101,6 +101,28 @@ class ProjectPRAnalysisRequest(BaseModel):
     pr_id: Optional[str] = None
     title: Optional[str] = None
     description: Optional[str] = None
+    # path → unified diff patch (e.g. from GitHub list PR files)
+    file_patches: Dict[str, str] = Field(default_factory=dict)
+
+
+ChangeClass = Literal[
+    "comments",
+    "docs",
+    "formatting",
+    "imports",
+    "test_only",
+    "config",
+    "schema",
+]
+
+
+class FileChangeClassification(BaseModel):
+    """Deterministic change-type classification for one file (CCE output)."""
+
+    file_path: str
+    primary_class: ChangeClass
+    confidence: float = Field(ge=0.0, le=1.0)
+    signals: List[str] = Field(default_factory=list)
 
 
 class FileModuleMapping(BaseModel):
@@ -126,16 +148,35 @@ class PRRecommendedTest(BaseModel):
 
 
 class ProjectPRAnalysisReport(BaseModel):
-    """PR Analysis Report v1 — consumes Risk Engine output, no risk recalculation."""
+    """PR Analysis Report v1 — project baseline risk + PR-scoped fields + CCE."""
 
     project_id: str
     project_name: str = ""
     changed_files_count: int = 0
     impacted_modules: List[ImpactedModuleReport] = Field(default_factory=list)
     file_mappings: List[FileModuleMapping] = Field(default_factory=list)
+    file_classifications: List[FileChangeClassification] = Field(default_factory=list)
+
+    # Project baseline (System Memory / Risk Engine — not PR-specific)
+    project_risk_score: float = Field(default=0.0, ge=0.0, le=100.0)
+    project_risk_level: str = "LOW"
+
+    # PR-specific risk (Phase 0: mirrors project baseline until PR Risk Composer)
+    pr_risk_score: float = Field(default=0.0, ge=0.0, le=100.0)
+    pr_risk_level: str = "LOW"
+
+    # Deprecated — mirrors pr_risk_* for backward-compatible clients
     risk_score: float = Field(default=0.0, ge=0.0, le=100.0)
     risk_level: str = "LOW"
+
     recommended_tests: List[PRRecommendedTest] = Field(default_factory=list)
     reasoning: List[str] = Field(default_factory=list)
     summary: str = ""
-    engine_version: str = "pr-v1"
+    engine_version: str = "pr-v1.1"
+
+    @model_validator(mode="after")
+    def _sync_deprecated_risk_aliases(self) -> "ProjectPRAnalysisReport":
+        """Keep deprecated risk_score/risk_level aligned with pr_risk_*."""
+        object.__setattr__(self, "risk_score", self.pr_risk_score)
+        object.__setattr__(self, "risk_level", self.pr_risk_level)
+        return self

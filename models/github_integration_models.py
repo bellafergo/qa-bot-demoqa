@@ -100,6 +100,7 @@ class GitHubPRFileEntry(BaseModel):
     status: str = ""
     additions: int = 0
     deletions: int = 0
+    patch: Optional[str] = None
 
 
 class GitHubPRFilesResponse(BaseModel):

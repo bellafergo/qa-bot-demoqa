@@ -115,6 +115,7 @@ def get_pull_request_files(project_id: str, number: int) -> GitHubPRFilesRespons
             status=str(f.get("status") or ""),
             additions=int(f.get("additions") or 0),
             deletions=int(f.get("deletions") or 0),
+            patch=str(f.get("patch") or "") or None,
         ))
 
     if not changed:
@@ -136,6 +137,12 @@ def analyze_pull_request(project_id: str, number: int) -> GitHubPRAnalyzeRespons
     if not pr_files.changed_files:
         raise ValueError(f"PR #{number} has no changed files to analyze")
 
+    file_patches = {
+        f.filename: f.patch
+        for f in pr_files.files
+        if f.filename and f.patch
+    }
+
     analysis = pr_analysis_service.analyze_for_project(
         project_id,
         ProjectPRAnalysisRequest(
@@ -143,6 +150,7 @@ def analyze_pull_request(project_id: str, number: int) -> GitHubPRAnalyzeRespons
             pr_id=str(number),
             title=pr_files.title,
             branch=pr_files.branch,
+            file_patches=file_patches,
         ),
     )
     return GitHubPRAnalyzeResponse(pull_request=pr_files, analysis=analysis)
