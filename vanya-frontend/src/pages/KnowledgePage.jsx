@@ -20,9 +20,17 @@ function fmtTs(iso) {
 
 function riskBadge(score) {
   const v = Number(score) || 0;
-  if (v >= 70) return "badge badge-red";
-  if (v >= 40) return "badge badge-orange";
-  if (v >= 15) return "badge badge-blue";
+  if (v >= 75) return "badge badge-red";
+  if (v >= 50) return "badge badge-orange";
+  if (v >= 25) return "badge badge-blue";
+  return "badge badge-gray";
+}
+
+function riskLevelBadge(level) {
+  const lv = (level || "LOW").toUpperCase();
+  if (lv === "CRITICAL") return "badge badge-red";
+  if (lv === "HIGH") return "badge badge-orange";
+  if (lv === "MEDIUM") return "badge badge-blue";
   return "badge badge-gray";
 }
 
@@ -138,13 +146,77 @@ export default function KnowledgePage() {
           <div className="card" style={{ padding: "16px 20px", marginBottom: 16, display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
             <div>
               <div style={{ fontSize: 11, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("knowledge.risk")}</div>
-              <div style={{ marginTop: 6 }}><span className={riskBadge(knowledge.risk_score)}>{knowledge.risk_score ?? 0}</span></div>
+              <div style={{ marginTop: 6 }}><span className={riskBadge(knowledge.risk_score)}>{knowledge.risk_score ?? 0}/100</span></div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("knowledge.risk_level")}</div>
+              <div style={{ marginTop: 6 }}>
+                <span className={riskLevelBadge(knowledge.risk_level)}>
+                  {t(`knowledge.risk_level.${(knowledge.risk_level || "LOW").toUpperCase()}`)}
+                </span>
+              </div>
             </div>
             <div>
               <div style={{ fontSize: 11, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("knowledge.updated")}</div>
               <div style={{ fontSize: 13, color: "var(--text-2)", marginTop: 6 }}>{fmtTs(knowledge.updated_at)}</div>
             </div>
           </div>
+
+          {(knowledge.risk_explanation || []).length > 0 ? (
+            <Section title={t("knowledge.explanation")} count={(knowledge.risk_explanation || []).length} empty={t("knowledge.none")}>
+              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "var(--text-2)", lineHeight: 1.7 }}>
+                {(knowledge.risk_explanation || []).map((line, i) => (
+                  <li key={`exp-${i}`}>{line}</li>
+                ))}
+              </ul>
+            </Section>
+          ) : null}
+
+          {(knowledge.module_risks || []).filter((m) => (m.module_risk_score || 0) >= 25).length > 0 ? (
+            <Section
+              title={t("knowledge.risky_modules")}
+              count={(knowledge.module_risks || []).filter((m) => (m.module_risk_score || 0) >= 25).length}
+              empty={t("knowledge.none")}
+            >
+              <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: "var(--text-2)", lineHeight: 1.8 }}>
+                {(knowledge.module_risks || [])
+                  .filter((m) => (m.module_risk_score || 0) >= 25)
+                  .slice(0, 8)
+                  .map((m) => (
+                    <li key={m.module}>
+                      <strong>{m.module}</strong>
+                      {" — "}
+                      <span className={riskLevelBadge(m.module_risk_level)}>{m.module_risk_score ?? 0}</span>
+                    </li>
+                  ))}
+              </ol>
+            </Section>
+          ) : null}
+
+          {(knowledge.recommended_tests || []).length > 0 ? (
+            <Section title={t("knowledge.recommended_tests")} count={(knowledge.recommended_tests || []).length} empty={t("knowledge.none")}>
+              <div className="card" style={{ overflow: "hidden", padding: 0 }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>{t("knowledge.col.test")}</th>
+                      <th>{t("knowledge.col.module")}</th>
+                      <th>{t("knowledge.col.reason")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(knowledge.recommended_tests || []).slice(0, 12).map((tc) => (
+                      <tr key={tc.test_case_id}>
+                        <td style={{ fontSize: 12 }}>{tc.name || tc.test_case_id}</td>
+                        <td style={{ fontSize: 12, color: "var(--text-3)" }}>{tc.module || "—"}</td>
+                        <td style={{ fontSize: 12 }}>{tc.reason || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Section>
+          ) : null}
 
           <Section title={t("knowledge.modules")} count={(knowledge.modules || []).length} empty={t("knowledge.none")}>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
