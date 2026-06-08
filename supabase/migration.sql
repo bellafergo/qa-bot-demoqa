@@ -242,6 +242,9 @@ CREATE TABLE IF NOT EXISTS public.projects (
 -- Existing Supabase projects created before settings_json: add column idempotently
 ALTER TABLE public.projects ADD COLUMN IF NOT EXISTS settings_json TEXT;
 
+-- After DDL, refresh PostgREST schema cache (required for PATCH settings_json via API):
+-- NOTIFY pgrst, 'reload schema';
+
 CREATE TABLE IF NOT EXISTS public.drafts (
   draft_id         TEXT PRIMARY KEY,
   name             TEXT NOT NULL,

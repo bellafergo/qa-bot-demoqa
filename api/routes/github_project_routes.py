@@ -17,6 +17,7 @@ from models.github_integration_models import (
     GitHubRepositoriesResponse,
     GitHubSelectRepositoryRequest,
 )
+from services.db.project_errors import ProjectSettingsPersistError
 from services.github_integration_service import (
     analyze_pull_request,
     get_pull_request_files,
@@ -40,6 +41,8 @@ router = APIRouter(prefix="/projects", tags=["github-integration"])
 def _http_error(exc: Exception) -> HTTPException:
     if isinstance(exc, LookupError):
         return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, ProjectSettingsPersistError):
+        return HTTPException(status_code=503, detail=str(exc))
     if isinstance(exc, GitHubAPIError):
         return HTTPException(status_code=exc.status_code, detail=str(exc))
     if isinstance(exc, ValueError):

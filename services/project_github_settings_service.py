@@ -31,6 +31,7 @@ from services.github_app_service import (
 )
 from services.github_project_context import GitHubHttpConfig
 from services.github_repository_service import GitHubAPIError, GitHubRepositoryClient
+from services.db.project_errors import ProjectSettingsPersistError
 from services.project_settings_service import merge_settings
 
 logger = logging.getLogger("vanya.project_github_settings")
@@ -119,6 +120,28 @@ def build_connection_status(
     )
 
 
+def _assert_github_field_persisted(
+    project_id: str,
+    updated: Any,
+    *,
+    field: str,
+    expected: str,
+    context: str,
+) -> None:
+    """Raise if Supabase/SQLite read-back lacks a github settings field we just wrote."""
+    gh = _github_dict(updated)
+    got = str(gh.get(field) or "").strip()
+    want = str(expected or "").strip()
+    if got == want:
+        return
+    raise ProjectSettingsPersistError(
+        f"GitHub {context} for project '{project_id}' was not persisted "
+        f"(expected github.{field}={want!r}, got {got!r}). "
+        "If using Supabase, ensure public.projects.settings_json exists and run: "
+        "NOTIFY pgrst, 'reload schema';"
+    )
+
+
 def get_install_url(project_id: str) -> GitHubInstallUrlResponse:
     pid = (project_id or "").strip().lower()
     if not pid:
@@ -178,6 +201,8 @@ def connect_project_github_app(project_id: str, req: GitHubConnectAppRequest) ->
     updated = project_repo.update_project(pid, {"settings": merged})
     if updated is None:
         raise LookupError(f"project not found: {pid}")
+
+    _assert_github_field_persisted(pid, updated, field="installation_id", expected=iid, context="connect-app")
 
     logger.info("github_app connected project_id=%s installation_id=%s", pid, iid)
     return build_connection_status(
@@ -271,6 +296,9 @@ def select_project_repository(project_id: str, req: GitHubSelectRepositoryReques
     updated = project_repo.update_project(pid, {"settings": merged})
     if updated is None:
         raise LookupError(f"project not found: {pid}")
+
+    _assert_github_field_persisted(pid, updated, field="owner", expected=owner, context="select-repository")
+    _assert_github_field_persisted(pid, updated, field="repo", expected=repo, context="select-repository")
 
     logger.info("github_app repo selected project_id=%s repo=%s/%s", pid, owner, repo)
     return build_connection_status(

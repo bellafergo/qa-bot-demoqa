@@ -11,7 +11,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from services.db.project_errors import ProjectDuplicateIdError
+from services.db.project_errors import ProjectDuplicateIdError, ProjectSettingsPersistError
 from services.project_settings_service import dump_settings_json, parse_settings_json
 from services.supabase_store import supabase_client
 
@@ -106,6 +106,28 @@ def _is_schema_cache_column_error(exc: BaseException) -> bool:
     """
     b = _error_blob(exc)
     return "schema cache" in b and ("column" in b or "settings_json" in b)
+
+
+def _is_column_unavailable_error(exc: BaseException, column: str) -> bool:
+    """True when PostgREST rejects a column (missing from DB or stale schema cache)."""
+    if _is_schema_cache_column_error(exc):
+        return True
+    b = _error_blob(exc)
+    col = (column or "").strip().lower()
+    if not col:
+        return False
+    if col not in b:
+        return False
+    return any(
+        token in b
+        for token in (
+            "pgrst204",
+            "pgrst205",
+            "could not find",
+            "column",
+            "schema cache",
+        )
+    )
 
 
 class ProjectRepositorySupabase:
@@ -204,37 +226,74 @@ class ProjectRepositorySupabase:
             logger.exception("project_repo.supabase: settings patch failed id=%s", p.id)
             raise
 
+    def _persist_settings(self, sb, pid: str, settings_dict: Dict[str, Any], now: str) -> None:
+        """
+        Write project settings to Supabase.
+
+        Canonical column: ``settings_json`` (TEXT JSON string per migration.sql).
+        Fallback: ``settings`` (JSONB) when PostgREST schema cache lacks settings_json.
+        """
+        settings_str = dump_settings_json(settings_dict)
+        attempts: List[str] = []
+
+        try:
+            sb.table(_TABLE).update({"settings_json": settings_str, "updated_at": now}).eq("id", pid).execute()
+            return
+        except Exception as e:
+            if _is_column_unavailable_error(e, "settings_json"):
+                attempts.append(f"settings_json: {type(e).__name__}: {str(e)[:180]}")
+                logger.warning(
+                    "project_repo.supabase: settings_json update failed id=%s — trying settings fallback",
+                    pid,
+                )
+            else:
+                raise
+
+        try:
+            sb.table(_TABLE).update({"settings": settings_dict, "updated_at": now}).eq("id", pid).execute()
+            logger.warning(
+                "project_repo.supabase: persisted settings via legacy settings column id=%s",
+                pid,
+            )
+            return
+        except Exception as e:
+            attempts.append(f"settings: {type(e).__name__}: {str(e)[:180]}")
+            if not _is_column_unavailable_error(e, "settings"):
+                raise
+
+        raise ProjectSettingsPersistError(
+            f"Could not persist settings for project '{pid}'. "
+            "Run in Supabase SQL editor: "
+            "ALTER TABLE public.projects ADD COLUMN IF NOT EXISTS settings_json TEXT; "
+            "NOTIFY pgrst, 'reload schema'; "
+            f"Details: {' | '.join(attempts)}"
+        )
+
     def update_project(self, project_id: str, data: Dict[str, Any]) -> Optional[Any]:
         pid = (project_id or "").strip().lower()
         now = _utc_iso()
-        payload: Dict[str, Any] = {"updated_at": now}
+        meta: Dict[str, Any] = {}
         if "name" in data and data["name"] is not None:
-            payload["name"] = data["name"]
+            meta["name"] = data["name"]
         if "description" in data and data["description"] is not None:
-            payload["description"] = data["description"]
+            meta["description"] = data["description"]
         if "color" in data and data["color"] is not None:
-            payload["color"] = data["color"]
+            meta["color"] = data["color"]
         if "base_url" in data:
-            payload["base_url"] = data["base_url"]
-        settings_payload: Optional[str] = None
+            meta["base_url"] = data["base_url"]
+
+        settings_dict: Optional[Dict[str, Any]] = None
         if "settings" in data and data["settings"] is not None:
-            settings_payload = dump_settings_json(data["settings"])
-            payload["settings_json"] = settings_payload
+            settings_dict = data["settings"] if isinstance(data["settings"], dict) else {}
 
         sb = self._sb()
-        try:
-            sb.table(_TABLE).update(payload).eq("id", pid).execute()
-        except Exception as e:
-            if settings_payload and _is_schema_cache_column_error(e):
-                logger.warning(
-                    "project_repo.supabase: PATCH settings_json blocked by schema cache id=%s — "
-                    "updating other fields only; run NOTIFY pgrst, 'reload schema'",
-                    pid,
-                )
-                rest = {k: v for k, v in payload.items() if k != "settings_json"}
-                sb.table(_TABLE).update(rest).eq("id", pid).execute()
-            else:
-                raise
+        if settings_dict is not None:
+            self._persist_settings(sb, pid, settings_dict, now)
+        if meta:
+            sb.table(_TABLE).update({**meta, "updated_at": now}).eq("id", pid).execute()
+        elif settings_dict is None:
+            sb.table(_TABLE).update({"updated_at": now}).eq("id", pid).execute()
+
         return self.get_project(pid)
 
     def delete_project(self, project_id: str) -> bool:
