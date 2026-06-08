@@ -68,6 +68,21 @@ Response: `ProjectPRAnalysisReport` with `impacted_modules`, `risk_score`, `risk
 3. Global risk is project-level from Risk Engine, not PR-specific
 4. Legacy `/pr-analysis/analyze` still uses domain keywords when no project selected
 
+## Known observations (file → module mapping audit)
+
+Documented before production validation — **not fixed in v1**.
+
+| Observation | Impact | Example |
+|-------------|--------|---------|
+| **Substring false positives** | Token matched inside module name via `m in t` / `t in m` | `login` → `herokuapp-login`; `profile` → `FI` (`fi` ⊆ `profile`) |
+| **Multi-module top-1 only** | `resolve_impacted_modules()` keeps highest-score module per file | `company/candidate_bridge.ts` → Candidates only; Companies dropped |
+| **Short modules (FI, QA)** | Tokens &lt; 3 chars ignored; module names ≤2 chars never match | `src/fi/analyzer.py` with module `FI` → unmapped |
+| **Infrastructure files unmapped** | No domain signal in path — expected | `package.json`, `README.md`, `.github/workflows/*`, `utils.ts` → unmapped (~30% of typical PRs) |
+
+**Estimated coverage (Zuperio-style naming):** ~70% of all PR files get a module; ~100% of domain files with folder/basename aligned to catalog; ~5–10% false-positive rate on hyphenated or very short module names.
+
+**Pre-validation checklist:** refresh System Memory (`/knowledge`) so `module_risks` and `recommended_tests` are current before running PR Analysis.
+
 ## GitHub automatic PR (future)
 
 Would need:
