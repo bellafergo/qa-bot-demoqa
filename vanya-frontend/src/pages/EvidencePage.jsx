@@ -234,6 +234,23 @@ export default function EvidencePage() {
         </p>
       </div>
 
+      <KpiStrip
+        loading={loading}
+        items={[
+          { key: "total", label: t("ev.kpi.total"), value: kpi?.total ?? (loading ? null : rows.length) },
+          { key: "shots", label: t("ev.kpi.screenshots"), value: kpi?.screenshots ?? "—" },
+          {
+            key: "videos",
+            label: t("ev.kpi.videos"),
+            value: "—",
+            hint: t("ev.kpi.videos_na"),
+          },
+          { key: "logs", label: t("ev.kpi.logs"), value: kpi?.logs_hint ?? "—" },
+          { key: "reports", label: t("ev.kpi.reports"), value: kpi?.reports ?? "—" },
+          { key: "last", label: t("ev.kpi.last"), value: fmtDate(kpi?.last_at) },
+        ]}
+      />
+
       {!loading && (kpi?.total ?? 0) === 0 ? (
         <div style={{ marginBottom: 20 }}>
           {projectId ? (
@@ -241,7 +258,7 @@ export default function EvidencePage() {
               projectId={projectId}
               projectName={currentProject?.name}
               compact
-              onDone={() => load()}
+              onInitialized={() => load()}
             />
           ) : (
             <div className="card" style={{ padding: 16, fontSize: 13, color: "var(--text-2)" }}>
@@ -252,19 +269,7 @@ export default function EvidencePage() {
             <Link to="/batch" className="btn btn-primary btn-sm">{t("ev.kpi.batch_cta")}</Link>
           </div>
         </div>
-      ) : (
-        <KpiStrip
-          loading={loading}
-          items={[
-            { key: "total", label: t("ev.kpi.total"), value: kpi?.total ?? rows.length },
-            { key: "shots", label: t("ev.kpi.screenshots"), value: kpi?.screenshots ?? "—" },
-            { key: "videos", label: t("ev.kpi.videos"), value: "—" },
-            { key: "logs", label: t("ev.kpi.logs"), value: kpi?.logs_hint ?? "—" },
-            { key: "reports", label: t("ev.kpi.reports"), value: kpi?.reports ?? "—" },
-            { key: "last", label: t("ev.kpi.last"), value: fmtDate(kpi?.last_at) },
-          ]}
-        />
-      )}
+      ) : null}
 
       {/* Filters */}
       <div className="card" style={{ marginBottom: 20, padding: "14px 20px" }}>

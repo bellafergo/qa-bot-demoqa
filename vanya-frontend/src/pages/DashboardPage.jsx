@@ -13,6 +13,7 @@ import {
   getFailureIntel,
   getRunsAnalytics,
   getExecStatus,
+  getProjectKnowledge,
   runTest,
   apiErrorMessage,
 } from "../api";
@@ -942,6 +943,7 @@ export default function DashboardPage() {
   const [runInlineError, setRunInlineError]   = useState("");
   const [topProblemBusy, setTopProblemBusy]   = useState(false);
   const [topProblemError, setTopProblemError] = useState("");
+  const [hasKnowledge, setHasKnowledge] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -953,6 +955,7 @@ export default function DashboardPage() {
     setFiError("");
     setAnalyticsLoading(true);
     setAnalyticsError("");
+    setHasKnowledge(null);
 
     const pid = projectId;
     const summaryParams = pid ? { project_id: pid } : {};
@@ -995,6 +998,17 @@ export default function DashboardPage() {
     }
 
     setLoading(false);
+
+    if (pid) {
+      getProjectKnowledge(pid)
+        .then((k) => setHasKnowledge(!!k))
+        .catch((e) => {
+          if (e?.status === 404) setHasKnowledge(false);
+          else setHasKnowledge(null);
+        });
+    } else {
+      setHasKnowledge(null);
+    }
 
     getFailureIntel(pid)
       .then((f) => {
@@ -1226,6 +1240,7 @@ export default function DashboardPage() {
           projectName={currentProject?.name}
           summary={s}
           fi={fi}
+          hasKnowledge={hasKnowledge}
           loading={loading}
           passRateValid={passRateValid}
           passRateNum={passRateNum}

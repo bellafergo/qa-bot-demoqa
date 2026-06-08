@@ -166,7 +166,7 @@ export default function KnowledgePage() {
           <InitializeProjectPanel
             projectId={projectId}
             projectName={currentProject?.name}
-            onDone={() => load()}
+            onInitialized={() => load()}
           />
           <div className="card" style={{ padding: 24 }}>
             <p style={{ fontSize: 13, color: "var(--text-2)", marginBottom: 16 }}>{t("knowledge.empty")}</p>

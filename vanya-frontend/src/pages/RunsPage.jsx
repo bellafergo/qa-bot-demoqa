@@ -92,7 +92,7 @@ function RunsAnalyticsKpi({ onInitialized }) {
             projectId={projectId}
             projectName={currentProject?.name}
             compact
-            onDone={() => {
+            onInitialized={() => {
               onInitialized?.();
               load();
             }}

@@ -12,7 +12,7 @@ export default function KpiStrip({ items = [], loading = false }) {
         gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
       }}
     >
-      {items.map(({ key, label, value, accent }) => (
+      {items.map(({ key, label, value, accent, hint }) => (
         <div key={key || label} className="card" style={{ padding: "14px 16px" }}>
           <div style={{ fontSize: 11, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
             {label}
@@ -25,9 +25,13 @@ export default function KpiStrip({ items = [], loading = false }) {
               color: accent || "var(--text-1)",
               fontVariantNumeric: "tabular-nums",
             }}
+            title={hint || undefined}
           >
             {loading ? "…" : value ?? "—"}
           </div>
+          {hint ? (
+            <div style={{ fontSize: 10, color: "var(--text-4)", marginTop: 4, lineHeight: 1.35 }}>{hint}</div>
+          ) : null}
         </div>
       ))}
     </div>
