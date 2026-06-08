@@ -30,6 +30,7 @@ import InsightsPage            from "./pages/InsightsPage";
 import BrowserWatchPage         from "./pages/BrowserWatchPage.jsx";
 import LocalAgentsPage          from "./pages/LocalAgentsPage.jsx";
 import IncidentInvestigatorPage from "./pages/IncidentInvestigatorPage.jsx";
+import KnowledgePage            from "./pages/KnowledgePage.jsx";
 import ProjectsPage            from "./pages/ProjectsPage";
 
 class ErrorBoundary extends React.Component {
@@ -77,6 +78,7 @@ export default function App() {
           <Route path="insights"   element={<InsightsPage />} />
           <Route path="browser-watch" element={<BrowserWatchPage />} />
           <Route path="incidents" element={<IncidentInvestigatorPage />} />
+          <Route path="knowledge" element={<KnowledgePage />} />
           <Route path="local-agents" element={<LocalAgentsPage />} />
           <Route path="chat"       element={<ChatPage />} />
           <Route path="integrations" element={<IntegrationsPage />} />

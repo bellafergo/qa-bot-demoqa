@@ -603,3 +603,15 @@ export function listIncidentRuns(params = {}) {
 export function getIncidentRun(runId) {
   return apiGet(`/incidents/runs/${encodeURIComponent(runId)}`);
 }
+
+// ========= Project Knowledge / System Memory (Phase 1) =========
+
+/** GET /projects/{id}/knowledge */
+export function getProjectKnowledge(projectId) {
+  return apiGet(`/projects/${encodeURIComponent(projectId)}/knowledge`);
+}
+
+/** POST /projects/{id}/knowledge/refresh */
+export function refreshProjectKnowledge(projectId) {
+  return apiPost(`/projects/${encodeURIComponent(projectId)}/knowledge/refresh`, {});
+}
