@@ -267,6 +267,7 @@ def investigate_incident(req: InvestigateIncidentRequest) -> IncidentInvestigati
                     "inspection_succeeded": inspection.inspection_succeeded,
                     "knowledge_context": knowledge_ctx.model_dump() if knowledge_ctx else None,
                     "knowledge_risk_score": knowledge_ctx.risk_score if knowledge_ctx else None,
+                    "knowledge_risk_level": knowledge_ctx.risk_level if knowledge_ctx else None,
                 },
             }
         )

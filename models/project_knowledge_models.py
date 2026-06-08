@@ -7,6 +7,8 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from models.risk_engine_models import ModuleRisk, RecommendedTest, RiskLevel
+
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -112,6 +114,10 @@ class ProjectKnowledge(BaseModel):
     failure_history: List[KnowledgeFailureEntry] = Field(default_factory=list)
     incident_history: List[KnowledgeIncidentEntry] = Field(default_factory=list)
     risk_score: float = Field(default=0.0, ge=0.0, le=100.0)
+    risk_level: RiskLevel = "LOW"
+    risk_explanation: List[str] = Field(default_factory=list)
+    module_risks: List[ModuleRisk] = Field(default_factory=list)
+    recommended_tests: List[RecommendedTest] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
     updated_at: str = Field(default_factory=_utc_now_iso)
 
@@ -139,4 +145,6 @@ class ProjectKnowledgeContext(BaseModel):
     recent_failures: List[str] = Field(default_factory=list)
     recent_incidents: List[str] = Field(default_factory=list)
     risk_score: float = 0.0
+    risk_level: RiskLevel = "LOW"
+    module_risk_hints: List[str] = Field(default_factory=list)
     hints: List[str] = Field(default_factory=list)

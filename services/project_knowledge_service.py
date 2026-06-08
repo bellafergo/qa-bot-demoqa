@@ -374,7 +374,7 @@ def refresh_project_knowledge(
             metadata=refresh_meta,
             run_fail_rate=run_fail_rate,
         )
-        return save_memory(updated)
+        return save_memory(_enrich_with_risk(updated))
 
     # merge — additive refresh (legacy behaviour)
     knowledge = existing or get_or_create(pid, project_name=name)
@@ -401,7 +401,7 @@ def refresh_project_knowledge(
         incident_history=updated.incident_history,
         run_fail_rate=run_fail_rate,
     )
-    return save_memory(updated)
+    return save_memory(_enrich_with_risk(updated))
 
 
 def get_knowledge_context(
@@ -416,8 +416,11 @@ def get_knowledge_context(
     mem = get_memory(pid)
     if not mem:
         mem = refresh_project_knowledge(pid, ProjectKnowledgeRefreshRequest(include_runs=False))
+    else:
+        mem = _enrich_with_risk(mem)
 
     hints: List[str] = []
+    module_risk_hints: List[str] = []
     modules = [m.name for m in mem.modules if m.name][:15]
     known_routes = [r.url for r in mem.routes if r.url][:20]
     related = [t.test_case_id for t in mem.related_tests if t.test_case_id][:15]
@@ -430,6 +433,18 @@ def get_knowledge_context(
     for fail in mem.failure_history[:5]:
         if fail.module and fail.module.lower() in desc_lower:
             hints.append(f"Module '{fail.module}' has recent regression history ({fail.test_name or fail.test_case_id}).")
+
+    for mr in (mem.module_risks or [])[:8]:
+        if mr.module_risk_level in ("HIGH", "CRITICAL"):
+            if mr.module.lower() in desc_lower or mr.module.lower() in url_lower:
+                module_risk_hints.append(
+                    f"Module '{mr.module}' has {mr.module_risk_level} risk "
+                    f"({mr.module_risk_score:.0f}/100)."
+                )
+    if mem.risk_level in ("HIGH", "CRITICAL"):
+        hints.append(
+            f"Project risk level is {mem.risk_level} ({mem.risk_score:.0f}/100)."
+        )
     if url_lower:
         for r in mem.routes:
             if r.url and r.url.lower() in url_lower or url_lower in r.url.lower():
@@ -443,6 +458,7 @@ def get_knowledge_context(
         for i in mem.incident_history[:5] if i.description
     ]
 
+    all_hints = (module_risk_hints + hints)[:8]
     return ProjectKnowledgeContext(
         project_id=pid,
         modules=modules,
@@ -451,9 +467,23 @@ def get_knowledge_context(
         recent_failures=recent_failures,
         recent_incidents=recent_incidents,
         risk_score=mem.risk_score,
-        hints=hints[:8],
+        risk_level=mem.risk_level,
+        module_risk_hints=module_risk_hints[:5],
+        hints=all_hints,
     )
 
 
+def _enrich_with_risk(knowledge: ProjectKnowledge) -> ProjectKnowledge:
+    try:
+        from services.project_risk_service import apply_risk_to_knowledge
+        return apply_risk_to_knowledge(knowledge)
+    except Exception:
+        logger.exception("risk enrichment failed project_id=%s", knowledge.project_id)
+        return knowledge
+
+
 def get_project_knowledge(project_id: str) -> Optional[ProjectKnowledge]:
-    return get_memory((project_id or "").strip())
+    mem = get_memory((project_id or "").strip())
+    if not mem:
+        return None
+    return _enrich_with_risk(mem)

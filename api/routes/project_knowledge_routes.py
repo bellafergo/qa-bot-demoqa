@@ -12,14 +12,31 @@ from models.project_knowledge_models import (
     ProjectKnowledge,
     ProjectKnowledgeRefreshRequest,
 )
+from models.risk_engine_models import RiskAssessment
 from services.project_knowledge_service import (
     get_project_knowledge,
     refresh_project_knowledge,
 )
+from services.project_risk_service import assess_project_risk
 
 logger = logging.getLogger("vanya.project_knowledge_routes")
 
 router = APIRouter(prefix="/projects", tags=["project-knowledge"])
+
+
+@router.get("/{project_id}/risk", response_model=RiskAssessment)
+def get_project_risk(project_id: str):
+    """On-demand risk assessment (no separate persistence)."""
+    try:
+        from services.project_memory_service import get_memory
+
+        mem = get_memory(project_id) or get_project_knowledge(project_id)
+        return assess_project_risk(project_id, knowledge=mem)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+    except Exception as exc:
+        logger.exception("GET /projects/%s/risk failed", project_id)
+        raise HTTPException(status_code=500, detail=f"Risk assessment failed: {exc}") from exc
 
 
 @router.get("/{project_id}/knowledge", response_model=ProjectKnowledge)
