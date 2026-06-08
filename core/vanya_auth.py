@@ -13,6 +13,7 @@ Corporate access: optional ``ALLOWED_EMAIL_DOMAINS`` (comma-separated, e.g.
 User JWTs are checked in middleware; service token bypasses domain rules.
 """
 from __future__ import annotations
+# TODO(CCE-validation): auth module comment-only PR — no behavior change.
 
 import hmac
 import logging
