@@ -793,7 +793,7 @@ class PRAnalysisService:
         from services.change_impact_service import map_changed_files, resolve_impacted_modules
         from services.db.catalog_repository import catalog_repo
         from services.pr_analysis_project_debug import log_project_id_lookup
-        from services.project_knowledge_service import get_project_knowledge, _resolve_project_name
+        from services.project_knowledge_service import _resolve_project_name
 
         pid = (project_id or "").strip()
         if not pid:
@@ -806,7 +806,7 @@ class PRAnalysisService:
             raise ValueError("changed_files must contain at least one path")
 
         project_name = _resolve_project_name(pid)
-        knowledge = get_project_knowledge(pid)
+        knowledge, refresh_attempted = load_project_knowledge_for_analysis(pid)
         log_project_id_lookup(project_id=pid, memory_found=knowledge is not None)
 
         catalog_modules = sorted({
@@ -814,14 +814,19 @@ class PRAnalysisService:
         })
 
         if not knowledge:
+            reasoning = [
+                "No System Memory found for this project.",
+                "Refresh memory at /knowledge before running PR Analysis.",
+            ]
+            if refresh_attempted:
+                reasoning.append(
+                    "Automatic System Memory refresh did not produce project knowledge."
+                )
             return ProjectPRAnalysisReport(
                 project_id=pid,
                 project_name=project_name,
                 changed_files_count=len(changed),
-                reasoning=[
-                    "No System Memory found for this project.",
-                    "Refresh memory at /knowledge before running PR Analysis.",
-                ],
+                reasoning=reasoning,
                 summary=f"Analyzed {len(changed)} file(s) — no project knowledge available.",
             )
 
@@ -941,6 +946,43 @@ class PRAnalysisService:
             reasoning=reasoning[:10],
             summary=" ".join(summary_parts),
         )
+
+
+def load_project_knowledge_for_analysis(
+    project_id: str,
+) -> tuple[Optional["ProjectKnowledge"], bool]:
+    """
+    Load System Memory for PR Analysis.
+
+    When SQLite has no row (common on cold Render workers), rebuild via refresh
+    from catalog/runs/incidents before giving up.
+    """
+    from models.project_knowledge_models import ProjectKnowledge, ProjectKnowledgeRefreshRequest
+    from services.pr_analysis_project_debug import log_memory_refresh_event
+    from services.project_knowledge_service import get_project_knowledge, refresh_project_knowledge
+
+    pid = (project_id or "").strip()
+    knowledge = get_project_knowledge(pid)
+    if knowledge:
+        return knowledge, False
+
+    log_memory_refresh_event("memory_missing_before_refresh", project_id=pid)
+    refresh_attempted = True
+    try:
+        refresh_project_knowledge(pid, ProjectKnowledgeRefreshRequest(mode="replace"))
+        log_memory_refresh_event("refresh_attempted", project_id=pid)
+    except Exception:
+        logger.exception("pr_analysis: automatic memory refresh failed project_id=%s", pid)
+        log_memory_refresh_event("refresh_failed", project_id=pid)
+        return None, refresh_attempted
+
+    knowledge = get_project_knowledge(pid)
+    log_memory_refresh_event(
+        "memory_found_after_refresh",
+        project_id=pid,
+        memory_found=knowledge is not None,
+    )
+    return knowledge, refresh_attempted
 
 
 # Module-level singleton

@@ -37,3 +37,22 @@ def log_project_id_lookup(
     if include_available_ids:
         lines.append(f"available_project_ids={_available_project_ids()!r}")
     logger.debug("%s\n%s", _DEBUG_PREFIX, "\n".join(lines))
+
+
+def log_memory_refresh_event(
+    event: str,
+    *,
+    project_id: str,
+    memory_found: Optional[bool] = None,
+) -> None:
+    """Operational logs for PR Analysis automatic memory refresh fallback."""
+    normalized = (project_id or "").strip()
+    parts = [
+        "PR_ANALYSIS_MEMORY_REFRESH",
+        f"event={event}",
+        f"project_id={project_id!r}",
+        f"normalized_project_id={normalized!r}",
+    ]
+    if memory_found is not None:
+        parts.append(f"memory_found={'true' if memory_found else 'false'}")
+    logger.info(" ".join(parts))
