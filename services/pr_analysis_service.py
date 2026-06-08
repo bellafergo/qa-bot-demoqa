@@ -26,6 +26,7 @@ from typing import Dict, List, Optional, Set, Tuple  # noqa: F401 — Set used i
 
 from models.pr_analysis_models import (
     DraftTestSuggestion,
+    FileChangeClassification,
     FileModuleMapping,
     ImpactedModuleReport,
     PRAnalysisRequest,
@@ -34,6 +35,7 @@ from models.pr_analysis_models import (
     ProjectPRAnalysisReport,
     ProjectPRAnalysisRequest,
 )
+from models.risk_engine_models import ModuleRisk
 
 logger = logging.getLogger("vanya.pr_analysis")
 
@@ -391,23 +393,53 @@ def _match_domain_keywords(text: str) -> Set[str]:
 
 # ── Main service ──────────────────────────────────────────────────────────────
 
-def _project_pr_risk_fields(knowledge: Optional["ProjectKnowledge"]) -> Dict[str, object]:
-    """
-    Phase 0 risk split: project baseline from knowledge; pr_risk mirrors project until
-    PR Risk Composer (future sprint).
-    """
+def _project_baseline_risk_fields(knowledge: Optional["ProjectKnowledge"]) -> Dict[str, object]:
+    """Project baseline from System Memory — not PR-specific."""
     if knowledge:
-        project_score = float(knowledge.risk_score or 0.0)
-        project_level = str(knowledge.risk_level or "LOW")
-    else:
-        project_score = 0.0
-        project_level = "LOW"
+        return {
+            "project_risk_score": float(knowledge.risk_score or 0.0),
+            "project_risk_level": str(knowledge.risk_level or "LOW"),
+        }
     return {
-        "project_risk_score": project_score,
-        "project_risk_level": project_level,
-        "pr_risk_score": project_score,
-        "pr_risk_level": project_level,
+        "project_risk_score": 0.0,
+        "project_risk_level": "LOW",
     }
+
+
+def _compose_and_filter_pr_outputs(
+    *,
+    file_classifications: List[FileChangeClassification],
+    impacted_modules: List[ImpactedModuleReport],
+    project_risk_score: float,
+    module_risks: List[ModuleRisk],
+    recommended_raw: List[PRRecommendedTest],
+    unmatched_files: List[str],
+) -> Tuple[Dict[str, object], List[PRRecommendedTest], List[PRRecommendedTest], List[str]]:
+    from services.pr_risk_composer_service import compose_pr_risk
+    from services.pr_test_policy_service import filter_recommended_tests_for_pr
+
+    risk = compose_pr_risk(
+        file_classifications=file_classifications,
+        impacted_modules=impacted_modules,
+        project_risk_score=project_risk_score,
+        module_risks=module_risks,
+        recommended_tests=recommended_raw,
+        unmatched_files=unmatched_files,
+    )
+    policy = filter_recommended_tests_for_pr(
+        recommended_raw,
+        file_classifications,
+        impacted_modules,
+        risk.pr_risk_score,
+    )
+    extra_reasoning = list(risk.reasoning) + list(policy.policy_reasons)
+    pr_fields = {
+        "pr_risk_score": risk.pr_risk_score,
+        "pr_risk_level": risk.pr_risk_level,
+        "risk_score": risk.pr_risk_score,
+        "risk_level": risk.pr_risk_level,
+    }
+    return pr_fields, policy.recommended_tests, policy.recommended_tests_raw, extra_reasoning
 
 
 class PRAnalysisService:
@@ -844,6 +876,16 @@ class PRAnalysisService:
                 reasoning.append(
                     "Automatic System Memory refresh did not produce project knowledge."
                 )
+            pr_fields, filtered_tests, raw_tests, composer_reasoning = _compose_and_filter_pr_outputs(
+                file_classifications=file_classifications,
+                impacted_modules=[],
+                project_risk_score=0.0,
+                module_risks=[],
+                recommended_raw=[],
+                unmatched_files=changed,
+            )
+            reasoning.extend(composer_reasoning)
+            baseline = _project_baseline_risk_fields(None)
             return ProjectPRAnalysisReport(
                 project_id=pid,
                 project_name=project_name,
@@ -851,7 +893,10 @@ class PRAnalysisService:
                 file_classifications=file_classifications,
                 reasoning=reasoning,
                 summary=f"Analyzed {len(changed)} file(s) — no project knowledge available.",
-                **_project_pr_risk_fields(None),
+                recommended_tests=filtered_tests,
+                recommended_tests_raw=raw_tests,
+                **baseline,
+                **pr_fields,
             )
 
         file_map = map_changed_files(
@@ -929,6 +974,25 @@ class PRAnalysisService:
                 if len(recommended) >= 12:
                     break
 
+        from services.pr_risk_composer_service import dominant_change_class
+
+        if not recommended:
+            dom = dominant_change_class(file_classifications)
+            if dom in ("schema", "config"):
+                for rec in knowledge.recommended_tests or []:
+                    if not rec.test_case_id:
+                        continue
+                    blob = f"{rec.name} {rec.reason}".lower()
+                    if any(k in blob for k in ("api", "regression", "integration", "smoke", "critical")):
+                        recommended.append(PRRecommendedTest(
+                            test_case_id=rec.test_case_id,
+                            name=rec.name or rec.test_case_id,
+                            module=rec.module or "",
+                            reason=rec.reason or f"catalog {dom} change fallback",
+                        ))
+                    if len(recommended) >= 6:
+                        break
+
         reasoning: List[str] = []
         if knowledge.risk_explanation:
             reasoning.extend(knowledge.risk_explanation[:5])
@@ -950,20 +1014,37 @@ class PRAnalysisService:
                 f"Change classification: {len(comment_only)} file(s) with comment-only diff"
             )
 
+        recommended_raw = recommended[:12]
+
+        baseline = _project_baseline_risk_fields(knowledge)
+        pr_fields, filtered_tests, raw_tests, composer_reasoning = _compose_and_filter_pr_outputs(
+            file_classifications=file_classifications,
+            impacted_modules=impacted_modules,
+            project_risk_score=float(baseline["project_risk_score"]),
+            module_risks=knowledge.module_risks or [],
+            recommended_raw=recommended_raw,
+            unmatched_files=unmatched,
+        )
+        reasoning.extend(composer_reasoning)
+
         mod_labels = [im.module for im in impacted_modules[:5]]
-        risk_fields = _project_pr_risk_fields(knowledge)
         summary_parts = [
             f"Analyzed {len(changed)} file(s) for {project_name}.",
         ]
         if mod_labels:
             summary_parts.append(f"Impacted modules: {', '.join(mod_labels)}.")
         summary_parts.append(
-            f"Project risk baseline {risk_fields['project_risk_level']} "
-            f"({risk_fields['project_risk_score']:.0f}/100)."
+            f"Project risk baseline {baseline['project_risk_level']} "
+            f"({baseline['project_risk_score']:.0f}/100)."
         )
-        if recommended:
+        summary_parts.append(
+            f"PR change risk {pr_fields['pr_risk_level']} "
+            f"({pr_fields['pr_risk_score']:.0f}/100)."
+        )
+        if filtered_tests:
             summary_parts.append(
-                f"Recommended {len(recommended)} test(s) from Risk Engine memory."
+                f"Recommended {len(filtered_tests)} test(s) after PR test policy "
+                f"({len(raw_tests)} from Risk Engine memory)."
             )
 
         return ProjectPRAnalysisReport(
@@ -973,10 +1054,12 @@ class PRAnalysisService:
             impacted_modules=impacted_modules,
             file_mappings=file_mappings,
             file_classifications=file_classifications,
-            recommended_tests=recommended[:12],
-            reasoning=reasoning[:10],
+            recommended_tests=filtered_tests,
+            recommended_tests_raw=raw_tests,
+            reasoning=reasoning[:14],
             summary=" ".join(summary_parts),
-            **risk_fields,
+            **baseline,
+            **pr_fields,
         )
 
 

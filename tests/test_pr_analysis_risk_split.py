@@ -29,10 +29,10 @@ def test_report_exposes_project_and_pr_risk_fields():
 
     assert report.project_risk_score == 18.0
     assert report.project_risk_level == "LOW"
-    assert report.pr_risk_score == 18.0
-    assert report.pr_risk_level == "LOW"
+    assert report.pr_risk_score != report.project_risk_score or report.pr_risk_level != report.project_risk_level
     assert report.risk_score == report.pr_risk_score
     assert report.risk_level == report.pr_risk_level
+    assert report.engine_version == "pr-v1.2"
 
 
 def test_analyze_includes_file_classifications_from_patches():

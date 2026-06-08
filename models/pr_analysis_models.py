@@ -170,9 +170,10 @@ class ProjectPRAnalysisReport(BaseModel):
     risk_level: str = "LOW"
 
     recommended_tests: List[PRRecommendedTest] = Field(default_factory=list)
+    recommended_tests_raw: List[PRRecommendedTest] = Field(default_factory=list)
     reasoning: List[str] = Field(default_factory=list)
     summary: str = ""
-    engine_version: str = "pr-v1.1"
+    engine_version: str = "pr-v1.2"
 
     @model_validator(mode="after")
     def _sync_deprecated_risk_aliases(self) -> "ProjectPRAnalysisReport":
