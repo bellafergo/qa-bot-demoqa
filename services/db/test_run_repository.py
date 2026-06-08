@@ -124,7 +124,7 @@ class TestRunRepository:
             row = q.first()
             if row:
                 return _row_to_model(row)
-        # correlation_id lives in meta — scan recent rows (bounded)
+        # correlation_id / request_id in meta — scan recent rows (bounded)
         with get_session() as s:
             q = self._not_deleted(s.query(TestRunRow))
             q = q.order_by(TestRunRow.executed_at.desc()).limit(500)
@@ -133,8 +133,17 @@ class TestRunRepository:
                     meta = json.loads(row.meta_json or "{}")
                 except Exception:
                     meta = {}
-                if str(meta.get("correlation_id") or "").strip() == lid:
-                    return _row_to_model(row)
+                for key in ("correlation_id", "request_id"):
+                    if str(meta.get(key) or "").strip() == lid:
+                        return _row_to_model(row)
+        # shortcode prefix on run_id / evidence_id
+        if len(lid) >= 8:
+            with get_session() as s:
+                q = self._not_deleted(s.query(TestRunRow))
+                q = q.order_by(TestRunRow.executed_at.desc()).limit(500)
+                for row in q.all():
+                    if (row.run_id or "").startswith(lid) or (row.evidence_id or "").startswith(lid):
+                        return _row_to_model(row)
         return None
 
     def list_runs(

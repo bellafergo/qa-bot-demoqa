@@ -44,8 +44,7 @@ from typing import List, Optional
 from models.run_contract import CanonicalRun
 from services.db.test_run_repository import test_run_repo
 from services.qa_runs_read import (
-    fetch_qa_run_canonical,
-    fetch_qa_runs_legacy_payload,
+    fetch_qa_run_by_lookup_id,
     list_qa_runs_canonical,
     supabase_qa_runs_enabled,
 )
@@ -135,33 +134,12 @@ class RunHistoryService:
         if not rid:
             return None
         if supabase_qa_runs_enabled():
-            cr = fetch_qa_run_canonical(rid)
-            if cr is not None:
-                return cr
-            # evidence_id column on qa_runs
-            legacy = fetch_qa_runs_legacy_payload(rid)
-            if legacy is None:
+            legacy = fetch_qa_run_by_lookup_id(rid)
+            if legacy is not None:
                 try:
-                    from services.supabase_store import supabase_client
-
-                    sb = supabase_client()
-                    if sb is not None:
-                        res = (
-                            sb.table("qa_runs")
-                            .select("run_id")
-                            .eq("evidence_id", rid)
-                            .limit(1)
-                            .execute()
-                        )
-                        rows = getattr(res, "data", None) or []
-                        if rows and isinstance(rows[0], dict):
-                            canon = str(rows[0].get("run_id") or "").strip()
-                            if canon:
-                                cr = fetch_qa_run_canonical(canon)
-                                if cr is not None:
-                                    return cr
+                    return run_from_legacy_store(legacy)
                 except Exception:
-                    logger.debug("run_history_service: qa_runs evidence_id lookup failed", exc_info=True)
+                    logger.exception("run_history_service: canonical mapping failed for lookup %r", rid)
         run = test_run_repo.find_by_lookup_id(rid)
         if run is None:
             logger.debug("run_history_service: lookup %r not found in qa_runs or SQLite", run_id)

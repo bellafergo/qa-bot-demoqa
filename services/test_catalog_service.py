@@ -90,6 +90,7 @@ def _testrun_to_qa_runs_payload(run: TestRun) -> Dict[str, Any]:
         "steps": list(run.steps_result or []),
         "logs": list(run.logs or []),
         "meta": meta,
+        "correlation_id": str(meta.get("correlation_id") or meta.get("request_id") or "").strip() or None,
         "evidence_url": run.evidence_url,
         "report_url": run.report_url,
         "error_summary": err_sum,
@@ -926,7 +927,9 @@ class TestCatalogService:
         # Enrich meta for traceability across runner/logs/persistence
         if correlation_id or client_id or workspace_id:
             extra_meta = dict(extra_meta or {})
-            extra_meta.setdefault("correlation_id", correlation_id)
+            if correlation_id:
+                extra_meta.setdefault("correlation_id", correlation_id)
+                extra_meta.setdefault("request_id", correlation_id)
             if client_id:
                 extra_meta["client_id"] = client_id
             if workspace_id:

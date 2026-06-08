@@ -163,9 +163,25 @@ def _qa_row_matches_filters(
 
 
 def fetch_qa_runs_legacy_payload(run_id: str) -> Optional[Dict[str, Any]]:
-    """Single run as legacy dict for GET /runs/{run_id} (HTML + JSON merge). Resolves by ``run_id`` column."""
-    rid = (run_id or "").strip()
-    if not rid or not supabase_qa_runs_enabled():
+    """Single run as legacy dict — resolves by run_id, evidence_id, or meta correlation/request id."""
+    return fetch_qa_run_by_lookup_id(run_id)
+
+
+def _qa_first_row(res: Any) -> Optional[Dict[str, Any]]:
+    rows = getattr(res, "data", None) or []
+    if not rows:
+        return None
+    row = rows[0]
+    return row if isinstance(row, dict) else dict(row)
+
+
+def fetch_qa_run_by_lookup_id(lookup_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Resolve a qa_runs row by run_id, evidence_id, meta.correlation_id,
+    meta.request_id, or short prefix (>= 8 chars) on run_id / evidence_id.
+    """
+    lid = (lookup_id or "").strip()
+    if not lid or not supabase_qa_runs_enabled():
         return None
     try:
         from services.supabase_store import supabase_client
@@ -173,20 +189,30 @@ def fetch_qa_runs_legacy_payload(run_id: str) -> Optional[Dict[str, Any]]:
         sb = supabase_client()
         if sb is None:
             return None
-        res = (
-            sb.table("qa_runs")
-            .select("*")
-            .eq("run_id", rid)
-            .limit(1)
-            .execute()
-        )
-        rows = getattr(res, "data", None) or []
-        if not rows:
-            return None
-        return qa_runs_row_to_legacy_payload(rows[0] if isinstance(rows[0], dict) else dict(rows[0]))
+        table = sb.table("qa_runs")
+
+        for col in ("run_id", "evidence_id"):
+            row = _qa_first_row(table.select("*").eq(col, lid).limit(1).execute())
+            if row:
+                return qa_runs_row_to_legacy_payload(row)
+
+        for meta_key in ("correlation_id", "request_id"):
+            row = _qa_first_row(
+                table.select("*").eq(f"meta->>{meta_key}", lid).limit(1).execute()
+            )
+            if row:
+                return qa_runs_row_to_legacy_payload(row)
+
+        if len(lid) >= 8:
+            for col in ("run_id", "evidence_id"):
+                row = _qa_first_row(
+                    table.select("*").like(col, f"{lid}%").limit(1).execute()
+                )
+                if row:
+                    return qa_runs_row_to_legacy_payload(row)
     except Exception:
-        logger.exception("qa_runs_read: fetch legacy payload failed for run_id=%r", run_id)
-        return None
+        logger.exception("qa_runs_read: lookup failed for %r", lookup_id)
+    return None
 
 
 def fetch_qa_run_canonical(run_id: str) -> Optional[CanonicalRun]:
