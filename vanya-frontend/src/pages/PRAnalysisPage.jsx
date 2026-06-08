@@ -7,7 +7,7 @@
  */
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { analyzePR, runBatch, fetchGithubPR, batchSaveDrafts, suggestModules } from "../api";
+import { analyzePR, analyzeProjectPR, runBatch, fetchGithubPR, batchSaveDrafts, suggestModules } from "../api";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
 
@@ -16,6 +16,18 @@ function RiskBadge({ level }) {
   if (level === "high")   return <span className="badge badge-red">{t("pr.risk.high")}</span>;
   if (level === "medium") return <span className="badge badge-orange">{t("pr.risk.medium")}</span>;
   return <span className="badge badge-green">{t("pr.risk.low")}</span>;
+}
+
+function RiskLevelBadge({ level }) {
+  const lv = (level || "LOW").toUpperCase();
+  if (lv === "CRITICAL") return <span className="badge badge-red">CRITICAL</span>;
+  if (lv === "HIGH") return <span className="badge badge-orange">HIGH</span>;
+  if (lv === "MEDIUM") return <span className="badge badge-blue">MEDIUM</span>;
+  return <span className="badge badge-gray">LOW</span>;
+}
+
+function parseChangedFiles(raw) {
+  return (raw || "").split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
 }
 
 export default function PRAnalysisPage() {
@@ -32,6 +44,7 @@ export default function PRAnalysisPage() {
   const [generateDrafts, setGenerateDrafts] = useState(false);
   const [analyzing, setAnalyzing]         = useState(false);
   const [result, setResult]               = useState(null);
+  const [v1Result, setV1Result]           = useState(null);
   const [error, setError]                 = useState("");
 
   const [enqueueing, setEnqueueing]       = useState(false);
@@ -67,6 +80,7 @@ export default function PRAnalysisPage() {
       });
       setPrDiff(pr.diff || "");
       setResult(null);
+      setV1Result(null);
       setEnqueueResult(null);
     } catch (e) {
       setFetchError(e?.message || t("pr.fetch.error"));
@@ -76,23 +90,48 @@ export default function PRAnalysisPage() {
   }
 
   async function handleAnalyze() {
-    if (!form.title.trim() && !form.description.trim()) return;
+    const changedFiles = parseChangedFiles(form.changed_files);
+    const useV1 = Boolean(currentProject?.id && changedFiles.length > 0);
+
+    if (!useV1 && !form.title.trim() && !form.description.trim()) return;
+    if (useV1 && !currentProject?.id) {
+      setError(t("pr.v1.need_project"));
+      return;
+    }
+    if (useV1 && !changedFiles.length) {
+      setError(t("pr.v1.need_files"));
+      return;
+    }
+
     setAnalyzing(true);
     setError("");
     setResult(null);
+    setV1Result(null);
     setEnqueueResult(null);
     try {
-      const body = {
-        title:          form.title       || undefined,
-        description:    form.description || undefined,
-        branch:         form.branch      || undefined,
-        pr_id:          form.pr_id       || undefined,
-        changed_files:  form.changed_files.split(/[\n,]+/).map(s => s.trim()).filter(Boolean),
-        diff_text:      prDiff           || undefined,
-        generate_draft_tests: generateDrafts,
-      };
-      const r = await analyzePR(body);
-      setResult(r);
+      if (useV1) {
+        const r = await analyzeProjectPR(currentProject.id, {
+          changed_files: changedFiles,
+          repo: undefined,
+          branch: form.branch || undefined,
+          pr_id: form.pr_id || undefined,
+          title: form.title || undefined,
+          description: form.description || undefined,
+        });
+        setV1Result(r);
+      } else {
+        const body = {
+          title: form.title || undefined,
+          description: form.description || undefined,
+          branch: form.branch || undefined,
+          pr_id: form.pr_id || undefined,
+          changed_files: changedFiles,
+          diff_text: prDiff || undefined,
+          generate_draft_tests: generateDrafts,
+        };
+        const r = await analyzePR(body);
+        setResult(r);
+      }
     } catch (e) {
       setError(e?.message || "Analysis failed");
     } finally {
@@ -157,6 +196,29 @@ export default function PRAnalysisPage() {
       });
     } finally {
       setSendingRisk(false);
+    }
+  }
+
+  async function handleEnqueueV1() {
+    const ids = [...new Set((v1Result?.recommended_tests || []).map((t) => t.test_case_id).filter(Boolean))];
+    if (!ids.length) return;
+    setEnqueueing(true);
+    setEnqueueResult(null);
+    try {
+      const context = {
+        source: "pr_analysis",
+        selection_type: "pr_v1_recommended",
+        selected_test_ids: ids,
+        selected_modules: (v1Result?.impacted_modules || []).map((m) => m.module),
+        ...(form.title && { pr_title: form.title }),
+        ...(form.branch && { pr_branch: form.branch }),
+      };
+      const r = await runBatch({ test_case_ids: ids, context });
+      setEnqueueResult({ ok: true, ...r });
+    } catch (e) {
+      setEnqueueResult({ ok: false, error: e?.message || "Enqueue failed" });
+    } finally {
+      setEnqueueing(false);
     }
   }
 
@@ -242,6 +304,16 @@ export default function PRAnalysisPage() {
         </div>
       )}
 
+      {currentProject?.id ? (
+        <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 16 }}>
+          {t("pr.v1.hint")} — <strong>{currentProject.name || currentProject.id}</strong>
+        </div>
+      ) : (
+        <div className="alert" style={{ marginBottom: 16, fontSize: 12, padding: "10px 14px" }}>
+          {t("pr.v1.need_project")}
+        </div>
+      )}
+
       {/* Form */}
       <div className="card" style={{ marginBottom: 20 }}>
         <div className="section-title">{t("pr.form.title")}</div>
@@ -258,10 +330,17 @@ export default function PRAnalysisPage() {
             <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 4 }}>{t("pr.form.pr_id_label")}</label>
             <input className="input" style={{ width: "100%" }} placeholder={t("pr.form.pr_id_placeholder")} value={form.pr_id} onChange={e => set("pr_id", e.target.value)} />
           </div>
-          <div>
-            <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 4 }}>{t("pr.form.changed_files_label")}</label>
-            <input className="input" style={{ width: "100%" }} placeholder={t("pr.form.changed_files_ph")} value={form.changed_files} onChange={e => set("changed_files", e.target.value)} />
-          </div>
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 4 }}>{t("pr.form.changed_files_label")}</label>
+          <textarea
+            className="input"
+            rows={4}
+            style={{ width: "100%", resize: "vertical", fontFamily: "monospace", fontSize: 12 }}
+            placeholder={"src/components/CandidateForm.tsx\nsrc/services/candidate_service.py"}
+            value={form.changed_files}
+            onChange={(e) => set("changed_files", e.target.value)}
+          />
         </div>
         <div style={{ marginBottom: 14 }}>
           <label style={{ fontSize: 11, color: "var(--text-3)", display: "block", marginBottom: 4 }}>{t("pr.form.desc_label")}</label>
@@ -282,15 +361,129 @@ export default function PRAnalysisPage() {
           <button
             className="btn btn-primary"
             onClick={handleAnalyze}
-            disabled={analyzing || (!form.title.trim() && !form.description.trim())}
+            disabled={
+              analyzing
+              || (
+                currentProject?.id
+                  ? !parseChangedFiles(form.changed_files).length
+                  : (!form.title.trim() && !form.description.trim())
+              )
+            }
           >
-            {analyzing ? t("pr.form.analyzing") : t("pr.form.analyze")}
+            {analyzing ? t("pr.form.analyzing") : (currentProject?.id ? t("pr.form.analyze_pr") : t("pr.form.analyze"))}
           </button>
         </div>
         {error && <div className="alert alert-error" style={{ marginTop: 12 }}>{error}</div>}
       </div>
 
-      {/* Result */}
+      {/* v1 Result (System Memory + Risk Engine) */}
+      {v1Result && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div className="card">
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+              <span className="badge badge-gray">{v1Result.project_name || v1Result.project_id}</span>
+              <span className="badge badge-gray">{t("pr.v1.files_analyzed")}: {v1Result.changed_files_count}</span>
+              <RiskLevelBadge level={v1Result.risk_level} />
+              <span className="badge badge-orange">{v1Result.risk_score ?? 0}/100</span>
+            </div>
+            {v1Result.summary && (
+              <p style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.6, margin: "0 0 12px" }}>{v1Result.summary}</p>
+            )}
+          </div>
+
+          <div className="card">
+            <div className="section-title" style={{ marginBottom: 12 }}>{t("pr.v1.impacted_modules")}</div>
+            {(v1Result.impacted_modules || []).length ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {v1Result.impacted_modules.map((m) => (
+                  <div key={m.module} style={{ borderLeft: "3px solid var(--accent)", paddingLeft: 12 }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      <strong>{m.module}</strong>
+                      <RiskLevelBadge level={m.module_risk_level} />
+                      <span className="badge badge-gray">{m.module_risk_score ?? 0}/100</span>
+                    </div>
+                    <ul style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 12, color: "var(--text-3)", lineHeight: 1.6 }}>
+                      {(m.reasons || []).map((r, i) => <li key={i}>{r}</li>)}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p style={{ fontSize: 13, color: "var(--text-3)" }}>{t("pr.v1.no_modules")}</p>
+            )}
+          </div>
+
+          {(v1Result.file_mappings || []).length > 0 && (
+            <div className="card">
+              <div className="section-title" style={{ marginBottom: 12 }}>{t("pr.v1.file_mappings")}</div>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>{t("pr.v1.col.file")}</th>
+                    <th>{t("pr.v1.col.module")}</th>
+                    <th>{t("pr.v1.col.confidence")}</th>
+                    <th>{t("pr.v1.col.reason")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {v1Result.file_mappings.map((row) => (
+                    <tr key={row.file_path}>
+                      <td style={{ fontFamily: "monospace", fontSize: 11 }}>{row.file_path}</td>
+                      <td>{row.module}</td>
+                      <td>{Math.round((row.confidence || 0) * 100)}%</td>
+                      <td style={{ fontSize: 12, color: "var(--text-3)" }}>{row.reason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="card">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+              <div className="section-title" style={{ margin: 0 }}>{t("pr.v1.recommended")}</div>
+              {(v1Result.recommended_tests || []).length > 0 && !enqueueResult?.ok && (
+                <button className="btn btn-primary btn-sm" onClick={handleEnqueueV1} disabled={enqueueing}>
+                  {enqueueing ? t("pr.result.enqueueing") : `${t("pr.result.enqueue_prefix")} ${v1Result.recommended_tests.length} ${t("pr.result.enqueue_tests")}`}
+                </button>
+              )}
+            </div>
+            {(v1Result.recommended_tests || []).length ? (
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>{t("knowledge.col.test")}</th>
+                    <th>{t("knowledge.col.module")}</th>
+                    <th>{t("pr.v1.col.reason")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {v1Result.recommended_tests.map((tc) => (
+                    <tr key={tc.test_case_id}>
+                      <td style={{ fontFamily: "monospace", fontSize: 12 }}>{tc.name || tc.test_case_id}</td>
+                      <td>{tc.module || "—"}</td>
+                      <td style={{ fontSize: 12 }}>{tc.reason || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p style={{ fontSize: 13, color: "var(--text-3)" }}>{t("pr.v1.no_tests")}</p>
+            )}
+          </div>
+
+          {(v1Result.reasoning || []).length > 0 && (
+            <div className="card">
+              <div className="section-title" style={{ marginBottom: 12 }}>{t("pr.v1.reasoning")}</div>
+              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "var(--text-2)", lineHeight: 1.7 }}>
+                {v1Result.reasoning.map((line, i) => <li key={i}>{line}</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Legacy Result */}
       {result && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 

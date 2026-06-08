@@ -611,6 +611,11 @@ export function getProjectKnowledge(projectId) {
   return apiGet(`/projects/${encodeURIComponent(projectId)}/knowledge`);
 }
 
+/** PR Analysis v1 — System Memory + Risk Engine (project-scoped). */
+export function analyzeProjectPR(projectId, body) {
+  return apiPost(`/projects/${encodeURIComponent(projectId)}/pr-analysis`, body);
+}
+
 /** POST /projects/{id}/knowledge/refresh — mode: "replace" (default) | "merge" */
 export function refreshProjectKnowledge(projectId, mode = "replace") {
   const q = new URLSearchParams({ mode: String(mode || "replace") });
