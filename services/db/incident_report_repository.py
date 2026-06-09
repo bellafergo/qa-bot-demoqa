@@ -1,5 +1,5 @@
 # services/db/incident_report_repository.py
-"""SQLite persistence for project-scoped Incident Investigator QA reports (v1.1)."""
+"""SQLite + Supabase persistence for project-scoped Incident Investigator QA reports."""
 from __future__ import annotations
 
 import json
@@ -33,6 +33,32 @@ class IncidentReportRow(Base):
 
 
 class IncidentReportRepository:
+    def _save_sqlite(
+        self,
+        *,
+        report_id: str,
+        project_id: str,
+        description: str,
+        severity: str,
+        summary: str,
+        confidence: float,
+        created_at: str,
+        payload: Dict[str, Any],
+    ) -> None:
+        row = IncidentReportRow(
+            id=report_id,
+            project_id=(project_id or "").strip().lower(),
+            description=(description or "").strip(),
+            severity=(severity or "medium").strip(),
+            summary=(summary or "").strip(),
+            confidence=str(round(float(confidence), 4)),
+            created_at=created_at,
+            report_json=json.dumps(payload, ensure_ascii=False),
+        )
+        with get_session() as session:
+            session.add(row)
+            session.commit()
+
     def save(
         self,
         *,
@@ -48,22 +74,38 @@ class IncidentReportRepository:
         payload = dict(report)
         payload["id"] = report_id
         payload["created_at"] = now
-        row = IncidentReportRow(
-            id=report_id,
-            project_id=(project_id or "").strip().lower(),
-            description=(description or "").strip(),
-            severity=(severity or "medium").strip(),
-            summary=(summary or "").strip(),
-            confidence=str(round(float(confidence), 4)),
+        pid = (project_id or "").strip().lower()
+
+        self._save_sqlite(
+            report_id=report_id,
+            project_id=pid,
+            description=description,
+            severity=severity,
+            summary=summary,
+            confidence=confidence,
             created_at=now,
-            report_json=json.dumps(payload, ensure_ascii=False),
+            payload=payload,
         )
-        with get_session() as session:
-            session.add(row)
-            session.commit()
+
+        try:
+            from services.incident_report_supabase import persist_incident_report_supabase
+
+            persist_incident_report_supabase(
+                report_id=report_id,
+                project_id=pid,
+                description=description,
+                severity=severity,
+                summary=summary,
+                confidence=confidence,
+                created_at=now,
+                report_json=payload,
+            )
+        except Exception as e:
+            logger.warning("incident_report: supabase mirror failed id=%s: %s", report_id, e)
+
         return report_id
 
-    def get(self, report_id: str) -> Optional[Dict[str, Any]]:
+    def _get_sqlite(self, report_id: str) -> Optional[Dict[str, Any]]:
         rid = (report_id or "").strip()
         if not rid:
             return None
@@ -88,12 +130,7 @@ class IncidentReportRepository:
                 data.setdefault("confidence", 0.0)
             return data
 
-    def list_reports(
-        self,
-        *,
-        project_id: str,
-        limit: int = 50,
-    ) -> List[Dict[str, Any]]:
+    def _list_sqlite(self, *, project_id: str, limit: int) -> List[Dict[str, Any]]:
         pid = (project_id or "").strip().lower()
         if not pid:
             return []
@@ -122,6 +159,55 @@ class IncidentReportRepository:
                     "created_at": row.created_at,
                 })
             return out
+
+    def get(self, report_id: str) -> Optional[Dict[str, Any]]:
+        rid = (report_id or "").strip()
+        if not rid:
+            return None
+        sqlite_doc = self._get_sqlite(rid)
+        supabase_doc: Optional[Dict[str, Any]] = None
+        try:
+            from services.incident_report_supabase import (
+                fetch_incident_report_full_supabase,
+                supabase_incident_reports_enabled,
+            )
+            from services.report_history_merge import pick_newer_record
+
+            if supabase_incident_reports_enabled():
+                supabase_doc = fetch_incident_report_full_supabase(rid)
+            return pick_newer_record(sqlite_row=sqlite_doc, supabase_row=supabase_doc)
+        except Exception as e:
+            logger.debug("incident_report: supabase get compare failed id=%s: %s", rid, e)
+        return sqlite_doc
+
+    def list_reports(
+        self,
+        *,
+        project_id: str,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        pid = (project_id or "").strip().lower()
+        if not pid:
+            return []
+        limit = max(1, min(int(limit), 200))
+        sqlite_rows = self._list_sqlite(project_id=pid, limit=limit)
+        try:
+            from services.incident_report_supabase import (
+                list_incident_reports_supabase,
+                supabase_incident_reports_enabled,
+            )
+            from services.report_history_merge import merge_sqlite_supabase_records
+
+            if supabase_incident_reports_enabled():
+                supa_rows = list_incident_reports_supabase(pid, limit=limit)
+                return merge_sqlite_supabase_records(
+                    supabase_rows=supa_rows,
+                    sqlite_rows=sqlite_rows,
+                    limit=limit,
+                )
+        except Exception as e:
+            logger.debug("incident_report: supabase list fallback project_id=%s: %s", pid, e)
+        return sqlite_rows
 
     def get_for_project(self, project_id: str, report_id: str) -> Optional[Dict[str, Any]]:
         data = self.get(report_id)

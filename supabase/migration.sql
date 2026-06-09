@@ -284,6 +284,37 @@ CREATE TABLE IF NOT EXISTS public.test_versions (
 
 CREATE INDEX IF NOT EXISTS idx_test_versions_test_case_id ON public.test_versions (test_case_id);
 
+-- Incident Investigator v1.1 reports: services/incident_report_supabase.py (upsert on_conflict id)
+CREATE TABLE IF NOT EXISTS public.incident_investigation_reports (
+  id           TEXT PRIMARY KEY,
+  project_id   TEXT NOT NULL,
+  description  TEXT NOT NULL DEFAULT '',
+  severity     TEXT NOT NULL DEFAULT 'medium',
+  summary      TEXT NOT NULL DEFAULT '',
+  confidence   DOUBLE PRECISION NOT NULL DEFAULT 0,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  report_json  JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS idx_incident_reports_project_created
+  ON public.incident_investigation_reports (project_id, created_at DESC);
+
+-- PR Analysis snapshots: services/pr_analysis_report_supabase.py (upsert on_conflict id)
+CREATE TABLE IF NOT EXISTS public.pr_analysis_reports (
+  id           TEXT PRIMARY KEY,
+  project_id   TEXT NOT NULL,
+  pr_id        TEXT NOT NULL DEFAULT '',
+  provider     TEXT NOT NULL DEFAULT 'manual',
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  report_json  JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS idx_pr_analysis_reports_project_created
+  ON public.pr_analysis_reports (project_id, created_at DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_pr_analysis_reports_natural_key
+  ON public.pr_analysis_reports (project_id, pr_id, provider);
+
 -- =============================================================================
 -- PostgREST: exponer tablas al API (schema public ya está en API por defecto)
 -- =============================================================================
