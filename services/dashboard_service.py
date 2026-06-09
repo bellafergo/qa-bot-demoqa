@@ -189,37 +189,53 @@ class DashboardService:
           4. For each module, sum run stats across its test cases.
         """
         pid = (project_id or "").strip() or None
+        from services.module_canonical import (
+            canonical_module_key,
+            merge_module_counts,
+            module_display_label,
+        )
+
         if pid:
-            tc_by_module = catalog_repo.count_test_cases_by_module_for_project(pid)
-            tc_to_module = {tc_id: mod for tc_id, mod in catalog_repo.all_modules_for_project(pid)}
-            allowed = set(tc_to_module.keys())
+            raw_tc_by_module = catalog_repo.count_test_cases_by_module_for_project(pid)
+            tc_to_module_raw = {tc_id: mod for tc_id, mod in catalog_repo.all_modules_for_project(pid)}
+            allowed = set(tc_to_module_raw.keys())
             runs_by_tc = test_run_repo.count_runs_by_test_case(
                 test_case_ids=allowed if allowed else [],
             )
         else:
-            tc_by_module = catalog_repo.count_test_cases_by_module()   # {module: count}
-            tc_to_module = {tc_id: mod for tc_id, mod in catalog_repo.all_modules()}
-            runs_by_tc   = test_run_repo.count_runs_by_test_case()     # {tc_id: {status: n}}
+            raw_tc_by_module = catalog_repo.count_test_cases_by_module()
+            tc_to_module_raw = {tc_id: mod for tc_id, mod in catalog_repo.all_modules()}
+            runs_by_tc = test_run_repo.count_runs_by_test_case()
 
-        # Aggregate run stats per module
-        module_runs: dict = {}  # {module: {status: count}}
+        tc_by_key, label_map = merge_module_counts(raw_tc_by_module)
+        tc_to_module = {
+            tc_id: canonical_module_key(mod)
+            for tc_id, mod in tc_to_module_raw.items()
+        }
+
+        # Aggregate run stats per canonical module key
+        module_runs: dict = {}
         for tc_id, status_counts in runs_by_tc.items():
-            mod = tc_to_module.get(tc_id, "unknown")
-            agg = module_runs.setdefault(mod, {})
+            mod_key = tc_to_module.get(tc_id, canonical_module_key("unknown"))
+            agg = module_runs.setdefault(mod_key, {})
             for status, count in status_counts.items():
                 agg[status] = agg.get(status, 0) + count
 
         # Build result for every module that has at least one test case
         result: List[DashboardModuleMetrics] = []
-        for module, tc_count in sorted(tc_by_module.items()):
-            run_stats = module_runs.get(module, {})
+        for mod_key, tc_count in sorted(
+            tc_by_key.items(),
+            key=lambda x: module_display_label(x[0], labels_by_key=label_map).lower(),
+        ):
+            display = module_display_label(mod_key, labels_by_key=label_map)
+            run_stats = module_runs.get(mod_key, {})
             pass_n  = run_stats.get("pass",  0)
             fail_n  = run_stats.get("fail",  0)
             error_n = run_stats.get("error", 0)
             total_r = pass_n + fail_n + error_n
 
             result.append(DashboardModuleMetrics(
-                module          = module,
+                module          = display,
                 test_case_count = tc_count,
                 run_count       = total_r,
                 pass_count      = pass_n,

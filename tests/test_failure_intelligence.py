@@ -183,6 +183,24 @@ class TestFailureClustering:
         clusters = service.get_clusters(root_cause_category="api_failure")
         assert all(c.root_cause_category == "api_failure" for c in clusters)
 
+    def test_canonical_merge_auth_variants_single_cluster(self):
+        """QA-03A: failures across AUTH/auth/Auth → one cluster with display label."""
+        from services.failure_intelligence_service import FailureIntelligenceService
+
+        _make_tc("TC-CAN-A", module="AUTH")
+        _make_tc("TC-CAN-B", module="auth")
+        _make_tc("TC-CAN-C", module="Auth")
+        _make_run("TC-CAN-A", "fail", logs=["selector not found on login"])
+        _make_run("TC-CAN-B", "fail", logs=["selector not found on login"])
+        _make_run("TC-CAN-C", "fail", logs=["selector not found on login"])
+
+        service = FailureIntelligenceService()
+        clusters = service.get_clusters()
+        auth_clusters = [c for c in clusters if c.module.lower() == "auth"]
+        assert len(auth_clusters) == 1
+        assert auth_clusters[0].module == "AUTH"
+        assert auth_clusters[0].total_failures == 3
+
 
 # ── 6-10. Flaky Detection ─────────────────────────────────────────────────────
 

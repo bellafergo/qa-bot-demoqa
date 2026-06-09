@@ -221,6 +221,20 @@ class TestByModule:
         assert "known" in modules
         assert "unknown" not in modules
 
+    def test_canonical_merge_auth_case_variants(self):
+        """QA-03A: AUTH + auth + Auth → single dashboard module row."""
+        _add_tc("TC-CAN-A", module="AUTH")
+        _add_tc("TC-CAN-B", module="auth")
+        _add_tc("TC-CAN-C", module="Auth")
+        _add_run("TC-CAN-A", "pass")
+        _add_run("TC-CAN-B", "fail")
+        result = self.svc.get_by_module()
+        auth_rows = [m for m in result if m.module.lower() == "auth"]
+        assert len(auth_rows) == 1
+        assert auth_rows[0].module == "AUTH"
+        assert auth_rows[0].test_case_count == 3
+        assert auth_rows[0].run_count == 2
+
 
 # ── Run status breakdown ──────────────────────────────────────────────────────
 

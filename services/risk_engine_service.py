@@ -279,12 +279,20 @@ def compute_project_risk(
     risk_score = round(min(100.0, sum(f.score for f in factors)), 1)
     risk_level = risk_level_from_score(risk_score)
 
+    from services.module_canonical import merge_module_stats_dicts, module_display_label
+
+    merged_stats, label_map = merge_module_stats_dicts(
+        module_stats,
+        extra_labels=[str(r.get("module") or "") for r in related_tests if r.get("module")],
+    )
+
     module_risks: List[ModuleRisk] = []
-    for mod, stats in sorted(module_stats.items(), key=lambda x: x[0].lower()):
-        if not mod:
+    for mod_key, stats in sorted(merged_stats.items(), key=lambda x: x[0].lower()):
+        if not mod_key:
             continue
+        display = module_display_label(mod_key, labels_by_key=label_map)
         module_risks.append(compute_module_risk(
-            mod,
+            display,
             regression_count=int(stats.get("regression_count") or 0),
             failure_count=int(stats.get("failure_count") or 0),
             flaky_count=int(stats.get("flaky_count") or 0),

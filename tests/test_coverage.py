@@ -308,3 +308,29 @@ class TestModuleCoverage:
             _add_test(f"TC-MOD-{10 + i}", "search")
         result = _svc().get_module_coverage("search")
         assert result.total_tests == 3
+
+
+class TestModuleCanonicalization:
+    """QA-03A: AUTH + auth + Auth collapse to one bucket in aggregation."""
+
+    def setup_method(self):
+        _reset()
+
+    def test_summary_merges_auth_case_variants(self):
+        _add_test("TC-CAN-001", "AUTH")
+        _add_test("TC-CAN-002", "auth")
+        _add_test("TC-CAN-003", "Auth")
+        _add_test("TC-CAN-004", "checkout")
+        results = _svc().get_summary()
+        auth_rows = [r for r in results if r.module.lower() == "auth"]
+        assert len(auth_rows) == 1
+        assert auth_rows[0].total_tests == 3
+        assert auth_rows[0].module == "AUTH"
+
+    def test_get_module_coverage_accepts_any_casing(self):
+        _add_test("TC-CAN-010", "AUTH")
+        _add_test("TC-CAN-011", "auth")
+        for query in ("AUTH", "auth", "Auth"):
+            result = _svc().get_module_coverage(query)
+            assert result.total_tests == 2
+            assert result.module == "AUTH"

@@ -268,3 +268,38 @@ def test_refresh_merge_preserves_stale_routes():
     urls = [r.url for r in result.routes]
     assert any("stale.example.com/kept" in u for u in urls)
     assert any("demoqa.com" in u for u in urls)
+
+
+def test_refresh_canonical_merge_auth_variants_single_module():
+    """QA-03A: catalog AUTH/auth/Auth → one KnowledgeModule entry."""
+    pid = "demo-refresh-canonical"
+
+    def _mock_tc(tc_id: str, module: str):
+        mock = MagicMock()
+        mock.test_case_id = tc_id
+        mock.module = module
+        mock.name = f"Test {tc_id}"
+        mock.base_url = ""
+        mock.test_type = "ui"
+        mock.priority = "P1"
+        return mock
+
+    catalog = [
+        _mock_tc("TC-CAN-A", "AUTH"),
+        _mock_tc("TC-CAN-B", "auth"),
+        _mock_tc("TC-CAN-C", "Auth"),
+    ]
+
+    with patch("services.db.catalog_repository.catalog_repo.list_test_cases", return_value=catalog), \
+         patch("services.run_history_service.run_history_service.list_runs", return_value=[]), \
+         patch("services.failure_intelligence_service.failure_intelligence_service.get_regressions", return_value=[]), \
+         patch("services.db.incident_investigation_repository.incident_investigation_repo.list_runs", return_value=[]), \
+         patch("services.db.test_run_repository.test_run_repo.list_browser_inspection_runs", return_value=[]), \
+         patch("services.project_knowledge_service._resolve_project_name", return_value="Demo"):
+
+        result = refresh_project_knowledge(pid, ProjectKnowledgeRefreshRequest(mode="replace"))
+
+    auth_modules = [m for m in result.modules if m.name.lower() == "auth"]
+    assert len(auth_modules) == 1
+    assert auth_modules[0].name == "AUTH"
+    assert auth_modules[0].test_count == 3

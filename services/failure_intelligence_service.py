@@ -215,6 +215,11 @@ class FailureIntelligenceService:
         from services.db.catalog_repository import catalog_repo
         from services.rca_service import rca_service
         from services.run_mapper import normalize_storage_status
+        from services.module_canonical import (
+            build_module_label_map,
+            canonical_module_key,
+            module_display_label,
+        )
 
         pid = (project_id or "").strip() or None
         all_runs = _list_test_runs_via_history(
@@ -226,20 +231,29 @@ class FailureIntelligenceService:
             if normalize_storage_status(str(r.status or "")) in ("fail", "error")
         ]
 
-        # Build tc_id → module lookup
+        # Build tc_id → canonical module key lookup
         tc_module: Dict[str, str] = {}
+        raw_modules: List[str] = []
         try:
-            for tc_id, mod in catalog_repo.all_modules():
-                tc_module[tc_id] = mod
+            if pid:
+                mod_iter = catalog_repo.all_modules_for_project(pid)
+            else:
+                mod_iter = catalog_repo.all_modules()
+            for tc_id, mod in mod_iter:
+                raw_modules.append(mod)
+                tc_module[tc_id] = canonical_module_key(mod)
         except Exception:
             logger.debug("failure_intelligence: could not load module map")
 
-        # Cluster map: (category, layer, module) → [(run, rca_result)]
+        label_map = build_module_label_map(raw_modules)
+        filter_key = canonical_module_key(module) if module else None
+
+        # Cluster map: (category, layer, module_key) → [(run, rca_result)]
         cluster_map: Dict[Tuple, List] = {}
 
         for run in failed_runs:
-            run_module = tc_module.get(run.test_case_id, "unknown")
-            if module and run_module != module:
+            run_module_key = tc_module.get(run.test_case_id, canonical_module_key("unknown"))
+            if filter_key and run_module_key != filter_key:
                 continue
 
             try:
@@ -254,12 +268,13 @@ class FailureIntelligenceService:
             if root_cause_category and category != root_cause_category:
                 continue
 
-            key = (category, layer, run_module)
+            key = (category, layer, run_module_key)
             cluster_map.setdefault(key, []).append((run, rca))
 
         # Build FailureCluster objects
         clusters: List[FailureCluster] = []
-        for (category, layer, mod), items in cluster_map.items():
+        for (category, layer, mod_key), items in cluster_map.items():
+            mod = module_display_label(mod_key, labels_by_key=label_map)
             run_ids = [r.run_id for r, _ in items]
             rep_tc  = items[0][0].test_case_id
 
@@ -305,7 +320,7 @@ class FailureIntelligenceService:
             )
 
             clusters.append(FailureCluster(
-                cluster_id                  = _cluster_id(category, layer, mod),
+                cluster_id                  = _cluster_id(category, layer, mod_key),
                 root_cause_category         = category,
                 impacted_layer              = layer,
                 module                      = mod,
@@ -502,18 +517,24 @@ class FailureIntelligenceService:
         from services.db.catalog_repository import catalog_repo
         from services.rca_service import rca_service
         from services.run_mapper import normalize_storage_status
+        from services.module_canonical import build_module_label_map, canonical_module_key, module_display_label
 
         pid = (project_id or "").strip() or None
         tc_module: Dict[str, str] = {}
+        raw_modules: List[str] = []
         try:
             if pid:
                 for tc_id, mod in catalog_repo.all_modules_for_project(pid):
+                    raw_modules.append(mod)
                     tc_module[tc_id] = mod
             else:
                 for tc_id, mod in catalog_repo.all_modules():
+                    raw_modules.append(mod)
                     tc_module[tc_id] = mod
         except Exception:
             logger.warning("failure_intelligence: catalog module map unavailable", exc_info=True)
+
+        label_map = build_module_label_map(raw_modules)
 
         allowed: Optional[Set[str]] = None
         if pid:
@@ -547,7 +568,11 @@ class FailureIntelligenceService:
             except Exception:
                 pass
 
-            mod = tc_module.get(tc_id, "unknown")
+            mod_raw = tc_module.get(tc_id, "unknown")
+            mod = module_display_label(
+                canonical_module_key(mod_raw),
+                labels_by_key=label_map,
+            )
             patterns.append(RegressionPattern(
                 pattern_id        = f"REG-{tc_id}",
                 test_case_id      = tc_id,

@@ -22,6 +22,7 @@ from collections import defaultdict
 from typing import Dict, List, Optional, Set, Tuple
 
 from models.coverage_models import CoverageResult
+from services.module_canonical import canonical_module_key, module_display_label
 
 logger = logging.getLogger("vanya.coverage")
 
@@ -170,12 +171,16 @@ class CoverageService:
 
     def get_summary(self) -> List[CoverageResult]:
         """Return coverage metrics for every module in the catalog."""
-        tc_by_module, tc_types, latest_status = self._load_data()
+        tc_by_key, label_map, tc_types, latest_status = self._load_data()
 
         results: List[CoverageResult] = []
-        for module, tc_ids in sorted(tc_by_module.items()):
+        for key, tc_ids in sorted(
+            tc_by_key.items(),
+            key=lambda x: module_display_label(x[0], labels_by_key=label_map).lower(),
+        ):
+            display = module_display_label(key, labels_by_key=label_map)
             results.append(
-                _compute_module_coverage(module, tc_ids, tc_types, latest_status)
+                _compute_module_coverage(display, tc_ids, tc_types, latest_status)
             )
 
         if not results:
@@ -252,50 +257,48 @@ class CoverageService:
 
     def get_module_coverage(self, module: str) -> CoverageResult:
         """Return coverage metrics for a specific module."""
-        tc_by_module, tc_types, latest_status = self._load_data(module=module)
+        tc_by_key, label_map, tc_types, latest_status = self._load_data()
 
-        tc_ids = tc_by_module.get(module, [])
+        key = canonical_module_key(module)
+        tc_ids = tc_by_key.get(key, [])
+        display = module_display_label(key, labels_by_key=label_map)
 
-        # Also try case-insensitive / partial match if exact key is missing
-        if not tc_ids:
-            m_lower = module.lower()
-            for key, ids in tc_by_module.items():
-                if key.lower() == m_lower or m_lower in key.lower():
-                    tc_ids = ids
-                    module = key
-                    break
-
-        return _compute_module_coverage(module, tc_ids, tc_types, latest_status)
+        return _compute_module_coverage(display, tc_ids, tc_types, latest_status)
 
     # ── Data loading ──────────────────────────────────────────────────────────
 
     def _load_data(
         self,
-        module: Optional[str] = None,
     ) -> Tuple[
-        Dict[str, List[str]],   # module → [test_case_id, …]
+        Dict[str, List[str]],   # canonical module key → [test_case_id, …]
+        Dict[str, str],          # canonical key → display label
         Dict[str, str],          # test_case_id → type
         Dict[str, str],          # test_case_id → last run status (or None)
     ]:
         """Load catalog + run history in bulk and return structured lookups."""
         from services.db.catalog_repository import catalog_repo
         from services.db.test_run_repository import test_run_repo
+        from services.module_canonical import (
+            build_module_label_map,
+            canonical_module_key,
+            module_display_label,
+        )
 
-        # Fetch active test cases (optionally filtered by module)
-        if module:
-            all_tests = catalog_repo.list_test_cases(
-                module=module, status="active", limit=2000
-            )
-        else:
-            all_tests = catalog_repo.list_test_cases(status="active", limit=2000)
+        # Fetch active test cases
+        all_tests = catalog_repo.list_test_cases(status="active", limit=2000)
 
-        tc_by_module: Dict[str, List[str]] = defaultdict(list)
+        tc_by_key: Dict[str, List[str]] = defaultdict(list)
         tc_types: Dict[str, str] = {}
+        raw_modules: List[str] = []
 
         for tc in all_tests:
-            mod = (tc.module or "unknown").strip()
-            tc_by_module[mod].append(tc.test_case_id)
+            raw_mod = (tc.module or "unknown").strip()
+            raw_modules.append(raw_mod)
+            key = canonical_module_key(raw_mod)
+            tc_by_key[key].append(tc.test_case_id)
             tc_types[tc.test_case_id] = tc.type
+
+        label_map = build_module_label_map(raw_modules)
 
         # Fetch recent runs and keep only the latest per test_case_id
         all_runs = test_run_repo.list_runs(limit=5000)
@@ -308,10 +311,10 @@ class CoverageService:
 
         logger.debug(
             "coverage: loaded %d test cases across %d modules, %d runs",
-            len(all_tests), len(tc_by_module), len(all_runs),
+            len(all_tests), len(tc_by_key), len(all_runs),
         )
 
-        return dict(tc_by_module), tc_types, latest_status
+        return dict(tc_by_key), label_map, tc_types, latest_status
 
 
 # ── Module-level singleton ────────────────────────────────────────────────────

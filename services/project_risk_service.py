@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from models.project_knowledge_models import ProjectKnowledge
 from models.risk_engine_models import ModuleRisk, RecommendedTest, RiskAssessment
+from services.module_canonical import canonical_module_key
 from services.risk_engine_service import compute_project_risk
 
 logger = logging.getLogger("vanya.project_risk")
@@ -28,17 +29,20 @@ _SEVERITY_WEIGHT = {
 
 
 def _norm_module(name: str) -> str:
-    return (name or "").strip()
+    return canonical_module_key(name)
 
 
 def _module_from_incident(inc: Dict[str, Any], tc_module: Dict[str, str]) -> str:
     mod = str(inc.get("module") or "").strip()
     if mod:
-        return mod
+        return _norm_module(mod)
     desc = str(inc.get("description") or inc.get("incident_description") or "").lower()
     for m in set(tc_module.values()):
         if m and m.lower() in desc:
             return m
+    for raw in set(tc_module.values()):
+        if raw and canonical_module_key(raw).lower() in desc:
+            return canonical_module_key(raw)
     return ""
 
 
@@ -80,7 +84,7 @@ def gather_risk_inputs(
     module_test_count: Dict[str, int] = defaultdict(int)
     try:
         for tc_id, mod in catalog_repo.all_modules_for_project(pid):
-            tc_module[tc_id] = _norm_module(mod) or "General"
+            tc_module[tc_id] = _norm_module(mod) or canonical_module_key("General")
             module_test_count[tc_module[tc_id]] += 1
     except Exception:
         logger.debug("risk: catalog module map unavailable", exc_info=True)
@@ -147,23 +151,24 @@ def gather_risk_inputs(
     if mem:
         for m in mem.modules:
             if m.name:
-                module_stats[m.name]["test_count"] = max(
-                    int(module_stats[m.name]["test_count"]),
+                mod_key = _norm_module(m.name)
+                module_stats[mod_key]["test_count"] = max(
+                    int(module_stats[mod_key]["test_count"]),
                     int(m.test_count or 0),
                 )
 
     for reg in regressions:
-        mod = _norm_module(reg.module) or tc_module.get(reg.test_case_id, "General")
+        mod = _norm_module(reg.module) or tc_module.get(reg.test_case_id, canonical_module_key("General"))
         module_stats[mod]["regression_count"] += 1
 
     for flaky in flaky_tests:
         if not flaky.suspected_flaky:
             continue
-        mod = tc_module.get(flaky.test_case_id, "General")
+        mod = tc_module.get(flaky.test_case_id, canonical_module_key("General"))
         module_stats[mod]["flaky_count"] += 1
 
     for fail in failure_history:
-        mod = _norm_module(str(fail.get("module") or "")) or "General"
+        mod = _norm_module(str(fail.get("module") or "")) or canonical_module_key("General")
         module_stats[mod]["failure_count"] += int(fail.get("count") or 1)
         created = str(fail.get("last_failed_at") or "")
         if created:
@@ -172,7 +177,7 @@ def gather_risk_inputs(
                 module_stats[mod]["recent_failure_count"] += 1
 
     for inc in incident_history:
-        mod = _module_from_incident(inc, tc_module) or "General"
+        mod = _module_from_incident(inc, tc_module) or canonical_module_key("General")
         sev = str(inc.get("severity") or "info").lower()
         module_stats[mod]["incident_count"] += 1
         module_stats[mod]["incident_severity_sum"] += _SEVERITY_WEIGHT.get(sev, 0.5)
@@ -184,7 +189,7 @@ def gather_risk_inputs(
         runs = run_history_service.list_runs(project_id=pid, limit=300)
         for run in runs:
             tc_id = str(getattr(run, "test_id", None) or (run.meta or {}).get("test_case_id") or "")
-            mod = tc_module.get(tc_id, "General")
+            mod = tc_module.get(tc_id, canonical_module_key("General"))
             st = normalize_storage_status(str(run.status or ""))
             if st in ("pass", "fail", "error"):
                 module_stats[mod]["run_total"] += 1

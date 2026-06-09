@@ -8,6 +8,7 @@ Write hooks: Explorer, App Map, Runs. Read hooks: Incident Investigator, UI refr
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
 from models.project_knowledge_models import (
@@ -239,14 +240,32 @@ def refresh_project_knowledge(
             from services.db.catalog_repository import catalog_repo
 
             cases = catalog_repo.list_test_cases(project_id=pid, limit=500)
-            mod_counts: Dict[str, int] = {}
+            mod_counts: Dict[str, int] = defaultdict(int)
+            raw_modules: List[str] = []
+            from services.module_canonical import (
+                build_module_label_map,
+                canonical_module_key,
+                module_display_label,
+            )
+
+            tc_rows: List[tuple] = []
             for tc in cases or []:
                 tid = str(getattr(tc, "test_case_id", None) or (tc.get("test_case_id") if isinstance(tc, dict) else "") or "")
                 mod = str(getattr(tc, "module", None) or (tc.get("module") if isinstance(tc, dict) else "") or "general")
-                mod_counts[mod] = mod_counts.get(mod, 0) + 1
+                raw_modules.append(mod)
+                mod_key = canonical_module_key(mod)
+                mod_counts[mod_key] += 1
                 base = str(getattr(tc, "base_url", None) or (tc.get("base_url") if isinstance(tc, dict) else "") or "")
+                tc_rows.append((tid, mod, mod_key, base, tc))
+            label_map = build_module_label_map(raw_modules)
+            for tid, mod, mod_key, base, tc in tc_rows:
                 if base:
-                    routes.append(KnowledgeRoute(url=base, title=mod, source="catalog", last_seen_at=_utc_now_iso()))
+                    routes.append(KnowledgeRoute(
+                        url=base,
+                        title=module_display_label(mod_key, labels_by_key=label_map),
+                        source="catalog",
+                        last_seen_at=_utc_now_iso(),
+                    ))
                 related_tests.append(KnowledgeRelatedTest(
                     test_case_id=tid,
                     name=str(getattr(tc, "name", None) or (tc.get("name") if isinstance(tc, dict) else "") or ""),
@@ -254,8 +273,13 @@ def refresh_project_knowledge(
                     test_type=str(getattr(tc, "test_type", None) or (tc.get("test_type") if isinstance(tc, dict) else "") or "ui"),
                     priority=str(getattr(tc, "priority", None) or (tc.get("priority") if isinstance(tc, dict) else "") or ""),
                 ))
-            for mod, count in mod_counts.items():
-                modules.append(KnowledgeModule(name=mod, test_count=count, source="catalog", last_seen_at=_utc_now_iso()))
+            for mod_key, count in mod_counts.items():
+                modules.append(KnowledgeModule(
+                    name=module_display_label(mod_key, labels_by_key=label_map),
+                    test_count=count,
+                    source="catalog",
+                    last_seen_at=_utc_now_iso(),
+                ))
         except Exception:
             logger.exception("refresh: catalog failed project_id=%s", pid)
 

@@ -123,6 +123,40 @@ def test_compute_project_risk_explanation_and_recommendations():
     assert "TC-14" in rec_ids or "TC-31" in rec_ids
 
 
+def test_compute_project_risk_merges_auth_case_variants():
+    """QA-03A: module_stats AUTH/auth/Auth → single ModuleRisk."""
+    assessment = compute_project_risk(
+        "proj-canonical",
+        pass_rate=80.0,
+        run_fail_rate=0.2,
+        regressions=[
+            {"test_case_id": "TC-1", "module": "AUTH"},
+            {"test_case_id": "TC-2", "module": "auth"},
+        ],
+        flaky_tests=[],
+        failure_history=[
+            {"test_case_id": "TC-3", "module": "Auth", "count": 2, "last_failed_at": _recent_iso()},
+        ],
+        incidents=[],
+        module_stats={
+            "AUTH": {"test_count": 2, "failure_count": 1, "regression_count": 1},
+            "auth": {"test_count": 1, "failure_count": 1},
+            "Auth": {"test_count": 1, "failure_count": 1, "flaky_count": 1},
+        },
+        related_tests=[
+            {"test_case_id": "TC-1", "name": "Login AUTH", "module": "AUTH", "priority": "high", "last_run_status": "fail"},
+            {"test_case_id": "TC-2", "name": "Login auth", "module": "auth", "priority": "medium", "last_run_status": "fail"},
+        ],
+    )
+
+    auth_risks = [m for m in assessment.module_risks if m.module.lower() == "auth"]
+    assert len(auth_risks) == 1
+    assert auth_risks[0].module == "AUTH"
+    assert auth_risks[0].regression_count == 1
+    assert auth_risks[0].flaky_count == 1
+    assert auth_risks[0].test_count == 4
+
+
 def test_apply_risk_to_knowledge_enriches_document():
     knowledge = ProjectKnowledge(
         project_id="test-proj",
