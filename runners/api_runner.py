@@ -932,15 +932,23 @@ def run_api_test(
                                 last_response,
                                 response_duration_ms=last_response_time_ms,
                             )
-                            evidence_obj = build_step_evidence(req_e, resp_e, failure)
+                            evidence_obj = build_step_evidence(
+                                request=req_e, response=resp_e, failure=failure
+                            )
                         elif pending_request_evidence is not None:
                             evidence_obj = build_step_evidence(
-                                pending_request_evidence, None, failure
+                                request=pending_request_evidence,
+                                response=None,
+                                failure=failure,
                             )
                         else:
-                            evidence_obj = build_step_evidence(None, None, failure)
+                            evidence_obj = build_step_evidence(
+                                request=None, response=None, failure=failure
+                            )
                     except Exception:
-                        evidence_obj = build_step_evidence(None, None, failure)
+                        evidence_obj = build_step_evidence(
+                            request=None, response=None, failure=failure
+                        )
 
                     extra_e: Dict[str, Any] = {"step_type": "api", "evidence": evidence_obj}
                     steps_result.append(
@@ -976,14 +984,18 @@ def run_api_test(
                             "message": summary,
                             "assertion": legacy_fail or {},
                         }
-                        ev = build_step_evidence(req_e, resp_e, fail_d)
+                        ev = build_step_evidence(
+                            request=req_e, response=resp_e, failure=fail_d
+                        )
                     except Exception:
                         fail_d = {
                             "type": "assertion_failed",
                             "message": summary,
                             "assertion": legacy_fail or {},
                         }
-                        ev = build_step_evidence(None, None, fail_d)
+                        ev = build_step_evidence(
+                            request=None, response=None, failure=fail_d
+                        )
                     steps_result.append(
                         _step_result(
                             index=len(steps_result),
@@ -1046,7 +1058,9 @@ def run_api_test(
                         "expected": "Successful HTTP status (is_success on httpx.Response)",
                         "actual": last_response.status_code,
                     }
-                    ev = build_step_evidence(req_e, resp_e, fail_d)
+                    ev = build_step_evidence(
+                        request=req_e, response=resp_e, failure=fail_d
+                    )
                     for j in range(len(steps_result) - 1, -1, -1):
                         actj = str(steps_result[j].get("action") or "").lower()
                         if actj in ("request", "api_request"):

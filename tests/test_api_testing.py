@@ -769,6 +769,12 @@ def _mock_response(status_code: int, json_body: Any = None, headers: Dict = None
         resp.json.return_value = json_body
     else:
         resp.json.side_effect = Exception("no json")
+    req = MagicMock()
+    req.method = "GET"
+    req.url = "https://api.example.com/users"
+    req.headers = {"Accept": "application/json"}
+    req.content = b""
+    resp.request = req
     return resp
 
 
@@ -811,6 +817,28 @@ class TestAPIRunner:
         assertions = [{"type": "status_code_equals", "value": "201"}]
         result = self._run(steps, assertions=assertions, status_code=200)
         assert result["ok"] is False
+
+    def test_legacy_assertion_failure_builds_evidence_without_typeerror(self):
+        """Regression: build_step_evidence is keyword-only; failure path must not raise TypeError."""
+        steps = [{"action": "api_request", "method": "GET", "endpoint": "/users"}]
+        assertions = [{"type": "status_code_equals", "value": "201"}]
+        result = self._run(steps, assertions=assertions, status_code=200)
+
+        assert result["ok"] is False
+        blob = json.dumps(result)
+        assert "TypeError" not in blob
+        assert "build_step_evidence" not in blob
+
+        catalog_steps = [
+            s for s in result.get("steps", [])
+            if str(s.get("action") or "") == "catalog_assertions"
+        ]
+        assert len(catalog_steps) == 1
+        evidence = catalog_steps[0].get("evidence") or {}
+        assert isinstance(evidence.get("failure"), dict)
+        assert evidence["failure"].get("type") == "assertion_failed"
+        assert evidence.get("request") is not None
+        assert evidence.get("response") is not None
 
     def test_status_code_in_assertion(self):
         steps = [{"action": "api_request", "method": "POST", "endpoint": "/users"}]

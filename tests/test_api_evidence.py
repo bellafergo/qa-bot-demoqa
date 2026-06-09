@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 
-from runners.api_evidence import redact_plain_text, sanitize_headers, truncate_text
+from runners.api_evidence import build_step_evidence, redact_plain_text, sanitize_headers, truncate_text
 
 
 class TestApiEvidence(unittest.TestCase):
@@ -23,6 +23,17 @@ class TestApiEvidence(unittest.TestCase):
         self.assertTrue(trunc)
         self.assertEqual(sz, 50_000)
         self.assertTrue(out.endswith("[truncated]"))
+
+    def test_build_step_evidence_keyword_only(self):
+        failure = {"type": "assertion_failed", "message": "expected 201"}
+        ev = build_step_evidence(
+            request={"method": "GET", "url": "https://api.example.com/x"},
+            response={"status_code": 200},
+            failure=failure,
+        )
+        self.assertEqual(ev["failure"], failure)
+        self.assertIn("request", ev)
+        self.assertIn("response", ev)
 
 
 if __name__ == "__main__":

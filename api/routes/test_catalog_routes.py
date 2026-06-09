@@ -272,6 +272,11 @@ def update_test_case(test_case_id: str, payload: dict):
         raise HTTPException(status_code=404, detail=f"Test case '{test_case_id}' not found")
     source      = payload.pop("_source",      "manual")
     change_note = payload.pop("_change_note", "")
+    if "name" in payload:
+        raw_name = payload.get("name")
+        if raw_name is None or not str(raw_name).strip():
+            raise HTTPException(status_code=400, detail="name is required")
+        payload["name"] = str(raw_name).strip()
     updated = catalog_service.update_test_case(test_case_id, payload, source=source, change_note=change_note)
     if updated is None:
         raise HTTPException(status_code=404, detail=f"Test case '{test_case_id}' not found")

@@ -407,6 +407,11 @@ export default function CatalogPage() {
   }
 
   async function handleSave(tc_id) {
+    const trimmedName = String(editForm.name || "").trim();
+    if (!trimmedName) {
+      setEditError(t("catalog.from_run.name_required"));
+      return;
+    }
     let steps, assertions;
     try {
       steps      = JSON.parse(editForm.stepsJson);
@@ -419,7 +424,7 @@ export default function CatalogPage() {
     setEditError("");
     try {
       await updateTest(tc_id, {
-        name:         editForm.name,
+        name:         trimmedName,
         module:       editForm.module,
         priority:     editForm.priority,
         steps,
