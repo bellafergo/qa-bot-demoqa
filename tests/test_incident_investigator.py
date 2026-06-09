@@ -1101,3 +1101,100 @@ def test_v13b_no_auto_execution(
     assert body["meta"]["analyze_only"] is True
     for action in body.get("actions_available") or []:
         assert action["requires_user_approval"] is True
+
+
+# ── Hotfix: RelatedPRAnalysisSummary uses pr_number, not pr_id ────────────────
+
+
+def test_build_evidence_strength_uses_pr_number_not_pr_id():
+    """Regression: production crash when open PRs coexist with PR analysis snapshots."""
+    from models.incident_models import RelatedPRAnalysisSummary, RelatedPRSummary
+    from services.incident_analysis_service import build_evidence_strength
+
+    related_prs = [
+        RelatedPRSummary(
+            provider="github",
+            pr_id="42",
+            title="Fix login redirect",
+            branch="fix/login",
+            author="dev1",
+            html_url="https://github.com/org/repo/pull/42",
+            updated_at="2026-06-09T10:00:00Z",
+            match_reason="keyword_match",
+        ),
+    ]
+    related_pr_analysis = [
+        RelatedPRAnalysisSummary(
+            pr_number="99",
+            provider="github",
+            pr_risk_score=55.0,
+            risk_level="MEDIUM",
+            impacted_modules=["auth"],
+            reason="same module affected: auth",
+        ),
+    ]
+
+    strength = build_evidence_strength(
+        related_runs=[],
+        related_evidence=[],
+        related_pr_analysis=related_pr_analysis,
+        browser_events=[],
+        clusters=[],
+        related_prs=related_prs,
+        hints={"login"},
+        hypotheses=[],
+    )
+
+    assert any(item.label == "PR Analysis snapshot" for item in strength.evidence)
+    assert any(item.label == "Open PR (no snapshot)" for item in strength.inference)
+    assert any("42" in item.detail for item in strength.inference)
+
+
+@patch("services.incident_qa_investigator_service.gather_browser_watch_events", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_knowledge_context", return_value=None)
+@patch("services.incident_qa_investigator_service.gather_regressions", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failure_clusters", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failed_runs", return_value=[])
+@patch("services.db.project_repository.project_repo.get_project", return_value=_mock_project())
+def test_investigate_with_pr_analysis_and_open_prs_does_not_crash(
+    _gp, _runs, _clusters, _regs, _know, _bw, client: TestClient,
+):
+    from models.incident_models import RelatedPRAnalysisSummary, RelatedPRSummary
+
+    with patch(
+        "services.incident_qa_investigator_service.gather_related_pr_analysis",
+        return_value=[
+            RelatedPRAnalysisSummary(
+                pr_number="99",
+                provider="github",
+                pr_risk_score=60.0,
+                risk_level="HIGH",
+                impacted_modules=["auth"],
+                reason="same module affected: auth",
+            ),
+        ],
+    ), patch(
+        "services.incident_qa_investigator_service.gather_open_prs",
+        return_value=[
+            RelatedPRSummary(
+                provider="github",
+                pr_id="42",
+                title="Fix login",
+                branch="fix/login",
+                author="dev",
+                html_url="https://github.com/x/y/pull/42",
+                updated_at="2026-06-09T09:00:00Z",
+                match_reason="keyword_match",
+            ),
+        ],
+    ):
+        r = client.post(
+            "/projects/demo/incidents/investigate",
+            json={"description": "Login broken after deploy", "module": "auth"},
+        )
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("evidence_strength")
+    assert body["meta"]["engine_version"] == "incident-v1.3b"
+    assert body["meta"]["analyze_only"] is True

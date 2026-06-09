@@ -117,7 +117,7 @@ def build_evidence_strength(
                 ref="hints:description",
             ))
     for pr in related_prs[:3]:
-        if not any(p.pr_id == pr.pr_id for p in related_pr_analysis):
+        if not any(p.pr_number == pr.pr_id for p in related_pr_analysis):
             inference.append(IncidentEvidenceItem(
                 kind="inference",
                 label="Open PR (no snapshot)",
