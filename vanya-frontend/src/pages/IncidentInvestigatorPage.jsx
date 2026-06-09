@@ -5,7 +5,7 @@
  */
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  investigateIncident,
+  investigateProjectIncident,
   listIncidentRuns,
   getIncidentRun,
   apiErrorMessage,
@@ -40,7 +40,161 @@ function reproducedLabel(rep, t) {
   return t("incident.reproduced.unknown");
 }
 
-function InvestigationResult({ run, t }) {
+function confidencePct(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  return `${Math.round(n * 100)}%`;
+}
+
+function QaInvestigationReport({ report, t }) {
+  if (!report) return null;
+  return (
+    <div className="card" style={{ padding: "20px 24px", marginTop: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
+        <div className="section-title" style={{ margin: 0 }}>{t("incident.qa.title")}</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <span className={severityBadge(report.severity)}>{report.severity}</span>
+          <span className="badge badge-blue">{t("incident.qa.confidence")}: {confidencePct(report.confidence)}</span>
+        </div>
+      </div>
+
+      {report.summary ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 6 }}>{t("incident.qa.summary")}</div>
+          <div style={{ fontSize: 14, color: "var(--text-1)", lineHeight: 1.6 }}>{report.summary}</div>
+        </div>
+      ) : null}
+
+      {report.hypotheses?.length > 0 ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.hypotheses")}</div>
+          <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none" }}>
+            {report.hypotheses.map((h, i) => (
+              <li key={i} style={{ marginBottom: 10, padding: "10px 12px", background: "var(--bg-2)", borderRadius: 8, fontSize: 13, lineHeight: 1.5 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+                  <span className="badge badge-gray">{h.basis === "evidence" ? t("incident.qa.basis.evidence") : t("incident.qa.basis.inference")}</span>
+                  <span className="badge badge-blue">{confidencePct(h.confidence)}</span>
+                </div>
+                {h.statement}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {report.evidence_found?.length > 0 ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.evidence")}</div>
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "var(--text-2)", lineHeight: 1.7 }}>
+            {report.evidence_found.map((e, i) => <li key={i}>{e}</li>)}
+          </ul>
+        </div>
+      ) : null}
+
+      {report.data_gaps?.length > 0 ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.data_gaps")}</div>
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "var(--text-3)", lineHeight: 1.7 }}>
+            {report.data_gaps.map((g, i) => <li key={i}>{g}</li>)}
+          </ul>
+        </div>
+      ) : null}
+
+      {report.related_runs?.length > 0 ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.runs")}</div>
+          <div className="card" style={{ overflow: "hidden", padding: 0 }}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Test</th>
+                  <th>Module</th>
+                  <th>Status</th>
+                  <th>Error</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.related_runs.map((r) => (
+                  <tr key={r.run_id}>
+                    <td style={{ fontSize: 12 }}>{r.test_name || r.test_id}</td>
+                    <td style={{ fontSize: 12 }}>{r.module || "—"}</td>
+                    <td style={{ fontSize: 12 }}>{r.status}</td>
+                    <td style={{ fontSize: 12, maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {r.error_summary || r.rca_summary || "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
+
+      {report.related_evidence?.length > 0 ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.evidence")}</div>
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.7 }}>
+            {report.related_evidence.map((e, i) => (
+              <li key={i}>
+                {e.test_name || e.run_id}
+                {e.evidence_url ? (
+                  <> — <a href={e.evidence_url} target="_blank" rel="noreferrer">{e.evidence_url}</a></>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {report.related_prs?.length > 0 ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.prs")}</div>
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.7 }}>
+            {report.related_prs.map((pr, i) => (
+              <li key={i}>
+                [{pr.provider}] #{pr.pr_id} {pr.title}
+                {pr.html_url ? <> — <a href={pr.html_url} target="_blank" rel="noreferrer">{pr.branch}</a></> : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {report.impacted_modules?.length > 0 ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.modules")}</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {report.impacted_modules.map((m, i) => (
+              <span key={i} className="badge badge-gray">{m}</span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {report.recommended_tests?.length > 0 ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.tests")}</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {report.recommended_tests.map((tid, i) => (
+              <span key={i} className="badge badge-gray" style={{ fontFamily: "monospace", fontSize: 10 }}>{tid}</span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {report.next_steps?.length > 0 ? (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.next_steps")}</div>
+          <ol style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "var(--text-2)", lineHeight: 1.7 }}>
+            {report.next_steps.map((s, i) => <li key={i}>{s}</li>)}
+          </ol>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function InvestigationResult({ run, t, titleKey = "incident.result.title" }) {
   if (!run) return null;
   const screenshot = run.screenshot_url || (run.screenshot_b64 ? `data:image/png;base64,${run.screenshot_b64}` : null);
 
@@ -48,7 +202,7 @@ function InvestigationResult({ run, t }) {
     <div className="card" style={{ padding: "20px 24px", marginTop: 20 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
         <div>
-          <div className="section-title" style={{ margin: 0 }}>{t("incident.result.title")}</div>
+          <div className="section-title" style={{ margin: 0 }}>{t(titleKey)}</div>
           <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 4 }}>
             {fmtTs(run.created_at)} · {run.id?.slice(0, 8)}…
           </div>
@@ -174,8 +328,12 @@ export default function IncidentInvestigatorPage() {
   const [description, setDescription] = useState("");
   const [targetUrl, setTargetUrl] = useState("");
   const [moduleHint, setModuleHint] = useState("");
+  const [severity, setSeverity] = useState("medium");
+  const [timeWindowHours, setTimeWindowHours] = useState(72);
+  const [includeBrowserProbe, setIncludeBrowserProbe] = useState(false);
   const [investigating, setInvestigating] = useState(false);
   const [error, setError] = useState("");
+  const [qaReport, setQaReport] = useState(null);
   const [result, setResult] = useState(null);
 
   const [history, setHistory] = useState([]);
@@ -210,21 +368,29 @@ export default function IncidentInvestigatorPage() {
       setError(t("incident.form.desc_required"));
       return;
     }
+    if (!projectId) {
+      setError(t("incident.form.no_project"));
+      return;
+    }
     setInvestigating(true);
     setError("");
+    setQaReport(null);
     setResult(null);
     try {
       const body = {
-        incident_description: desc,
-        allow_destructive_actions: false,
-        credentials_mode: "none",
+        description: desc,
+        severity,
+        time_window_hours: Number(timeWindowHours) || 72,
+        include_browser_probe: includeBrowserProbe && !!targetUrl.trim(),
       };
       if (targetUrl.trim()) body.target_url = targetUrl.trim();
-      if (projectId) body.project_id = projectId;
       if (moduleHint.trim()) body.module = moduleHint.trim();
-      const run = await investigateIncident(body);
-      setResult(run);
-      await loadHistory();
+      const report = await investigateProjectIncident(projectId, body);
+      setQaReport(report);
+      if (report.browser_investigation) {
+        setResult(report.browser_investigation);
+        await loadHistory();
+      }
     } catch (err) {
       setError(apiErrorMessage(err) || t("incident.form.error"));
     } finally {
@@ -272,7 +438,7 @@ export default function IncidentInvestigatorPage() {
           />
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
           <div>
             <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-2)", marginBottom: 6 }}>
               {t("incident.form.target_url")} ({t("incident.form.optional")})
@@ -302,6 +468,46 @@ export default function IncidentInvestigatorPage() {
           </div>
         </div>
 
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
+          <div>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-2)", marginBottom: 6 }}>
+              {t("incident.form.severity")}
+            </label>
+            <select className="input" value={severity} onChange={(e) => setSeverity(e.target.value)} disabled={investigating} style={{ width: "100%" }}>
+              <option value="low">low</option>
+              <option value="medium">medium</option>
+              <option value="high">high</option>
+              <option value="critical">critical</option>
+            </select>
+          </div>
+          <div>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-2)", marginBottom: 6 }}>
+              {t("incident.form.time_window")}
+            </label>
+            <input
+              className="input"
+              type="number"
+              min={1}
+              max={720}
+              value={timeWindowHours}
+              onChange={(e) => setTimeWindowHours(e.target.value)}
+              disabled={investigating}
+              style={{ width: "100%" }}
+            />
+          </div>
+          <div style={{ display: "flex", alignItems: "flex-end", paddingBottom: 4 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--text-2)", cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={includeBrowserProbe}
+                onChange={(e) => setIncludeBrowserProbe(e.target.checked)}
+                disabled={investigating || !targetUrl.trim()}
+              />
+              {t("incident.form.browser_probe")}
+            </label>
+          </div>
+        </div>
+
         {error ? (
           <div className="alert alert-error" style={{ marginBottom: 12, fontSize: 13 }}>{error}</div>
         ) : null}
@@ -316,11 +522,14 @@ export default function IncidentInvestigatorPage() {
 
       {investigating ? (
         <div style={{ padding: "24px 0", textAlign: "center", color: "var(--text-3)", fontSize: 13 }}>
-          {t("incident.form.investigating_hint")}
+          {includeBrowserProbe && targetUrl.trim()
+            ? t("incident.form.investigating_hint")
+            : t("incident.form.investigating")}
         </div>
       ) : null}
 
-      <InvestigationResult run={result} t={t} />
+      <QaInvestigationReport report={qaReport} t={t} />
+      {result ? <InvestigationResult run={result} t={t} titleKey="incident.qa.browser_title" /> : null}
 
       <div style={{ marginTop: 32 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>

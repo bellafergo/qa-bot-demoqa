@@ -59,3 +59,82 @@ class IncidentInvestigationRun(BaseModel):
 class IncidentInvestigationListResponse(BaseModel):
     items: List[IncidentInvestigationRun] = Field(default_factory=list)
     total: int = 0
+
+
+# ── Project-scoped QA Intelligence investigation (deterministic, no LLM) ───────
+
+IncidentReportSeverity = Literal["low", "medium", "high", "critical"]
+EvidenceKind = Literal["run", "evidence", "failure_cluster", "knowledge", "pr", "browser"]
+
+
+class ProjectInvestigateIncidentRequest(BaseModel):
+    description: str = Field(..., min_length=3, max_length=4000)
+    severity: IncidentReportSeverity = "medium"
+    time_window_hours: int = Field(default=72, ge=1, le=720)
+    target_url: Optional[str] = Field(default=None, max_length=2048)
+    module: Optional[str] = Field(default=None, max_length=256)
+    include_browser_probe: bool = False
+
+    model_config = {"extra": "ignore"}
+
+
+class IncidentHypothesis(BaseModel):
+    statement: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    basis: Literal["evidence", "inference"] = "inference"
+    supporting_refs: List[str] = Field(default_factory=list)
+
+
+class RelatedRunSummary(BaseModel):
+    run_id: str
+    test_id: str = ""
+    test_name: str = ""
+    status: str = ""
+    started_at: Optional[str] = None
+    error_summary: Optional[str] = None
+    rca_summary: Optional[str] = None
+    module: str = ""
+    evidence_url: Optional[str] = None
+
+
+class RelatedEvidenceSummary(BaseModel):
+    run_id: str
+    test_name: str = ""
+    evidence_url: Optional[str] = None
+    report_url: Optional[str] = None
+    screenshot_url: Optional[str] = None
+    status: str = ""
+    started_at: Optional[str] = None
+
+
+class RelatedPRSummary(BaseModel):
+    provider: Literal["github", "azure_devops"] = "github"
+    pr_id: str
+    title: str = ""
+    branch: str = ""
+    author: str = ""
+    html_url: str = ""
+    updated_at: str = ""
+    match_reason: str = ""
+
+
+class ProjectIncidentInvestigationReport(BaseModel):
+    project_id: str
+    description: str
+    severity: IncidentReportSeverity = "medium"
+    time_window_hours: int = 72
+    summary: str = ""
+    hypotheses: List[IncidentHypothesis] = Field(default_factory=list)
+    related_runs: List[RelatedRunSummary] = Field(default_factory=list)
+    related_evidence: List[RelatedEvidenceSummary] = Field(default_factory=list)
+    related_prs: List[RelatedPRSummary] = Field(default_factory=list)
+    impacted_modules: List[str] = Field(default_factory=list)
+    recommended_tests: List[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    next_steps: List[str] = Field(default_factory=list)
+    evidence_found: List[str] = Field(default_factory=list)
+    data_gaps: List[str] = Field(default_factory=list)
+    browser_investigation: Optional[IncidentInvestigationRun] = None
+    meta: Dict[str, Any] = Field(default_factory=dict)
+
+    model_config = {"extra": "ignore"}

@@ -708,6 +708,11 @@ export function getIncidentRun(runId) {
   return apiGet(`/incidents/runs/${encodeURIComponent(runId)}`);
 }
 
+/** POST /projects/{id}/incidents/investigate — QA Intelligence correlation */
+export function investigateProjectIncident(projectId, body) {
+  return apiPost(`/projects/${encodeURIComponent(projectId)}/incidents/investigate`, body);
+}
+
 // ========= Project Knowledge / System Memory (Phase 1) =========
 
 /** GET /projects/{id}/knowledge */

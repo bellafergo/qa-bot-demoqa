@@ -69,9 +69,10 @@ def test_build_diagnosis_console_error():
     assert "console" in symptom.lower()
 
 
+@patch("services.incident_investigator_service.validate_target_url", side_effect=lambda u, **_: u)
 @patch("runners.browser_inspector_runner.run_browser_inspection")
 @patch("services.browser_inspector_service.normalize_raw_runner_output")
-def test_investigate_incident_happy_path(mock_norm, mock_run):
+def test_investigate_incident_happy_path(mock_norm, mock_run, _validate):
     mock_run.return_value = {
         "url": "https://example.com",
         "final_url": "https://example.com/",
@@ -177,3 +178,192 @@ def test_list_and_get_incident_runs(client: TestClient):
 
     missing = client.get("/incidents/runs/does-not-exist")
     assert missing.status_code == 404
+
+
+# ── Project-scoped QA Intelligence investigation ─────────────────────────────
+
+
+def _mock_project():
+    class _P:
+        id = "demo"
+        name = "Demo"
+    return _P()
+
+
+def _canonical_failed_run(**overrides):
+    from models.run_contract import CanonicalRun, RunArtifacts
+
+    base = dict(
+        run_id="run-login-1",
+        test_id="TC-LOGIN-01",
+        test_name="Login with valid credentials",
+        status="failed",
+        started_at="2026-06-05T10:00:00+00:00",
+        error_summary="AssertionError: redirect to dashboard failed",
+        rca_summary="Auth redirect timeout",
+        artifacts=RunArtifacts(evidence_url="https://cdn.example/ev-1"),
+        meta={"module": "auth"},
+    )
+    base.update(overrides)
+    return CanonicalRun(**base)
+
+
+@patch("services.incident_qa_investigator_service.gather_open_prs", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_knowledge_context", return_value=None)
+@patch("services.incident_qa_investigator_service.gather_regressions", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failure_clusters", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failed_runs", return_value=[])
+@patch("services.db.project_repository.project_repo.get_project", return_value=_mock_project())
+def test_project_incident_no_data(
+    _gp, _runs, _clusters, _regs, _know, _prs, client: TestClient,
+):
+    r = client.post(
+        "/projects/demo/incidents/investigate",
+        json={"description": "Something broke after deploy", "time_window_hours": 72},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["project_id"] == "demo"
+    assert body["related_runs"] == []
+    assert body["related_evidence"] == []
+    assert body["related_prs"] == []
+    assert body["data_gaps"]
+    assert body["confidence"] < 0.5
+    hypo_text = " ".join(h["statement"] for h in body["hypotheses"])
+    assert "manual triage" in hypo_text.lower() or "no strong" in hypo_text.lower()
+
+
+@patch("services.incident_qa_investigator_service.gather_open_prs", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_knowledge_context", return_value=None)
+@patch("services.incident_qa_investigator_service.gather_regressions", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failure_clusters", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failed_runs")
+@patch("services.db.project_repository.project_repo.get_project", return_value=_mock_project())
+def test_project_incident_with_failed_run(
+    _gp, mock_runs, _clusters, _regs, _know, _prs, client: TestClient,
+):
+    from models.incident_models import RelatedRunSummary
+
+    mock_runs.return_value = [
+        RelatedRunSummary(
+            run_id="run-login-1",
+            test_id="TC-LOGIN-01",
+            test_name="Login with valid credentials",
+            status="failed",
+            started_at="2026-06-05T10:00:00+00:00",
+            error_summary="AssertionError: redirect failed",
+            rca_summary="Auth redirect timeout",
+            module="auth",
+            evidence_url="https://cdn.example/ev-1",
+        ),
+    ]
+    r = client.post(
+        "/projects/demo/incidents/investigate",
+        json={"description": "El login falla después del deploy", "time_window_hours": 72},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body["related_runs"]) == 1
+    assert body["related_runs"][0]["run_id"] == "run-login-1"
+    assert len(body["related_evidence"]) >= 1
+    assert body["evidence_found"]
+    assert body["confidence"] >= 0.3
+    evidence_hypo = [h for h in body["hypotheses"] if h["basis"] == "evidence"]
+    assert evidence_hypo
+    assert "login" in evidence_hypo[0]["statement"].lower() or "TC-LOGIN" in evidence_hypo[0]["statement"]
+
+
+@patch("services.incident_qa_investigator_service.gather_open_prs", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_knowledge_context")
+@patch("services.incident_qa_investigator_service.gather_regressions", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failure_clusters", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failed_runs", return_value=[])
+@patch("services.db.project_repository.project_repo.get_project", return_value=_mock_project())
+def test_project_incident_knowledge_module_match(
+    _gp, _runs, _clusters, _regs, mock_know, _prs, client: TestClient,
+):
+    from models.project_knowledge_models import ProjectKnowledgeContext
+
+    mock_know.return_value = ProjectKnowledgeContext(
+        project_id="demo",
+        modules=["auth", "dashboard"],
+        hints=["Incident mentions known module 'auth' (12 tests)."],
+        risk_level="HIGH",
+        risk_score=72.0,
+    )
+    r = client.post(
+        "/projects/demo/incidents/investigate",
+        json={"description": "Login page returns 500", "module": "auth"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert "auth" in body["impacted_modules"]
+    assert any("knowledge" in " ".join(h.get("supporting_refs", [])) for h in body["hypotheses"])
+    assert body["evidence_found"]
+
+
+@patch("services.incident_qa_investigator_service.gather_open_prs")
+@patch("services.incident_qa_investigator_service.gather_knowledge_context", return_value=None)
+@patch("services.incident_qa_investigator_service.gather_regressions", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failure_clusters", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failed_runs", return_value=[])
+@patch("services.db.project_repository.project_repo.get_project", return_value=_mock_project())
+def test_project_incident_related_pr(
+    _gp, _runs, _clusters, _regs, _know, mock_prs, client: TestClient,
+):
+    from models.incident_models import RelatedPRSummary
+
+    mock_prs.return_value = [
+        RelatedPRSummary(
+            provider="github",
+            pr_id="42",
+            title="Fix login redirect",
+            branch="fix/login",
+            author="dev1",
+            html_url="https://github.com/org/repo/pull/42",
+            updated_at="2026-06-05T09:00:00Z",
+            match_reason="keyword_match",
+        ),
+    ]
+    r = client.post(
+        "/projects/demo/incidents/investigate",
+        json={"description": "Login broken after merge"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body["related_prs"]) == 1
+    assert body["related_prs"][0]["pr_id"] == "42"
+    pr_hypo = [h for h in body["hypotheses"] if "pr:" in " ".join(h.get("supporting_refs", []))]
+    assert pr_hypo
+    assert pr_hypo[0]["basis"] == "inference"
+
+
+@patch("services.incident_qa_investigator_service.gather_open_prs", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_knowledge_context", return_value=None)
+@patch("services.incident_qa_investigator_service.gather_regressions", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failure_clusters", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failed_runs", return_value=[])
+@patch("services.db.project_repository.project_repo.get_project", return_value=_mock_project())
+def test_project_incident_does_not_invent_evidence(
+    _gp, _runs, _clusters, _regs, _know, _prs, client: TestClient,
+):
+    r = client.post(
+        "/projects/demo/incidents/investigate",
+        json={"description": "Random outage"},
+    )
+    body = r.json()
+    assert body["related_runs"] == []
+    assert body["related_evidence"] == []
+    assert not any("screenshot" in e.lower() for e in body["evidence_found"])
+    for h in body["hypotheses"]:
+        if h["basis"] == "evidence":
+            assert h["supporting_refs"]
+
+
+def test_project_incident_unknown_project(client: TestClient):
+    with patch("services.db.project_repository.project_repo.get_project", return_value=None):
+        r = client.post(
+            "/projects/missing/incidents/investigate",
+            json={"description": "Something broke"},
+        )
+    assert r.status_code == 404
