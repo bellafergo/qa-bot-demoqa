@@ -33,7 +33,16 @@ def analyze_project_pr(project_id: str, req: ProjectPRAnalysisRequest):
     consume Risk Engine ``module_risks`` and ``recommended_tests`` (no risk recalc).
     """
     try:
-        return pr_analysis_service.analyze_for_project(project_id, req)
+        report = pr_analysis_service.analyze_for_project(project_id, req)
+        from services.pr_analysis_report_store import persist_pr_analysis_report
+
+        persist_pr_analysis_report(
+            project_id,
+            report,
+            pr_id=req.pr_id,
+            provider="manual",
+        )
+        return report
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from None
     except Exception as exc:

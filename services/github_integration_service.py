@@ -153,4 +153,12 @@ def analyze_pull_request(project_id: str, number: int) -> GitHubPRAnalyzeRespons
             file_patches=file_patches,
         ),
     )
+    from services.pr_analysis_report_store import persist_pr_analysis_report
+
+    persist_pr_analysis_report(
+        project_id,
+        analysis,
+        pr_id=str(number),
+        provider="github",
+    )
     return GitHubPRAnalyzeResponse(pull_request=pr_files, analysis=analysis)

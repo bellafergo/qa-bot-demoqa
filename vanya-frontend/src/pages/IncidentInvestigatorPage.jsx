@@ -6,6 +6,8 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   investigateProjectIncident,
+  listProjectIncidentHistory,
+  getProjectIncidentReport,
   listIncidentRuns,
   getIncidentRun,
   apiErrorMessage,
@@ -139,6 +141,61 @@ function QaInvestigationReport({ report, t }) {
                 {e.test_name || e.run_id}
                 {e.evidence_url ? (
                   <> — <a href={e.evidence_url} target="_blank" rel="noreferrer">{e.evidence_url}</a></>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {report.confidence_breakdown?.length > 0 ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.confidence_breakdown")}</div>
+          <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none" }}>
+            {report.confidence_breakdown.map((f, i) => (
+              <li key={i} style={{ fontSize: 12, color: "var(--text-2)", marginBottom: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <span className="badge badge-gray" style={{ fontFamily: "monospace", fontSize: 10 }}>{f.label}</span>
+                <span style={{ color: f.delta >= 0 ? "var(--green, #16a34a)" : "var(--red, #dc2626)" }}>
+                  {f.delta >= 0 ? "+" : ""}{Math.round(f.delta * 100)}%
+                </span>
+                <span>{f.reason}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {report.timeline?.length > 0 ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.timeline")}</div>
+          <ol style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "var(--text-2)", lineHeight: 1.7 }}>
+            {report.timeline.map((ev, i) => (
+              <li key={i} style={{ marginBottom: 8 }}>
+                <span style={{ fontSize: 11, color: "var(--text-3)", marginRight: 8 }}>{fmtTs(ev.timestamp)}</span>
+                <strong>{ev.title}</strong>
+                {ev.details ? <span style={{ display: "block", fontSize: 12, color: "var(--text-3)", marginTop: 2 }}>{ev.details}</span> : null}
+              </li>
+            ))}
+          </ol>
+        </div>
+      ) : null}
+
+      {report.related_pr_analysis?.length > 0 ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.pr_analysis")}</div>
+          <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none" }}>
+            {report.related_pr_analysis.map((pr, i) => (
+              <li key={i} style={{ marginBottom: 10, padding: "10px 12px", background: "var(--bg-2)", borderRadius: 8, fontSize: 13 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+                  <span className="badge badge-gray">#{pr.pr_number}</span>
+                  <span className="badge badge-orange">{pr.risk_level}</span>
+                  <span className="badge badge-blue">{Math.round(pr.pr_risk_score)}/100</span>
+                </div>
+                <div>{pr.reason}</div>
+                {pr.impacted_modules?.length > 0 ? (
+                  <div style={{ marginTop: 6, fontSize: 12, color: "var(--text-3)" }}>
+                    Modules: {pr.impacted_modules.join(", ")}
+                  </div>
                 ) : null}
               </li>
             ))}
@@ -340,7 +397,11 @@ export default function IncidentInvestigatorPage() {
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState("");
 
-  const loadHistory = useCallback(async () => {
+  const [qaHistory, setQaHistory] = useState([]);
+  const [qaHistoryLoading, setQaHistoryLoading] = useState(true);
+  const [qaHistoryError, setQaHistoryError] = useState("");
+
+  const loadBrowserHistory = useCallback(async () => {
     setHistoryLoading(true);
     setHistoryError("");
     try {
@@ -357,9 +418,29 @@ export default function IncidentInvestigatorPage() {
     }
   }, [projectId, t]);
 
+  const loadQaHistory = useCallback(async () => {
+    if (!projectId) {
+      setQaHistory([]);
+      setQaHistoryLoading(false);
+      return;
+    }
+    setQaHistoryLoading(true);
+    setQaHistoryError("");
+    try {
+      const data = await listProjectIncidentHistory(projectId, { limit: 30 });
+      setQaHistory(Array.isArray(data?.items) ? data.items : []);
+    } catch (e) {
+      setQaHistory([]);
+      setQaHistoryError(apiErrorMessage(e) || t("incident.qa.history.error"));
+    } finally {
+      setQaHistoryLoading(false);
+    }
+  }, [projectId, t]);
+
   useEffect(() => {
-    loadHistory();
-  }, [loadHistory]);
+    loadBrowserHistory();
+    loadQaHistory();
+  }, [loadBrowserHistory, loadQaHistory]);
 
   const handleInvestigate = async (e) => {
     e.preventDefault();
@@ -387,14 +468,35 @@ export default function IncidentInvestigatorPage() {
       if (moduleHint.trim()) body.module = moduleHint.trim();
       const report = await investigateProjectIncident(projectId, body);
       setQaReport(report);
+      await loadQaHistory();
       if (report.browser_investigation) {
         setResult(report.browser_investigation);
-        await loadHistory();
+        await loadBrowserHistory();
       }
     } catch (err) {
       setError(apiErrorMessage(err) || t("incident.form.error"));
     } finally {
       setInvestigating(false);
+    }
+  };
+
+  const openQaHistoryItem = async (id) => {
+    if (!projectId) return;
+    setError("");
+    try {
+      const report = await getProjectIncidentReport(projectId, id);
+      setQaReport(report);
+      setDescription(report.description || "");
+      setSeverity(report.severity || "medium");
+      setTimeWindowHours(report.time_window_hours || 72);
+      if (report.browser_investigation) {
+        setResult(report.browser_investigation);
+      } else {
+        setResult(null);
+      }
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (e) {
+      setError(apiErrorMessage(e) || t("incident.qa.history.error"));
     }
   };
 
@@ -531,10 +633,53 @@ export default function IncidentInvestigatorPage() {
       <QaInvestigationReport report={qaReport} t={t} />
       {result ? <InvestigationResult run={result} t={t} titleKey="incident.qa.browser_title" /> : null}
 
+      {projectId ? (
+        <div style={{ marginTop: 32 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div className="section-title" style={{ margin: 0 }}>{t("incident.qa.history")}</div>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={loadQaHistory} disabled={qaHistoryLoading}>
+              {t("dash.refresh")}
+            </button>
+          </div>
+          {qaHistoryLoading ? (
+            <div style={{ fontSize: 13, color: "var(--text-3)", padding: "16px 0" }}>{t("incident.qa.history.loading")}</div>
+          ) : qaHistoryError ? (
+            <div className="alert alert-error" style={{ fontSize: 13 }}>{qaHistoryError}</div>
+          ) : qaHistory.length === 0 ? (
+            <div style={{ fontSize: 13, color: "var(--text-3)", padding: "16px 0" }}>{t("incident.qa.history.empty")}</div>
+          ) : (
+            <div className="card" style={{ overflow: "hidden" }}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>{t("incident.history.col.date")}</th>
+                    <th>{t("incident.history.col.description")}</th>
+                    <th>{t("incident.history.col.severity")}</th>
+                    <th>{t("incident.qa.confidence")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {qaHistory.map((h) => (
+                    <tr key={h.id} style={{ cursor: "pointer" }} onClick={() => openQaHistoryItem(h.id)}>
+                      <td style={{ fontSize: 12, whiteSpace: "nowrap" }}>{fmtTs(h.created_at)}</td>
+                      <td style={{ fontSize: 13, maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {h.description}
+                      </td>
+                      <td><span className={severityBadge(h.severity)}>{h.severity}</span></td>
+                      <td style={{ fontSize: 12 }}>{confidencePct(h.confidence)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : null}
+
       <div style={{ marginTop: 32 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <div className="section-title" style={{ margin: 0 }}>{t("incident.history.title")}</div>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={loadHistory} disabled={historyLoading}>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={loadBrowserHistory} disabled={historyLoading}>
             {t("dash.refresh")}
           </button>
         </div>

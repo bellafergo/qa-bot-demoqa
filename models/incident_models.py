@@ -119,6 +119,8 @@ class RelatedPRSummary(BaseModel):
 
 
 class ProjectIncidentInvestigationReport(BaseModel):
+    id: Optional[str] = None
+    created_at: Optional[str] = None
     project_id: str
     description: str
     severity: IncidentReportSeverity = "medium"
@@ -128,9 +130,12 @@ class ProjectIncidentInvestigationReport(BaseModel):
     related_runs: List[RelatedRunSummary] = Field(default_factory=list)
     related_evidence: List[RelatedEvidenceSummary] = Field(default_factory=list)
     related_prs: List[RelatedPRSummary] = Field(default_factory=list)
+    related_pr_analysis: List["RelatedPRAnalysisSummary"] = Field(default_factory=list)
+    timeline: List["IncidentTimelineEvent"] = Field(default_factory=list)
     impacted_modules: List[str] = Field(default_factory=list)
     recommended_tests: List[str] = Field(default_factory=list)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    confidence_breakdown: List["ConfidenceFactor"] = Field(default_factory=list)
     next_steps: List[str] = Field(default_factory=list)
     evidence_found: List[str] = Field(default_factory=list)
     data_gaps: List[str] = Field(default_factory=list)
@@ -138,3 +143,50 @@ class ProjectIncidentInvestigationReport(BaseModel):
     meta: Dict[str, Any] = Field(default_factory=dict)
 
     model_config = {"extra": "ignore"}
+
+
+class RelatedPRAnalysisSummary(BaseModel):
+    pr_number: str
+    provider: str = "manual"
+    pr_risk_score: float = Field(default=0.0, ge=0.0, le=100.0)
+    risk_level: str = "LOW"
+    impacted_modules: List[str] = Field(default_factory=list)
+    recommended_tests: List[str] = Field(default_factory=list)
+    risk_signals: List[str] = Field(default_factory=list)
+    analyzed_at: Optional[str] = None
+    reason: str = ""
+
+
+class IncidentTimelineEvent(BaseModel):
+    timestamp: str
+    event_type: Literal[
+        "run_failed",
+        "pr_analyzed",
+        "browser_watch_alert",
+        "incident_reported",
+        "failure_cluster",
+    ]
+    title: str
+    details: str = ""
+    source: str = ""
+
+
+class ConfidenceFactor(BaseModel):
+    label: str
+    delta: float
+    reason: str
+
+
+class IncidentInvestigationReportRecord(BaseModel):
+    id: str
+    project_id: str
+    description: str
+    severity: IncidentReportSeverity = "medium"
+    summary: str = ""
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    created_at: str
+
+
+class ProjectIncidentInvestigationListResponse(BaseModel):
+    items: List[IncidentInvestigationReportRecord] = Field(default_factory=list)
+    total: int = 0

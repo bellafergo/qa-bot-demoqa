@@ -1,16 +1,21 @@
 # api/routes/incident_project_routes.py
-"""Project-scoped Incident Investigator — QA Intelligence correlation."""
+"""Project-scoped Incident Investigator — QA Intelligence correlation (v1.1)."""
 from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from models.incident_models import (
+    ProjectIncidentInvestigationListResponse,
     ProjectIncidentInvestigationReport,
     ProjectInvestigateIncidentRequest,
 )
-from services.incident_qa_investigator_service import investigate_project_incident
+from services.incident_qa_investigator_service import (
+    get_project_incident_report,
+    investigate_project_incident,
+    list_project_incident_history,
+)
 
 logger = logging.getLogger("vanya.incident_project_routes")
 
@@ -23,11 +28,8 @@ router = APIRouter(prefix="/projects", tags=["incidents"])
 )
 def post_project_investigate_incident(project_id: str, body: ProjectInvestigateIncidentRequest):
     """
-    Correlate a user-reported incident with real QA data for the project:
-    failed runs, evidence, failure intelligence, system memory, and open PRs.
-
-    Deterministic heuristics — does not invent evidence. Optional browser probe
-    when ``include_browser_probe=true`` and ``target_url`` is set.
+    Correlate a user-reported incident with real QA data for the project.
+    Persists the generated report automatically (v1.1).
     """
     try:
         return investigate_project_incident(project_id, body)
@@ -38,3 +40,42 @@ def post_project_investigate_incident(project_id: str, body: ProjectInvestigateI
     except Exception as exc:
         logger.exception("POST /projects/%s/incidents/investigate failed", project_id)
         raise HTTPException(status_code=500, detail=f"Investigation failed: {exc}") from exc
+
+
+@router.get(
+    "/{project_id}/incidents/history",
+    response_model=ProjectIncidentInvestigationListResponse,
+)
+def get_project_incident_history(
+    project_id: str,
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    """List persisted project-scoped incident investigation reports."""
+    try:
+        return list_project_incident_history(project_id, limit=limit)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from None
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+    except Exception as exc:
+        logger.exception("GET /projects/%s/incidents/history failed", project_id)
+        raise HTTPException(status_code=500, detail=f"History failed: {exc}") from exc
+
+
+@router.get(
+    "/{project_id}/incidents/{incident_id}",
+    response_model=ProjectIncidentInvestigationReport,
+)
+def get_project_incident_by_id(project_id: str, incident_id: str):
+    """Retrieve a persisted project-scoped incident investigation report."""
+    try:
+        return get_project_incident_report(project_id, incident_id)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from None
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+    except Exception as exc:
+        logger.exception(
+            "GET /projects/%s/incidents/%s failed", project_id, incident_id,
+        )
+        raise HTTPException(status_code=500, detail=f"Get incident failed: {exc}") from exc

@@ -2,18 +2,21 @@
 """
 Project-scoped Incident Investigator — QA Intelligence correlation (deterministic).
 
-Complements browser-based ``investigate_incident`` with run/evidence/PR/knowledge signals.
-Does not invent evidence; separates findings from hypotheses.
+v1.1: persistence, PR Analysis correlation, timeline, confidence breakdown.
 """
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Set
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from models.incident_models import (
+    ConfidenceFactor,
     IncidentHypothesis,
+    IncidentInvestigationReportRecord,
     IncidentInvestigationRun,
     InvestigateIncidentRequest,
+    ProjectIncidentInvestigationListResponse,
     ProjectIncidentInvestigationReport,
     ProjectInvestigateIncidentRequest,
     RelatedRunSummary,
@@ -26,9 +29,18 @@ from services.incident_qa_context_service import (
     gather_open_prs,
     gather_regressions,
     gather_related_evidence,
+    gather_related_pr_analysis,
+)
+from services.incident_timeline_service import (
+    build_incident_timeline,
+    gather_browser_watch_events,
 )
 
 logger = logging.getLogger("vanya.incident_qa_investigator")
+
+
+def _utc_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _match_runs_by_hints(
@@ -50,6 +62,7 @@ def _impacted_modules(
     clusters: List[Dict[str, Any]],
     knowledge_ctx: Any,
     hints: Set[str],
+    pr_analysis_mods: Optional[List[str]] = None,
 ) -> List[str]:
     mods: List[str] = []
     seen: Set[str] = set()
@@ -63,6 +76,11 @@ def _impacted_modules(
         if m and m.lower() not in seen:
             seen.add(m.lower())
             mods.append(m)
+    for m in (pr_analysis_mods or []):
+        name = str(m or "").strip()
+        if name and name.lower() not in seen:
+            seen.add(name.lower())
+            mods.append(name)
     if knowledge_ctx and getattr(knowledge_ctx, "modules", None):
         for m in knowledge_ctx.modules:
             name = str(m or "").strip()
@@ -80,9 +98,15 @@ def _recommended_tests(
     runs: List[RelatedRunSummary],
     regressions: List[Dict[str, Any]],
     knowledge_ctx: Any,
+    pr_analysis_tests: Optional[List[str]] = None,
 ) -> List[str]:
     rec: List[str] = []
     seen: Set[str] = set()
+    for tid in (pr_analysis_tests or []):
+        t = str(tid or "").strip()
+        if t and t not in seen:
+            seen.add(t)
+            rec.append(t)
     for r in runs:
         tid = (r.test_id or "").strip()
         if tid and tid not in seen:
@@ -111,6 +135,7 @@ def _build_hypotheses(
     regressions: List[Dict[str, Any]],
     knowledge_ctx: Any,
     related_prs: List[Any],
+    related_pr_analysis: List[Any],
 ) -> List[IncidentHypothesis]:
     hypotheses: List[IncidentHypothesis] = []
 
@@ -124,6 +149,17 @@ def _build_hypotheses(
             confidence=0.75 if top.error_summary or top.rca_summary else 0.55,
             basis="evidence",
             supporting_refs=[f"run:{top.run_id}"],
+        ))
+
+    for pra in related_pr_analysis[:2]:
+        hypotheses.append(IncidentHypothesis(
+            statement=(
+                f"Stored PR Analysis for #{pra.pr_number} shows {pra.risk_level} risk "
+                f"({pra.pr_risk_score:.0f}/100) — {pra.reason}."
+            ),
+            confidence=0.72 if pra.reason.startswith("same module") else 0.58,
+            basis="evidence",
+            supporting_refs=[f"pr_analysis:{pra.provider}:{pra.pr_number}"],
         ))
 
     for c in clusters[:3]:
@@ -163,7 +199,7 @@ def _build_hypotheses(
                 supporting_refs=["knowledge:system_memory"],
             ))
 
-    if related_prs:
+    if related_prs and not related_pr_analysis:
         pr = related_prs[0]
         hypotheses.append(IncidentHypothesis(
             statement=(
@@ -193,26 +229,137 @@ def _build_hypotheses(
     return hypotheses[:8]
 
 
-def _compute_confidence(
+def _compute_confidence_v2(
     *,
     related_runs: List[RelatedRunSummary],
     related_evidence: List[Any],
+    related_pr_analysis: List[Any],
+    browser_events: List[Dict[str, Any]],
     hypotheses: List[IncidentHypothesis],
     clusters: List[Dict[str, Any]],
     knowledge_ctx: Any,
-) -> float:
-    score = 0.15
-    if related_runs:
-        score += min(0.25, 0.08 * len(related_runs))
+    data_gaps: List[str],
+    impacted_modules: List[str],
+    module_overlap_with_pr: bool,
+) -> Tuple[float, List[ConfidenceFactor]]:
+    score = 0.10
+    factors: List[ConfidenceFactor] = []
+
     if related_evidence:
-        score += min(0.15, 0.05 * len(related_evidence))
+        delta = min(0.18, 0.05 * len(related_evidence))
+        score += delta
+        factors.append(ConfidenceFactor(
+            label="evidence_records",
+            delta=round(delta, 3),
+            reason=f"{len(related_evidence)} evidence record(s) from failed runs",
+        ))
+
+    if related_runs:
+        delta = min(0.22, 0.07 * len(related_runs))
+        score += delta
+        factors.append(ConfidenceFactor(
+            label="failed_runs",
+            delta=round(delta, 3),
+            reason=f"{len(related_runs)} correlated failed run(s)",
+        ))
+
+    if related_pr_analysis:
+        delta = min(0.16, 0.06 * len(related_pr_analysis))
+        score += delta
+        factors.append(ConfidenceFactor(
+            label="pr_analysis",
+            delta=round(delta, 3),
+            reason=f"{len(related_pr_analysis)} stored PR Analysis report(s) matched",
+        ))
+
+    if module_overlap_with_pr:
+        score += 0.10
+        factors.append(ConfidenceFactor(
+            label="module_overlap",
+            delta=0.10,
+            reason="PR Analysis impacted modules overlap with incident modules",
+        ))
+
+    if browser_events:
+        delta = min(0.12, 0.04 * len(browser_events))
+        score += delta
+        factors.append(ConfidenceFactor(
+            label="browser_watch",
+            delta=round(delta, 3),
+            reason=f"{len(browser_events)} Browser Watch alert(s) in window",
+        ))
+
     if clusters:
-        score += min(0.2, 0.06 * len(clusters))
+        delta = min(0.14, 0.05 * len(clusters))
+        score += delta
+        factors.append(ConfidenceFactor(
+            label="failure_clusters",
+            delta=round(delta, 3),
+            reason=f"{len(clusters)} failure intelligence cluster(s)",
+        ))
+
     if knowledge_ctx and getattr(knowledge_ctx, "hints", None):
-        score += min(0.15, 0.05 * len(knowledge_ctx.hints))
+        delta = min(0.10, 0.04 * len(knowledge_ctx.hints))
+        score += delta
+        factors.append(ConfidenceFactor(
+            label="system_memory",
+            delta=round(delta, 3),
+            reason=f"{len(knowledge_ctx.hints)} System Memory hint(s)",
+        ))
+
     evidence_h = sum(1 for h in hypotheses if h.basis == "evidence")
-    score += min(0.2, 0.05 * evidence_h)
-    return round(min(0.95, score), 2)
+    if evidence_h:
+        delta = min(0.12, 0.04 * evidence_h)
+        score += delta
+        factors.append(ConfidenceFactor(
+            label="evidence_hypotheses",
+            delta=round(delta, 3),
+            reason=f"{evidence_h} hypothesis(es) backed by evidence",
+        ))
+
+    if not related_runs:
+        score -= 0.08
+        factors.append(ConfidenceFactor(
+            label="no_failed_runs",
+            delta=-0.08,
+            reason="No correlated failed runs in time window",
+        ))
+
+    if not related_pr_analysis and not related_runs:
+        score -= 0.05
+        factors.append(ConfidenceFactor(
+            label="no_pr_analysis",
+            delta=-0.05,
+            reason="No stored PR Analysis reports matched",
+        ))
+
+    if not related_evidence:
+        score -= 0.04
+        factors.append(ConfidenceFactor(
+            label="no_evidence",
+            delta=-0.04,
+            reason="No run evidence URLs or error summaries",
+        ))
+
+    gap_penalty = min(0.15, 0.03 * len(data_gaps))
+    if gap_penalty:
+        score -= gap_penalty
+        factors.append(ConfidenceFactor(
+            label="data_gaps",
+            delta=-round(gap_penalty, 3),
+            reason=f"{len(data_gaps)} data gap(s) reported",
+        ))
+
+    if not impacted_modules:
+        score -= 0.03
+        factors.append(ConfidenceFactor(
+            label="no_modules",
+            delta=-0.03,
+            reason="No impacted modules identified",
+        ))
+
+    score = max(0.05, min(0.95, score))
+    return round(score, 2), factors
 
 
 def investigate_project_incident(
@@ -231,6 +378,7 @@ def investigate_project_incident(
     hints = extract_topic_hints(desc, module=req.module)
     data_gaps: List[str] = []
     evidence_found: List[str] = []
+    now = _utc_iso()
 
     failed_runs = gather_failed_runs(pid, time_window_hours=req.time_window_hours)
     if not failed_runs:
@@ -260,8 +408,46 @@ def investigate_project_incident(
     if not related_prs:
         data_gaps.append("No matching open PRs from connected GitHub/Azure DevOps (or SCM not connected).")
 
-    impacted_modules = _impacted_modules(related_runs, clusters, knowledge_ctx, hints)
-    recommended_tests = _recommended_tests(related_runs, regressions, knowledge_ctx)
+    prelim_modules = _impacted_modules(related_runs, clusters, knowledge_ctx, hints)
+    related_pr_analysis = gather_related_pr_analysis(
+        pid,
+        related_prs=related_prs,
+        impacted_modules=prelim_modules,
+        hints=hints,
+        time_window_hours=req.time_window_hours,
+    )
+    if not related_pr_analysis:
+        data_gaps.append(
+            "No stored PR Analysis reports matched — analyze PRs in PR Intelligence first."
+        )
+    else:
+        evidence_found.append(f"{len(related_pr_analysis)} stored PR Analysis report(s)")
+
+    pr_analysis_mods: List[str] = []
+    pr_analysis_tests: List[str] = []
+    for pra in related_pr_analysis:
+        pr_analysis_mods.extend(pra.impacted_modules)
+        pr_analysis_tests.extend(pra.recommended_tests)
+
+    module_overlap_with_pr = bool(
+        prelim_modules
+        and pr_analysis_mods
+        and {m.lower() for m in prelim_modules} & {m.lower() for m in pr_analysis_mods}
+    )
+
+    impacted_modules = _impacted_modules(
+        related_runs, clusters, knowledge_ctx, hints, pr_analysis_mods=pr_analysis_mods,
+    )
+    recommended_tests = _recommended_tests(
+        related_runs, regressions, knowledge_ctx, pr_analysis_tests=pr_analysis_tests,
+    )
+
+    browser_events = gather_browser_watch_events(
+        pid, time_window_hours=req.time_window_hours,
+    )
+    if browser_events:
+        evidence_found.append(f"{len(browser_events)} Browser Watch alert(s)")
+
     hypotheses = _build_hypotheses(
         description=desc,
         hints=hints,
@@ -270,13 +456,19 @@ def investigate_project_incident(
         regressions=regressions,
         knowledge_ctx=knowledge_ctx,
         related_prs=related_prs,
+        related_pr_analysis=related_pr_analysis,
     )
-    confidence = _compute_confidence(
+    confidence, confidence_breakdown = _compute_confidence_v2(
         related_runs=related_runs,
         related_evidence=related_evidence,
+        related_pr_analysis=related_pr_analysis,
+        browser_events=browser_events,
         hypotheses=hypotheses,
         clusters=clusters,
         knowledge_ctx=knowledge_ctx,
+        data_gaps=data_gaps,
+        impacted_modules=impacted_modules,
+        module_overlap_with_pr=module_overlap_with_pr,
     )
 
     summary_parts = [f"Investigated incident for project '{pid}' over {req.time_window_hours}h."]
@@ -284,18 +476,23 @@ def investigate_project_incident(
         summary_parts.append(f"Found {len(related_runs)} correlated failed run(s).")
     else:
         summary_parts.append("No correlated failed runs in the time window.")
+    if related_pr_analysis:
+        top = related_pr_analysis[0]
+        summary_parts.append(
+            f"Matched PR Analysis #{top.pr_number} (risk {top.pr_risk_score:.0f}/100, {top.risk_level})."
+        )
     if impacted_modules:
         summary_parts.append(f"Possibly impacted modules: {', '.join(impacted_modules[:5])}.")
-    if related_prs:
-        summary_parts.append(f"{len(related_prs)} open PR(s) may be relevant.")
 
     next_steps: List[str] = []
     if related_runs:
         next_steps.append("Review correlated failed runs and open evidence URLs for stack traces/screenshots.")
+    if related_pr_analysis:
+        next_steps.append("Review matched PR Analysis reports for risk signals and recommended tests.")
     if recommended_tests:
         next_steps.append(f"Re-run recommended tests: {', '.join(recommended_tests[:5])}.")
-    if related_prs:
-        next_steps.append("Review matched open PRs for recent changes in affected areas.")
+    if related_prs and not related_pr_analysis:
+        next_steps.append("Run PR Analysis on matched open PRs to enrich incident correlation.")
     if not related_runs and not related_prs:
         next_steps.append("Run catalog tests for the affected module or enable Browser Watch on the target URL.")
     if req.include_browser_probe and req.target_url:
@@ -318,7 +515,16 @@ def investigate_project_incident(
             logger.warning("incident_qa: browser probe failed: %s", e)
             data_gaps.append(f"Browser probe failed: {type(e).__name__}")
 
-    return ProjectIncidentInvestigationReport(
+    timeline = build_incident_timeline(
+        time_window_hours=req.time_window_hours,
+        related_runs=related_runs,
+        related_pr_analysis=related_pr_analysis,
+        browser_events=browser_events,
+        incident_reported_at=now,
+        clusters=clusters,
+    )
+
+    report = ProjectIncidentInvestigationReport(
         project_id=pid,
         description=desc,
         severity=req.severity,
@@ -328,9 +534,12 @@ def investigate_project_incident(
         related_runs=related_runs,
         related_evidence=related_evidence,
         related_prs=related_prs,
+        related_pr_analysis=related_pr_analysis,
+        timeline=timeline,
         impacted_modules=impacted_modules,
         recommended_tests=recommended_tests,
         confidence=confidence,
+        confidence_breakdown=confidence_breakdown,
         next_steps=next_steps,
         evidence_found=evidence_found,
         data_gaps=data_gaps,
@@ -340,5 +549,62 @@ def investigate_project_incident(
             "failure_clusters_count": len(clusters),
             "regressions_count": len(regressions),
             "knowledge_risk_level": getattr(knowledge_ctx, "risk_level", None) if knowledge_ctx else None,
+            "browser_watch_alerts": len(browser_events),
+            "engine_version": "incident-v1.1",
         },
     )
+
+    try:
+        from services.db.incident_report_repository import incident_report_repo
+
+        report_id = incident_report_repo.save(
+            project_id=pid,
+            description=desc,
+            severity=req.severity,
+            summary=report.summary,
+            confidence=confidence,
+            report=report.model_dump(),
+        )
+        report.id = report_id
+        report.created_at = now
+    except Exception as e:
+        logger.warning("incident_qa: failed to persist report project_id=%s: %s", pid, e)
+        data_gaps.append("Report could not be persisted — results are ephemeral for this request.")
+        report.data_gaps = data_gaps
+
+    return report
+
+
+def list_project_incident_history(
+    project_id: str,
+    *,
+    limit: int = 50,
+) -> ProjectIncidentInvestigationListResponse:
+    from services.db.incident_report_repository import incident_report_repo
+    from services.db.project_repository import project_repo
+
+    pid = (project_id or "").strip().lower()
+    if not pid:
+        raise ValueError("project_id is required")
+    if project_repo.get_project(pid) is None:
+        raise LookupError(f"project not found: {pid}")
+
+    rows = incident_report_repo.list_reports(project_id=pid, limit=limit)
+    items = [IncidentInvestigationReportRecord.model_validate(r) for r in rows]
+    return ProjectIncidentInvestigationListResponse(items=items, total=len(items))
+
+
+def get_project_incident_report(project_id: str, incident_id: str) -> ProjectIncidentInvestigationReport:
+    from services.db.incident_report_repository import incident_report_repo
+    from services.db.project_repository import project_repo
+
+    pid = (project_id or "").strip().lower()
+    if not pid:
+        raise ValueError("project_id is required")
+    if project_repo.get_project(pid) is None:
+        raise LookupError(f"project not found: {pid}")
+
+    data = incident_report_repo.get_for_project(pid, incident_id)
+    if not data:
+        raise LookupError(f"incident report not found: {incident_id}")
+    return ProjectIncidentInvestigationReport.model_validate(data)

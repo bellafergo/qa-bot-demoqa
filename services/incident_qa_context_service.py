@@ -15,7 +15,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from models.incident_models import RelatedEvidenceSummary, RelatedPRSummary, RelatedRunSummary
+from models.incident_models import RelatedEvidenceSummary, RelatedPRAnalysisSummary, RelatedPRSummary, RelatedRunSummary
 
 logger = logging.getLogger("vanya.incident_qa_context")
 
@@ -223,3 +223,102 @@ def gather_open_prs(project_id: str, *, description: str, limit: int = 15) -> Li
         logger.debug("incident_qa: azure PRs not available project_id=%s", pid)
 
     return out[:10]
+
+
+def gather_related_pr_analysis(
+    project_id: str,
+    *,
+    related_prs: List[RelatedPRSummary],
+    impacted_modules: List[str],
+    hints: Set[str],
+    time_window_hours: int,
+    limit: int = 10,
+) -> List[RelatedPRAnalysisSummary]:
+    """Match stored PR Analysis reports — no re-analysis."""
+    from services.pr_analysis_report_store import list_stored_pr_reports
+
+    pid = (project_id or "").strip().lower()
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=max(1, int(time_window_hours)))
+    stored = list_stored_pr_reports(pid, limit=50)
+    if not stored:
+        return []
+
+    open_pr_keys = {
+        (p.provider, str(p.pr_id))
+        for p in related_prs
+    }
+    impacted_lower = {m.lower() for m in impacted_modules if m}
+
+    out: List[RelatedPRAnalysisSummary] = []
+    seen: Set[str] = set()
+
+    for row in stored:
+        created = row.get("created_at")
+        if created and not _within_window(created, cutoff=cutoff):
+            continue
+
+        pr_id = str(row.get("pr_id") or "")
+        provider = str(row.get("provider") or "manual")
+        report = row.get("report") or {}
+        if not isinstance(report, dict):
+            continue
+
+        report_mods = [
+            str(m.get("module") or m)
+            for m in (report.get("impacted_modules") or [])
+            if isinstance(m, dict) and m.get("module")
+        ]
+        report_mods_lower = {m.lower() for m in report_mods if m}
+
+        reason = ""
+        matched = False
+        if (provider, pr_id) in open_pr_keys:
+            matched = True
+            reason = "matched open PR from SCM"
+        elif impacted_lower and report_mods_lower & impacted_lower:
+            overlap = sorted(report_mods_lower & impacted_lower)
+            matched = True
+            reason = f"same module affected: {', '.join(overlap)}"
+        elif hints and report_mods_lower & hints:
+            matched = True
+            reason = f"module keyword overlap: {', '.join(sorted(report_mods_lower & hints))}"
+        elif hints:
+            summary_blob = str(report.get("summary") or "").lower()
+            if _text_matches_hints(summary_blob, hints):
+                matched = True
+                reason = "keyword match in stored PR analysis summary"
+
+        if not matched:
+            continue
+
+        key = f"{provider}:{pr_id}"
+        if key in seen:
+            continue
+        seen.add(key)
+
+        rec_tests = [
+            str(t.get("test_case_id") or t)
+            for t in (report.get("recommended_tests") or [])
+            if isinstance(t, dict) and t.get("test_case_id")
+        ][:8]
+        signals = [
+            str(s.get("signal") or s.get("label") or "")
+            for s in (report.get("risk_signals") or [])
+            if isinstance(s, dict) and (s.get("signal") or s.get("label"))
+        ][:5]
+
+        out.append(RelatedPRAnalysisSummary(
+            pr_number=pr_id,
+            provider=provider,
+            pr_risk_score=float(report.get("pr_risk_score") or report.get("risk_score") or 0),
+            risk_level=str(report.get("pr_risk_level") or report.get("risk_level") or "LOW"),
+            impacted_modules=report_mods[:8],
+            recommended_tests=rec_tests,
+            risk_signals=signals,
+            analyzed_at=created,
+            reason=reason,
+        ))
+        if len(out) >= limit:
+            break
+
+    return out

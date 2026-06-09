@@ -104,4 +104,12 @@ def analyze_pull_request(project_id: str, pull_request_id: int) -> AzureDevOpsPR
             file_patches=file_patches,
         ),
     )
+    from services.pr_analysis_report_store import persist_pr_analysis_report
+
+    persist_pr_analysis_report(
+        project_id,
+        analysis,
+        pr_id=str(pull_request_id),
+        provider="azure_devops",
+    )
     return AzureDevOpsPRAnalyzeResponse(pull_request=pr_files, analysis=analysis)

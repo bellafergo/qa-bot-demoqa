@@ -713,6 +713,19 @@ export function investigateProjectIncident(projectId, body) {
   return apiPost(`/projects/${encodeURIComponent(projectId)}/incidents/investigate`, body);
 }
 
+/** GET /projects/{id}/incidents/history */
+export function listProjectIncidentHistory(projectId, params = {}) {
+  const q = new URLSearchParams();
+  if (params.limit != null) q.set("limit", String(params.limit));
+  const qs = q.toString();
+  return apiGet(`/projects/${encodeURIComponent(projectId)}/incidents/history${qs ? `?${qs}` : ""}`);
+}
+
+/** GET /projects/{id}/incidents/{incidentId} */
+export function getProjectIncidentReport(projectId, incidentId) {
+  return apiGet(`/projects/${encodeURIComponent(projectId)}/incidents/${encodeURIComponent(incidentId)}`);
+}
+
 // ========= Project Knowledge / System Memory (Phase 1) =========
 
 /** GET /projects/{id}/knowledge */

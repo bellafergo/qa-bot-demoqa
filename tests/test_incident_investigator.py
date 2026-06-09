@@ -208,6 +208,8 @@ def _canonical_failed_run(**overrides):
     return CanonicalRun(**base)
 
 
+@patch("services.incident_qa_investigator_service.gather_browser_watch_events", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_related_pr_analysis", return_value=[])
 @patch("services.incident_qa_investigator_service.gather_open_prs", return_value=[])
 @patch("services.incident_qa_investigator_service.gather_knowledge_context", return_value=None)
 @patch("services.incident_qa_investigator_service.gather_regressions", return_value=[])
@@ -215,7 +217,7 @@ def _canonical_failed_run(**overrides):
 @patch("services.incident_qa_investigator_service.gather_failed_runs", return_value=[])
 @patch("services.db.project_repository.project_repo.get_project", return_value=_mock_project())
 def test_project_incident_no_data(
-    _gp, _runs, _clusters, _regs, _know, _prs, client: TestClient,
+    _gp, _runs, _clusters, _regs, _know, _prs, _pra, _bw, client: TestClient,
 ):
     r = client.post(
         "/projects/demo/incidents/investigate",
@@ -229,10 +231,15 @@ def test_project_incident_no_data(
     assert body["related_prs"] == []
     assert body["data_gaps"]
     assert body["confidence"] < 0.5
+    assert body.get("id")
+    assert body.get("timeline")
+    assert body.get("confidence_breakdown")
     hypo_text = " ".join(h["statement"] for h in body["hypotheses"])
     assert "manual triage" in hypo_text.lower() or "no strong" in hypo_text.lower()
 
 
+@patch("services.incident_qa_investigator_service.gather_browser_watch_events", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_related_pr_analysis", return_value=[])
 @patch("services.incident_qa_investigator_service.gather_open_prs", return_value=[])
 @patch("services.incident_qa_investigator_service.gather_knowledge_context", return_value=None)
 @patch("services.incident_qa_investigator_service.gather_regressions", return_value=[])
@@ -240,7 +247,7 @@ def test_project_incident_no_data(
 @patch("services.incident_qa_investigator_service.gather_failed_runs")
 @patch("services.db.project_repository.project_repo.get_project", return_value=_mock_project())
 def test_project_incident_with_failed_run(
-    _gp, mock_runs, _clusters, _regs, _know, _prs, client: TestClient,
+    _gp, mock_runs, _clusters, _regs, _know, _prs, _pra, _bw, client: TestClient,
 ):
     from models.incident_models import RelatedRunSummary
 
@@ -267,12 +274,16 @@ def test_project_incident_with_failed_run(
     assert body["related_runs"][0]["run_id"] == "run-login-1"
     assert len(body["related_evidence"]) >= 1
     assert body["evidence_found"]
-    assert body["confidence"] >= 0.3
+    labels = {f["label"] for f in body["confidence_breakdown"]}
+    assert "failed_runs" in labels
+    assert body["confidence"] >= 0.12
     evidence_hypo = [h for h in body["hypotheses"] if h["basis"] == "evidence"]
     assert evidence_hypo
     assert "login" in evidence_hypo[0]["statement"].lower() or "TC-LOGIN" in evidence_hypo[0]["statement"]
 
 
+@patch("services.incident_qa_investigator_service.gather_browser_watch_events", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_related_pr_analysis", return_value=[])
 @patch("services.incident_qa_investigator_service.gather_open_prs", return_value=[])
 @patch("services.incident_qa_investigator_service.gather_knowledge_context")
 @patch("services.incident_qa_investigator_service.gather_regressions", return_value=[])
@@ -280,7 +291,7 @@ def test_project_incident_with_failed_run(
 @patch("services.incident_qa_investigator_service.gather_failed_runs", return_value=[])
 @patch("services.db.project_repository.project_repo.get_project", return_value=_mock_project())
 def test_project_incident_knowledge_module_match(
-    _gp, _runs, _clusters, _regs, mock_know, _prs, client: TestClient,
+    _gp, _runs, _clusters, _regs, mock_know, _prs, _pra, _bw, client: TestClient,
 ):
     from models.project_knowledge_models import ProjectKnowledgeContext
 
@@ -302,6 +313,8 @@ def test_project_incident_knowledge_module_match(
     assert body["evidence_found"]
 
 
+@patch("services.incident_qa_investigator_service.gather_browser_watch_events", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_related_pr_analysis", return_value=[])
 @patch("services.incident_qa_investigator_service.gather_open_prs")
 @patch("services.incident_qa_investigator_service.gather_knowledge_context", return_value=None)
 @patch("services.incident_qa_investigator_service.gather_regressions", return_value=[])
@@ -309,7 +322,7 @@ def test_project_incident_knowledge_module_match(
 @patch("services.incident_qa_investigator_service.gather_failed_runs", return_value=[])
 @patch("services.db.project_repository.project_repo.get_project", return_value=_mock_project())
 def test_project_incident_related_pr(
-    _gp, _runs, _clusters, _regs, _know, mock_prs, client: TestClient,
+    _gp, _runs, _clusters, _regs, _know, mock_prs, _pra, _bw, client: TestClient,
 ):
     from models.incident_models import RelatedPRSummary
 
@@ -338,6 +351,8 @@ def test_project_incident_related_pr(
     assert pr_hypo[0]["basis"] == "inference"
 
 
+@patch("services.incident_qa_investigator_service.gather_browser_watch_events", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_related_pr_analysis", return_value=[])
 @patch("services.incident_qa_investigator_service.gather_open_prs", return_value=[])
 @patch("services.incident_qa_investigator_service.gather_knowledge_context", return_value=None)
 @patch("services.incident_qa_investigator_service.gather_regressions", return_value=[])
@@ -345,7 +360,7 @@ def test_project_incident_related_pr(
 @patch("services.incident_qa_investigator_service.gather_failed_runs", return_value=[])
 @patch("services.db.project_repository.project_repo.get_project", return_value=_mock_project())
 def test_project_incident_does_not_invent_evidence(
-    _gp, _runs, _clusters, _regs, _know, _prs, client: TestClient,
+    _gp, _runs, _clusters, _regs, _know, _prs, _pra, _bw, client: TestClient,
 ):
     r = client.post(
         "/projects/demo/incidents/investigate",
@@ -367,3 +382,221 @@ def test_project_incident_unknown_project(client: TestClient):
             json={"description": "Something broke"},
         )
     assert r.status_code == 404
+
+
+# ── v1.1: persistence, PR Analysis correlation, timeline, confidence v2 ─────
+
+
+@patch("services.incident_qa_investigator_service.gather_browser_watch_events", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_open_prs", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_knowledge_context", return_value=None)
+@patch("services.incident_qa_investigator_service.gather_regressions", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failure_clusters", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failed_runs", return_value=[])
+@patch("services.db.project_repository.project_repo.get_project", return_value=_mock_project())
+def test_incident_persistence_and_history(
+    _gp, _runs, _clusters, _regs, _know, _prs, _bw, client: TestClient,
+):
+    from models.incident_models import RelatedPRAnalysisSummary
+
+    with patch(
+        "services.incident_qa_investigator_service.gather_related_pr_analysis",
+        return_value=[
+            RelatedPRAnalysisSummary(
+                pr_number="142",
+                provider="github",
+                pr_risk_score=62.0,
+                risk_level="HIGH",
+                impacted_modules=["auth"],
+                reason="same module affected: auth",
+                analyzed_at="2026-06-05T08:00:00+00:00",
+            ),
+        ],
+    ):
+        created = client.post(
+            "/projects/demo/incidents/investigate",
+            json={"description": "Login fails after deploy", "module": "auth"},
+        )
+    assert created.status_code == 200
+    body = created.json()
+    incident_id = body["id"]
+    assert incident_id
+
+    history = client.get("/projects/demo/incidents/history")
+    assert history.status_code == 200
+    items = history.json()["items"]
+    assert any(x["id"] == incident_id for x in items)
+
+    got = client.get(f"/projects/demo/incidents/{incident_id}")
+    assert got.status_code == 200
+    full = got.json()
+    assert full["id"] == incident_id
+    assert full["related_pr_analysis"]
+    assert full["related_pr_analysis"][0]["pr_number"] == "142"
+
+
+@patch("services.incident_qa_investigator_service.gather_browser_watch_events", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_open_prs", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_knowledge_context", return_value=None)
+@patch("services.incident_qa_investigator_service.gather_regressions", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failure_clusters", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failed_runs")
+@patch("services.db.project_repository.project_repo.get_project", return_value=_mock_project())
+def test_incident_pr_analysis_correlation(
+    _gp, mock_runs, _clusters, _regs, _know, _prs, _bw, client: TestClient,
+):
+    from models.incident_models import RelatedPRAnalysisSummary, RelatedRunSummary
+
+    mock_runs.return_value = [
+        RelatedRunSummary(
+            run_id="run-1",
+            test_id="TC-LOGIN",
+            test_name="Login test",
+            status="failed",
+            started_at="2026-06-05T12:00:00+00:00",
+            module="auth",
+            error_summary="redirect failed",
+        ),
+    ]
+    with patch(
+        "services.incident_qa_investigator_service.gather_related_pr_analysis",
+        return_value=[
+            RelatedPRAnalysisSummary(
+                pr_number="142",
+                provider="github",
+                pr_risk_score=62.0,
+                risk_level="HIGH",
+                impacted_modules=["auth"],
+                recommended_tests=["TC-LOGIN"],
+                reason="same module affected: auth",
+                analyzed_at="2026-06-05T08:00:00+00:00",
+            ),
+        ],
+    ):
+        r = client.post(
+            "/projects/demo/incidents/investigate",
+            json={"description": "Login broken", "module": "auth"},
+        )
+    body = r.json()
+    assert body["related_pr_analysis"][0]["pr_risk_score"] == 62.0
+    assert "auth" in body["related_pr_analysis"][0]["impacted_modules"]
+    pr_hypo = [h for h in body["hypotheses"] if "pr_analysis" in " ".join(h.get("supporting_refs", []))]
+    assert pr_hypo
+    assert pr_hypo[0]["basis"] == "evidence"
+
+
+@patch("services.incident_qa_investigator_service.gather_browser_watch_events", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_related_pr_analysis", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_open_prs", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_knowledge_context", return_value=None)
+@patch("services.incident_qa_investigator_service.gather_regressions", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failure_clusters", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failed_runs")
+@patch("services.db.project_repository.project_repo.get_project", return_value=_mock_project())
+def test_incident_timeline_ordered(
+    _gp, mock_runs, _clusters, _regs, _know, _prs, _pra, _bw, client: TestClient,
+):
+    from models.incident_models import RelatedPRAnalysisSummary, RelatedRunSummary
+
+    mock_runs.return_value = [
+        RelatedRunSummary(
+            run_id="run-1",
+            test_id="TC-1",
+            status="failed",
+            started_at="2026-06-05T12:00:00+00:00",
+            module="auth",
+        ),
+    ]
+    with patch(
+        "services.incident_qa_investigator_service.gather_related_pr_analysis",
+        return_value=[
+            RelatedPRAnalysisSummary(
+                pr_number="142",
+                provider="github",
+                pr_risk_score=62.0,
+                risk_level="HIGH",
+                impacted_modules=["auth"],
+                analyzed_at="2026-06-05T08:00:00+00:00",
+                reason="matched",
+            ),
+        ],
+    ):
+        r = client.post(
+            "/projects/demo/incidents/investigate",
+            json={"description": "Login issue"},
+        )
+    timeline = r.json()["timeline"]
+    assert timeline
+    assert timeline[-1]["event_type"] == "incident_reported"
+    ts = [e["timestamp"] for e in timeline if e["timestamp"]]
+    assert ts == sorted(ts)
+
+
+@patch("services.incident_qa_investigator_service.gather_browser_watch_events", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_open_prs", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_knowledge_context", return_value=None)
+@patch("services.incident_qa_investigator_service.gather_regressions", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failure_clusters", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failed_runs")
+@patch("services.db.project_repository.project_repo.get_project", return_value=_mock_project())
+def test_confidence_increases_with_evidence(
+    _gp, mock_runs, _clusters, _regs, _know, _prs, _bw, client: TestClient,
+):
+    from models.incident_models import RelatedPRAnalysisSummary, RelatedRunSummary
+
+    mock_runs.return_value = [
+        RelatedRunSummary(
+            run_id="run-1",
+            test_id="TC-1",
+            status="failed",
+            started_at="2026-06-05T12:00:00+00:00",
+            module="auth",
+            error_summary="fail",
+            evidence_url="https://cdn.example/ev",
+        ),
+    ]
+    with patch(
+        "services.incident_qa_investigator_service.gather_related_pr_analysis",
+        return_value=[
+            RelatedPRAnalysisSummary(
+                pr_number="142",
+                provider="github",
+                pr_risk_score=62.0,
+                risk_level="HIGH",
+                impacted_modules=["auth"],
+                analyzed_at="2026-06-05T08:00:00+00:00",
+                reason="same module affected: auth",
+            ),
+        ],
+    ):
+        r = client.post(
+            "/projects/demo/incidents/investigate",
+            json={"description": "Login broken"},
+        )
+    body = r.json()
+    assert body["confidence"] >= 0.30
+    labels = {f["label"] for f in body["confidence_breakdown"]}
+    assert "failed_runs" in labels
+    assert "pr_analysis" in labels
+
+
+@patch("services.incident_qa_investigator_service.gather_browser_watch_events", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_related_pr_analysis", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_open_prs", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_knowledge_context", return_value=None)
+@patch("services.incident_qa_investigator_service.gather_regressions", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failure_clusters", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failed_runs", return_value=[])
+@patch("services.db.project_repository.project_repo.get_project", return_value=_mock_project())
+def test_confidence_decreases_with_data_gaps(
+    _gp, _runs, _clusters, _regs, _know, _prs, _pra, _bw, client: TestClient,
+):
+    r = client.post(
+        "/projects/demo/incidents/investigate",
+        json={"description": "Unknown issue"},
+    )
+    body = r.json()
+    assert body["confidence"] < 0.35
+    labels = {f["label"] for f in body["confidence_breakdown"]}
+    assert "data_gaps" in labels
+    assert "no_failed_runs" in labels
