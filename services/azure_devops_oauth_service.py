@@ -19,19 +19,23 @@ def is_azure_devops_oauth_configured() -> bool:
     return bool(
         settings.AZURE_CLIENT_ID
         and settings.AZURE_CLIENT_SECRET
-        and settings.AZURE_TENANT_ID
         and settings.AZURE_REDIRECT_URI
+        and settings.AZURE_AUTHORITY_TENANT
     )
 
 
+def _oauth_authority_segment() -> str:
+    return settings.AZURE_AUTHORITY_TENANT.strip()
+
+
 def _token_url() -> str:
-    tenant = settings.AZURE_TENANT_ID.strip()
-    return f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
+    authority = _oauth_authority_segment()
+    return f"https://login.microsoftonline.com/{authority}/oauth2/v2.0/token"
 
 
 def _authorize_url_base() -> str:
-    tenant = settings.AZURE_TENANT_ID.strip()
-    return f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize"
+    authority = _oauth_authority_segment()
+    return f"https://login.microsoftonline.com/{authority}/oauth2/v2.0/authorize"
 
 
 def build_authorize_url(*, state: str) -> str:

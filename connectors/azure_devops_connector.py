@@ -25,7 +25,7 @@ class AzureDevOpsConnector(BaseConnector):
             return "unconfigured", "Connector is disabled"
         if is_azure_devops_oauth_configured():
             return "ok", "Azure DevOps OAuth configured on server"
-        return "unconfigured", "Set AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID, AZURE_REDIRECT_URI"
+        return "unconfigured", "Set AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_REDIRECT_URI, AZURE_AUTHORITY_TENANT"
 
     def get_status(self, config: ConnectorConfig) -> ConnectorStatus:
         health, msg = self.health_check(config)

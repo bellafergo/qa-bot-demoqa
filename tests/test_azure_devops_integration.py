@@ -183,3 +183,54 @@ def test_build_connection_status_masks_secrets():
     status = build_connection_status("demo", az=_app_azure_settings()["azure_devops"])
     dumped = status.model_dump_json()
     assert "rt_secret" not in dumped
+
+
+class TestAzureOAuthAuthority:
+    def test_default_authority_uses_common(self):
+        from services import azure_devops_oauth_service as oauth
+
+        assert oauth.settings.AZURE_AUTHORITY_TENANT == "common"
+        assert oauth._authorize_url_base() == (
+            "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+        )
+        assert oauth._token_url() == (
+            "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+        )
+
+    @patch("services.azure_devops_oauth_service.settings")
+    def test_authority_organizations(self, mock_settings):
+        from services import azure_devops_oauth_service as oauth
+
+        mock_settings.AZURE_AUTHORITY_TENANT = "organizations"
+        assert oauth._authorize_url_base() == (
+            "https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize"
+        )
+        assert oauth._token_url() == (
+            "https://login.microsoftonline.com/organizations/oauth2/v2.0/token"
+        )
+
+    @patch("services.azure_devops_oauth_service.settings")
+    def test_authority_specific_tenant_id(self, mock_settings):
+        from services import azure_devops_oauth_service as oauth
+
+        tenant = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        mock_settings.AZURE_AUTHORITY_TENANT = tenant
+        assert oauth._authorize_url_base() == (
+            f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize"
+        )
+        assert oauth._token_url() == (
+            f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
+        )
+
+    @patch("services.azure_devops_oauth_service.is_azure_devops_oauth_configured", return_value=True)
+    @patch("services.azure_devops_oauth_service.settings")
+    def test_build_authorize_url_uses_same_authority_as_token(self, mock_settings, _mock_cfg):
+        from services import azure_devops_oauth_service as oauth
+
+        mock_settings.AZURE_AUTHORITY_TENANT = "common"
+        mock_settings.AZURE_CLIENT_ID = "client-id"
+        mock_settings.AZURE_REDIRECT_URI = "https://example.com/callback"
+        url = oauth.build_authorize_url(state="demo")
+
+        assert url.startswith("https://login.microsoftonline.com/common/oauth2/v2.0/authorize?")
+        assert oauth._token_url().startswith("https://login.microsoftonline.com/common/oauth2/v2.0/token")

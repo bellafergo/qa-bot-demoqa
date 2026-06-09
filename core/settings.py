@@ -102,6 +102,8 @@ class Settings:
     AZURE_CLIENT_ID: str = (os.getenv("AZURE_CLIENT_ID") or "").strip()
     AZURE_CLIENT_SECRET: str = (os.getenv("AZURE_CLIENT_SECRET") or "").strip()
     AZURE_TENANT_ID: str = (os.getenv("AZURE_TENANT_ID") or "").strip()
+    # OAuth authority segment: common | organizations | consumers | or a tenant GUID
+    AZURE_AUTHORITY_TENANT: str = (os.getenv("AZURE_AUTHORITY_TENANT") or "common").strip()
     AZURE_REDIRECT_URI: str = (os.getenv("AZURE_REDIRECT_URI") or "").strip().rstrip("/")
     AZURE_DEVOPS_API_BASE: str = (os.getenv("AZURE_DEVOPS_API_BASE") or "https://dev.azure.com").strip().rstrip("/")
     AZURE_OAUTH_SUCCESS_URL: str = (os.getenv("AZURE_OAUTH_SUCCESS_URL") or "").strip().rstrip("/")
@@ -111,8 +113,8 @@ class Settings:
         return bool(
             self.AZURE_CLIENT_ID
             and self.AZURE_CLIENT_SECRET
-            and self.AZURE_TENANT_ID
             and self.AZURE_REDIRECT_URI
+            and self.AZURE_AUTHORITY_TENANT
         )
 
     # ----------------------------
