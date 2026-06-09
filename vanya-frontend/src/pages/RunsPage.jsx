@@ -6,6 +6,10 @@
 import React, { useState, useEffect, useCallback, useRef, Fragment } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
+  runSteps,
+  shouldShowApiHttpEvidence,
+} from "../utils/runEvidenceUtils.js";
+import {
   listTestRuns,
   getTestRun,
   getTest,
@@ -508,7 +512,7 @@ function inferRunType(run) {
   const runner = (run.meta?.runner || "").toLowerCase();
   if (runner === "desktop")                          return "desktop";
   if (runner === "api")                              return "api";
-  const tt = (run.test_type || "").toLowerCase();
+  const tt = (run.test_type || run.meta?.tc_type || "").toLowerCase();
   if (tt === "desktop")                              return "desktop";
   if (tt === "api")                                  return "api";
   const tcId = (run.test_id || run.test_case_id || "").toUpperCase();
@@ -694,6 +698,90 @@ function collectHealingRows(run) {
   }));
 }
 
+/** Shared steps table — used by Evidence Lookup and Run History API evidence. */
+function RunExecutionStepsTable({ steps, healedIndexSet = new Set(), t, inline = false }) {
+  if (!steps?.length) return null;
+  const healed = healedIndexSet instanceof Set ? healedIndexSet : new Set();
+  const table = (
+    <div style={{ overflowX: "auto" }}>
+      <table className="data-table">
+        <thead><tr>
+          <th style={{ width: 44 }}>{t("runs.detail.col.num")}</th>
+          <th>{t("runs.detail.col.action")}</th>
+          <th>{t("runs.detail.col.target_url")}</th>
+          <th>{t("runs.detail.col.status")}</th>
+          <th>{t("runs.detail.col.duration")}</th>
+        </tr></thead>
+        <tbody>
+          {steps.map((step, i) => {
+            const idx0 = typeof step.index === "number" ? step.index : i;
+            const isHealed = healed.has(idx0);
+            return (
+              <Fragment key={`step-row-${i}`}>
+                <tr
+                  style={{
+                    background: isHealed ? "var(--orange-bg)" : undefined,
+                    boxShadow: isHealed ? "inset 3px 0 0 var(--orange-border)" : undefined,
+                  }}
+                >
+                  <td style={{ color: "var(--text-3)", fontWeight: 600 }}>{step.index ?? i + 1}</td>
+                  <td>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <code style={{ fontSize: 12 }}>{step.action || "—"}</code>
+                      {step.evidence && (
+                        <span className="badge badge-gray" style={{ fontSize: 9 }}>
+                          API
+                        </span>
+                      )}
+                      {isHealed && (
+                        <span className="badge badge-orange" style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                          {t("runs.detail.step_healed_badge")}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td style={{ maxWidth: 320, wordBreak: "break-all", fontSize: 12, color: "var(--text-2)" }}>{bestStepTarget(step)}</td>
+                  <td><span style={{ fontSize: 11, fontWeight: 500, color: stepStatusColor(step.status), textTransform: "uppercase", letterSpacing: "0.03em" }}>{step.status || "—"}</span></td>
+                  <td style={{ color: "var(--text-3)", fontSize: 12, whiteSpace: "nowrap" }}>{step.duration_ms ? `${step.duration_ms}ms` : "—"}</td>
+                </tr>
+                {step.evidence && (
+                  <tr className="api-step-evidence-row">
+                    <td colSpan={5} style={{ padding: 0, verticalAlign: "top" }}>
+                      <ApiStepEvidencePanel evidence={step.evidence} t={t} />
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  if (inline) {
+    return (
+      <div style={{ marginTop: 12, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", marginBottom: 10 }}>
+          {t("runs.api_evidence.title")}
+        </div>
+        {table}
+      </div>
+    );
+  }
+
+  return (
+    <div className="card" style={{ marginBottom: 20, padding: 0, overflow: "hidden" }}>
+      <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)" }}>
+        <div className="section-title" style={{ margin: 0 }}>
+          {t("runs.detail.exec_steps")} — {steps.length} {t("runs.detail.total_label")}
+        </div>
+      </div>
+      {table}
+    </div>
+  );
+}
+
 function EvidenceCard({ detail, runType }) {
   const { t } = useLang();
   if (!detail) return null;
@@ -703,8 +791,12 @@ function EvidenceCard({ detail, runType }) {
   const reportUrl    = artifacts.report_url    || detail.report_url;
   const screenshotSrc = getScreenshotSrc(detail);
   const hasLinks     = evidenceUrl || reportUrl;
-  const hasAnything  = screenshotSrc || hasLinks;
-  const isDesktop    = (runType || inferRunType(detail)) === "desktop";
+  const resolvedRunType = runType || inferRunType(detail);
+  const showApiHttpEvidence = shouldShowApiHttpEvidence(detail, resolvedRunType);
+  const hasAssetEvidence = Boolean(screenshotSrc || hasLinks);
+  const hasAnything = hasAssetEvidence || showApiHttpEvidence;
+  const isDesktop    = resolvedRunType === "desktop";
+  const steps = runSteps(detail);
 
   return (
     <div className="card">
@@ -747,6 +839,14 @@ function EvidenceCard({ detail, runType }) {
                 </a>
               )}
             </div>
+          )}
+          {showApiHttpEvidence && (
+            <RunExecutionStepsTable
+              steps={steps}
+              healedIndexSet={new Set(collectHealingRows(detail).map((r) => r.stepIndex).filter((i) => typeof i === "number"))}
+              t={t}
+              inline
+            />
           )}
         </>
       )}
@@ -1095,67 +1195,7 @@ export function EvidenceLookupResultView({ run }) {
           )}
 
           {run.steps?.length > 0 && (
-            <div className="card" style={{ marginBottom: 20, padding: 0, overflow: "hidden" }}>
-              <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)" }}>
-                <div className="section-title" style={{ margin: 0 }}>
-                  {t("runs.detail.exec_steps")} — {totalSteps} {t("runs.detail.total_label")}
-                </div>
-              </div>
-              <div style={{ overflowX: "auto" }}>
-                <table className="data-table">
-                  <thead><tr>
-                    <th style={{ width: 44 }}>{t("runs.detail.col.num")}</th>
-                    <th>{t("runs.detail.col.action")}</th>
-                    <th>{t("runs.detail.col.target_url")}</th>
-                    <th>{t("runs.detail.col.status")}</th>
-                    <th>{t("runs.detail.col.duration")}</th>
-                  </tr></thead>
-                  <tbody>
-                    {run.steps.map((step, i) => {
-                      const idx0 = typeof step.index === "number" ? step.index : i;
-                      const isHealed = healedIndexSet.has(idx0);
-                      return (
-                        <Fragment key={`step-row-${i}`}>
-                          <tr
-                            style={{
-                              background: isHealed ? "var(--orange-bg)" : undefined,
-                              boxShadow: isHealed ? "inset 3px 0 0 var(--orange-border)" : undefined,
-                            }}
-                          >
-                            <td style={{ color: "var(--text-3)", fontWeight: 600 }}>{step.index ?? i + 1}</td>
-                            <td>
-                              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                                <code style={{ fontSize: 12 }}>{step.action || "—"}</code>
-                                {step.evidence && (
-                                  <span className="badge badge-gray" style={{ fontSize: 9 }}>
-                                    API
-                                  </span>
-                                )}
-                                {isHealed && (
-                                  <span className="badge badge-orange" style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                                    {t("runs.detail.step_healed_badge")}
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-                            <td style={{ maxWidth: 320, wordBreak: "break-all", fontSize: 12, color: "var(--text-2)" }}>{bestStepTarget(step)}</td>
-                            <td><span style={{ fontSize: 11, fontWeight: 500, color: stepStatusColor(step.status), textTransform: "uppercase", letterSpacing: "0.03em" }}>{step.status || "—"}</span></td>
-                            <td style={{ color: "var(--text-3)", fontSize: 12, whiteSpace: "nowrap" }}>{step.duration_ms ? `${step.duration_ms}ms` : "—"}</td>
-                          </tr>
-                          {step.evidence && (
-                            <tr className="api-step-evidence-row">
-                              <td colSpan={5} style={{ padding: 0, verticalAlign: "top" }}>
-                                <ApiStepEvidencePanel evidence={step.evidence} t={t} />
-                              </td>
-                            </tr>
-                          )}
-                        </Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <RunExecutionStepsTable steps={run.steps} healedIndexSet={healedIndexSet} t={t} />
           )}
 
           {run.logs?.length > 0 && (
