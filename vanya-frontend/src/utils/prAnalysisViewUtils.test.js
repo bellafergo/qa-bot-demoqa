@@ -6,6 +6,8 @@ import {
   computeV1Confidence,
   buildModifiedFiles,
   collectRiskReasons,
+  collectProjectBaselineReasons,
+  partitionPrReasons,
   buildSuggestedActions,
   buildRecommendedTests,
   parseChangedFilesList,
@@ -130,10 +132,31 @@ describe("resolveProjectRisk", () => {
     expect(r.level).toBe("LOW");
   });
 
-  it("falls back to risk_* when project_risk_* missing", () => {
+  it("does not fall back to deprecated risk_* alias (PR score)", () => {
     const r = resolveProjectRisk({ risk_score: 40, risk_level: "MEDIUM" });
-    expect(r.score).toBe(40);
-    expect(r.level).toBe("MEDIUM");
+    expect(r.score).toBeNull();
+    expect(r.level).toBeNull();
+  });
+});
+
+describe("partitionPrReasons", () => {
+  it("separates project baseline lines from PR reasoning", () => {
+    const { prReasons, projectReasons } = partitionPrReasons([
+      "Overall risk 3/100 (LOW)",
+      "Comment-only change in auth module",
+    ]);
+    expect(projectReasons).toEqual(["Overall risk 3/100 (LOW)"]);
+    expect(prReasons).toEqual(["Comment-only change in auth module"]);
+  });
+
+  it("collectRiskReasons excludes project baseline copy", () => {
+    const lines = collectRiskReasons({
+      v1: {
+        reasoning: ["Overall risk 3/100 (LOW)", "High churn in auth"],
+        impacted_modules: [],
+      },
+    });
+    expect(lines).toEqual(["High churn in auth"]);
   });
 });
 

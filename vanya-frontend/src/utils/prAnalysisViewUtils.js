@@ -54,11 +54,11 @@ export function resolvePrRisk(v1) {
   };
 }
 
-/** Project baseline risk (prefers project_risk_*, falls back to deprecated risk_*). */
+/** Project baseline risk (project_risk_* only — do not fall back to PR risk alias). */
 export function resolveProjectRisk(v1) {
   if (!v1) return { score: null, level: null };
-  const scoreRaw = v1.project_risk_score ?? v1.risk_score;
-  const level = v1.project_risk_level ?? v1.risk_level ?? null;
+  const scoreRaw = v1.project_risk_score;
+  const level = v1.project_risk_level ?? null;
   const score = scoreRaw != null && scoreRaw !== "" ? Number(scoreRaw) : null;
   return {
     score: Number.isFinite(score) ? score : null,
@@ -146,6 +146,23 @@ export function buildModifiedFiles({ v1, ghFiles = [], changedFiles = [] }) {
   });
 }
 
+export function isProjectBaselineReasoningLine(line) {
+  const s = String(line || "").trim();
+  return /^overall risk\b/i.test(s) || /^project baseline risk\b/i.test(s);
+}
+
+/** Split PR reasoning from project baseline copy injected by Risk Engine. */
+export function partitionPrReasons(lines) {
+  const prReasons = [];
+  const projectReasons = [];
+  for (const line of lines || []) {
+    if (!line) continue;
+    if (isProjectBaselineReasoningLine(line)) projectReasons.push(line);
+    else prReasons.push(line);
+  }
+  return { prReasons, projectReasons };
+}
+
 export function collectRiskReasons({ v1, legacy }) {
   if (v1) {
     const lines = [...(v1.reasoning || [])];
@@ -154,9 +171,15 @@ export function collectRiskReasons({ v1, legacy }) {
         if (r && !lines.includes(r)) lines.push(r);
       }
     }
-    return lines.slice(0, 12);
+    return partitionPrReasons(lines).prReasons.slice(0, 12);
   }
   return (legacy?.risk_reasons || []).slice(0, 12);
+}
+
+export function collectProjectBaselineReasons({ v1 }) {
+  if (!v1) return [];
+  const lines = [...(v1.reasoning || [])];
+  return partitionPrReasons(lines).projectReasons.slice(0, 8);
 }
 
 export function buildSuggestedActions({ v1, legacy, modifiedFiles = [], changedFilesList = [] }) {

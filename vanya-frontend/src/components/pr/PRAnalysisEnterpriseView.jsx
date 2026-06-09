@@ -7,6 +7,7 @@ import {
   buildRecommendedTests,
   buildSuggestedActions,
   collectRiskReasons,
+  collectProjectBaselineReasons,
   computeV1Confidence,
   resolvePrRisk,
   resolveProjectRisk,
@@ -241,6 +242,11 @@ export default function PRAnalysisEnterpriseView({
     [v1, legacy],
   );
 
+  const projectBaselineReasons = useMemo(
+    () => (mode === "v1" && v1 ? collectProjectBaselineReasons({ v1 }) : []),
+    [mode, v1],
+  );
+
   const suggestedActions = useMemo(
     () => buildSuggestedActions({ v1, legacy, modifiedFiles, changedFilesList }),
     [v1, legacy, modifiedFiles, changedFilesList],
@@ -294,8 +300,21 @@ export default function PRAnalysisEnterpriseView({
           </div>
           {executive.riskScore != null ? (
             <div>
-              <div style={{ fontSize: 10, color: "var(--text-3)", textTransform: "uppercase" }}>{t("pr.enterprise.risk_score")}</div>
+              <div style={{ fontSize: 10, color: "var(--text-3)", textTransform: "uppercase" }}>{t("pr.enterprise.pr_risk_score")}</div>
               <div style={{ marginTop: 6, fontSize: 16, fontWeight: 700 }}>{Math.round(executive.riskScore)}/100</div>
+              <div style={{ marginTop: 4, fontSize: 10, color: "var(--text-3)", lineHeight: 1.4 }}>{t("pr.enterprise.pr_risk_subtitle")}</div>
+            </div>
+          ) : null}
+          {mode === "v1" && v1 && (projectRisk.level || projectRisk.score != null) ? (
+            <div>
+              <div style={{ fontSize: 10, color: "var(--text-3)", textTransform: "uppercase" }}>{t("pr.enterprise.project_baseline_risk")}</div>
+              <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                {projectRisk.score != null ? (
+                  <span style={{ fontSize: 16, fontWeight: 700 }}>{Math.round(projectRisk.score)}/100</span>
+                ) : null}
+                {projectRisk.level ? <RiskLevelBadge level={projectRisk.level} t={t} /> : null}
+              </div>
+              <div style={{ marginTop: 4, fontSize: 10, color: "var(--text-3)", lineHeight: 1.4 }}>{t("pr.enterprise.project_baseline_subtitle")}</div>
             </div>
           ) : null}
           <div>
@@ -317,17 +336,16 @@ export default function PRAnalysisEnterpriseView({
         {executive.summary ? (
           <p style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.6, marginTop: 14, marginBottom: 0 }}>{executive.summary}</p>
         ) : null}
-
-        {mode === "v1" && v1 && (projectRisk.level || projectRisk.score != null) ? (
-          <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-3)" }}>
-            {t("pr.enterprise.project_risk_note")}{" "}
-            {projectRisk.level ? <RiskLevelBadge level={projectRisk.level} t={t} /> : null}
-            {projectRisk.score != null ? (
-              <span style={{ marginLeft: 6 }}>{Math.round(projectRisk.score)}/100</span>
-            ) : null}
-          </div>
-        ) : null}
       </div>
+
+      {mode === "v1" && v1 && projectBaselineReasons.length > 0 ? (
+        <div className="card" style={{ padding: "16px 22px" }}>
+          <div className="section-title" style={{ marginBottom: 10 }}>{t("pr.enterprise.project_baseline_context")}</div>
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "var(--text-2)", lineHeight: 1.7 }}>
+            {projectBaselineReasons.map((line, i) => <li key={i}>{line}</li>)}
+          </ul>
+        </div>
+      ) : null}
 
       {mode === "v1" && v1 ? (
         <RiskExplainabilityPanel signals={riskSignals} finalScore={prRiskForSignals} t={t} />

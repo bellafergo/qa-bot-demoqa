@@ -92,6 +92,19 @@ function deriveAzureHeaderState(status) {
   return { enabled: true, health: "degraded", labelKey: "integrations.azure.header_connected" };
 }
 
+/** Align KPI counts with SCM card badges (project OAuth), not legacy registry flags. */
+function effectiveConnectorStatus(summary, ghStatus, azStatus) {
+  if (summary.connector_id === "github") {
+    const st = deriveGitHubHeaderState(ghStatus);
+    return { enabled: st.enabled, health: st.health };
+  }
+  if (summary.connector_id === "azure_devops") {
+    const st = deriveAzureHeaderState(azStatus);
+    return { enabled: st.enabled, health: st.health };
+  }
+  return { enabled: Boolean(summary.enabled), health: summary.health || "unknown" };
+}
+
 function StatusPill({ enabled }) {
   const { t } = useLang();
   return (
@@ -1262,9 +1275,12 @@ function ConnectorCard({ summary, onAction }) {
 
 export default function IntegrationsPage() {
   const { t } = useLang();
+  const { currentProject } = useProject();
   const [connectors, setConnectors] = useState([]);
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState(null);
+  const [ghStatus,   setGhStatus]   = useState(null);
+  const [azStatus,   setAzStatus]   = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -1280,12 +1296,40 @@ export default function IntegrationsPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    const pid = currentProject?.id;
+    if (!pid) {
+      setGhStatus(null);
+      setAzStatus(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const [gh, az] = await Promise.all([
+          getProjectGitHubStatus(pid, false).catch(() => null),
+          getProjectAzureDevOpsStatus(pid, false).catch(() => null),
+        ]);
+        if (!cancelled) {
+          setGhStatus(gh);
+          setAzStatus(az);
+        }
+      } catch {
+        if (!cancelled) {
+          setGhStatus(null);
+          setAzStatus(null);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [currentProject?.id]);
+
   const handleAction = useCallback(async (connectorId, type) => {
     if (type === "toggle" || type === "health" || type === "config") await load();
   }, [load]);
 
-  const enabledCount = connectors.filter(c => c.enabled).length;
-  const healthyCount = connectors.filter(c => c.health === "ok").length;
+  const enabledCount = connectors.filter((c) => effectiveConnectorStatus(c, ghStatus, azStatus).enabled).length;
+  const healthyCount = connectors.filter((c) => effectiveConnectorStatus(c, ghStatus, azStatus).health === "ok").length;
 
   const kpiItems = [
     { labelKey: "integrations.kpi.connectors", value: connectors.length },

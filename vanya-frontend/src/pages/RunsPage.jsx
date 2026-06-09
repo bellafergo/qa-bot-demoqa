@@ -1297,6 +1297,7 @@ function RunHistoryTab({ initialRunId }) {
   const [detailLoading, setDetailLoading] = useState(false);
   const autoOpenedRef    = useRef(false);
   const selectedRowRef   = useRef(null);
+  const rcaResultRef     = useRef(null);
 
   // RCA / risk panels
   const [rcaResult, setRcaResult]   = useState(null);
@@ -1398,6 +1399,12 @@ function RunHistoryTab({ initialRunId }) {
       selectedRowRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
   }, [selected, runs]);
+
+  useEffect(() => {
+    if (rcaResult && rcaResultRef.current) {
+      rcaResultRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [rcaResult]);
 
   async function openDetail(lookupId) {
     setSelected(lookupId);
@@ -2007,7 +2014,7 @@ function RunHistoryTab({ initialRunId }) {
 
           {/* RCA result */}
           {rcaResult && (
-            <div className="card">
+            <div className="card" ref={rcaResultRef}>
               <div className="section-title" style={{ marginBottom: 10 }}>{t("runs.rca.title")}</div>
               {rcaResult.error ? (
                 <div className="alert alert-error">{rcaResult.error}</div>
