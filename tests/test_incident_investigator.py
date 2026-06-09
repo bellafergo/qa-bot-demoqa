@@ -884,3 +884,220 @@ def test_v13_no_browser_probe_when_not_requested(
     assert r.status_code == 200
     mock_probe.assert_not_called()
     assert r.json().get("browser_investigation") is None
+
+
+# ── v1.3B: evidence strength, blast radius, temporal correlation, tests v2 ────
+
+
+def test_build_evidence_strength_separates_buckets():
+    from models.incident_models import IncidentHypothesis, RelatedPRAnalysisSummary, RelatedRunSummary
+    from services.incident_analysis_service import build_evidence_strength
+
+    strength = build_evidence_strength(
+        related_runs=[
+            RelatedRunSummary(run_id="r1", test_id="TC-1", status="failed", module="auth"),
+        ],
+        related_evidence=[],
+        related_pr_analysis=[
+            RelatedPRAnalysisSummary(
+                pr_number="10",
+                provider="github",
+                pr_risk_score=70.0,
+                risk_level="HIGH",
+                impacted_modules=["auth"],
+                reason="matched",
+            ),
+        ],
+        browser_events=[{"timestamp": "2026-06-05T13:22:00+00:00", "summary": "Login alert", "watch_id": "w1"}],
+        clusters=[{"cluster_id": "c1", "module": "auth", "total_failures": 3, "root_cause_category": "timeout"}],
+        related_prs=[],
+        hints={"login", "auth"},
+        hypotheses=[
+            IncidentHypothesis(id="H1", statement="Auth issue", confidence=0.4, basis="assumption", supporting_refs=["keyword:auth"]),
+        ],
+    )
+    assert strength.evidence
+    assert any("Failed runs" in e.label for e in strength.evidence)
+    assert any("PR Analysis" in e.label for e in strength.evidence)
+    assert strength.inference
+    assert strength.assumptions
+    assert strength.assumptions[0].kind == "assumption"
+
+
+def test_build_blast_radius_ranks_modules():
+    from models.incident_models import RelatedPRAnalysisSummary, RelatedRunSummary
+    from services.incident_analysis_service import build_blast_radius
+
+    ranked = build_blast_radius(
+        related_runs=[
+            RelatedRunSummary(run_id="r1", test_id="TC-AUTH", module="auth", status="failed"),
+            RelatedRunSummary(run_id="r2", test_id="TC-PROF", module="profile", status="failed"),
+        ],
+        clusters=[{"module": "auth", "total_failures": 4, "cluster_id": "c-auth"}],
+        related_pr_analysis=[
+            RelatedPRAnalysisSummary(
+                pr_number="42",
+                provider="github",
+                pr_risk_score=60.0,
+                risk_level="HIGH",
+                impacted_modules=["auth"],
+                reason="same module",
+            ),
+        ],
+        related_prs=[],
+        primary_module="auth",
+    )
+    assert ranked
+    assert ranked[0].module.lower() == "auth"
+    assert ranked[0].score >= ranked[-1].score
+    assert ranked[0].reason
+
+
+def test_enrich_timeline_temporal_strong_correlation():
+    from models.incident_models import IncidentTimelineEvent
+    from services.incident_analysis_service import enrich_timeline_temporal
+
+    events = [
+        IncidentTimelineEvent(
+            timestamp="2026-06-05T13:00:00+00:00",
+            event_type="pr_analyzed",
+            title="PR #42 analyzed",
+            source="pr_analysis",
+        ),
+        IncidentTimelineEvent(
+            timestamp="2026-06-05T13:12:00+00:00",
+            event_type="browser_watch_alert",
+            title="Browser alert",
+            source="browser_watch",
+        ),
+        IncidentTimelineEvent(
+            timestamp="2026-06-05T13:30:00+00:00",
+            event_type="run_failed",
+            title="Run failed",
+            source="run_history",
+        ),
+        IncidentTimelineEvent(
+            timestamp="2026-06-05T14:00:00+00:00",
+            event_type="incident_reported",
+            title="Incident reported",
+            source="investigator",
+        ),
+    ]
+    enriched, summary = enrich_timeline_temporal(events)
+    assert enriched[1].time_distance_minutes == 12
+    assert enriched[2].time_distance_minutes == 18
+    assert summary.signal in ("strong", "medium")
+    assert summary.event_chain
+
+
+def test_build_recommended_tests_v2_with_reason_and_strength():
+    from models.incident_models import BlastRadiusModule, RelatedRunSummary
+    from services.incident_analysis_service import build_recommended_tests_v2
+
+    recs = build_recommended_tests_v2(
+        related_runs=[
+            RelatedRunSummary(run_id="r1", test_id="AUTH-014", test_name="Login", module="auth", status="failed"),
+        ],
+        regressions=[{"test_case_id": "AUTH-022", "module": "auth", "repeated_failures": 2}],
+        pr_analysis_tests=["PROFILE-001"],
+        primary_module="auth",
+        impacted_modules_ranked=[
+            BlastRadiusModule(module="AUTH", score=88.0, reason="failed runs"),
+            BlastRadiusModule(module="PROFILE", score=42.0, reason="referenced"),
+        ],
+        time_window_hours=168,
+    )
+    by_id = {r.test_case_id: r for r in recs}
+    assert by_id["AUTH-014"].recommendation_strength == "high"
+    assert "primary hypothesis module" in by_id["AUTH-014"].reason.lower()
+    assert by_id["AUTH-022"].recommendation_strength == "high"
+    assert "failed" in by_id["AUTH-022"].reason.lower()
+    assert by_id["PROFILE-001"].recommendation_strength == "medium"
+
+
+@patch("services.incident_qa_investigator_service.gather_browser_watch_events", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_open_prs", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_knowledge_context", return_value=None)
+@patch("services.incident_qa_investigator_service.gather_regressions", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failure_clusters", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failed_runs")
+@patch("services.db.project_repository.project_repo.get_project", return_value=_mock_project())
+def test_v13b_report_includes_analysis_fields(
+    _gp, mock_runs, _clusters, _regs, _know, _prs, _bw, client: TestClient,
+):
+    from models.incident_models import RelatedPRAnalysisSummary, RelatedRunSummary
+
+    mock_runs.return_value = [
+        RelatedRunSummary(
+            run_id="run-1",
+            test_id="AUTH-014",
+            test_name="Login flow",
+            status="failed",
+            started_at="2026-06-05T13:30:00+00:00",
+            module="auth",
+            error_summary="redirect failed",
+        ),
+    ]
+    with patch(
+        "services.incident_qa_investigator_service.gather_related_pr_analysis",
+        return_value=[
+            RelatedPRAnalysisSummary(
+                pr_number="42",
+                provider="github",
+                pr_risk_score=70.0,
+                risk_level="HIGH",
+                impacted_modules=["auth"],
+                recommended_tests=["AUTH-014"],
+                analyzed_at="2026-06-06T13:00:00+00:00",
+                reason="same module affected: auth",
+            ),
+        ],
+    ):
+        r = client.post(
+            "/projects/demo/incidents/investigate",
+            json={"description": "Login broken after deploy", "module": "auth"},
+        )
+    body = r.json()
+    assert body["meta"]["engine_version"] == "incident-v1.3b"
+    assert body["meta"]["analyze_only"] is True
+    assert body.get("evidence_strength")
+    assert body["evidence_strength"]["evidence"]
+    assert body.get("impacted_modules_ranked")
+    assert body["impacted_modules_ranked"][0]["score"] > 0
+    assert body.get("recommended_tests_v2")
+    assert body["recommended_tests_v2"][0].get("reason")
+    assert body["recommended_tests_v2"][0].get("recommendation_strength")
+    assert body.get("temporal_correlation")
+    for ev in body.get("timeline") or []:
+        if ev.get("relative_to_previous"):
+            assert "time_distance_minutes" in ev
+
+
+@patch("services.incident_qa_investigator_service.gather_browser_watch_events", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_related_pr_analysis", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_open_prs", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_knowledge_context", return_value=None)
+@patch("services.incident_qa_investigator_service.gather_regressions", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failure_clusters", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failed_runs", return_value=[])
+@patch("services.db.project_repository.project_repo.get_project", return_value=_mock_project())
+def test_v13b_no_auto_execution(
+    _gp, _runs, _clusters, _regs, _know, _prs, _pra, _bw, client: TestClient,
+):
+    with patch("services.incident_investigator_service.investigate_incident") as mock_probe:
+        with patch("runners.browser_inspector_runner.run_browser_inspection") as mock_browser:
+            r = client.post(
+                "/projects/demo/incidents/investigate",
+                json={
+                    "description": "Auth outage",
+                    "target_url": "https://app.example.com/login",
+                    "include_browser_probe": False,
+                },
+            )
+    assert r.status_code == 200
+    mock_probe.assert_not_called()
+    mock_browser.assert_not_called()
+    body = r.json()
+    assert body["meta"]["analyze_only"] is True
+    for action in body.get("actions_available") or []:
+        assert action["requires_user_approval"] is True

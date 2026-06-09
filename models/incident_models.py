@@ -83,8 +83,45 @@ class IncidentHypothesis(BaseModel):
     rank: int = 0
     statement: str
     confidence: float = Field(ge=0.0, le=1.0)
-    basis: Literal["evidence", "inference"] = "inference"
+    basis: Literal["evidence", "inference", "assumption"] = "inference"
     supporting_refs: List[str] = Field(default_factory=list)
+
+
+class IncidentEvidenceItem(BaseModel):
+    kind: Literal["evidence", "inference", "assumption"]
+    label: str
+    detail: str
+    ref: str = ""
+
+
+class IncidentEvidenceStrength(BaseModel):
+    evidence: List[IncidentEvidenceItem] = Field(default_factory=list)
+    inference: List[IncidentEvidenceItem] = Field(default_factory=list)
+    assumptions: List[IncidentEvidenceItem] = Field(default_factory=list)
+
+
+class BlastRadiusModule(BaseModel):
+    module: str
+    score: float = Field(ge=0.0, le=100.0)
+    reason: str = ""
+
+
+RecommendationStrength = Literal["high", "medium", "low"]
+TemporalCorrelationLevel = Literal["strong", "medium", "weak", "none"]
+
+
+class RecommendedTestRecommendation(BaseModel):
+    test_case_id: str
+    name: str = ""
+    module: str = ""
+    reason: str = ""
+    recommendation_strength: RecommendationStrength = "medium"
+
+
+class TemporalCorrelationSummary(BaseModel):
+    signal: TemporalCorrelationLevel = "none"
+    reason: str = ""
+    event_chain: List[str] = Field(default_factory=list)
 
 
 class IncidentActionAvailable(BaseModel):
@@ -142,8 +179,12 @@ class ProjectIncidentInvestigationReport(BaseModel):
     related_prs: List[RelatedPRSummary] = Field(default_factory=list)
     related_pr_analysis: List["RelatedPRAnalysisSummary"] = Field(default_factory=list)
     timeline: List["IncidentTimelineEvent"] = Field(default_factory=list)
+    temporal_correlation: Optional[TemporalCorrelationSummary] = None
     impacted_modules: List[str] = Field(default_factory=list)
+    impacted_modules_ranked: List[BlastRadiusModule] = Field(default_factory=list)
     recommended_tests: List[str] = Field(default_factory=list)
+    recommended_tests_v2: List[RecommendedTestRecommendation] = Field(default_factory=list)
+    evidence_strength: Optional[IncidentEvidenceStrength] = None
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     confidence_breakdown: List["ConfidenceFactor"] = Field(default_factory=list)
     next_steps: List[str] = Field(default_factory=list)
@@ -180,6 +221,8 @@ class IncidentTimelineEvent(BaseModel):
     title: str
     details: str = ""
     source: str = ""
+    time_distance_minutes: Optional[int] = None
+    relative_to_previous: Optional[str] = None
 
 
 class ConfidenceFactor(BaseModel):

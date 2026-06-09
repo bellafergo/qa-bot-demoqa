@@ -4,6 +4,7 @@ Project-scoped Incident Investigator — QA Intelligence correlation (determinis
 
 v1.1: persistence, PR Analysis correlation, timeline, confidence breakdown.
 v1.3: hypothesis ranking, actions_available (analyze-only), aligned confidence.
+v1.3B: evidence strength, blast radius, temporal correlation, recommended tests v2.
 """
 from __future__ import annotations
 
@@ -216,7 +217,7 @@ def _build_hypotheses(
         hypotheses.append(IncidentHypothesis(
             statement="Incident description suggests an authentication or session flow problem.",
             confidence=0.4,
-            basis="inference",
+            basis="assumption",
             supporting_refs=["keyword:auth"],
         ))
 
@@ -224,7 +225,7 @@ def _build_hypotheses(
         hypotheses.append(IncidentHypothesis(
             statement="No strong correlates found in recent QA data — manual triage recommended.",
             confidence=0.2,
-            basis="inference",
+            basis="assumption",
             supporting_refs=[],
         ))
 
@@ -235,7 +236,7 @@ def _rank_hypotheses(hypotheses: List[IncidentHypothesis]) -> List[IncidentHypot
     """Sort by confidence desc; evidence-backed ties break ahead of inference."""
     ordered = sorted(
         hypotheses,
-        key=lambda h: (-h.confidence, 0 if h.basis == "evidence" else 1),
+        key=lambda h: (-h.confidence, {"evidence": 0, "inference": 1, "assumption": 2}.get(h.basis, 3)),
     )
     ranked: List[IncidentHypothesis] = []
     for i, h in enumerate(ordered, start=1):
@@ -609,15 +610,6 @@ def investigate_project_incident(
         hypotheses, breakdown_score, confidence_breakdown,
     )
 
-    actions_available = _build_actions_available(
-        req=req,
-        related_runs=related_runs,
-        related_prs=related_prs,
-        related_pr_analysis=related_pr_analysis,
-        recommended_tests=recommended_tests,
-        browser_run=browser_run,
-    )
-
     summary_parts = [f"Investigated incident for project '{pid}' over {req.time_window_hours}h."]
     if related_runs:
         summary_parts.append(f"Found {len(related_runs)} correlated failed run(s).")
@@ -657,6 +649,67 @@ def investigate_project_incident(
         clusters=clusters,
     )
 
+    from services.incident_analysis_service import (
+        attach_hypothesis_classifications,
+        build_blast_radius,
+        build_evidence_strength,
+        build_recommended_tests_v2,
+        enrich_timeline_temporal,
+    )
+
+    primary_module = impacted_modules[0] if impacted_modules else (req.module or "")
+    impacted_modules_ranked = build_blast_radius(
+        related_runs=related_runs,
+        clusters=clusters,
+        related_pr_analysis=related_pr_analysis,
+        related_prs=related_prs,
+        primary_module=primary_module,
+        project_id=pid,
+    )
+    if impacted_modules_ranked:
+        impacted_modules = [m.module for m in impacted_modules_ranked]
+
+    recommended_tests_v2 = build_recommended_tests_v2(
+        related_runs=related_runs,
+        regressions=regressions,
+        pr_analysis_tests=pr_analysis_tests,
+        primary_module=primary_module,
+        impacted_modules_ranked=impacted_modules_ranked,
+        time_window_hours=req.time_window_hours,
+    )
+    recommended_tests = [t.test_case_id for t in recommended_tests_v2]
+
+    evidence_strength = build_evidence_strength(
+        related_runs=related_runs,
+        related_evidence=related_evidence,
+        related_pr_analysis=related_pr_analysis,
+        browser_events=browser_events,
+        clusters=clusters,
+        related_prs=related_prs,
+        hints=hints,
+        hypotheses=hypotheses,
+    )
+    hypotheses = attach_hypothesis_classifications(hypotheses, evidence_strength)
+
+    timeline, temporal_correlation = enrich_timeline_temporal(timeline)
+
+    actions_available = _build_actions_available(
+        req=req,
+        related_runs=related_runs,
+        related_prs=related_prs,
+        related_pr_analysis=related_pr_analysis,
+        recommended_tests=recommended_tests,
+        browser_run=browser_run,
+    )
+
+    if temporal_correlation.signal in ("strong", "medium"):
+        summary_parts.append(f"Temporal correlation: {temporal_correlation.signal} — {temporal_correlation.reason}.")
+    if impacted_modules_ranked:
+        top_blast = impacted_modules_ranked[0]
+        summary_parts.append(
+            f"Top blast-radius module: {top_blast.module} ({top_blast.score:.0f}/100)."
+        )
+
     report = ProjectIncidentInvestigationReport(
         project_id=pid,
         description=desc,
@@ -670,8 +723,12 @@ def investigate_project_incident(
         related_prs=related_prs,
         related_pr_analysis=related_pr_analysis,
         timeline=timeline,
+        temporal_correlation=temporal_correlation,
         impacted_modules=impacted_modules,
+        impacted_modules_ranked=impacted_modules_ranked,
         recommended_tests=recommended_tests,
+        recommended_tests_v2=recommended_tests_v2,
+        evidence_strength=evidence_strength,
         confidence=confidence,
         confidence_breakdown=confidence_breakdown,
         next_steps=next_steps,
@@ -685,7 +742,7 @@ def investigate_project_incident(
             "regressions_count": len(regressions),
             "knowledge_risk_level": getattr(knowledge_ctx, "risk_level", None) if knowledge_ctx else None,
             "browser_watch_alerts": len(browser_events),
-            "engine_version": "incident-v1.3",
+            "engine_version": "incident-v1.3b",
             "analyze_only": True,
         },
     )

@@ -48,10 +48,31 @@ function confidencePct(v) {
   return `${Math.round(n * 100)}%`;
 }
 
+function hypothesisBasisLabel(basis, t) {
+  if (basis === "evidence") return t("incident.qa.basis.evidence");
+  if (basis === "assumption") return t("incident.qa.basis.assumption");
+  return t("incident.qa.basis.inference");
+}
+
+function strengthBadge(strength) {
+  const v = String(strength || "medium").toLowerCase();
+  if (v === "high") return "badge badge-red";
+  if (v === "low") return "badge badge-gray";
+  return "badge badge-orange";
+}
+
 function QaInvestigationReport({ report, t }) {
   if (!report) return null;
+  const es = report.evidence_strength;
+  const temporal = report.temporal_correlation;
   return (
     <div className="card" style={{ padding: "20px 24px", marginTop: 20 }}>
+      {report.meta?.analyze_only ? (
+        <div className="alert alert-info" style={{ marginBottom: 16, fontSize: 13, lineHeight: 1.5 }}>
+          <strong>{t("incident.qa.analyze_only_banner")}</strong>
+          {" "}{t("incident.qa.approval_notice")}
+        </div>
+      ) : null}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
         <div className="section-title" style={{ margin: 0 }}>{t("incident.qa.title")}</div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -78,13 +99,55 @@ function QaInvestigationReport({ report, t }) {
                     <span className="badge badge-orange">{t("incident.qa.primary_hypothesis")}</span>
                   ) : null}
                   {h.rank ? <span className="badge badge-gray">#{h.rank}</span> : null}
-                  <span className="badge badge-gray">{h.basis === "evidence" ? t("incident.qa.basis.evidence") : t("incident.qa.basis.inference")}</span>
+                  <span className="badge badge-gray">{hypothesisBasisLabel(h.basis, t)}</span>
                   <span className="badge badge-blue">{confidencePct(h.confidence)}</span>
                 </div>
                 {h.statement}
               </li>
             ))}
           </ul>
+        </div>
+      ) : null}
+
+      {es && (es.evidence?.length > 0 || es.inference?.length > 0 || es.assumptions?.length > 0) ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.evidence_strength")}</div>
+          {es.evidence?.length > 0 ? (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("incident.qa.evidence_bucket")}</div>
+              <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none" }}>
+                {es.evidence.map((item, i) => (
+                  <li key={`ev-${i}`} style={{ marginBottom: 6, fontSize: 13, lineHeight: 1.5, padding: "8px 10px", background: "var(--bg-2)", borderRadius: 6 }}>
+                    <strong>{item.label}</strong>: {item.detail}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {es.inference?.length > 0 ? (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("incident.qa.inference_bucket")}</div>
+              <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none" }}>
+                {es.inference.map((item, i) => (
+                  <li key={`inf-${i}`} style={{ marginBottom: 6, fontSize: 13, lineHeight: 1.5, padding: "8px 10px", background: "var(--bg-2)", borderRadius: 6 }}>
+                    <strong>{item.label}</strong>: {item.detail}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {es.assumptions?.length > 0 ? (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("incident.qa.assumptions_bucket")}</div>
+              <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none" }}>
+                {es.assumptions.map((item, i) => (
+                  <li key={`as-${i}`} style={{ marginBottom: 6, fontSize: 13, lineHeight: 1.5, padding: "8px 10px", background: "var(--bg-2)", borderRadius: 6 }}>
+                    <strong>{item.label}</strong>: {item.detail}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -194,11 +257,29 @@ function QaInvestigationReport({ report, t }) {
 
       {report.timeline?.length > 0 ? (
         <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.timeline")}</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)" }}>{t("incident.qa.timeline")}</div>
+            {temporal?.signal && temporal.signal !== "none" ? (
+              <span className="badge badge-blue">{t("incident.qa.temporal_signal")}: {temporal.signal}</span>
+            ) : null}
+          </div>
+          {temporal?.reason ? (
+            <p style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 8, lineHeight: 1.5 }}>{temporal.reason}</p>
+          ) : null}
+          {temporal?.event_chain?.length > 0 ? (
+            <div style={{ fontSize: 12, color: "var(--text-2)", marginBottom: 10, fontFamily: "monospace", lineHeight: 1.6 }}>
+              {temporal.event_chain.join(" → ")}
+            </div>
+          ) : null}
           <ol style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "var(--text-2)", lineHeight: 1.7 }}>
             {report.timeline.map((ev, i) => (
               <li key={i} style={{ marginBottom: 8 }}>
                 <span style={{ fontSize: 11, color: "var(--text-3)", marginRight: 8 }}>{fmtTs(ev.timestamp)}</span>
+                {ev.time_distance_minutes != null && ev.relative_to_previous ? (
+                  <span style={{ fontSize: 11, color: "var(--text-3)", marginRight: 8 }}>
+                    (+{ev.time_distance_minutes} min after {ev.relative_to_previous})
+                  </span>
+                ) : null}
                 <strong>{ev.title}</strong>
                 {ev.details ? <span style={{ display: "block", fontSize: 12, color: "var(--text-3)", marginTop: 2 }}>{ev.details}</span> : null}
               </li>
@@ -244,7 +325,31 @@ function QaInvestigationReport({ report, t }) {
         </div>
       ) : null}
 
-      {report.impacted_modules?.length > 0 ? (
+      {report.impacted_modules_ranked?.length > 0 ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.blast_radius")}</div>
+          <div className="card" style={{ overflow: "hidden", padding: 0 }}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>{t("incident.qa.blast_module")}</th>
+                  <th>{t("incident.qa.blast_score")}</th>
+                  <th>{t("incident.qa.blast_reason")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.impacted_modules_ranked.map((m, i) => (
+                  <tr key={i}>
+                    <td style={{ fontSize: 12 }}>{m.module}</td>
+                    <td style={{ fontSize: 12 }}>{Math.round(m.score)}/100</td>
+                    <td style={{ fontSize: 12 }}>{m.reason}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : report.impacted_modules?.length > 0 ? (
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.modules")}</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -255,7 +360,31 @@ function QaInvestigationReport({ report, t }) {
         </div>
       ) : null}
 
-      {report.recommended_tests?.length > 0 ? (
+      {report.recommended_tests_v2?.length > 0 ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.tests")}</div>
+          <div className="card" style={{ overflow: "hidden", padding: 0 }}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>{t("incident.qa.test_id")}</th>
+                  <th>{t("incident.qa.test_strength")}</th>
+                  <th>{t("incident.qa.test_reason")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.recommended_tests_v2.map((rec, i) => (
+                  <tr key={i}>
+                    <td style={{ fontSize: 12, fontFamily: "monospace" }}>{rec.test_case_id}</td>
+                    <td><span className={strengthBadge(rec.recommendation_strength)}>{rec.recommendation_strength}</span></td>
+                    <td style={{ fontSize: 12 }}>{rec.reason}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : report.recommended_tests?.length > 0 ? (
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.tests")}</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
