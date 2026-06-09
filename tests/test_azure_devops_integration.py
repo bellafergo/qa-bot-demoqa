@@ -237,19 +237,23 @@ class TestAzureOAuthAuthority:
 
 
 class TestAzureOAuthScope:
-    EXPECTED_SCOPE = "499b84ac-1321-427f-aa17-267ca73bcf11/user_impersonation offline_access"
+    EXPECTED_SCOPE = "vso.profile vso.project vso.code offline_access"
 
-    def test_delegated_scope_uses_user_impersonation_not_default(self):
+    def test_delegated_scope_uses_vso_scopes(self):
         from services import azure_devops_oauth_service as oauth
 
         assert oauth.AZURE_DEVOPS_RESOURCE_SCOPE == self.EXPECTED_SCOPE
-        assert "user_impersonation" in oauth.AZURE_DEVOPS_RESOURCE_SCOPE
+        assert "vso.profile" in oauth.AZURE_DEVOPS_RESOURCE_SCOPE
+        assert "vso.project" in oauth.AZURE_DEVOPS_RESOURCE_SCOPE
+        assert "vso.code" in oauth.AZURE_DEVOPS_RESOURCE_SCOPE
         assert "offline_access" in oauth.AZURE_DEVOPS_RESOURCE_SCOPE
         assert ".default" not in oauth.AZURE_DEVOPS_RESOURCE_SCOPE
+        assert "user_impersonation" not in oauth.AZURE_DEVOPS_RESOURCE_SCOPE
+        assert "499b84ac-1321-427f-aa17-267ca73bcf11" not in oauth.AZURE_DEVOPS_RESOURCE_SCOPE
 
     @patch("services.azure_devops_oauth_service.is_azure_devops_oauth_configured", return_value=True)
     @patch("services.azure_devops_oauth_service.settings")
-    def test_build_authorize_url_includes_delegated_scope(self, mock_settings, _mock_cfg):
+    def test_build_authorize_url_includes_vso_scopes(self, mock_settings, _mock_cfg):
         from urllib.parse import parse_qs, urlparse
 
         from services import azure_devops_oauth_service as oauth
@@ -260,13 +264,20 @@ class TestAzureOAuthScope:
         url = oauth.build_authorize_url(state="demo")
 
         qs = parse_qs(urlparse(url).query)
-        assert qs["scope"] == [self.EXPECTED_SCOPE]
+        scope = qs["scope"][0]
+        assert scope == self.EXPECTED_SCOPE
+        assert "vso.profile" in scope
+        assert "vso.project" in scope
+        assert "vso.code" in scope
+        assert "offline_access" in scope
+        assert ".default" not in scope
+        assert "user_impersonation" not in scope
         assert url.startswith("https://login.microsoftonline.com/common/oauth2/v2.0/authorize?")
 
     @patch("services.azure_devops_oauth_service.is_azure_devops_oauth_configured", return_value=True)
     @patch("services.azure_devops_oauth_service.settings")
     @patch("services.azure_devops_oauth_service.httpx.Client")
-    def test_exchange_code_for_tokens_sends_delegated_scope(
+    def test_exchange_code_for_tokens_sends_vso_scopes(
         self, mock_client_cls, mock_settings, _mock_cfg
     ):
         from services import azure_devops_oauth_service as oauth
@@ -285,12 +296,14 @@ class TestAzureOAuthScope:
 
         payload = mock_client_cls.return_value.__enter__.return_value.post.call_args.kwargs["data"]
         assert payload["scope"] == self.EXPECTED_SCOPE
+        assert "vso.code" in payload["scope"]
         assert ".default" not in payload["scope"]
+        assert "user_impersonation" not in payload["scope"]
 
     @patch("services.azure_devops_oauth_service.is_azure_devops_oauth_configured", return_value=True)
     @patch("services.azure_devops_oauth_service.settings")
     @patch("services.azure_devops_oauth_service.httpx.Client")
-    def test_refresh_access_token_sends_delegated_scope(
+    def test_refresh_access_token_sends_vso_scopes(
         self, mock_client_cls, mock_settings, _mock_cfg
     ):
         from services import azure_devops_oauth_service as oauth
@@ -310,3 +323,4 @@ class TestAzureOAuthScope:
         payload = mock_client_cls.return_value.__enter__.return_value.post.call_args.kwargs["data"]
         assert payload["scope"] == self.EXPECTED_SCOPE
         assert "offline_access" in payload["scope"]
+        assert "user_impersonation" not in payload["scope"]
