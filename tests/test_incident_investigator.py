@@ -1058,7 +1058,7 @@ def test_v13b_report_includes_analysis_fields(
             json={"description": "Login broken after deploy", "module": "auth"},
         )
     body = r.json()
-    assert body["meta"]["engine_version"] == "incident-v1.3b"
+    assert body["meta"]["engine_version"] == "incident-v1.4a"
     assert body["meta"]["analyze_only"] is True
     assert body.get("evidence_strength")
     assert body["evidence_strength"]["evidence"]
@@ -1196,5 +1196,5 @@ def test_investigate_with_pr_analysis_and_open_prs_does_not_crash(
     assert r.status_code == 200
     body = r.json()
     assert body.get("evidence_strength")
-    assert body["meta"]["engine_version"] == "incident-v1.3b"
+    assert body["meta"]["engine_version"] == "incident-v1.4a"
     assert body["meta"]["analyze_only"] is True

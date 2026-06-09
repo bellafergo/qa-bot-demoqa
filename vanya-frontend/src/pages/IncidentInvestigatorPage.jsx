@@ -174,6 +174,45 @@ function QaInvestigationReport({ report, t }) {
         </div>
       ) : null}
 
+      {report.evidence_correlation != null ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.evidence_correlation")}</div>
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 12, color: "var(--text-3)", marginBottom: 10 }}>
+            <span><strong>{t("incident.qa.correlation_total")}:</strong> {report.evidence_correlation.total_correlations ?? 0}</span>
+            {report.evidence_correlation.strongest_source ? (
+              <span><strong>{t("incident.qa.correlation_strongest")}:</strong> {report.evidence_correlation.strongest_source}</span>
+            ) : null}
+          </div>
+          {(report.evidence_correlation.evidence?.length ?? 0) > 0 ? (
+            <div className="card" style={{ overflow: "hidden", padding: 0 }}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>{t("incident.qa.correlation_source")}</th>
+                    <th>{t("incident.qa.correlation_confidence")}</th>
+                    <th>{t("incident.qa.correlation_evidence")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.evidence_correlation.evidence.map((item, i) => (
+                    <tr key={i}>
+                      <td style={{ fontSize: 12 }}>{item.source}</td>
+                      <td style={{ fontSize: 12 }}>{confidencePct(item.confidence)}</td>
+                      <td style={{ fontSize: 12 }}>
+                        <strong>{item.title}</strong>
+                        <span style={{ display: "block", color: "var(--text-3)", marginTop: 2 }}>{item.detail}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            emptyStateText(t("incident.qa.evidence_correlation_empty"))
+          )}
+        </div>
+      ) : null}
+
       {report.actions_available?.length > 0 ? (
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 6 }}>{t("incident.qa.actions_available")}</div>

@@ -694,6 +694,21 @@ def investigate_project_incident(
 
     timeline, temporal_correlation = enrich_timeline_temporal(timeline)
 
+    from services.incident_evidence_correlation_service import build_evidence_correlation
+
+    knowledge_hints = list(getattr(knowledge_ctx, "hints", None) or []) if knowledge_ctx else []
+    evidence_correlation = build_evidence_correlation(
+        related_runs=related_runs,
+        browser_events=browser_events,
+        browser_investigation=browser_run,
+        clusters=clusters,
+        related_pr_analysis=related_pr_analysis,
+        impacted_modules=impacted_modules,
+        hints=hints,
+        knowledge_hints=knowledge_hints,
+        incident_reported_at=now,
+    )
+
     actions_available = _build_actions_available(
         req=req,
         related_runs=related_runs,
@@ -730,6 +745,7 @@ def investigate_project_incident(
         recommended_tests=recommended_tests,
         recommended_tests_v2=recommended_tests_v2,
         evidence_strength=evidence_strength,
+        evidence_correlation=evidence_correlation,
         confidence=confidence,
         confidence_breakdown=confidence_breakdown,
         next_steps=next_steps,
@@ -743,7 +759,7 @@ def investigate_project_incident(
             "regressions_count": len(regressions),
             "knowledge_risk_level": getattr(knowledge_ctx, "risk_level", None) if knowledge_ctx else None,
             "browser_watch_alerts": len(browser_events),
-            "engine_version": "incident-v1.3b",
+            "engine_version": "incident-v1.4a",
             "analyze_only": True,
         },
     )

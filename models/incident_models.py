@@ -124,6 +124,21 @@ class TemporalCorrelationSummary(BaseModel):
     event_chain: List[str] = Field(default_factory=list)
 
 
+class CorrelatedEvidence(BaseModel):
+    source: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    title: str
+    detail: str
+    timestamp: Optional[str] = None
+    related_run_id: Optional[str] = None
+
+
+class EvidenceCorrelationSummary(BaseModel):
+    total_correlations: int = 0
+    strongest_source: Optional[str] = None
+    evidence: List[CorrelatedEvidence] = Field(default_factory=list)
+
+
 class IncidentActionAvailable(BaseModel):
     action: str
     label: str
@@ -185,6 +200,7 @@ class ProjectIncidentInvestigationReport(BaseModel):
     recommended_tests: List[str] = Field(default_factory=list)
     recommended_tests_v2: List[RecommendedTestRecommendation] = Field(default_factory=list)
     evidence_strength: Optional[IncidentEvidenceStrength] = None
+    evidence_correlation: Optional[EvidenceCorrelationSummary] = None
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     confidence_breakdown: List["ConfidenceFactor"] = Field(default_factory=list)
     next_steps: List[str] = Field(default_factory=list)
