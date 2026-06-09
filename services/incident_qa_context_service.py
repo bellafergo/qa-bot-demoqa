@@ -72,6 +72,20 @@ def _text_matches_hints(text: str, hints: Set[str]) -> bool:
     return any(h in low for h in hints if len(h) >= 3)
 
 
+def _catalog_module_lookup(project_id: str) -> Dict[str, str]:
+    """test_case_id → module from catalog (read-only)."""
+    pid = (project_id or "").strip().lower()
+    if not pid:
+        return {}
+    try:
+        from services.db.catalog_repository import catalog_repo
+
+        return {tc_id: mod for tc_id, mod in catalog_repo.all_modules_for_project(pid)}
+    except Exception as e:
+        logger.debug("incident_qa: catalog module lookup failed: %s", e)
+        return {}
+
+
 def gather_failed_runs(
     project_id: str,
     *,
@@ -79,9 +93,19 @@ def gather_failed_runs(
     limit: int = 100,
 ) -> List[RelatedRunSummary]:
     from services.run_history_service import run_history_service
+    from services.run_mapper import normalize_storage_status
 
     pid = (project_id or "").strip().lower()
     cutoff = datetime.now(timezone.utc) - timedelta(hours=max(1, int(time_window_hours)))
+    tc_modules = _catalog_module_lookup(pid)
+    label_map: Dict[str, str] = {}
+    try:
+        from services.module_canonical import build_module_label_map
+
+        label_map = build_module_label_map(tc_modules.values())
+    except Exception:
+        pass
+
     try:
         rows = run_history_service.list_runs(project_id=pid, limit=limit)
     except Exception as e:
@@ -90,20 +114,27 @@ def gather_failed_runs(
 
     out: List[RelatedRunSummary] = []
     for r in rows:
-        status = str(r.status or "").lower()
-        if status not in ("failed", "error"):
+        st = normalize_storage_status(str(r.status or ""))
+        if st not in ("fail", "error"):
             continue
         if not _within_window(r.started_at, cutoff=cutoff):
             continue
         arts = r.artifacts
         module = ""
         if r.meta and isinstance(r.meta, dict):
-            module = str(r.meta.get("module") or r.meta.get("module_name") or "")
+            module = str(r.meta.get("module") or r.meta.get("module_name") or "").strip()
+        tc_id = str(r.test_id or "").strip()
+        if not module and tc_id:
+            module = str(tc_modules.get(tc_id) or "").strip()
+        if module and label_map:
+            from services.module_canonical import module_display_label
+
+            module = module_display_label(module, labels_by_key=label_map)
         out.append(RelatedRunSummary(
             run_id=str(r.run_id or ""),
-            test_id=str(r.test_id or ""),
+            test_id=tc_id,
             test_name=str(r.test_name or ""),
-            status=status,
+            status=st,
             started_at=r.started_at,
             error_summary=r.error_summary,
             rca_summary=r.rca_summary,
@@ -130,7 +161,13 @@ def gather_related_evidence(failed_runs: List[RelatedRunSummary]) -> List[Relate
     return out
 
 
-def gather_failure_clusters(project_id: str, *, limit: int = 50) -> List[Dict[str, Any]]:
+def gather_failure_clusters(
+    project_id: str,
+    *,
+    time_window_hours: int = 72,
+    in_window_run_ids: Optional[List[str]] = None,
+    limit: int = 50,
+) -> List[Dict[str, Any]]:
     try:
         from services.failure_intelligence_service import failure_intelligence_service
 
@@ -138,7 +175,18 @@ def gather_failure_clusters(project_id: str, *, limit: int = 50) -> List[Dict[st
             project_id=project_id,
             limit=limit,
         )
-        return [c.model_dump() if hasattr(c, "model_dump") else dict(c) for c in clusters]
+        raw = [c.model_dump() if hasattr(c, "model_dump") else dict(c) for c in clusters]
+        if in_window_run_ids is None:
+            return raw
+        window_ids = {str(rid).strip() for rid in in_window_run_ids if str(rid).strip()}
+        if not window_ids:
+            return []
+        filtered: List[Dict[str, Any]] = []
+        for c in raw:
+            cluster_run_ids = {str(rid).strip() for rid in (c.get("run_ids") or []) if str(rid).strip()}
+            if cluster_run_ids & window_ids:
+                filtered.append(c)
+        return filtered
     except Exception as e:
         logger.debug("incident_qa: failure clusters unavailable: %s", e)
         return []

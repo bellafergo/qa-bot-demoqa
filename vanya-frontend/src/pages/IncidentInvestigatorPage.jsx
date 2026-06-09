@@ -71,13 +71,40 @@ function QaInvestigationReport({ report, t }) {
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.hypotheses")}</div>
           <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none" }}>
-            {report.hypotheses.map((h, i) => (
-              <li key={i} style={{ marginBottom: 10, padding: "10px 12px", background: "var(--bg-2)", borderRadius: 8, fontSize: 13, lineHeight: 1.5 }}>
+            {report.hypotheses.map((h) => (
+              <li key={h.id || h.rank || h.statement} style={{ marginBottom: 10, padding: "10px 12px", background: "var(--bg-2)", borderRadius: 8, fontSize: 13, lineHeight: 1.5 }}>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+                  {h.id === report.primary_hypothesis_id ? (
+                    <span className="badge badge-orange">{t("incident.qa.primary_hypothesis")}</span>
+                  ) : null}
+                  {h.rank ? <span className="badge badge-gray">#{h.rank}</span> : null}
                   <span className="badge badge-gray">{h.basis === "evidence" ? t("incident.qa.basis.evidence") : t("incident.qa.basis.inference")}</span>
                   <span className="badge badge-blue">{confidencePct(h.confidence)}</span>
                 </div>
                 {h.statement}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {report.actions_available?.length > 0 ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 6 }}>{t("incident.qa.actions_available")}</div>
+          <p style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 10, lineHeight: 1.5 }}>{t("incident.qa.approval_notice")}</p>
+          <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none" }}>
+            {report.actions_available.map((a) => (
+              <li key={a.action} style={{ marginBottom: 8, display: "flex", gap: 10, alignItems: "flex-start", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  disabled
+                  title={t("incident.qa.action_disabled_tooltip")}
+                  style={{ opacity: 0.65, cursor: "not-allowed" }}
+                >
+                  {a.label}
+                </button>
+                <span style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, flex: 1, minWidth: 180 }}>{a.reason}</span>
               </li>
             ))}
           </ul>

@@ -600,3 +600,287 @@ def test_confidence_decreases_with_data_gaps(
     labels = {f["label"] for f in body["confidence_breakdown"]}
     assert "data_gaps" in labels
     assert "no_failed_runs" in labels
+
+
+# ── v1.3A: analyze-only ranking, confidence, actions, context improvements ────
+
+
+def test_rank_hypotheses_orders_by_confidence_desc():
+    from services.incident_qa_investigator_service import _rank_hypotheses
+    from models.incident_models import IncidentHypothesis
+
+    ranked = _rank_hypotheses([
+        IncidentHypothesis(statement="Low", confidence=0.4, basis="inference"),
+        IncidentHypothesis(statement="High", confidence=0.82, basis="evidence", supporting_refs=["run:1"]),
+        IncidentHypothesis(statement="Mid", confidence=0.6, basis="evidence", supporting_refs=["cluster:x"]),
+    ])
+    assert ranked[0].id == "H1"
+    assert ranked[0].rank == 1
+    assert ranked[0].confidence == 0.82
+    assert ranked[1].confidence == 0.6
+    assert ranked[2].confidence == 0.4
+
+
+@patch("services.incident_qa_investigator_service.gather_browser_watch_events", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_related_pr_analysis", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_open_prs", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_knowledge_context", return_value=None)
+@patch("services.incident_qa_investigator_service.gather_regressions", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failure_clusters", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failed_runs")
+@patch("services.db.project_repository.project_repo.get_project", return_value=_mock_project())
+def test_v13_primary_hypothesis_and_confidence_alignment(
+    _gp, mock_runs, _clusters, _regs, _know, _prs, _pra, _bw, client: TestClient,
+):
+    from models.incident_models import RelatedRunSummary
+
+    mock_runs.return_value = [
+        RelatedRunSummary(
+            run_id="run-strong",
+            test_id="TC-A",
+            test_name="Auth login",
+            status="fail",
+            started_at="2026-06-05T10:00:00+00:00",
+            error_summary="Assertion failed",
+            module="auth",
+            evidence_url="https://cdn.example/ev",
+        ),
+    ]
+    r = client.post(
+        "/projects/demo/incidents/investigate",
+        json={"description": "Login fails", "module": "auth"},
+    )
+    body = r.json()
+    hypos = body["hypotheses"]
+    assert hypos[0]["rank"] == 1
+    assert body["primary_hypothesis_id"] == hypos[0]["id"]
+    assert body["confidence"] == hypos[0]["confidence"]
+    confidences = [h["confidence"] for h in hypos]
+    assert confidences == sorted(confidences, reverse=True)
+
+
+@patch("services.failure_intelligence_service.failure_intelligence_service")
+def test_gather_failure_clusters_filters_by_in_window_run_ids(mock_fi):
+    from services.incident_qa_context_service import gather_failure_clusters
+
+    class _C:
+        def model_dump(self):
+            return {
+                "cluster_id": "c-old",
+                "module": "auth",
+                "run_ids": ["run-old"],
+                "total_failures": 2,
+                "root_cause_category": "selector_issue",
+            }
+
+    class _C2:
+        def model_dump(self):
+            return {
+                "cluster_id": "c-new",
+                "module": "auth",
+                "run_ids": ["run-new"],
+                "total_failures": 3,
+                "root_cause_category": "selector_issue",
+            }
+
+    mock_fi.get_clusters.return_value = [_C(), _C2()]
+    out = gather_failure_clusters(
+        "demo",
+        time_window_hours=24,
+        in_window_run_ids=["run-new"],
+    )
+    assert len(out) == 1
+    assert out[0]["cluster_id"] == "c-new"
+
+
+@patch("services.run_history_service.run_history_service")
+@patch("services.incident_qa_context_service._catalog_module_lookup")
+def test_gather_failed_runs_resolves_module_from_catalog(mock_catalog, mock_rh):
+    from datetime import datetime, timezone
+
+    from models.run_contract import CanonicalRun, RunArtifacts
+    from services.incident_qa_context_service import gather_failed_runs
+
+    mock_catalog.return_value = {"TC-CAT-01": "checkout"}
+    mock_rh.list_runs.return_value = [
+        CanonicalRun(
+            run_id="run-cat",
+            test_id="TC-CAT-01",
+            test_name="Checkout flow",
+            status="failed",
+            started_at=datetime.now(timezone.utc).isoformat(),
+            error_summary="boom",
+            meta={},
+            artifacts=RunArtifacts(),
+        ),
+    ]
+    runs = gather_failed_runs("demo", time_window_hours=72)
+    assert len(runs) == 1
+    assert runs[0].module == "checkout"
+    assert runs[0].status == "fail"
+
+
+@patch("services.run_history_service.run_history_service")
+@patch("services.incident_qa_context_service._catalog_module_lookup", return_value={})
+def test_gather_failed_runs_normalizes_failed_status(mock_catalog, mock_rh):
+    from datetime import datetime, timezone
+
+    from models.run_contract import CanonicalRun, RunArtifacts
+    from services.incident_qa_context_service import gather_failed_runs
+
+    now = datetime.now(timezone.utc).isoformat()
+    mock_rh.list_runs.return_value = [
+        CanonicalRun(
+            run_id="run-failed",
+            test_id="TC-1",
+            test_name="T",
+            status="failed",
+            started_at=now,
+            error_summary="err",
+            meta={"module": "auth"},
+            artifacts=RunArtifacts(),
+        ),
+        CanonicalRun(
+            run_id="run-error",
+            test_id="TC-2",
+            test_name="T2",
+            status="error",
+            started_at=now,
+            error_summary="err2",
+            meta={"module": "auth"},
+            artifacts=RunArtifacts(),
+        ),
+        CanonicalRun(
+            run_id="run-pass",
+            test_id="TC-3",
+            test_name="T3",
+            status="passed",
+            started_at=now,
+            meta={"module": "auth"},
+            artifacts=RunArtifacts(),
+        ),
+    ]
+    runs = gather_failed_runs("demo", time_window_hours=72)
+    assert {r.run_id for r in runs} == {"run-failed", "run-error"}
+    assert all(r.status in ("fail", "error") for r in runs)
+
+
+@patch("services.incident_qa_investigator_service.gather_browser_watch_events", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_related_pr_analysis", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_open_prs")
+@patch("services.incident_qa_investigator_service.gather_knowledge_context", return_value=None)
+@patch("services.incident_qa_investigator_service.gather_regressions", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failure_clusters", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failed_runs")
+@patch("services.db.project_repository.project_repo.get_project", return_value=_mock_project())
+def test_v13_actions_available_require_approval(
+    _gp, mock_runs, _clusters, _regs, _know, mock_prs, _pra, _bw, client: TestClient,
+):
+    from models.incident_models import RelatedPRSummary, RelatedRunSummary
+
+    mock_runs.return_value = [
+        RelatedRunSummary(
+            run_id="run-1",
+            test_id="TC-1",
+            status="fail",
+            started_at="2026-06-05T10:00:00+00:00",
+            module="auth",
+            error_summary="fail",
+        ),
+    ]
+    mock_prs.return_value = [
+        RelatedPRSummary(
+            provider="github",
+            pr_id="99",
+            title="Fix auth",
+            branch="fix/auth",
+            author="dev",
+            html_url="https://github.com/x/y/pull/99",
+            updated_at="2026-06-05T09:00:00Z",
+            match_reason="keyword_match",
+        ),
+    ]
+    r = client.post(
+        "/projects/demo/incidents/investigate",
+        json={
+            "description": "Auth broken",
+            "target_url": "https://app.example.com/login",
+            "include_browser_probe": False,
+        },
+    )
+    body = r.json()
+    actions = body.get("actions_available") or []
+    assert actions
+    assert all(a["requires_user_approval"] is True for a in actions)
+    action_names = {a["action"] for a in actions}
+    assert "run_browser_probe" in action_names
+    assert "generate_rca" in action_names
+    assert "analyze_related_pr" in action_names
+    assert "run_recommended_tests" in action_names
+    assert body.get("browser_investigation") is None
+
+
+@patch("services.incident_qa_investigator_service.gather_browser_watch_events", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_related_pr_analysis", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_open_prs", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_knowledge_context", return_value=None)
+@patch("services.incident_qa_investigator_service.gather_regressions", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failure_clusters", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failed_runs", return_value=[])
+@patch("services.db.project_repository.project_repo.get_project", return_value=_mock_project())
+def test_v13_browser_probe_only_when_requested(
+    _gp, _runs, _clusters, _regs, _know, _prs, _pra, _bw, client: TestClient,
+):
+    with patch("services.incident_investigator_service.investigate_incident") as mock_probe:
+        from models.incident_models import IncidentInvestigationRun
+
+        mock_probe.return_value = IncidentInvestigationRun(
+            id="browser-1",
+            created_at="2026-06-05T12:00:00+00:00",
+            updated_at="2026-06-05T12:00:00+00:00",
+            status="completed",
+            incident_description="probe",
+            probable_cause="HTTP 500 on /api/auth",
+            reproduced="true",
+            severity="high",
+        )
+        r = client.post(
+            "/projects/demo/incidents/investigate",
+            json={
+                "description": "Auth page 500",
+                "target_url": "https://app.example.com/login",
+                "include_browser_probe": True,
+            },
+        )
+    assert r.status_code == 200
+    body = r.json()
+    mock_probe.assert_called_once()
+    assert body.get("browser_investigation") is not None
+    browser_hypos = [h for h in body["hypotheses"] if "browser:" in " ".join(h.get("supporting_refs", []))]
+    assert browser_hypos
+    assert browser_hypos[0]["basis"] == "evidence"
+
+
+@patch("services.incident_qa_investigator_service.gather_browser_watch_events", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_related_pr_analysis", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_open_prs", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_knowledge_context", return_value=None)
+@patch("services.incident_qa_investigator_service.gather_regressions", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failure_clusters", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failed_runs", return_value=[])
+@patch("services.db.project_repository.project_repo.get_project", return_value=_mock_project())
+def test_v13_no_browser_probe_when_not_requested(
+    _gp, _runs, _clusters, _regs, _know, _prs, _pra, _bw, client: TestClient,
+):
+    with patch("services.incident_investigator_service.investigate_incident") as mock_probe:
+        r = client.post(
+            "/projects/demo/incidents/investigate",
+            json={
+                "description": "Auth page 500",
+                "target_url": "https://app.example.com/login",
+                "include_browser_probe": False,
+            },
+        )
+    assert r.status_code == 200
+    mock_probe.assert_not_called()
+    assert r.json().get("browser_investigation") is None

@@ -79,10 +79,19 @@ class ProjectInvestigateIncidentRequest(BaseModel):
 
 
 class IncidentHypothesis(BaseModel):
+    id: str = ""
+    rank: int = 0
     statement: str
     confidence: float = Field(ge=0.0, le=1.0)
     basis: Literal["evidence", "inference"] = "inference"
     supporting_refs: List[str] = Field(default_factory=list)
+
+
+class IncidentActionAvailable(BaseModel):
+    action: str
+    label: str
+    requires_user_approval: bool = True
+    reason: str = ""
 
 
 class RelatedRunSummary(BaseModel):
@@ -127,6 +136,7 @@ class ProjectIncidentInvestigationReport(BaseModel):
     time_window_hours: int = 72
     summary: str = ""
     hypotheses: List[IncidentHypothesis] = Field(default_factory=list)
+    primary_hypothesis_id: Optional[str] = None
     related_runs: List[RelatedRunSummary] = Field(default_factory=list)
     related_evidence: List[RelatedEvidenceSummary] = Field(default_factory=list)
     related_prs: List[RelatedPRSummary] = Field(default_factory=list)
@@ -140,6 +150,7 @@ class ProjectIncidentInvestigationReport(BaseModel):
     evidence_found: List[str] = Field(default_factory=list)
     data_gaps: List[str] = Field(default_factory=list)
     browser_investigation: Optional[IncidentInvestigationRun] = None
+    actions_available: List[IncidentActionAvailable] = Field(default_factory=list)
     meta: Dict[str, Any] = Field(default_factory=dict)
 
     model_config = {"extra": "ignore"}

@@ -3,6 +3,7 @@
 Project-scoped Incident Investigator — QA Intelligence correlation (deterministic).
 
 v1.1: persistence, PR Analysis correlation, timeline, confidence breakdown.
+v1.3: hypothesis ranking, actions_available (analyze-only), aligned confidence.
 """
 from __future__ import annotations
 
@@ -12,6 +13,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from models.incident_models import (
     ConfidenceFactor,
+    IncidentActionAvailable,
     IncidentHypothesis,
     IncidentInvestigationReportRecord,
     IncidentInvestigationRun,
@@ -229,6 +231,113 @@ def _build_hypotheses(
     return hypotheses[:8]
 
 
+def _rank_hypotheses(hypotheses: List[IncidentHypothesis]) -> List[IncidentHypothesis]:
+    """Sort by confidence desc; evidence-backed ties break ahead of inference."""
+    ordered = sorted(
+        hypotheses,
+        key=lambda h: (-h.confidence, 0 if h.basis == "evidence" else 1),
+    )
+    ranked: List[IncidentHypothesis] = []
+    for i, h in enumerate(ordered, start=1):
+        ranked.append(h.model_copy(update={"id": f"H{i}", "rank": i}))
+    return ranked
+
+
+def _hypothesis_from_browser_probe(browser_run: IncidentInvestigationRun) -> Optional[IncidentHypothesis]:
+    cause = (browser_run.probable_cause or browser_run.diagnosis_summary or "").strip()
+    if not cause:
+        return None
+    basis: str = "evidence" if browser_run.reproduced == "true" else "inference"
+    confidence = 0.78 if basis == "evidence" else 0.55
+    if browser_run.severity in ("critical", "high"):
+        confidence = min(0.88, confidence + 0.05)
+    return IncidentHypothesis(
+        statement=f"Browser probe observation: {cause}",
+        confidence=confidence,
+        basis=basis,  # type: ignore[arg-type]
+        supporting_refs=[f"browser:{browser_run.id}"],
+    )
+
+
+def _align_global_confidence(
+    hypotheses: List[IncidentHypothesis],
+    breakdown_score: float,
+    factors: List[ConfidenceFactor],
+) -> Tuple[float, List[ConfidenceFactor]]:
+    """Align report confidence with rank-1 hypothesis; cap when evidence is weak."""
+    if not hypotheses:
+        aligned = min(breakdown_score, 0.25)
+        factors = list(factors) + [ConfidenceFactor(
+            label="primary_hypothesis",
+            delta=0.0,
+            reason="No hypotheses — confidence capped low",
+        )]
+        return round(max(0.05, aligned), 2), factors
+
+    primary = hypotheses[0]
+    aligned = primary.confidence
+    if primary.basis != "evidence":
+        aligned = min(aligned, breakdown_score)
+    elif not primary.supporting_refs:
+        aligned = min(aligned, 0.45)
+    else:
+        aligned = min(max(aligned, breakdown_score * 0.85), 0.95)
+
+    factors = list(factors) + [ConfidenceFactor(
+        label="primary_hypothesis",
+        delta=0.0,
+        reason=f"Global confidence aligned to {primary.id} ({primary.confidence:.0%})",
+    )]
+    return round(max(0.05, min(0.95, aligned)), 2), factors
+
+
+def _build_actions_available(
+    *,
+    req: ProjectInvestigateIncidentRequest,
+    related_runs: List[RelatedRunSummary],
+    related_prs: List[Any],
+    related_pr_analysis: List[Any],
+    recommended_tests: List[str],
+    browser_run: Optional[IncidentInvestigationRun],
+) -> List[IncidentActionAvailable]:
+    """Recommend follow-up actions — never executed automatically in v1.3A."""
+    actions: List[IncidentActionAvailable] = []
+
+    if not req.include_browser_probe and (req.target_url or "").strip():
+        actions.append(IncidentActionAvailable(
+            action="run_browser_probe",
+            label="Run Browser Probe",
+            requires_user_approval=True,
+            reason="Could collect live UI evidence",
+        ))
+
+    if related_prs and not related_pr_analysis:
+        actions.append(IncidentActionAvailable(
+            action="analyze_related_pr",
+            label="Analyze related PR",
+            requires_user_approval=True,
+            reason="Relevant PR found but no PR analysis snapshot exists",
+        ))
+
+    if related_runs:
+        actions.append(IncidentActionAvailable(
+            action="generate_rca",
+            label="Generate RCA",
+            requires_user_approval=True,
+            reason="Failed runs found",
+        ))
+
+    if recommended_tests:
+        actions.append(IncidentActionAvailable(
+            action="run_recommended_tests",
+            label="Run recommended tests",
+            requires_user_approval=True,
+            reason="Recommended tests were identified",
+        ))
+
+    return actions
+
+
 def _compute_confidence_v2(
     *,
     related_runs: List[RelatedRunSummary],
@@ -393,7 +502,11 @@ def investigate_project_incident(
     if related_evidence:
         evidence_found.append(f"{len(related_evidence)} evidence record(s) from failed runs")
 
-    clusters = gather_failure_clusters(pid)
+    clusters = gather_failure_clusters(
+        pid,
+        time_window_hours=req.time_window_hours,
+        in_window_run_ids=[r.run_id for r in failed_runs],
+    )
     if not clusters:
         data_gaps.append("No failure intelligence clusters available.")
 
@@ -458,7 +571,7 @@ def investigate_project_incident(
         related_prs=related_prs,
         related_pr_analysis=related_pr_analysis,
     )
-    confidence, confidence_breakdown = _compute_confidence_v2(
+    breakdown_score, confidence_breakdown = _compute_confidence_v2(
         related_runs=related_runs,
         related_evidence=related_evidence,
         related_pr_analysis=related_pr_analysis,
@@ -469,6 +582,40 @@ def investigate_project_incident(
         data_gaps=data_gaps,
         impacted_modules=impacted_modules,
         module_overlap_with_pr=module_overlap_with_pr,
+    )
+
+    browser_run: Optional[IncidentInvestigationRun] = None
+    if req.include_browser_probe and (req.target_url or "").strip():
+        try:
+            from services.incident_investigator_service import investigate_incident
+
+            browser_run = investigate_incident(InvestigateIncidentRequest(
+                incident_description=desc,
+                target_url=req.target_url,
+                project_id=pid,
+                module=req.module,
+            ))
+            evidence_found.append("browser_probe_completed")
+            browser_hyp = _hypothesis_from_browser_probe(browser_run)
+            if browser_hyp:
+                hypotheses.append(browser_hyp)
+        except Exception as e:
+            logger.warning("incident_qa: browser probe failed: %s", e)
+            data_gaps.append(f"Browser probe failed: {type(e).__name__}")
+
+    hypotheses = _rank_hypotheses(hypotheses)
+    primary_hypothesis_id = hypotheses[0].id if hypotheses else None
+    confidence, confidence_breakdown = _align_global_confidence(
+        hypotheses, breakdown_score, confidence_breakdown,
+    )
+
+    actions_available = _build_actions_available(
+        req=req,
+        related_runs=related_runs,
+        related_prs=related_prs,
+        related_pr_analysis=related_pr_analysis,
+        recommended_tests=recommended_tests,
+        browser_run=browser_run,
     )
 
     summary_parts = [f"Investigated incident for project '{pid}' over {req.time_window_hours}h."]
@@ -497,23 +644,9 @@ def investigate_project_incident(
         next_steps.append("Run catalog tests for the affected module or enable Browser Watch on the target URL.")
     if req.include_browser_probe and req.target_url:
         next_steps.append("Browser probe requested — see browser_investigation section.")
+    elif (req.target_url or "").strip():
+        next_steps.append("Browser probe may provide additional evidence — enable include_browser_probe to run it.")
     next_steps.append("Validate hypotheses against production logs; treat inference-only items as leads, not proof.")
-
-    browser_run: Optional[IncidentInvestigationRun] = None
-    if req.include_browser_probe and (req.target_url or "").strip():
-        try:
-            from services.incident_investigator_service import investigate_incident
-
-            browser_run = investigate_incident(InvestigateIncidentRequest(
-                incident_description=desc,
-                target_url=req.target_url,
-                project_id=pid,
-                module=req.module,
-            ))
-            evidence_found.append("browser_probe_completed")
-        except Exception as e:
-            logger.warning("incident_qa: browser probe failed: %s", e)
-            data_gaps.append(f"Browser probe failed: {type(e).__name__}")
 
     timeline = build_incident_timeline(
         time_window_hours=req.time_window_hours,
@@ -531,6 +664,7 @@ def investigate_project_incident(
         time_window_hours=req.time_window_hours,
         summary=" ".join(summary_parts),
         hypotheses=hypotheses,
+        primary_hypothesis_id=primary_hypothesis_id,
         related_runs=related_runs,
         related_evidence=related_evidence,
         related_prs=related_prs,
@@ -544,13 +678,15 @@ def investigate_project_incident(
         evidence_found=evidence_found,
         data_gaps=data_gaps,
         browser_investigation=browser_run,
+        actions_available=actions_available,
         meta={
             "topic_hints": sorted(hints),
             "failure_clusters_count": len(clusters),
             "regressions_count": len(regressions),
             "knowledge_risk_level": getattr(knowledge_ctx, "risk_level", None) if knowledge_ctx else None,
             "browser_watch_alerts": len(browser_events),
-            "engine_version": "incident-v1.1",
+            "engine_version": "incident-v1.3",
+            "analyze_only": True,
         },
     )
 
