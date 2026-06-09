@@ -688,6 +688,7 @@ def investigate_project_incident(
         related_prs=related_prs,
         hints=hints,
         hypotheses=hypotheses,
+        browser_investigation=browser_run,
     )
     hypotheses = attach_hypothesis_classifications(hypotheses, evidence_strength)
 

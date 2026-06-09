@@ -52,6 +52,7 @@ def build_evidence_strength(
     related_prs: List[Any],
     hints: Set[str],
     hypotheses: List[IncidentHypothesis],
+    browser_investigation: Optional[Any] = None,
 ) -> IncidentEvidenceStrength:
     """Aggregate report-level evidence / inference / assumption buckets."""
     evidence: List[IncidentEvidenceItem] = []
@@ -95,6 +96,15 @@ def build_evidence_strength(
             label="Browser Watch alert",
             detail=f"Alert at {ts[:16] if ts else 'unknown'}: {be.get('summary', 'Browser Watch alert')}",
             ref=f"browser_watch:{be.get('watch_id', '')}",
+        ))
+
+    if browser_investigation is not None:
+        probe_id = getattr(browser_investigation, "id", "") or ""
+        evidence.append(IncidentEvidenceItem(
+            kind="evidence",
+            label="Browser Probe",
+            detail="Passive browser observation completed successfully.",
+            ref=f"browser_probe:{probe_id}",
         ))
 
     if hints:
