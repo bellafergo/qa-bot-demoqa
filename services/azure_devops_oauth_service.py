@@ -12,7 +12,9 @@ from core.settings import settings
 
 logger = logging.getLogger("vanya.azure_devops_oauth")
 
-AZURE_DEVOPS_RESOURCE_SCOPE = "499b84ac-1321-427f-aa17-267ca73bcf11/.default offline_access"
+AZURE_DEVOPS_RESOURCE_SCOPE = (
+    "499b84ac-1321-427f-aa17-267ca73bcf11/user_impersonation offline_access"
+)
 
 
 def is_azure_devops_oauth_configured() -> bool:

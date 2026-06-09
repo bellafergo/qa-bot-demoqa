@@ -234,3 +234,79 @@ class TestAzureOAuthAuthority:
 
         assert url.startswith("https://login.microsoftonline.com/common/oauth2/v2.0/authorize?")
         assert oauth._token_url().startswith("https://login.microsoftonline.com/common/oauth2/v2.0/token")
+
+
+class TestAzureOAuthScope:
+    EXPECTED_SCOPE = "499b84ac-1321-427f-aa17-267ca73bcf11/user_impersonation offline_access"
+
+    def test_delegated_scope_uses_user_impersonation_not_default(self):
+        from services import azure_devops_oauth_service as oauth
+
+        assert oauth.AZURE_DEVOPS_RESOURCE_SCOPE == self.EXPECTED_SCOPE
+        assert "user_impersonation" in oauth.AZURE_DEVOPS_RESOURCE_SCOPE
+        assert "offline_access" in oauth.AZURE_DEVOPS_RESOURCE_SCOPE
+        assert ".default" not in oauth.AZURE_DEVOPS_RESOURCE_SCOPE
+
+    @patch("services.azure_devops_oauth_service.is_azure_devops_oauth_configured", return_value=True)
+    @patch("services.azure_devops_oauth_service.settings")
+    def test_build_authorize_url_includes_delegated_scope(self, mock_settings, _mock_cfg):
+        from urllib.parse import parse_qs, urlparse
+
+        from services import azure_devops_oauth_service as oauth
+
+        mock_settings.AZURE_AUTHORITY_TENANT = "common"
+        mock_settings.AZURE_CLIENT_ID = "client-id"
+        mock_settings.AZURE_REDIRECT_URI = "https://example.com/callback"
+        url = oauth.build_authorize_url(state="demo")
+
+        qs = parse_qs(urlparse(url).query)
+        assert qs["scope"] == [self.EXPECTED_SCOPE]
+        assert url.startswith("https://login.microsoftonline.com/common/oauth2/v2.0/authorize?")
+
+    @patch("services.azure_devops_oauth_service.is_azure_devops_oauth_configured", return_value=True)
+    @patch("services.azure_devops_oauth_service.settings")
+    @patch("services.azure_devops_oauth_service.httpx.Client")
+    def test_exchange_code_for_tokens_sends_delegated_scope(
+        self, mock_client_cls, mock_settings, _mock_cfg
+    ):
+        from services import azure_devops_oauth_service as oauth
+
+        mock_settings.AZURE_CLIENT_ID = "client-id"
+        mock_settings.AZURE_CLIENT_SECRET = "secret"
+        mock_settings.AZURE_REDIRECT_URI = "https://example.com/callback"
+        mock_settings.AZURE_AUTHORITY_TENANT = "common"
+
+        res = MagicMock()
+        res.status_code = 200
+        res.json.return_value = {"access_token": "at", "refresh_token": "rt", "expires_in": 3600}
+        mock_client_cls.return_value.__enter__.return_value.post.return_value = res
+
+        oauth.exchange_code_for_tokens("auth-code")
+
+        payload = mock_client_cls.return_value.__enter__.return_value.post.call_args.kwargs["data"]
+        assert payload["scope"] == self.EXPECTED_SCOPE
+        assert ".default" not in payload["scope"]
+
+    @patch("services.azure_devops_oauth_service.is_azure_devops_oauth_configured", return_value=True)
+    @patch("services.azure_devops_oauth_service.settings")
+    @patch("services.azure_devops_oauth_service.httpx.Client")
+    def test_refresh_access_token_sends_delegated_scope(
+        self, mock_client_cls, mock_settings, _mock_cfg
+    ):
+        from services import azure_devops_oauth_service as oauth
+
+        mock_settings.AZURE_CLIENT_ID = "client-id"
+        mock_settings.AZURE_CLIENT_SECRET = "secret"
+        mock_settings.AZURE_REDIRECT_URI = "https://example.com/callback"
+        mock_settings.AZURE_AUTHORITY_TENANT = "common"
+
+        res = MagicMock()
+        res.status_code = 200
+        res.json.return_value = {"access_token": "at2", "expires_in": 3600}
+        mock_client_cls.return_value.__enter__.return_value.post.return_value = res
+
+        oauth.refresh_access_token("refresh-tok")
+
+        payload = mock_client_cls.return_value.__enter__.return_value.post.call_args.kwargs["data"]
+        assert payload["scope"] == self.EXPECTED_SCOPE
+        assert "offline_access" in payload["scope"]
