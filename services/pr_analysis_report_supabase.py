@@ -28,7 +28,7 @@ def persist_pr_analysis_report_supabase(
     created_at: str,
     report_json: Dict[str, Any],
 ) -> bool:
-    """Upsert by id. Never raises."""
+    """Upsert by natural key (project_id, pr_id, provider). Never raises."""
     rid = (row_id or "").strip()
     if not rid:
         return False
@@ -48,7 +48,7 @@ def persist_pr_analysis_report_supabase(
     last_err: Optional[Exception] = None
     for attempt in range(1, 4):
         try:
-            sb.table(_TABLE).upsert(row, on_conflict="id").execute()
+            sb.table(_TABLE).upsert(row, on_conflict="project_id,pr_id,provider").execute()
             return True
         except Exception as e:
             last_err = e

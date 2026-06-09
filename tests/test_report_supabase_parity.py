@@ -174,6 +174,47 @@ def test_persist_pr_analysis_report_supabase_upserts(mock_get_sb):
     assert ok is True
     sb.table.assert_called_with("pr_analysis_reports")
     table.upsert.assert_called_once()
+    kwargs = table.upsert.call_args.kwargs
+    assert kwargs.get("on_conflict") == "project_id,pr_id,provider"
+
+
+@patch("services.pr_analysis_report_supabase._get_supabase")
+def test_persist_pr_analysis_reanalyze_natural_key_updates_row(mock_get_sb):
+    """Same PR re-analyzed with a new SQLite id must upsert on natural key, not id."""
+    from services.pr_analysis_report_supabase import persist_pr_analysis_report_supabase
+
+    table = MagicMock()
+    sb = MagicMock()
+    sb.table.return_value = table
+    mock_get_sb.return_value = sb
+
+    base = {
+        "project_id": "demo",
+        "pr_id": "142",
+        "provider": "github",
+    }
+    ok1 = persist_pr_analysis_report_supabase(
+        row_id="supa-old-id",
+        created_at="2026-06-06T10:00:00+00:00",
+        report_json={"pr_risk_score": 62},
+        **base,
+    )
+    ok2 = persist_pr_analysis_report_supabase(
+        row_id="sqlite-new-id-after-reanalyze",
+        created_at="2026-06-06T12:00:00+00:00",
+        report_json={"pr_risk_score": 71},
+        **base,
+    )
+    assert ok1 is True and ok2 is True
+    assert table.upsert.call_count == 2
+    for call in table.upsert.call_args_list:
+        assert call.kwargs.get("on_conflict") == "project_id,pr_id,provider"
+    second_row = table.upsert.call_args_list[1][0][0]
+    assert second_row["id"] == "sqlite-new-id-after-reanalyze"
+    assert second_row["project_id"] == "demo"
+    assert second_row["pr_id"] == "142"
+    assert second_row["provider"] == "github"
+    assert second_row["report_json"]["pr_risk_score"] == 71
 
 
 @patch("services.incident_report_supabase.persist_incident_report_supabase", return_value=True)
