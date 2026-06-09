@@ -12,6 +12,9 @@ import {
   analyzeProjectPR,
   analyzeProjectGitHubPR,
   getProjectGitHubStatus,
+  getProjectAzureDevOpsStatus,
+  listProjectAzureDevOpsPRs,
+  analyzeProjectAzureDevOpsPR,
   getProjectKnowledge,
   listProjectGitHubPRs,
   runBatch,
@@ -63,7 +66,17 @@ export default function PRAnalysisPage() {
   const [hasKnowledge, setHasKnowledge] = useState(false);
   const [knowledgeLoading, setKnowledgeLoading] = useState(false);
 
+  // Azure DevOps — read-only status from project connector (configured in Integrations)
+  const [azStatus, setAzStatus] = useState(null);
+  const [azLoading, setAzLoading] = useState(false);
+  const [azError, setAzError] = useState("");
+  const [azPRs, setAzPRs] = useState([]);
+  const [azPRsLoading, setAzPRsLoading] = useState(false);
+  const [azAnalyzingPR, setAzAnalyzingPR] = useState(null);
+  const [azAnalyzePayload, setAzAnalyzePayload] = useState(null);
+
   const gitHubReady = Boolean(ghStatus?.connected);
+  const azureReady = Boolean(azStatus?.connected);
   const changedFilesList = parseChangedFilesList(form.changed_files);
 
   // GitHub legacy URL fetch
@@ -100,9 +113,41 @@ export default function PRAnalysisPage() {
     }
   }, [currentProject?.id, t]);
 
+  const loadAzStatus = useCallback(async () => {
+    if (!currentProject?.id) {
+      setAzStatus(null);
+      setAzPRs([]);
+      return;
+    }
+    setAzLoading(true);
+    setAzError("");
+    try {
+      const st = await getProjectAzureDevOpsStatus(currentProject.id, false);
+      setAzStatus(st);
+      if (st?.connected) {
+        setAzPRsLoading(true);
+        const prs = await listProjectAzureDevOpsPRs(currentProject.id);
+        setAzPRs(prs.pull_requests || []);
+      } else {
+        setAzPRs([]);
+      }
+    } catch (e) {
+      setAzError(e?.message || t("az.error.status"));
+      setAzStatus(null);
+      setAzPRs([]);
+    } finally {
+      setAzLoading(false);
+      setAzPRsLoading(false);
+    }
+  }, [currentProject?.id, t]);
+
   useEffect(() => {
     loadGhStatus();
   }, [loadGhStatus]);
+
+  useEffect(() => {
+    loadAzStatus();
+  }, [loadAzStatus]);
 
   useEffect(() => {
     if (!currentProject?.id) {
@@ -126,6 +171,7 @@ export default function PRAnalysisPage() {
     setV1Result(null);
     setResult(null);
     setGhAnalyzePayload(null);
+    setAzAnalyzePayload(null);
     setEnqueueResult(null);
     try {
       const res = await analyzeProjectGitHubPR(currentProject.id, prNumber);
@@ -143,6 +189,34 @@ export default function PRAnalysisPage() {
       setError(e?.message || t("gh.error.analyze"));
     } finally {
       setGhAnalyzingPR(null);
+    }
+  }
+
+  async function handleAzAnalyzePR(pullRequestId) {
+    if (!currentProject?.id) return;
+    setAzAnalyzingPR(pullRequestId);
+    setError("");
+    setV1Result(null);
+    setResult(null);
+    setGhAnalyzePayload(null);
+    setAzAnalyzePayload(null);
+    setEnqueueResult(null);
+    try {
+      const res = await analyzeProjectAzureDevOpsPR(currentProject.id, pullRequestId);
+      setV1Result(res.analysis);
+      setAzAnalyzePayload(res);
+      setAnalyzedAt(new Date().toISOString());
+      setForm((f) => ({
+        ...f,
+        title: res.pull_request?.title || f.title,
+        branch: res.pull_request?.branch || f.branch,
+        pr_id: String(pullRequestId),
+        changed_files: (res.pull_request?.changed_files || []).join("\n"),
+      }));
+    } catch (e) {
+      setError(e?.message || t("az.error.analyze"));
+    } finally {
+      setAzAnalyzingPR(null);
     }
   }
 
@@ -402,6 +476,67 @@ export default function PRAnalysisPage() {
         {ghError ? <div className="alert alert-error" style={{ marginTop: 10, fontSize: 12 }}>{ghError}</div> : null}
       </div>
 
+      {/* Azure DevOps — read-only integration status (configure in Integrations) */}
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div className="section-title" style={{ marginBottom: 8 }}>{t("az.title")}</div>
+        <p style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 12 }}>{t("az.read_only_subtitle")}</p>
+        {!currentProject?.id ? (
+          <p style={{ fontSize: 12, color: "var(--text-3)" }}>{t("pr.v1.need_project")}</p>
+        ) : azLoading ? (
+          <p style={{ fontSize: 12, color: "var(--text-3)" }}>{t("az.loading")}</p>
+        ) : azureReady ? (
+          <>
+            <div style={{ marginBottom: 14, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <span className="badge badge-green">{t("az.connected_badge")}</span>
+              {azStatus?.organization ? (
+                <span className="badge badge-gray">{t("az.organization")}: {azStatus.organization}</span>
+              ) : null}
+              {azStatus?.full_name ? <span className="badge badge-gray">{azStatus.full_name}</span> : null}
+              {azStatus?.default_branch ? (
+                <span className="badge badge-gray">{t("az.branch")}: {azStatus.default_branch}</span>
+              ) : null}
+              {azStatus?.validation_ok ? (
+                <span className="badge badge-green">{t("az.health_ok")}</span>
+              ) : azStatus?.validation_message ? (
+                <span className="badge badge-orange">{azStatus.validation_message}</span>
+              ) : null}
+            </div>
+            <div style={{ marginTop: 16 }}>
+              <div className="section-title" style={{ fontSize: 13, marginBottom: 8 }}>{t("az.open_prs")}</div>
+              {azPRsLoading ? (
+                <p style={{ fontSize: 12, color: "var(--text-3)" }}>{t("az.loading_prs")}</p>
+              ) : azPRs.length === 0 ? (
+                <p style={{ fontSize: 12, color: "var(--text-3)" }}>{t("az.no_prs")}</p>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {azPRs.map((pr) => (
+                    <div key={pr.pull_request_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "10px 12px", border: "1px solid var(--border)", borderRadius: 6 }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>#{pr.pull_request_id} {pr.title}</div>
+                        <div style={{ fontSize: 11, color: "var(--text-3)" }}>{pr.branch} → {pr.base_branch} · {pr.author}</div>
+                      </div>
+                      <button type="button" className="btn btn-primary btn-sm" onClick={() => handleAzAnalyzePR(pr.pull_request_id)} disabled={azAnalyzingPR === pr.pull_request_id}>
+                        {azAnalyzingPR === pr.pull_request_id ? t("az.analyzing") : t("az.analyze_pr")}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          <div style={{ padding: "14px 16px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface)" }}>
+            <p style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.6, margin: "0 0 12px" }}>
+              {t("az.not_configured_desc")}
+            </p>
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => navigate("/integrations")}>
+              {t("az.go_integrations")}
+            </button>
+          </div>
+        )}
+        {azError ? <div className="alert alert-error" style={{ marginTop: 10, fontSize: 12 }}>{azError}</div> : null}
+      </div>
+
       {/* GitHub PR fetch by URL — requires active GitHub integration */}
       <div className="card" style={{ marginBottom: 20, opacity: gitHubReady ? 1 : 0.72 }}>
         <div className="section-title" style={{ marginBottom: 8 }}>{t("pr.fetch.title")}</div>
@@ -541,7 +676,7 @@ export default function PRAnalysisPage() {
           mode="v1"
           v1={v1Result}
           form={form}
-          ghFiles={ghAnalyzePayload?.pull_request?.files || []}
+          ghFiles={ghAnalyzePayload?.pull_request?.files || azAnalyzePayload?.pull_request?.files || []}
           changedFilesList={changedFilesList}
           analyzedAt={analyzedAt}
           hasKnowledge={hasKnowledge}
@@ -572,9 +707,9 @@ export default function PRAnalysisPage() {
         />
       ) : null}
 
-      {!v1Result && !result && !analyzing && !ghAnalyzingPR ? (
+      {!v1Result && !result && !analyzing && !ghAnalyzingPR && !azAnalyzingPR ? (
         <PREmptyState
-          gitHubReady={gitHubReady}
+          gitHubReady={gitHubReady || azureReady}
           hasKnowledge={hasKnowledge}
           knowledgeLoading={knowledgeLoading}
           hasProject={Boolean(currentProject?.id)}

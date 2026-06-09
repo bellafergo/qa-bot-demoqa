@@ -13,6 +13,7 @@ from typing import Dict, List, Optional
 from connectors import BaseConnector
 from connectors.jira_connector import JiraConnector
 from connectors.github_connector import GitHubConnector
+from connectors.azure_devops_connector import AzureDevOpsConnector
 from connectors.slack_connector import SlackConnector
 from connectors.qmetry_connector import QMetryConnector
 from connectors.email_connector import EmailConnector
@@ -22,6 +23,7 @@ from connectors.itsm_connector import ITSMConnector
 _ALL_CONNECTORS: List[BaseConnector] = [
     JiraConnector(),
     GitHubConnector(),
+    AzureDevOpsConnector(),
     SlackConnector(),
     QMetryConnector(),
     EmailConnector(),

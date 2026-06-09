@@ -14,6 +14,13 @@ import {
   selectProjectGitHubRepository,
   getProjectGitHubStatus,
   disconnectProjectGitHub,
+  getProjectAzureDevOpsAuthorizeUrl,
+  getProjectAzureDevOpsStatus,
+  disconnectProjectAzureDevOps,
+  listProjectAzureDevOpsOrganizations,
+  listProjectAzureDevOpsProjects,
+  listProjectAzureDevOpsRepositories,
+  selectProjectAzureDevOpsTarget,
 } from "../api";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
@@ -38,10 +45,11 @@ const HEALTH_KEY = {
 };
 
 const CONNECTOR_ICONS = {
-  jira:    "◈",
-  github:  "◎",
-  slack:   "✦",
-  qmetry:  "⊞",
+  jira:         "◈",
+  github:       "◎",
+  azure_devops: "⬡",
+  slack:        "✦",
+  qmetry:       "⊞",
 };
 
 function HealthBadge({ health, labelOverride }) {
@@ -72,6 +80,16 @@ function deriveGitHubHeaderState(status) {
     return { enabled: true, health: "ok", labelKey: "integrations.github.header_healthy" };
   }
   return { enabled: true, health: "degraded", labelKey: "integrations.github.header_connected" };
+}
+
+function deriveAzureHeaderState(status) {
+  if (!status?.enabled || status?.provider === "none") {
+    return { enabled: false, health: "unconfigured", labelKey: "integrations.health.unconfigured" };
+  }
+  if (status.connected && status.validation_ok) {
+    return { enabled: true, health: "ok", labelKey: "integrations.azure.header_healthy" };
+  }
+  return { enabled: true, health: "degraded", labelKey: "integrations.azure.header_connected" };
 }
 
 function StatusPill({ enabled }) {
@@ -388,6 +406,302 @@ function GitHubDisconnectDialog({ open, busy, onConfirm, onCancel }) {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function AzureDevOpsPanel({ onStatusChange }) {
+  const { t } = useLang();
+  const { currentProject } = useProject();
+  const projectId = currentProject?.id || "";
+
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [disconnectOpen, setDisconnectOpen] = useState(false);
+  const [error, setError] = useState("");
+
+  const [orgs, setOrgs] = useState([]);
+  const [projects, setProjects] = useState([]);
+  const [repos, setRepos] = useState([]);
+  const [selectedOrg, setSelectedOrg] = useState("");
+  const [selectedProject, setSelectedProject] = useState("");
+  const [selectedRepoId, setSelectedRepoId] = useState("");
+  const [selecting, setSelecting] = useState(false);
+  const oauthHandled = useRef(false);
+
+  const refreshStatus = useCallback(async (validate = false) => {
+    if (!projectId) {
+      setStatus(null);
+      if (onStatusChange) onStatusChange(null);
+      return;
+    }
+    setLoading(true);
+    try {
+      const st = await getProjectAzureDevOpsStatus(projectId, validate);
+      setStatus(st);
+      if (onStatusChange) onStatusChange(st);
+    } catch (e) {
+      setError(e?.message || t("az.error.status"));
+      setStatus(null);
+      if (onStatusChange) onStatusChange(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [projectId, onStatusChange, t]);
+
+  useEffect(() => {
+    refreshStatus(false);
+  }, [refreshStatus]);
+
+  useEffect(() => {
+    if (!projectId || oauthHandled.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const oauth = params.get("azure_oauth");
+    const pid = (params.get("project_id") || "").trim().toLowerCase();
+    if (!oauth || pid !== projectId.toLowerCase()) return;
+    oauthHandled.current = true;
+    if (oauth === "1") {
+      refreshStatus(true);
+    } else if (oauth === "0") {
+      setError(params.get("msg") || t("az.error.connect"));
+    }
+    window.history.replaceState({}, "", window.location.pathname);
+  }, [projectId, refreshStatus, t]);
+
+  useEffect(() => {
+    if (!projectId || !status?.enabled || status?.connected) return;
+    (async () => {
+      try {
+        const data = await listProjectAzureDevOpsOrganizations(projectId);
+        setOrgs(data.organizations || []);
+      } catch { /* best-effort */ }
+    })();
+  }, [projectId, status?.enabled, status?.connected]);
+
+  useEffect(() => {
+    if (!projectId || !selectedOrg) {
+      setProjects([]);
+      return;
+    }
+    (async () => {
+      try {
+        const data = await listProjectAzureDevOpsProjects(projectId, selectedOrg);
+        setProjects(data.projects || []);
+      } catch (e) {
+        setError(e?.message || t("az.error.projects"));
+      }
+    })();
+  }, [projectId, selectedOrg, t]);
+
+  useEffect(() => {
+    if (!projectId || !selectedOrg || !selectedProject) {
+      setRepos([]);
+      return;
+    }
+    (async () => {
+      try {
+        const data = await listProjectAzureDevOpsRepositories(projectId, selectedOrg, selectedProject);
+        setRepos(data.repositories || []);
+      } catch (e) {
+        setError(e?.message || t("az.error.repos"));
+      }
+    })();
+  }, [projectId, selectedOrg, selectedProject, t]);
+
+  async function handleConnect() {
+    if (!projectId) return;
+    setError("");
+    setConnecting(true);
+    try {
+      const { authorize_url: url } = await getProjectAzureDevOpsAuthorizeUrl(projectId);
+      if (url) window.location.href = url;
+    } catch (e) {
+      setError(e?.message || t("az.error.authorize"));
+    } finally {
+      setConnecting(false);
+    }
+  }
+
+  async function handleVerify() {
+    setVerifying(true);
+    setError("");
+    try {
+      await refreshStatus(true);
+    } finally {
+      setVerifying(false);
+    }
+  }
+
+  async function handleSelectTarget() {
+    if (!projectId || !selectedOrg || !selectedProject || !selectedRepoId) return;
+    const meta = repos.find((r) => r.id === selectedRepoId);
+    setSelecting(true);
+    setError("");
+    try {
+      await selectProjectAzureDevOpsTarget(projectId, {
+        organization: selectedOrg,
+        azure_project: selectedProject,
+        repository_id: selectedRepoId,
+        repository_name: meta?.name || "",
+        default_branch: meta?.default_branch || "main",
+      });
+      await refreshStatus(true);
+    } catch (e) {
+      setError(e?.message || t("az.error.select"));
+    } finally {
+      setSelecting(false);
+    }
+  }
+
+  async function handleDisconnect() {
+    if (!projectId) return;
+    setDisconnecting(true);
+    setError("");
+    try {
+      await disconnectProjectAzureDevOps(projectId);
+      setOrgs([]);
+      setProjects([]);
+      setRepos([]);
+      setSelectedOrg("");
+      setSelectedProject("");
+      setSelectedRepoId("");
+      await refreshStatus(false);
+      setDisconnectOpen(false);
+    } catch (e) {
+      setError(e?.message || t("integrations.azure.disconnect_error"));
+    } finally {
+      setDisconnecting(false);
+    }
+  }
+
+  const showTargetPicker = Boolean(status?.enabled && !status?.connected);
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-2)", marginBottom: 10 }}>
+        {t("integrations.azure.panel_title")}
+      </div>
+      <p style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 12, lineHeight: 1.5 }}>
+        {t("az.subtitle")}
+      </p>
+
+      {!projectId ? (
+        <p style={{ fontSize: 12, color: "var(--text-3)" }}>{t("integrations.azure.need_project")}</p>
+      ) : (
+        <>
+          {loading || connecting ? (
+            <p style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 12 }}>{t("az.loading")}</p>
+          ) : null}
+
+          {status && !status.oauth_configured ? (
+            <div className="alert alert-error" style={{ marginBottom: 12, fontSize: 12 }}>
+              {t("az.oauth_not_configured")}
+            </div>
+          ) : null}
+
+          {status?.enabled ? (
+            <div style={{ fontSize: 12, color: "var(--text-2)", marginBottom: 12, lineHeight: 1.6 }}>
+              {status.organization ? (
+                <div><span style={{ color: "var(--text-3)" }}>{t("az.organization")}:</span> {status.organization}</div>
+              ) : null}
+              {status.azure_project ? (
+                <div><span style={{ color: "var(--text-3)" }}>{t("az.project")}:</span> {status.azure_project}</div>
+              ) : null}
+              {status.full_name && status.connected ? (
+                <div><span style={{ color: "var(--text-3)" }}>{t("integrations.azure.repo")}:</span> {status.full_name}</div>
+              ) : null}
+              {status.validation_message ? (
+                <div style={{ marginTop: 6 }}>
+                  {status.validation_ok ? (
+                    <span style={{ color: "var(--green, #22c55e)" }}>✓ {status.validation_message}</span>
+                  ) : (
+                    <span style={{ color: "var(--red, #ef4444)" }}>✗ {status.validation_message}</span>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {error ? (
+            <div className="alert alert-error" style={{ marginBottom: 12, fontSize: 12 }}>{error}</div>
+          ) : null}
+
+          {!status?.enabled ? (
+            <div>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={handleConnect}
+                disabled={!status?.oauth_configured || connecting}
+              >
+                {connecting ? t("az.connecting") : t("az.connect")}
+              </button>
+              <p style={{ fontSize: 11, color: "var(--text-3)", marginTop: 8 }}>{t("integrations.azure.oauth_hint")}</p>
+            </div>
+          ) : null}
+
+          {showTargetPicker ? (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>{t("az.select_target")}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 420 }}>
+                <select className="input" value={selectedOrg} onChange={(e) => { setSelectedOrg(e.target.value); setSelectedProject(""); setSelectedRepoId(""); }}>
+                  <option value="">{t("az.select_org")}</option>
+                  {orgs.map((o) => (
+                    <option key={o.account_id || o.account_name} value={o.account_name}>{o.account_name}</option>
+                  ))}
+                </select>
+                <select className="input" value={selectedProject} onChange={(e) => { setSelectedProject(e.target.value); setSelectedRepoId(""); }} disabled={!selectedOrg}>
+                  <option value="">{t("az.select_project")}</option>
+                  {projects.map((p) => (
+                    <option key={p.id || p.name} value={p.name}>{p.name}</option>
+                  ))}
+                </select>
+                <select className="input" value={selectedRepoId} onChange={(e) => setSelectedRepoId(e.target.value)} disabled={!selectedProject}>
+                  <option value="">{t("az.select_repo")}</option>
+                  {repos.map((r) => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                </select>
+                <button type="button" className="btn btn-primary btn-sm" onClick={handleSelectTarget} disabled={selecting || !selectedRepoId}>
+                  {selecting ? t("az.selecting") : t("az.select_target_btn")}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {status?.connected ? (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={handleVerify} disabled={verifying}>
+                {verifying ? t("common.working") : t("integrations.azure.verify")}
+              </button>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={handleConnect} disabled={connecting}>
+                {t("integrations.azure.reconnect")}
+              </button>
+              <button type="button" className="btn btn-sm" style={{ color: "var(--red)" }} onClick={() => setDisconnectOpen(true)}>
+                {t("integrations.azure.disconnect")}
+              </button>
+            </div>
+          ) : status?.enabled ? (
+            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              <button type="button" className="btn btn-sm" style={{ color: "var(--red)" }} onClick={() => setDisconnectOpen(true)}>
+                {t("integrations.azure.disconnect")}
+              </button>
+            </div>
+          ) : null}
+        </>
+      )}
+
+      {disconnectOpen ? (
+        <GitHubDisconnectDialog
+          open={disconnectOpen}
+          busy={disconnecting}
+          onConfirm={handleDisconnect}
+          onCancel={() => setDisconnectOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -711,6 +1025,8 @@ function ConnectorCard({ summary, onAction }) {
   const { t, lang } = useLang();
   const { currentProject } = useProject();
   const isGitHub = summary.connector_id === "github";
+  const isAzureDevOps = summary.connector_id === "azure_devops";
+  const isScmPanel = isGitHub || isAzureDevOps;
   const [expanded,  setExpanded]  = useState(false);
   const [detail,    setDetail]    = useState(null);
   const [actions,   setActions]   = useState(null);
@@ -718,6 +1034,7 @@ function ConnectorCard({ summary, onAction }) {
   const [toggling,  setToggling]  = useState(false);
   const [config,    setConfig]    = useState(null);
   const [ghStatus,  setGhStatus]  = useState(null);
+  const [azStatus,  setAzStatus]  = useState(null);
 
   const loadGitHubHeaderStatus = useCallback(async () => {
     if (!isGitHub || !currentProject?.id) {
@@ -732,9 +1049,26 @@ function ConnectorCard({ summary, onAction }) {
     }
   }, [isGitHub, currentProject?.id]);
 
+  const loadAzureHeaderStatus = useCallback(async () => {
+    if (!isAzureDevOps || !currentProject?.id) {
+      setAzStatus(null);
+      return;
+    }
+    try {
+      const st = await getProjectAzureDevOpsStatus(currentProject.id, false);
+      setAzStatus(st);
+    } catch {
+      setAzStatus(null);
+    }
+  }, [isAzureDevOps, currentProject?.id]);
+
   useEffect(() => {
     loadGitHubHeaderStatus();
   }, [loadGitHubHeaderStatus]);
+
+  useEffect(() => {
+    loadAzureHeaderStatus();
+  }, [loadAzureHeaderStatus]);
 
   const loadDetail = useCallback(async () => {
     try {
@@ -780,9 +1114,11 @@ function ConnectorCard({ summary, onAction }) {
 
   const icon = CONNECTOR_ICONS[summary.connector_id] || "◇";
   const ghHeader = isGitHub ? deriveGitHubHeaderState(ghStatus) : null;
-  const health = isGitHub ? ghHeader.health : ((detail && detail.health) || summary.health);
-  const healthLabel = isGitHub && ghHeader ? t(ghHeader.labelKey) : undefined;
-  const enabled = isGitHub ? Boolean(ghHeader?.enabled) : summary.enabled;
+  const azHeader = isAzureDevOps ? deriveAzureHeaderState(azStatus) : null;
+  const scmHeader = ghHeader || azHeader;
+  const health = isScmPanel ? scmHeader.health : ((detail && detail.health) || summary.health);
+  const healthLabel = isScmPanel && scmHeader ? t(scmHeader.labelKey) : undefined;
+  const enabled = isScmPanel ? Boolean(scmHeader?.enabled) : summary.enabled;
 
   return (
     <div className="card" style={{ marginBottom: 12, transition: "box-shadow 0.15s" }}>
@@ -817,7 +1153,7 @@ function ConnectorCard({ summary, onAction }) {
 
         {/* Actions */}
         <div style={{ display: "flex", gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-          {summary.connector_id !== "github" && (
+          {summary.connector_id !== "github" && summary.connector_id !== "azure_devops" && (
             <>
               <button
                 className="btn btn-secondary btn-sm"
@@ -851,7 +1187,7 @@ function ConnectorCard({ summary, onAction }) {
       {expanded && (
         <div style={{ marginTop: 16, borderTop: "1px solid var(--border)", paddingTop: 16 }}>
           {/* Health detail — legacy connectors only */}
-          {!isGitHub && detail && (
+          {!isScmPanel && detail && (
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 12, marginBottom: 8, color: "var(--text-2)" }}>
                 <span style={{ color: detail.health === "ok" ? "var(--green, #22c55e)" : "var(--red, #ef4444)", fontWeight: 600 }}>
@@ -878,7 +1214,7 @@ function ConnectorCard({ summary, onAction }) {
           )}
 
           {/* Supported actions — legacy connectors only */}
-          {!isGitHub && actions && actions.length > 0 && (
+          {!isScmPanel && actions && actions.length > 0 && (
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-2)", marginBottom: 6 }}>
                 {t("integrations.card.supported")}
@@ -900,6 +1236,8 @@ function ConnectorCard({ summary, onAction }) {
           {/* Config form — GitHub uses GitHub App panel instead of PAT */}
           {summary.connector_id === "github" ? (
             <GitHubAppPanel onStatusChange={setGhStatus} />
+          ) : summary.connector_id === "azure_devops" ? (
+            <AzureDevOpsPanel onStatusChange={setAzStatus} />
           ) : (
             <ConfigForm
               connectorId={summary.connector_id}

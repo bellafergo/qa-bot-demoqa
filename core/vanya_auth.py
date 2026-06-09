@@ -186,6 +186,7 @@ PUBLIC_PATH_PREFIXES: Tuple[str, ...] = (
     "/favicon.ico",
     "/agent-api",
     "/local-agents",
+    "/azure-devops/callback",
 )
 
 PUBLIC_PATHS_EXACT: FrozenSet[str] = frozenset()

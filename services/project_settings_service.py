@@ -124,6 +124,32 @@ def mask_settings_for_api(settings: Optional[Dict[str, Any]]) -> Optional[Dict[s
         if tok_present:
             gh_out["github_token"] = {"sensitive": True, "present": True, "deprecated": True}
 
+    az_in = settings.get("azure_devops") if isinstance(settings.get("azure_devops"), dict) else {}
+    az_out: Dict[str, Any] = {}
+    if az_in:
+        az_out["enabled"] = bool(az_in.get("enabled"))
+        provider = str(az_in.get("provider") or "").strip().lower()
+        if provider:
+            az_out["provider"] = provider
+        for key in (
+            "organization",
+            "azure_project",
+            "repository_id",
+            "repository_name",
+            "repo_url",
+            "default_branch",
+            "connected_by",
+            "connected_at",
+            "repo_selected_at",
+            "last_validated_at",
+        ):
+            v = az_in.get(key)
+            if v is not None and str(v).strip():
+                az_out[key] = str(v).strip()
+        rt = az_in.get("refresh_token")
+        if rt is not None and str(rt).strip():
+            az_out["refresh_token"] = {"sensitive": True, "present": True}
+
     out: Dict[str, Any] = {
         "login_profile": lp_out,
         "variables": vars_out,
@@ -131,6 +157,8 @@ def mask_settings_for_api(settings: Optional[Dict[str, Any]]) -> Optional[Dict[s
     }
     if gh_out:
         out["github"] = gh_out
+    if az_out:
+        out["azure_devops"] = az_out
     return out
 
 
@@ -175,5 +203,17 @@ def merge_settings(existing: Optional[Dict[str, Any]], patch: Optional[Dict[str,
                 else:
                     old_g[key] = v
             out["github"] = old_g
+
+    if "azure_devops" in patch and patch["azure_devops"] is not None:
+        old_a = dict(out.get("azure_devops") or {}) if isinstance(out.get("azure_devops"), dict) else {}
+        new_a = patch["azure_devops"]
+        if isinstance(new_a, dict):
+            for k, v in new_a.items():
+                key = str(k)
+                if v is None:
+                    old_a.pop(key, None)
+                else:
+                    old_a[key] = v
+            out["azure_devops"] = old_a
 
     return out

@@ -95,6 +95,27 @@ class Settings:
         return bool(self.GITHUB_TOKEN)
 
     # ----------------------------
+    # Azure DevOps — OAuth App Registration
+    # Redirect URI must be a fixed path (Azure Portal does not allow dynamic {project_id} segments).
+    # Production: https://qa-bot-demoqa.onrender.com/azure-devops/callback  (state=project_id)
+    # ----------------------------
+    AZURE_CLIENT_ID: str = (os.getenv("AZURE_CLIENT_ID") or "").strip()
+    AZURE_CLIENT_SECRET: str = (os.getenv("AZURE_CLIENT_SECRET") or "").strip()
+    AZURE_TENANT_ID: str = (os.getenv("AZURE_TENANT_ID") or "").strip()
+    AZURE_REDIRECT_URI: str = (os.getenv("AZURE_REDIRECT_URI") or "").strip().rstrip("/")
+    AZURE_DEVOPS_API_BASE: str = (os.getenv("AZURE_DEVOPS_API_BASE") or "https://dev.azure.com").strip().rstrip("/")
+    AZURE_OAUTH_SUCCESS_URL: str = (os.getenv("AZURE_OAUTH_SUCCESS_URL") or "").strip().rstrip("/")
+
+    @property
+    def HAS_AZURE_DEVOPS_OAUTH(self) -> bool:
+        return bool(
+            self.AZURE_CLIENT_ID
+            and self.AZURE_CLIENT_SECRET
+            and self.AZURE_TENANT_ID
+            and self.AZURE_REDIRECT_URI
+        )
+
+    # ----------------------------
     # Evidence capture
     # ----------------------------
     # Defaults: prod → off (reduces memory/disk), dev → on (debugging)

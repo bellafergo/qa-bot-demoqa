@@ -756,6 +756,51 @@ export function analyzeProjectGitHubPR(projectId, prNumber) {
   return apiPost(`/projects/${encodeURIComponent(projectId)}/github/pull-requests/${prNumber}/analyze`, {});
 }
 
+// ========= Azure DevOps Integration — OAuth (project-scoped) =========
+
+export function getProjectAzureDevOpsAuthorizeUrl(projectId) {
+  return apiGet(`/projects/${encodeURIComponent(projectId)}/azure-devops/authorize-url`);
+}
+
+export function getProjectAzureDevOpsStatus(projectId, validate = true) {
+  const q = new URLSearchParams({ validate: validate ? "true" : "false" });
+  return apiGet(`/projects/${encodeURIComponent(projectId)}/azure-devops/status?${q}`);
+}
+
+export function disconnectProjectAzureDevOps(projectId) {
+  return apiPost(`/projects/${encodeURIComponent(projectId)}/azure-devops/disconnect`, {});
+}
+
+export function listProjectAzureDevOpsOrganizations(projectId) {
+  return apiGet(`/projects/${encodeURIComponent(projectId)}/azure-devops/organizations`);
+}
+
+export function listProjectAzureDevOpsProjects(projectId, organization) {
+  const q = new URLSearchParams({ organization });
+  return apiGet(`/projects/${encodeURIComponent(projectId)}/azure-devops/projects?${q}`);
+}
+
+export function listProjectAzureDevOpsRepositories(projectId, organization, azureProject) {
+  const q = new URLSearchParams({ organization, azure_project: azureProject });
+  return apiGet(`/projects/${encodeURIComponent(projectId)}/azure-devops/repositories?${q}`);
+}
+
+export function selectProjectAzureDevOpsTarget(projectId, body) {
+  return apiPost(`/projects/${encodeURIComponent(projectId)}/azure-devops/select-target`, body);
+}
+
+export function listProjectAzureDevOpsPRs(projectId, limit = 20) {
+  const q = new URLSearchParams({ limit: String(limit) });
+  return apiGet(`/projects/${encodeURIComponent(projectId)}/azure-devops/pull-requests?${q}`);
+}
+
+export function analyzeProjectAzureDevOpsPR(projectId, pullRequestId) {
+  return apiPost(
+    `/projects/${encodeURIComponent(projectId)}/azure-devops/pull-requests/${pullRequestId}/analyze`,
+    {},
+  );
+}
+
 /** POST /projects/{id}/knowledge/refresh — mode: "replace" (default) | "merge" */
 export function refreshProjectKnowledge(projectId, mode = "replace") {
   const q = new URLSearchParams({ mode: String(mode || "replace") });
