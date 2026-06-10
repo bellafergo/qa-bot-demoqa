@@ -23,6 +23,7 @@ import { buildStorylineViewModel } from "../utils/incidentStorylineViewUtils.js"
 import { buildImpactMapViewModel } from "../utils/incidentImpactMapViewUtils.js";
 import { buildDeploymentRiskViewModel } from "../utils/deploymentRiskAssessmentViewUtils.js";
 import { buildTestRecommendationsViewModel } from "../utils/testRecommendationViewUtils.js";
+import { buildDecisionCenterViewModel } from "../utils/qualityDecisionCenterViewUtils.js";
 import { buildRecommendedActionsViewModel } from "../utils/incidentRecommendedActionsViewUtils.js";
 import EvidenceCorrelationDrilldownCell from "../components/incident/EvidenceCorrelationDrilldownCell.jsx";
 import RecommendedActionCard from "../components/incident/RecommendedActionCard.jsx";
@@ -89,6 +90,7 @@ function QaInvestigationReport({ report, t }) {
   const impactMapVm = buildImpactMapViewModel(report, t);
   const deploymentRiskVm = buildDeploymentRiskViewModel(report, t);
   const testRecommendationsVm = buildTestRecommendationsViewModel(report, t);
+  const decisionCenterVm = buildDecisionCenterViewModel(report, t);
   const recommendedActionsVm = buildRecommendedActionsViewModel(report, t);
   const es = report.evidence_strength;
   const temporal = report.temporal_correlation;
@@ -452,6 +454,121 @@ function QaInvestigationReport({ report, t }) {
                 ))}
               </ul>
             </>
+          )}
+        </div>
+      ) : null}
+
+      {decisionCenterVm.show ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {decisionCenterVm.title}
+          </div>
+          {decisionCenterVm.empty ? (
+            emptyStateText(decisionCenterVm.emptyMessage)
+          ) : (
+            <div
+              style={{
+                padding: "16px 18px",
+                background: "var(--bg-2)",
+                borderRadius: 8,
+                border: "1px solid var(--border, rgba(255,255,255,0.08))",
+              }}
+            >
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+                <span className={decisionCenterVm.center.statusBadgeClass}>
+                  {decisionCenterVm.overallStatusLabel}: {decisionCenterVm.center.statusLabel}
+                </span>
+                {decisionCenterVm.center.top_risk_score > 0 ? (
+                  <div
+                    style={{
+                      minWidth: 72,
+                      padding: "8px 12px",
+                      borderRadius: 8,
+                      background: "var(--bg-3, rgba(255,255,255,0.04))",
+                      textAlign: "center",
+                    }}
+                  >
+                    <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 2 }}>
+                      {decisionCenterVm.topRiskScoreLabel}
+                    </div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text-1)" }}>
+                      {decisionCenterVm.center.top_risk_score}
+                      <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text-3)" }}> / 100</span>
+                    </div>
+                  </div>
+                ) : null}
+                <span className="badge badge-orange">
+                  {decisionCenterVm.confidenceLabel}: {decisionCenterVm.center.confidenceText}
+                </span>
+                <span className="badge badge-blue">
+                  {decisionCenterVm.recommendedTestsLabel}: {decisionCenterVm.center.recommended_test_count}
+                </span>
+                <span className="badge badge-blue">
+                  {decisionCenterVm.recommendedActionsLabel}: {decisionCenterVm.center.recommended_action_count}
+                </span>
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 6 }}>
+                {decisionCenterVm.executiveSummaryLabel}
+              </div>
+              <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.55, marginBottom: 14 }}>
+                {decisionCenterVm.center.executive_summary}
+              </div>
+              {(decisionCenterVm.center.top_impacted_area || decisionCenterVm.center.top_hypothesis) ? (
+                <div style={{ display: "grid", gap: 10, marginBottom: 14 }}>
+                  {decisionCenterVm.center.top_impacted_area ? (
+                    <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+                      <span style={{ fontWeight: 600, color: "var(--text-3)" }}>
+                        {decisionCenterVm.topImpactedAreaLabel}:
+                      </span>{" "}
+                      <span style={{ color: "var(--text-2)" }}>{decisionCenterVm.center.top_impacted_area}</span>
+                    </div>
+                  ) : null}
+                  {decisionCenterVm.center.top_hypothesis ? (
+                    <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+                      <span style={{ fontWeight: 600, color: "var(--text-3)" }}>
+                        {decisionCenterVm.topHypothesisLabel}:
+                      </span>{" "}
+                      <span style={{ color: "var(--text-2)" }}>{decisionCenterVm.center.top_hypothesis}</span>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              {decisionCenterVm.center.takeaways?.length > 0 ? (
+                <>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+                    {decisionCenterVm.keyTakeawaysLabel}
+                  </div>
+                  <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                    {decisionCenterVm.center.takeaways.map((insight) => (
+                      <li
+                        key={`${insight.priority}-${insight.title}`}
+                        style={{
+                          marginBottom: 10,
+                          padding: "10px 12px",
+                          background: "var(--bg-3, rgba(255,255,255,0.03))",
+                          borderRadius: 6,
+                          fontSize: 13,
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        <strong style={{ color: "var(--text-1)", display: "block", marginBottom: 4 }}>
+                          {insight.title}
+                        </strong>
+                        <div style={{ color: "var(--text-3)", marginBottom: insight.drilldownItem ? 8 : 0 }}>
+                          {insight.description}
+                        </div>
+                        {insight.drilldownItem ? (
+                          <EvidenceCorrelationDrilldownCell item={insight.drilldownItem} />
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+              <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+                {decisionCenterVm.readOnlyNote}
+              </p>
+            </div>
           )}
         </div>
       ) : null}

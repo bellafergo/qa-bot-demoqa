@@ -205,6 +205,27 @@ class TestRecommendationReport(BaseModel):
     recommendation_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
+class DecisionCenterInsight(BaseModel):
+    title: str
+    description: str
+    priority: int = Field(default=99, ge=1)
+    related_entity_type: Optional[str] = None
+    related_entity_id: Optional[str] = None
+
+
+class DecisionCenterSummary(BaseModel):
+    overall_status: Literal["GREEN", "YELLOW", "ORANGE", "RED"] = "GREEN"
+    executive_summary: str = ""
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    top_risk_level: str = "LOW"
+    top_risk_score: int = Field(default=0, ge=0, le=100)
+    top_hypothesis: Optional[str] = None
+    top_impacted_area: Optional[str] = None
+    recommended_test_count: int = Field(default=0, ge=0)
+    recommended_action_count: int = Field(default=0, ge=0)
+    key_takeaways: List[DecisionCenterInsight] = Field(default_factory=list)
+
+
 class RecommendedAction(BaseModel):
     action_id: str
     title: str
@@ -286,6 +307,7 @@ class ProjectIncidentInvestigationReport(BaseModel):
     recommended_actions: List[RecommendedAction] = Field(default_factory=list)
     deployment_risk_assessment: Optional[DeploymentRiskAssessment] = None
     test_recommendations: Optional[TestRecommendationReport] = None
+    decision_center: Optional[DecisionCenterSummary] = None
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     confidence_breakdown: List["ConfidenceFactor"] = Field(default_factory=list)
     next_steps: List[str] = Field(default_factory=list)

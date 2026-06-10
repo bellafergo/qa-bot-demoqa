@@ -803,6 +803,18 @@ def investigate_project_incident(
         recommended_actions=recommended_actions,
     )
 
+    from services.quality_decision_center_service import build_decision_center
+
+    decision_center = build_decision_center(
+        hypotheses=hypotheses,
+        investigation_plan=investigation_plan,
+        storyline=storyline,
+        impact_map=impact_map,
+        recommended_actions=recommended_actions,
+        deployment_risk_assessment=deployment_risk_assessment,
+        test_recommendations=test_recommendations,
+    )
+
     actions_available = _build_actions_available(
         req=req,
         related_runs=related_runs,
@@ -846,6 +858,7 @@ def investigate_project_incident(
         recommended_actions=recommended_actions,
         deployment_risk_assessment=deployment_risk_assessment,
         test_recommendations=test_recommendations,
+        decision_center=decision_center,
         confidence=confidence,
         confidence_breakdown=confidence_breakdown,
         next_steps=next_steps,
