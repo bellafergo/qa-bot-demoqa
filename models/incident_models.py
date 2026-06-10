@@ -738,9 +738,21 @@ class ProjectIncidentInvestigationListResponse(BaseModel):
 def _resolve_forward_refs() -> None:
     from models.release_readiness_models import ReleaseReadinessView
 
-    ProjectIncidentInvestigationReport.model_rebuild(
-        _types_namespace={"ReleaseReadinessView": ReleaseReadinessView},
-    )
+    incident_types = {
+        "DeploymentRiskAssessment": DeploymentRiskAssessment,
+        "ContractRiskReport": ContractRiskReport,
+        "DataJourneyReport": DataJourneyReport,
+        "DecisionCenterSummary": DecisionCenterSummary,
+        "EarlyDegradationReport": EarlyDegradationReport,
+        "EnterpriseDependencyMap": EnterpriseDependencyMap,
+        "ExecutiveQualityReport": ExecutiveQualityReport,
+        "MultiEnvironmentReport": MultiEnvironmentReport,
+        "QualityHealthReport": QualityHealthReport,
+        "QualityTrendReport": QualityTrendReport,
+        "ReleaseReadinessView": ReleaseReadinessView,
+    }
+    ProjectIncidentInvestigationReport.model_rebuild(_types_namespace=incident_types)
+    ReleaseReadinessView.model_rebuild(_types_namespace=incident_types)
 
 
 _resolve_forward_refs()
