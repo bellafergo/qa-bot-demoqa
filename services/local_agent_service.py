@@ -581,14 +581,17 @@ def build_local_agent_report(*, project_id: Optional[str], limit: int = 200) -> 
         if agents
         else "No local agents registered."
     )
+    from services.enterprise_system_connector_service import build_enterprise_system_report
     from services.internal_api_connector_service import build_api_connector_report
 
     internal_api_connectors = build_api_connector_report(project_id=project_id, limit=limit)
+    enterprise_systems = build_enterprise_system_report(project_id=project_id, limit=limit)
     return LocalAgentReport(
         agents=agents,
         inventory=inventory,
         summary=summary,
         internal_api_connectors=internal_api_connectors,
+        enterprise_systems=enterprise_systems,
     )
 
 

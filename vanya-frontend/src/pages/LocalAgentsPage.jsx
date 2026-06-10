@@ -22,6 +22,8 @@ import {
 } from "../utils/databaseConnectorViewUtils.js";
 import { buildInternalApiConnectorViewModel } from "../utils/internalApiConnectorViewUtils.js";
 import InternalApiConnectorView from "../components/local-agents/InternalApiConnectorView.jsx";
+import { buildEnterpriseSystemViewModel } from "../utils/enterpriseSystemViewUtils.js";
+import EnterpriseSystemView from "../components/local-agents/EnterpriseSystemView.jsx";
 
 function fmtTs(iso) {
   if (!iso) return "—";
@@ -73,6 +75,7 @@ export default function LocalAgentsPage() {
   const [dbConnections, setDbConnections] = useState([]);
   const [dbExecutions, setDbExecutions] = useState([]);
   const [internalApiReport, setInternalApiReport] = useState(null);
+  const [enterpriseSystemReport, setEnterpriseSystemReport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
@@ -110,6 +113,7 @@ export default function LocalAgentsPage() {
         setDbConnections(Array.isArray(connections) ? connections : []);
         setDbExecutions(Array.isArray(executions) ? executions : []);
         setInternalApiReport(report?.internal_api_connectors || null);
+        setEnterpriseSystemReport(report?.enterprise_systems || null);
       } catch (e) {
         const msg = apiErrorMessage(e);
         if (!silent) {
@@ -210,6 +214,10 @@ export default function LocalAgentsPage() {
   const internalApiVm = useMemo(
     () => buildInternalApiConnectorViewModel(internalApiReport || { connectors: [], endpoints: [], validations: [] }, t),
     [internalApiReport, t],
+  );
+  const enterpriseSystemVm = useMemo(
+    () => buildEnterpriseSystemViewModel(enterpriseSystemReport || { connectors: [], modules: [], validations: [] }, t),
+    [enterpriseSystemReport, t],
   );
 
   return (
@@ -572,6 +580,16 @@ export default function LocalAgentsPage() {
         <InternalApiConnectorView vm={internalApiVm} />
         <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
           {internalApiVm.readOnlyNote}
+        </p>
+      </div>
+
+      <div style={{ marginTop: 28 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", marginBottom: 10 }}>
+          {enterpriseSystemVm.title}
+        </div>
+        <EnterpriseSystemView vm={enterpriseSystemVm} />
+        <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+          {enterpriseSystemVm.readOnlyNote}
         </p>
       </div>
     </div>

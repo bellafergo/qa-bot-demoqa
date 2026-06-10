@@ -730,6 +730,34 @@ export function listInternalApiConnectors(params = {}) {
   });
 }
 
+/** GET /local-agents/enterprise-systems — INT-03D enterprise systems. */
+export function listEnterpriseSystems(params = {}) {
+  const q = new URLSearchParams();
+  if (params.limit != null) q.set("limit", String(params.limit));
+  if (params.agent_id != null && String(params.agent_id).trim()) {
+    q.set("agent_id", String(params.agent_id).trim());
+  }
+  const qs = q.toString();
+  return apiFetchJson(`/local-agents/enterprise-systems${qs ? `?${qs}` : ""}`, {
+    method: "GET",
+    headers: { ...localAgentAdminHeaders(), "Content-Type": "application/json" },
+  });
+}
+
+/** GET /enterprise-system-validations */
+export function listEnterpriseSystemValidations(params = {}) {
+  const q = new URLSearchParams();
+  if (params.limit != null) q.set("limit", String(params.limit));
+  if (params.connector_id != null && String(params.connector_id).trim()) {
+    q.set("connector_id", String(params.connector_id).trim());
+  }
+  const qs = q.toString();
+  return apiFetchJson(`/enterprise-system-validations${qs ? `?${qs}` : ""}`, {
+    method: "GET",
+    headers: { ...localAgentAdminHeaders(), "Content-Type": "application/json" },
+  });
+}
+
 /** GET /internal-api-validations */
 export function listInternalApiValidations(params = {}) {
   const q = new URLSearchParams();
