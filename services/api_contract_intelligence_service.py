@@ -18,7 +18,7 @@ from models.incident_models import (
     ApiContract,
     ApiContractReport,
     ContractChange,
-    ContractRiskAssessment,
+    ApiContractChangeAssessment,
     DeploymentRiskAssessment,
     HistoricalLearningReport,
     IncidentHypothesis,
@@ -436,7 +436,7 @@ def _proposed_request_properties(
 
 def _contracts_from_stored_specs(
     stored_specs: List[Dict[str, str]],
-) -> Tuple[List[ApiContract], List[ContractRiskAssessment]]:
+) -> Tuple[List[ApiContract], List[ApiContractChangeAssessment]]:
     if not stored_specs:
         return [], []
 
@@ -456,7 +456,7 @@ def _contracts_from_stored_specs(
         return [], []
 
     contracts: List[ApiContract] = []
-    assessments: List[ContractRiskAssessment] = []
+    assessments: List[ApiContractChangeAssessment] = []
 
     if len(parsed_groups) >= 2:
         (_, old_version, old_endpoints), (_, new_version, new_endpoints) = parsed_groups[0], parsed_groups[1]
@@ -488,7 +488,7 @@ def _contracts_from_stored_specs(
                 continue
             risk_level = calculate_contract_risk_level(changes, None, None, service_name)
             assessments.append(
-                ContractRiskAssessment(
+                ApiContractChangeAssessment(
                     assessment_id=build_assessment_id(contract_id),
                     risk_level=risk_level,
                     confidence=0.85,
@@ -532,7 +532,7 @@ def build_api_contract_intelligence(
     explicit_contracts: Optional[List[Dict[str, Any]]] = None,
 ) -> Optional[ApiContractReport]:
     contracts: List[ApiContract] = []
-    assessments: List[ContractRiskAssessment] = []
+    assessments: List[ApiContractChangeAssessment] = []
     pr_api_signals = _pr_api_signals(related_pr_analysis)
 
     if stored_specs:
@@ -571,7 +571,7 @@ def build_api_contract_intelligence(
                     service,
                 )
                 assessments.append(
-                    ContractRiskAssessment(
+                    ApiContractChangeAssessment(
                         assessment_id=build_assessment_id(contract_id),
                         risk_level=risk_level,
                         confidence=_confidence_from_signals(changes, deployment_risk_assessment, pr_api_signals),
@@ -647,7 +647,7 @@ def build_api_contract_intelligence(
             template.service_name,
         )
         assessments.append(
-            ContractRiskAssessment(
+            ApiContractChangeAssessment(
                 assessment_id=build_assessment_id(contract_id),
                 risk_level=risk_level,
                 confidence=_confidence_from_signals(changes, deployment_risk_assessment, pr_api_signals),

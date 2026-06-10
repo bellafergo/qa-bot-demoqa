@@ -887,6 +887,18 @@ def investigate_project_incident(
         hypotheses=hypotheses,
     )
 
+    from services.contract_risk_assessment_service import build_contract_risk_assessment
+
+    contract_risk_assessment = build_contract_risk_assessment(
+        api_contract_intelligence=api_contract_intelligence,
+        deployment_risk_assessment=deployment_risk_assessment,
+        historical_learning=historical_learning,
+        impact_map=impact_map,
+        test_recommendations=test_recommendations,
+        data_journey_validation=data_journey_validation,
+        decision_center=decision_center,
+    )
+
     actions_available = _build_actions_available(
         req=req,
         related_runs=related_runs,
@@ -935,6 +947,7 @@ def investigate_project_incident(
         approval_workflow=approval_workflow,
         database_validation=database_validation,
         api_contract_intelligence=api_contract_intelligence,
+        contract_risk_assessment=contract_risk_assessment,
         data_journey_validation=data_journey_validation,
         confidence=confidence,
         confidence_breakdown=confidence_breakdown,

@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from models.incident_models import (
     ApiContract,
     ApiContractReport,
-    ContractRiskAssessment,
+    ApiContractChangeAssessment,
     DatabaseValidationCheck,
     DatabaseValidationReport,
     DatabaseValidationResult,
@@ -95,7 +95,7 @@ def _payments_contract() -> ApiContractReport:
             )
         ],
         risk_assessments=[
-            ContractRiskAssessment(
+            ApiContractChangeAssessment(
                 assessment_id=f"assessment:{contract_id}",
                 risk_level="LOW",
                 confidence=0.8,

@@ -314,7 +314,7 @@ class ContractChange(BaseModel):
     description: str = ""
 
 
-class ContractRiskAssessment(BaseModel):
+class ApiContractChangeAssessment(BaseModel):
     assessment_id: str
     risk_level: str
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
@@ -324,7 +324,7 @@ class ContractRiskAssessment(BaseModel):
 
 class ApiContractReport(BaseModel):
     contracts: List[ApiContract] = Field(default_factory=list)
-    risk_assessments: List[ContractRiskAssessment] = Field(default_factory=list)
+    risk_assessments: List[ApiContractChangeAssessment] = Field(default_factory=list)
     summary: str = ""
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
@@ -358,6 +358,41 @@ class DataJourneyResult(BaseModel):
 class DataJourneyReport(BaseModel):
     journeys: List[DataJourney] = Field(default_factory=list)
     results: List[DataJourneyResult] = Field(default_factory=list)
+    summary: str = ""
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class ContractDependency(BaseModel):
+    dependency_id: str
+    contract_id: str
+    dependency_type: str
+    dependency_name: str
+    risk_weight: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class ContractRiskFactor(BaseModel):
+    factor_id: str
+    title: str
+    description: str = ""
+    severity: str = "LOW"
+    weight: float = Field(default=0.0, ge=0.0, le=100.0)
+
+
+class ContractRiskAssessment(BaseModel):
+    assessment_id: str
+    contract_id: str
+    overall_risk_level: str
+    risk_score: int = Field(default=0, ge=0, le=100)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    summary: str = ""
+    affected_journeys: List[str] = Field(default_factory=list)
+    affected_modules: List[str] = Field(default_factory=list)
+    affected_tests: List[str] = Field(default_factory=list)
+    factors: List[ContractRiskFactor] = Field(default_factory=list)
+
+
+class ContractRiskReport(BaseModel):
+    assessments: List[ContractRiskAssessment] = Field(default_factory=list)
     summary: str = ""
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
@@ -448,6 +483,7 @@ class ProjectIncidentInvestigationReport(BaseModel):
     approval_workflow: Optional[ApprovalWorkflowSummary] = None
     database_validation: Optional[DatabaseValidationReport] = None
     api_contract_intelligence: Optional[ApiContractReport] = None
+    contract_risk_assessment: Optional[ContractRiskReport] = None
     data_journey_validation: Optional[DataJourneyReport] = None
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     confidence_breakdown: List["ConfidenceFactor"] = Field(default_factory=list)

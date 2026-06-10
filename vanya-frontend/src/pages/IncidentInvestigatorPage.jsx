@@ -28,6 +28,7 @@ import { buildHistoricalLearningViewModel } from "../utils/historicalLearningVie
 import { buildApprovalWorkflowViewModel } from "../utils/approvalWorkflowViewUtils.js";
 import { buildDatabaseValidationViewModel } from "../utils/databaseValidationViewUtils.js";
 import { buildApiContractIntelligenceViewModel } from "../utils/apiContractIntelligenceViewUtils.js";
+import { buildContractRiskAssessmentViewModel } from "../utils/contractRiskAssessmentViewUtils.js";
 import { buildDataJourneyValidationViewModel } from "../utils/dataJourneyValidationViewUtils.js";
 import { buildRecommendedActionsViewModel } from "../utils/incidentRecommendedActionsViewUtils.js";
 import EvidenceCorrelationDrilldownCell from "../components/incident/EvidenceCorrelationDrilldownCell.jsx";
@@ -43,6 +44,7 @@ import {
 } from "../api";
 import { buildExecuteValidationPreviewPayload, pickConnectionForCheck } from "../utils/databaseConnectorViewUtils.js";
 import ApiContractCard from "../components/incident/ApiContractCard.jsx";
+import ContractRiskAssessmentCard from "../components/incident/ContractRiskAssessmentCard.jsx";
 import DataJourneyCard from "../components/incident/DataJourneyCard.jsx";
 
 function fmtTs(iso) {
@@ -134,6 +136,7 @@ function QaInvestigationReport({ report, t }) {
     approvalStatusByCheckId,
   });
   const apiContractIntelligenceVm = buildApiContractIntelligenceViewModel(report, t);
+  const contractRiskAssessmentVm = buildContractRiskAssessmentViewModel(report, t);
   const dataJourneyValidationVm = buildDataJourneyValidationViewModel(report, t);
   const decisionCenterVm = buildDecisionCenterViewModel(report, t);
   const historicalLearningVm = buildHistoricalLearningViewModel(report, t, fmtTs);
@@ -551,6 +554,56 @@ function QaInvestigationReport({ report, t }) {
               </ul>
               <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
                 {apiContractIntelligenceVm.readOnlyNote}
+              </p>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {contractRiskAssessmentVm.show ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {contractRiskAssessmentVm.title}
+          </div>
+          {contractRiskAssessmentVm.empty ? (
+            emptyStateText(contractRiskAssessmentVm.emptyMessage)
+          ) : (
+            <div
+              style={{
+                padding: "16px 18px",
+                background: "var(--bg-2)",
+                borderRadius: 8,
+                border: "1px solid var(--border, rgba(255,255,255,0.08))",
+              }}
+            >
+              <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.55, marginBottom: 12 }}>
+                {contractRiskAssessmentVm.report.summary}
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                <span className="badge badge-orange">
+                  {contractRiskAssessmentVm.confidenceLabel}: {contractRiskAssessmentVm.report.confidenceText}
+                </span>
+              </div>
+              <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                {contractRiskAssessmentVm.report.assessments.map((assessment) => (
+                  <ContractRiskAssessmentCard
+                    key={assessment.assessment_id}
+                    assessment={assessment}
+                    labels={{
+                      riskScoreLabel: contractRiskAssessmentVm.riskScoreLabel,
+                      riskLevelLabel: contractRiskAssessmentVm.riskLevelLabel,
+                      confidenceLabel: contractRiskAssessmentVm.confidenceLabel,
+                      affectedJourneysLabel: contractRiskAssessmentVm.affectedJourneysLabel,
+                      affectedModulesLabel: contractRiskAssessmentVm.affectedModulesLabel,
+                      affectedTestsLabel: contractRiskAssessmentVm.affectedTestsLabel,
+                      riskFactorsLabel: contractRiskAssessmentVm.riskFactorsLabel,
+                      previewLabel: contractRiskAssessmentVm.previewLabel,
+                    }}
+                  />
+                ))}
+              </ul>
+              <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+                {contractRiskAssessmentVm.readOnlyNote}
               </p>
             </div>
           )}
