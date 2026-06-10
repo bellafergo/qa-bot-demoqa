@@ -31,7 +31,9 @@ import ExecutiveReportCenterView from "../components/executive-reports/Executive
 import { buildEarlyDegradationViewModelFromApi } from "../utils/earlyDegradationViewUtils.js";
 import EarlyDegradationReportView from "../components/incident/EarlyDegradationReportView.jsx";
 import ReleaseReadinessView from "../components/release-readiness/ReleaseReadinessView.jsx";
+import ReportDeliveryCenter from "../components/executive-reports/ReportDeliveryCenter.jsx";
 import { buildReleaseReadinessViewModel } from "../utils/releaseReadinessViewUtils.js";
+import { buildReportDeliveryViewModel } from "../utils/reportDeliveryViewUtils.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -1080,6 +1082,11 @@ export default function DashboardPage() {
     [s, t],
   );
 
+  const reportDeliveryVm = useMemo(
+    () => buildReportDeliveryViewModel({ readiness: null, t }),
+    [t],
+  );
+
   const qualityTrendVm = useMemo(
     () => buildQualityTrendViewModelFromApi(qualityTrends, t),
     [qualityTrends, t],
@@ -1339,6 +1346,18 @@ export default function DashboardPage() {
             <ReleaseReadinessView vm={releaseReadinessVm} />
             <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
               {releaseReadinessVm.readOnlyNote}
+            </p>
+          </div>
+        ) : null}
+
+        {projectId ? (
+          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
+              {reportDeliveryVm.title}
+            </div>
+            <ReportDeliveryCenter projectId={projectId} />
+            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+              {reportDeliveryVm.readOnlyNote}
             </p>
           </div>
         ) : null}

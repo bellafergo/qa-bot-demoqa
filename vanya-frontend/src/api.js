@@ -343,6 +343,16 @@ export function getProjectReleaseReadiness(projectId) {
   return apiGet(`/projects/${encodeURIComponent(pid)}/release-readiness`);
 }
 
+export function previewReportDelivery(projectId, body) {
+  const pid = String(projectId || "").trim();
+  return apiPost(`/projects/${encodeURIComponent(pid)}/reports/preview`, body);
+}
+
+export function sendReportDelivery(projectId, body) {
+  const pid = String(projectId || "").trim();
+  return apiPost(`/projects/${encodeURIComponent(pid)}/reports/send`, body);
+}
+
 export function getDashboardRecentRuns(limit = 20, project_id) {
   const q = new URLSearchParams({ limit: String(limit) });
   if (project_id != null && String(project_id).trim()) {
