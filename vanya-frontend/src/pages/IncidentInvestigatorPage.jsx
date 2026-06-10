@@ -21,7 +21,9 @@ import {
 } from "../utils/incidentReportViewUtils.js";
 import { buildStorylineViewModel } from "../utils/incidentStorylineViewUtils.js";
 import { buildImpactMapViewModel } from "../utils/incidentImpactMapViewUtils.js";
+import { buildRecommendedActionsViewModel } from "../utils/incidentRecommendedActionsViewUtils.js";
 import EvidenceCorrelationDrilldownCell from "../components/incident/EvidenceCorrelationDrilldownCell.jsx";
+import RecommendedActionCard from "../components/incident/RecommendedActionCard.jsx";
 
 function fmtTs(iso) {
   if (!iso) return "—";
@@ -82,6 +84,7 @@ function QaInvestigationReport({ report, t }) {
   const vm = buildIncidentReportViewModel(report, t);
   const storylineVm = buildStorylineViewModel(report, t);
   const impactMapVm = buildImpactMapViewModel(report, t);
+  const recommendedActionsVm = buildRecommendedActionsViewModel(report, t);
   const es = report.evidence_strength;
   const temporal = report.temporal_correlation;
   return (
@@ -332,6 +335,32 @@ function QaInvestigationReport({ report, t }) {
                 </div>
               ))}
             </div>
+          )}
+        </div>
+      ) : null}
+
+      {recommendedActionsVm.show ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {recommendedActionsVm.title}
+          </div>
+          {recommendedActionsVm.empty ? (
+            emptyStateText(recommendedActionsVm.emptyMessage)
+          ) : (
+            <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+              {recommendedActionsVm.actions.map((action) => (
+                <RecommendedActionCard
+                  key={action.action_id}
+                  action={action}
+                  labels={{
+                    approvalRequiredLabel: recommendedActionsVm.approvalRequiredLabel,
+                    priorityLabel: recommendedActionsVm.priorityLabel,
+                    confidenceLabel: recommendedActionsVm.confidenceLabel,
+                    actionTypeLabel: recommendedActionsVm.actionTypeLabel,
+                  }}
+                />
+              ))}
+            </ul>
           )}
         </div>
       ) : null}

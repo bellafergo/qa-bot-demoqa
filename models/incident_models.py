@@ -170,6 +170,19 @@ class IncidentImpactNode(BaseModel):
     related_entity_id: Optional[str] = None
 
 
+class RecommendedAction(BaseModel):
+    action_id: str
+    title: str
+    description: str
+    reason: str
+    priority: int = Field(default=50, ge=1, le=99)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    action_type: str
+    requires_user_approval: bool = True
+    related_entity_type: Optional[str] = None
+    related_entity_id: Optional[str] = None
+
+
 class IncidentActionAvailable(BaseModel):
     action: str
     label: str
@@ -235,6 +248,7 @@ class ProjectIncidentInvestigationReport(BaseModel):
     investigation_plan: List[InvestigationPlanItem] = Field(default_factory=list)
     storyline: List[IncidentStorylineStep] = Field(default_factory=list)
     impact_map: List[IncidentImpactNode] = Field(default_factory=list)
+    recommended_actions: List[RecommendedAction] = Field(default_factory=list)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     confidence_breakdown: List["ConfidenceFactor"] = Field(default_factory=list)
     next_steps: List[str] = Field(default_factory=list)
