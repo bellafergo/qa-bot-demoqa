@@ -786,6 +786,23 @@ def investigate_project_incident(
         temporal_correlation=temporal_correlation,
     )
 
+    from services.test_recommendation_service import build_test_recommendations
+
+    test_recommendations = build_test_recommendations(
+        hypotheses=hypotheses,
+        evidence_correlation=evidence_correlation,
+        investigation_plan=investigation_plan,
+        storyline=storyline,
+        impact_map=impact_map,
+        related_runs=related_runs,
+        related_pr_analysis=related_pr_analysis,
+        browser_events=browser_events,
+        clusters=clusters,
+        temporal_correlation=temporal_correlation,
+        deployment_risk_assessment=deployment_risk_assessment,
+        recommended_actions=recommended_actions,
+    )
+
     actions_available = _build_actions_available(
         req=req,
         related_runs=related_runs,
@@ -828,6 +845,7 @@ def investigate_project_incident(
         impact_map=impact_map,
         recommended_actions=recommended_actions,
         deployment_risk_assessment=deployment_risk_assessment,
+        test_recommendations=test_recommendations,
         confidence=confidence,
         confidence_breakdown=confidence_breakdown,
         next_steps=next_steps,

@@ -22,9 +22,11 @@ import {
 import { buildStorylineViewModel } from "../utils/incidentStorylineViewUtils.js";
 import { buildImpactMapViewModel } from "../utils/incidentImpactMapViewUtils.js";
 import { buildDeploymentRiskViewModel } from "../utils/deploymentRiskAssessmentViewUtils.js";
+import { buildTestRecommendationsViewModel } from "../utils/testRecommendationViewUtils.js";
 import { buildRecommendedActionsViewModel } from "../utils/incidentRecommendedActionsViewUtils.js";
 import EvidenceCorrelationDrilldownCell from "../components/incident/EvidenceCorrelationDrilldownCell.jsx";
 import RecommendedActionCard from "../components/incident/RecommendedActionCard.jsx";
+import RecommendedTestCard from "../components/incident/RecommendedTestCard.jsx";
 
 function fmtTs(iso) {
   if (!iso) return "—";
@@ -86,6 +88,7 @@ function QaInvestigationReport({ report, t }) {
   const storylineVm = buildStorylineViewModel(report, t);
   const impactMapVm = buildImpactMapViewModel(report, t);
   const deploymentRiskVm = buildDeploymentRiskViewModel(report, t);
+  const testRecommendationsVm = buildTestRecommendationsViewModel(report, t);
   const recommendedActionsVm = buildRecommendedActionsViewModel(report, t);
   const es = report.evidence_strength;
   const temporal = report.temporal_correlation;
@@ -417,6 +420,38 @@ function QaInvestigationReport({ report, t }) {
                 ))}
               </ul>
             </div>
+          )}
+        </div>
+      ) : null}
+
+      {testRecommendationsVm.show ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {testRecommendationsVm.title}
+          </div>
+          {testRecommendationsVm.empty ? (
+            emptyStateText(testRecommendationsVm.emptyMessage)
+          ) : (
+            <>
+              <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.55, marginBottom: 12 }}>
+                {testRecommendationsVm.summary}
+              </div>
+              <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                {testRecommendationsVm.recommendations.map((rec) => (
+                  <RecommendedTestCard
+                    key={rec.recommendation_id}
+                    recommendation={rec}
+                    labels={{
+                      approvalRequiredLabel: testRecommendationsVm.approvalRequiredLabel,
+                      priorityLabel: testRecommendationsVm.priorityLabel,
+                      confidenceLabel: testRecommendationsVm.confidenceLabel,
+                      riskReductionLabel: testRecommendationsVm.riskReductionLabel,
+                      previewLabel: testRecommendationsVm.previewLabel,
+                    }}
+                  />
+                ))}
+              </ul>
+            </>
           )}
         </div>
       ) : null}

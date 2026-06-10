@@ -186,6 +186,25 @@ class DeploymentRiskAssessment(BaseModel):
     contributing_factors: List[RiskFactor] = Field(default_factory=list)
 
 
+class RecommendedTest(BaseModel):
+    recommendation_id: str
+    test_name: str
+    test_type: str = "smoke"
+    priority: int = Field(default=99, ge=1)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    reason: str = ""
+    estimated_risk_reduction: float = Field(default=0.0, ge=0.0, le=1.0)
+    related_entity_type: Optional[str] = None
+    related_entity_id: Optional[str] = None
+    requires_user_approval: bool = True
+
+
+class TestRecommendationReport(BaseModel):
+    recommendations: List[RecommendedTest] = Field(default_factory=list)
+    summary: str = ""
+    recommendation_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
 class RecommendedAction(BaseModel):
     action_id: str
     title: str
@@ -266,6 +285,7 @@ class ProjectIncidentInvestigationReport(BaseModel):
     impact_map: List[IncidentImpactNode] = Field(default_factory=list)
     recommended_actions: List[RecommendedAction] = Field(default_factory=list)
     deployment_risk_assessment: Optional[DeploymentRiskAssessment] = None
+    test_recommendations: Optional[TestRecommendationReport] = None
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     confidence_breakdown: List["ConfidenceFactor"] = Field(default_factory=list)
     next_steps: List[str] = Field(default_factory=list)
