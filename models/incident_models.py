@@ -421,6 +421,58 @@ class EnterpriseDependencyMap(BaseModel):
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
+class EnvironmentProfile(BaseModel):
+    environment_id: str
+    name: str
+    type: str
+    status: str = "UNKNOWN"
+    url_label: Optional[str] = None
+    is_production: bool = False
+
+
+class EnvironmentSignal(BaseModel):
+    signal_id: str
+    environment_id: str
+    signal_type: str
+    title: str
+    description: str = ""
+    severity: str = "LOW"
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    related_entity_type: Optional[str] = None
+    related_entity_id: Optional[str] = None
+
+
+class EnvironmentComparison(BaseModel):
+    comparison_id: str
+    source_environment_id: str
+    target_environment_id: str
+    comparison_type: str
+    summary: str = ""
+    risk_delta: int = 0
+    status_delta: str = ""
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class PromotionReadiness(BaseModel):
+    source_environment_id: str
+    target_environment_id: str
+    readiness_status: str
+    readiness_score: int = Field(default=0, ge=0, le=100)
+    blockers: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    recommended_validations: List[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class MultiEnvironmentReport(BaseModel):
+    environments: List[EnvironmentProfile] = Field(default_factory=list)
+    signals: List[EnvironmentSignal] = Field(default_factory=list)
+    comparisons: List[EnvironmentComparison] = Field(default_factory=list)
+    promotion_readiness: List[PromotionReadiness] = Field(default_factory=list)
+    summary: str = ""
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
 class ExecutiveQualityReport(BaseModel):
     report_id: str
     generated_at: str
@@ -529,6 +581,7 @@ class ProjectIncidentInvestigationReport(BaseModel):
     data_journey_validation: Optional[DataJourneyReport] = None
     enterprise_dependency_map: Optional[EnterpriseDependencyMap] = None
     executive_quality_report: Optional[ExecutiveQualityReport] = None
+    multi_environment: Optional[MultiEnvironmentReport] = None
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     confidence_breakdown: List["ConfidenceFactor"] = Field(default_factory=list)
     next_steps: List[str] = Field(default_factory=list)

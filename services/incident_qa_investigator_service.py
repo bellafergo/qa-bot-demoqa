@@ -928,6 +928,37 @@ def investigate_project_incident(
         enterprise_dependency_map=enterprise_dependency_map,
     )
 
+    from services.environment_intelligence_service import build_multi_environment_intelligence
+
+    project_metadata = None
+    try:
+        from services.db.project_repository import project_repo
+
+        project = project_repo.get_project(pid)
+        if project and hasattr(project, "metadata"):
+            project_metadata = getattr(project, "metadata", None)
+        elif project and isinstance(project, dict):
+            project_metadata = project.get("metadata")
+    except Exception:
+        project_metadata = None
+
+    multi_environment = build_multi_environment_intelligence(
+        project_metadata=project_metadata if isinstance(project_metadata, dict) else None,
+        executive_quality_report=executive_quality_report,
+        decision_center=decision_center,
+        deployment_risk_assessment=deployment_risk_assessment,
+        contract_risk_assessment=contract_risk_assessment,
+        data_journey_validation=data_journey_validation,
+        database_validation=database_validation,
+        enterprise_dependency_map=enterprise_dependency_map,
+        api_contract_intelligence=api_contract_intelligence,
+        historical_learning=historical_learning,
+        test_recommendations=test_recommendations,
+        recommended_actions=recommended_actions,
+        recommended_tests=recommended_tests,
+        browser_watch_alert_count=len(browser_events),
+    )
+
     actions_available = _build_actions_available(
         req=req,
         related_runs=related_runs,
@@ -980,6 +1011,7 @@ def investigate_project_incident(
         data_journey_validation=data_journey_validation,
         enterprise_dependency_map=enterprise_dependency_map,
         executive_quality_report=executive_quality_report,
+        multi_environment=multi_environment,
         confidence=confidence,
         confidence_breakdown=confidence_breakdown,
         next_steps=next_steps,
