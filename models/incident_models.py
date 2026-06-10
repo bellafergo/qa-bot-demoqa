@@ -421,6 +421,24 @@ class EnterpriseDependencyMap(BaseModel):
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
+class ExecutiveQualityReport(BaseModel):
+    report_id: str
+    generated_at: str
+    overall_quality_score: int = Field(default=0, ge=0, le=100)
+    overall_risk_level: str = "LOW"
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    executive_summary: str = ""
+    top_risks: List[str] = Field(default_factory=list)
+    top_recommendations: List[str] = Field(default_factory=list)
+    open_incident_count: int = Field(default=0, ge=0)
+    critical_incident_count: int = Field(default=0, ge=0)
+    critical_contract_count: int = Field(default=0, ge=0)
+    broken_journey_count: int = Field(default=0, ge=0)
+    recommended_test_count: int = Field(default=0, ge=0)
+    historical_pattern_summary: str = ""
+    quality_trend: str = "stable"
+
+
 class RecommendedAction(BaseModel):
     action_id: str
     title: str
@@ -510,6 +528,7 @@ class ProjectIncidentInvestigationReport(BaseModel):
     contract_risk_assessment: Optional[ContractRiskReport] = None
     data_journey_validation: Optional[DataJourneyReport] = None
     enterprise_dependency_map: Optional[EnterpriseDependencyMap] = None
+    executive_quality_report: Optional[ExecutiveQualityReport] = None
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     confidence_breakdown: List["ConfidenceFactor"] = Field(default_factory=list)
     next_steps: List[str] = Field(default_factory=list)

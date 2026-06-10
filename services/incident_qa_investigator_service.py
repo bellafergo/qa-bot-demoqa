@@ -914,6 +914,20 @@ def investigate_project_incident(
         recommended_tests=recommended_tests,
     )
 
+    from services.executive_quality_report_service import build_executive_quality_report
+
+    executive_quality_report = build_executive_quality_report(
+        project_id=pid,
+        decision_center=decision_center,
+        deployment_risk_assessment=deployment_risk_assessment,
+        historical_learning=historical_learning,
+        test_recommendations=test_recommendations,
+        recommended_actions=recommended_actions,
+        contract_risk_assessment=contract_risk_assessment,
+        data_journey_validation=data_journey_validation,
+        enterprise_dependency_map=enterprise_dependency_map,
+    )
+
     actions_available = _build_actions_available(
         req=req,
         related_runs=related_runs,
@@ -965,6 +979,7 @@ def investigate_project_incident(
         contract_risk_assessment=contract_risk_assessment,
         data_journey_validation=data_journey_validation,
         enterprise_dependency_map=enterprise_dependency_map,
+        executive_quality_report=executive_quality_report,
         confidence=confidence,
         confidence_breakdown=confidence_breakdown,
         next_steps=next_steps,
