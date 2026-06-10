@@ -35,6 +35,12 @@ import RecommendedTestCard from "../components/incident/RecommendedTestCard.jsx"
 import SimilarIncidentCard from "../components/incident/SimilarIncidentCard.jsx";
 import ApprovalRequestCard from "../components/incident/ApprovalRequestCard.jsx";
 import DatabaseValidationCheckCard from "../components/incident/DatabaseValidationCheckCard.jsx";
+import {
+  executeDatabaseValidation,
+  listDatabaseConnections,
+  simulateDatabaseValidationApproval,
+} from "../api";
+import { buildExecuteValidationPreviewPayload, pickConnectionForCheck } from "../utils/databaseConnectorViewUtils.js";
 import ApiContractCard from "../components/incident/ApiContractCard.jsx";
 
 function fmtTs(iso) {
@@ -92,13 +98,39 @@ function emptyStateText(message) {
 }
 
 function QaInvestigationReport({ report, t }) {
+  const [dbConnections, setDbConnections] = useState([]);
+  const [approvalStatusByCheckId, setApprovalStatusByCheckId] = useState({});
+  const [executeBusyId, setExecuteBusyId] = useState(null);
+
+  useEffect(() => {
+    if (!report?.database_validation) {
+      setDbConnections([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await listDatabaseConnections({ limit: 100 });
+        if (!cancelled) setDbConnections(Array.isArray(data) ? data : []);
+      } catch {
+        if (!cancelled) setDbConnections([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [report?.database_validation]);
+
   if (!report) return null;
   const vm = buildIncidentReportViewModel(report, t);
   const storylineVm = buildStorylineViewModel(report, t);
   const impactMapVm = buildImpactMapViewModel(report, t);
   const deploymentRiskVm = buildDeploymentRiskViewModel(report, t);
   const testRecommendationsVm = buildTestRecommendationsViewModel(report, t);
-  const databaseValidationVm = buildDatabaseValidationViewModel(report, t);
+  const databaseValidationVm = buildDatabaseValidationViewModel(report, t, {
+    connections: dbConnections,
+    approvalStatusByCheckId,
+  });
   const apiContractIntelligenceVm = buildApiContractIntelligenceViewModel(report, t);
   const decisionCenterVm = buildDecisionCenterViewModel(report, t);
   const historicalLearningVm = buildHistoricalLearningViewModel(report, t, fmtTs);
@@ -410,21 +442,59 @@ function QaInvestigationReport({ report, t }) {
                 {databaseValidationVm.validation.summary}
               </div>
               <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
-                {databaseValidationVm.validation.checks.map((check) => (
-                  <DatabaseValidationCheckCard
-                    key={check.check_id}
-                    check={check}
-                    labels={{
-                      approvalRequiredLabel: databaseValidationVm.approvalRequiredLabel,
-                      readOnlySafetyLabel: databaseValidationVm.readOnlySafetyLabel,
-                      databaseTypeLabel: databaseValidationVm.databaseTypeLabel,
-                      expectedResultLabel: databaseValidationVm.expectedResultLabel,
-                      enabledLabel: databaseValidationVm.enabledLabel,
-                      disabledLabel: databaseValidationVm.disabledLabel,
-                      previewLabel: databaseValidationVm.previewLabel,
-                    }}
-                  />
-                ))}
+                {databaseValidationVm.validation.checks.map((check) => {
+                  const connection = pickConnectionForCheck(dbConnections, check);
+                  const approvalStatus = approvalStatusByCheckId[check.check_id] || check.approvalStatus || "PENDING";
+                  const executePayload = connection
+                    ? buildExecuteValidationPreviewPayload(check, connection, approvalStatus, t)
+                    : null;
+                  return (
+                    <DatabaseValidationCheckCard
+                      key={check.check_id}
+                      check={check}
+                      executePayload={executePayload}
+                      executeBusy={executeBusyId === check.check_id}
+                      labels={{
+                        approvalRequiredLabel: databaseValidationVm.approvalRequiredLabel,
+                        readOnlySafetyLabel: databaseValidationVm.readOnlySafetyLabel,
+                        databaseTypeLabel: databaseValidationVm.databaseTypeLabel,
+                        expectedResultLabel: databaseValidationVm.expectedResultLabel,
+                        enabledLabel: databaseValidationVm.enabledLabel,
+                        disabledLabel: databaseValidationVm.disabledLabel,
+                        previewLabel: databaseValidationVm.previewLabel,
+                        executeLabel: databaseValidationVm.executeLabel,
+                      }}
+                      onSimulateApprove={async () => {
+                        setExecuteBusyId(check.check_id);
+                        try {
+                          const approval = await simulateDatabaseValidationApproval({
+                            check_id: check.check_id,
+                            status: "APPROVED",
+                          });
+                          setApprovalStatusByCheckId((prev) => ({
+                            ...prev,
+                            [check.check_id]: approval?.status || "APPROVED",
+                          }));
+                        } finally {
+                          setExecuteBusyId(null);
+                        }
+                      }}
+                      onExecute={async () => {
+                        if (!connection) return null;
+                        setExecuteBusyId(check.check_id);
+                        try {
+                          const result = await executeDatabaseValidation({
+                            check,
+                            connection_id: connection.connection_id,
+                          });
+                          return result;
+                        } finally {
+                          setExecuteBusyId(null);
+                        }
+                      }}
+                    />
+                  );
+                })}
               </ul>
               <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
                 {databaseValidationVm.futureFooter}

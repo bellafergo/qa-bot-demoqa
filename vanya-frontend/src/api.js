@@ -687,6 +687,52 @@ export function disableLocalAgent(agentId) {
   });
 }
 
+/** GET /local-agents/database-connections — INT-03B secure connectors. */
+export function listDatabaseConnections(params = {}) {
+  const q = new URLSearchParams();
+  if (params.limit != null) q.set("limit", String(params.limit));
+  if (params.agent_id != null && String(params.agent_id).trim()) {
+    q.set("agent_id", String(params.agent_id).trim());
+  }
+  const qs = q.toString();
+  return apiFetchJson(`/local-agents/database-connections${qs ? `?${qs}` : ""}`, {
+    method: "GET",
+    headers: { ...localAgentAdminHeaders(), "Content-Type": "application/json" },
+  });
+}
+
+/** GET /database-validation/executions */
+export function listDatabaseValidationExecutions(params = {}) {
+  const q = new URLSearchParams();
+  if (params.limit != null) q.set("limit", String(params.limit));
+  if (params.connection_id != null && String(params.connection_id).trim()) {
+    q.set("connection_id", String(params.connection_id).trim());
+  }
+  const qs = q.toString();
+  return apiFetchJson(`/database-validation/executions${qs ? `?${qs}` : ""}`, {
+    method: "GET",
+    headers: { ...localAgentAdminHeaders(), "Content-Type": "application/json" },
+  });
+}
+
+/** POST /database-validation/approvals/simulate */
+export function simulateDatabaseValidationApproval(body) {
+  return apiFetchJson("/database-validation/approvals/simulate", {
+    method: "POST",
+    headers: { ...localAgentAdminHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+/** POST /database-validation/executions */
+export function executeDatabaseValidation(body) {
+  return apiFetchJson("/database-validation/executions", {
+    method: "POST",
+    headers: { ...localAgentAdminHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 /** GET /local-agents/foundation/report — INT-03A foundation inventory report. */
 export function getLocalAgentFoundationReport(params = {}) {
   const q = new URLSearchParams();

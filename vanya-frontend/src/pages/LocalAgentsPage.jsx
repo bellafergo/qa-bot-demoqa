@@ -1,12 +1,25 @@
 // src/pages/LocalAgentsPage.jsx
 /** Phase 4E — Local agents admin UI (list, health heuristic, detail, disable). */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { listLocalAgents, getLocalAgent, disableLocalAgent, getLocalAgentFoundationReport, apiErrorMessage } from "../api";
+import {
+  listLocalAgents,
+  getLocalAgent,
+  disableLocalAgent,
+  getLocalAgentFoundationReport,
+  listDatabaseConnections,
+  listDatabaseValidationExecutions,
+  apiErrorMessage,
+} from "../api";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
 import { useToast } from "../context/ToastContext.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import { buildLocalAgentsViewModel } from "../utils/localAgentsViewUtils.js";
+import {
+  buildDatabaseConnectionsViewModel,
+  buildDatabaseExecutionsViewModel,
+  DATABASE_CONNECTOR_I18N_KEYS,
+} from "../utils/databaseConnectorViewUtils.js";
 
 function fmtTs(iso) {
   if (!iso) return "—";
@@ -55,6 +68,8 @@ export default function LocalAgentsPage() {
   const { showToast } = useToast();
   const [agents, setAgents] = useState([]);
   const [foundationReport, setFoundationReport] = useState(null);
+  const [dbConnections, setDbConnections] = useState([]);
+  const [dbExecutions, setDbExecutions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
@@ -81,12 +96,16 @@ export default function LocalAgentsPage() {
       }
       try {
         const pid = currentProject?.id ? String(currentProject.id).trim() : "";
-        const [data, report] = await Promise.all([
+        const [data, report, connections, executions] = await Promise.all([
           listLocalAgents({ project_id: pid || undefined, limit: 200 }),
           getLocalAgentFoundationReport({ project_id: pid || undefined, limit: 200 }).catch(() => null),
+          listDatabaseConnections({ limit: 200 }).catch(() => []),
+          listDatabaseValidationExecutions({ limit: 100 }).catch(() => []),
         ]);
         setAgents(Array.isArray(data) ? data : []);
         setFoundationReport(report && typeof report === "object" ? report : null);
+        setDbConnections(Array.isArray(connections) ? connections : []);
+        setDbExecutions(Array.isArray(executions) ? executions : []);
       } catch (e) {
         const msg = apiErrorMessage(e);
         if (!silent) {
@@ -175,6 +194,14 @@ export default function LocalAgentsPage() {
   const selectedFoundation = useMemo(
     () => foundationVm.agents.find((a) => a.agent_id === selectedId) || null,
     [foundationVm.agents, selectedId],
+  );
+  const connectionsVm = useMemo(
+    () => buildDatabaseConnectionsViewModel(dbConnections, t, fmtTs),
+    [dbConnections, t],
+  );
+  const executionsVm = useMemo(
+    () => buildDatabaseExecutionsViewModel(dbExecutions, t, fmtTs),
+    [dbExecutions, t],
   );
 
   return (
@@ -458,6 +485,76 @@ export default function LocalAgentsPage() {
             </div>
           )}
         </div>
+      </div>
+
+      <div style={{ marginTop: 28 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", marginBottom: 10 }}>
+          {connectionsVm.title}
+        </div>
+        {connectionsVm.empty ? (
+          <div style={{ fontSize: 13, color: "var(--text-3)", fontStyle: "italic" }}>—</div>
+        ) : (
+          <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 8, marginBottom: 20 }}>
+            <table className="data-table" style={{ margin: 0, minWidth: 720 }}>
+              <thead>
+                <tr>
+                  <th>{t(DATABASE_CONNECTOR_I18N_KEYS.name)}</th>
+                  <th>{t(DATABASE_CONNECTOR_I18N_KEYS.type)}</th>
+                  <th>{t(DATABASE_CONNECTOR_I18N_KEYS.agent)}</th>
+                  <th>{t(DATABASE_CONNECTOR_I18N_KEYS.status)}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {connectionsVm.connections.map((conn) => (
+                  <tr key={conn.connection_id}>
+                    <td style={{ fontSize: 12 }}>{conn.name}</td>
+                    <td style={{ fontSize: 12 }}>{conn.database_type}</td>
+                    <td style={{ fontSize: 11, wordBreak: "break-all" }}>{conn.agent_id}</td>
+                    <td>
+                      <span className={`badge ${conn.statusBadgeClass}`} style={{ fontSize: 10 }}>
+                        {conn.statusLabel}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", marginBottom: 10 }}>
+          {executionsVm.title}
+        </div>
+        {executionsVm.empty ? (
+          <div style={{ fontSize: 13, color: "var(--text-3)", fontStyle: "italic" }}>—</div>
+        ) : (
+          <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 8 }}>
+            <table className="data-table" style={{ margin: 0, minWidth: 820 }}>
+              <thead>
+                <tr>
+                  <th>{t(DATABASE_CONNECTOR_I18N_KEYS.check)}</th>
+                  <th>{t(DATABASE_CONNECTOR_I18N_KEYS.status)}</th>
+                  <th>{t(DATABASE_CONNECTOR_I18N_KEYS.timestamp)}</th>
+                  <th>{t(DATABASE_CONNECTOR_I18N_KEYS.resultSummary)}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {executionsVm.executions.map((item) => (
+                  <tr key={item.execution_id}>
+                    <td style={{ fontSize: 12 }}>{item.check_id}</td>
+                    <td>
+                      <span className={`badge ${item.statusBadgeClass}`} style={{ fontSize: 10 }}>
+                        {item.statusLabel}
+                      </span>
+                    </td>
+                    <td style={{ fontSize: 11, whiteSpace: "nowrap" }}>{item.executedAtText}</td>
+                    <td style={{ fontSize: 12, maxWidth: 360 }}>{item.summary}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

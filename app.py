@@ -53,6 +53,8 @@ from api.routes.browser_inspector_routes import router as browser_inspector_rout
 from api.routes.browser_inspection_history_routes import router as browser_inspection_history_router
 from api.routes.browser_inspection_watch_routes import router as browser_inspection_watch_router
 from api.routes.local_agent_routes import admin_router as local_agent_admin_router
+from api.routes.database_connector_routes import admin_router as database_connector_admin_router
+from api.routes.database_connector_routes import validation_router as database_validation_router
 from api.routes.local_agent_routes import agent_router as local_agent_api_router
 from api.routes.drafts_routes import router as drafts_router
 from api.routes.github_routes import router as github_router
@@ -471,6 +473,8 @@ app.include_router(browser_inspector_router)     # POST /inspect-url
 # otherwise match the literal path segment "watch" and return 404 inspection not found.
 app.include_router(browser_inspection_watch_router)   # /browser-inspections/watch
 app.include_router(local_agent_admin_router)          # /local-agents (admin)
+app.include_router(database_connector_admin_router)   # /local-agents/database-connections
+app.include_router(database_validation_router)        # /database-validation/*
 app.include_router(local_agent_api_router)            # /agent-api (local agent)
 app.include_router(browser_inspection_history_router)  # GET /browser-inspections, diff, …
 app.include_router(drafts_router)                # POST /drafts/generate, POST /drafts/approve

@@ -28,7 +28,8 @@ from models.local_agent_models import (
     LocalAgentRegistrationResponse,
     LocalAgentReport,
 )
-from services import local_agent_service
+from models.database_connector_models import DatabaseValidationExecuteRequest, DatabaseValidationExecuteResponse
+from services import database_connector_service, local_agent_service
 
 admin_router = APIRouter(prefix="/local-agents", tags=["local-agents"])
 agent_router = APIRouter(prefix="/agent-api", tags=["local-agent-api"])
@@ -110,6 +111,14 @@ def agent_foundation_heartbeat(
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
 ) -> LocalAgentFoundationView:
     return local_agent_service.process_foundation_heartbeat(body, authorization)
+
+
+@agent_router.post("/database-validation/execute", response_model=DatabaseValidationExecuteResponse)
+def agent_database_validation_execute(
+    body: DatabaseValidationExecuteRequest,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> DatabaseValidationExecuteResponse:
+    return database_connector_service.agent_execute_database_validation(body, authorization)
 
 
 @agent_router.post("/{agent_id}/poll", response_model=LocalAgentPollResponse)

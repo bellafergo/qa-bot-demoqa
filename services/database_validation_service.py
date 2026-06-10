@@ -416,7 +416,7 @@ def build_database_validation(
         DatabaseValidationResult(
             check_id=check.check_id,
             status="PLANNED",
-            summary="Validation definition prepared. Database connector execution is not enabled in this sprint.",
+            summary="Validation definition prepared. Execute through an approved local agent database connector.",
             observed_value=None,
             confidence=0.0,
             executed_at=None,
@@ -430,7 +430,7 @@ def build_database_validation(
         results=planned_results,
         summary=(
             f"{len(checks)} read-only database validation check(s) prepared. "
-            "Database connector execution is not enabled — configure a future connector to run validations."
+            "Execution requires an approved local agent database connector."
         ),
         confidence=_report_confidence(len(checks), deployment_risk_assessment),
     )

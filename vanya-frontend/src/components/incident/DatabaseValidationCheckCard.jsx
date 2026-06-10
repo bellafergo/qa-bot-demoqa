@@ -1,11 +1,22 @@
 import React, { useCallback, useState } from "react";
 import DatabaseValidationPreviewModal from "./DatabaseValidationPreviewModal.jsx";
+import DatabaseValidationExecuteModal from "./DatabaseValidationExecuteModal.jsx";
 
-export default function DatabaseValidationCheckCard({ check, labels }) {
+export default function DatabaseValidationCheckCard({
+  check,
+  labels,
+  executePayload,
+  onSimulateApprove,
+  onExecute,
+  executeBusy,
+}) {
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [executeOpen, setExecuteOpen] = useState(false);
 
   const openPreview = useCallback(() => setPreviewOpen(true), []);
   const closePreview = useCallback(() => setPreviewOpen(false), []);
+  const openExecute = useCallback(() => setExecuteOpen(true), []);
+  const closeExecute = useCallback(() => setExecuteOpen(false), []);
 
   return (
     <li
@@ -40,13 +51,28 @@ export default function DatabaseValidationCheckCard({ check, labels }) {
       <div style={{ color: "var(--text-3)", marginBottom: 12, fontSize: 12 }}>
         {labels.expectedResultLabel}: {check.expectedResultText}
       </div>
-      <button type="button" className="btn btn-secondary btn-sm" onClick={openPreview}>
-        {labels.previewLabel}
-      </button>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={openPreview}>
+          {labels.previewLabel}
+        </button>
+        {executePayload ? (
+          <button type="button" className="btn btn-primary btn-sm" onClick={openExecute} disabled={!check.hasConnector}>
+            {labels.executeLabel}
+          </button>
+        ) : null}
+      </div>
       <DatabaseValidationPreviewModal
         open={previewOpen}
         payload={check.previewPayload}
         onClose={closePreview}
+      />
+      <DatabaseValidationExecuteModal
+        open={executeOpen}
+        payload={executePayload}
+        onClose={closeExecute}
+        onSimulateApprove={onSimulateApprove}
+        onExecute={onExecute}
+        busy={executeBusy}
       />
     </li>
   );

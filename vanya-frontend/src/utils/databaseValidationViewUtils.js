@@ -15,6 +15,9 @@ export const DATABASE_VALIDATION_I18N_KEYS = {
   validationPurpose: "incident.qa.database_validation_validation_purpose",
   connectorNote: "incident.qa.database_validation_connector_note",
   futureFooter: "incident.qa.database_validation_future_footer",
+  execute: "incident.qa.database_validation_execute",
+  executeSubtitle: "incident.qa.database_validation_execute_subtitle",
+  validationResult: "incident.qa.database_validation_result",
   safetySafe: "incident.qa.database_validation_safety_safe",
   safetyUnsafe: "incident.qa.database_validation_safety_unsafe",
 };
@@ -102,7 +105,8 @@ export function buildDatabaseValidationPreviewPayload(check, t) {
   };
 }
 
-export function buildDatabaseValidationViewModel(report, t) {
+export function buildDatabaseValidationViewModel(report, t, options = {}) {
+  const { connections = [], approvalStatusByCheckId = {} } = options;
   const validation = report?.database_validation ?? null;
   return {
     show: hasDatabaseValidationSection(report),
@@ -118,6 +122,9 @@ export function buildDatabaseValidationViewModel(report, t) {
     enabledLabel: t(DATABASE_VALIDATION_I18N_KEYS.enabled),
     disabledLabel: t(DATABASE_VALIDATION_I18N_KEYS.disabled),
     futureFooter: t(DATABASE_VALIDATION_I18N_KEYS.futureFooter),
+    executeLabel: t(DATABASE_VALIDATION_I18N_KEYS.execute),
+    executeSubtitle: t(DATABASE_VALIDATION_I18N_KEYS.executeSubtitle),
+    validationResultLabel: t(DATABASE_VALIDATION_I18N_KEYS.validationResult),
     validation: validation
       ? {
           ...validation,
@@ -134,6 +141,10 @@ export function buildDatabaseValidationViewModel(report, t) {
                 : t(DATABASE_VALIDATION_I18N_KEYS.safetyUnsafe),
               safetySafe: safety.safe,
               previewPayload: buildDatabaseValidationPreviewPayload(check, t),
+              approvalStatus: approvalStatusByCheckId[check.check_id] || "PENDING",
+              hasConnector: connections.some(
+                (c) => String(c.database_type || "").toLowerCase() === String(check.database_type || "").toLowerCase(),
+              ),
             };
           }),
         }

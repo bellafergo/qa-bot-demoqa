@@ -24,7 +24,7 @@ LocalAgentCapability = Literal[
 ]
 FoundationAgentStatus = Literal["ONLINE", "OFFLINE", "UNKNOWN"]
 LocalAgentJobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
-LocalAgentJobType = Literal["browser_inspection"]
+LocalAgentJobType = Literal["browser_inspection", "database_validation"]
 
 LOCAL_AGENT_MAX_NAME_LEN = 256
 LOCAL_AGENT_MAX_METADATA_JSON = 2048
