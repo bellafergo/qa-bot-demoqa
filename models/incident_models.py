@@ -170,6 +170,22 @@ class IncidentImpactNode(BaseModel):
     related_entity_id: Optional[str] = None
 
 
+class RiskFactor(BaseModel):
+    title: str
+    description: str
+    weight: float = Field(default=0.0, ge=0.0, le=1.0)
+    related_entity_type: Optional[str] = None
+    related_entity_id: Optional[str] = None
+
+
+class DeploymentRiskAssessment(BaseModel):
+    risk_score: int = Field(default=0, ge=0, le=100)
+    risk_level: Literal["low", "medium", "high", "critical"] = "low"
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    summary: str = ""
+    contributing_factors: List[RiskFactor] = Field(default_factory=list)
+
+
 class RecommendedAction(BaseModel):
     action_id: str
     title: str
@@ -249,6 +265,7 @@ class ProjectIncidentInvestigationReport(BaseModel):
     storyline: List[IncidentStorylineStep] = Field(default_factory=list)
     impact_map: List[IncidentImpactNode] = Field(default_factory=list)
     recommended_actions: List[RecommendedAction] = Field(default_factory=list)
+    deployment_risk_assessment: Optional[DeploymentRiskAssessment] = None
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     confidence_breakdown: List["ConfidenceFactor"] = Field(default_factory=list)
     next_steps: List[str] = Field(default_factory=list)

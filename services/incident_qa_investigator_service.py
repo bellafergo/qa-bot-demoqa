@@ -771,6 +771,21 @@ def investigate_project_incident(
         temporal_correlation=temporal_correlation,
     )
 
+    from services.deployment_risk_assessment_service import build_deployment_risk_assessment
+
+    deployment_risk_assessment = build_deployment_risk_assessment(
+        hypotheses=hypotheses,
+        evidence_correlation=evidence_correlation,
+        investigation_plan=investigation_plan,
+        storyline=storyline,
+        impact_map=impact_map,
+        related_runs=related_runs,
+        related_pr_analysis=related_pr_analysis,
+        browser_events=browser_events,
+        clusters=clusters,
+        temporal_correlation=temporal_correlation,
+    )
+
     actions_available = _build_actions_available(
         req=req,
         related_runs=related_runs,
@@ -812,6 +827,7 @@ def investigate_project_incident(
         storyline=storyline,
         impact_map=impact_map,
         recommended_actions=recommended_actions,
+        deployment_risk_assessment=deployment_risk_assessment,
         confidence=confidence,
         confidence_breakdown=confidence_breakdown,
         next_steps=next_steps,
