@@ -1,12 +1,13 @@
 # services/incident_evidence_correlation_service.py
 """
-Incident Investigator II-02A — Evidence Correlation Engine (read-only).
+Incident Investigator II-02A/II-02B — Evidence Correlation Engine (read-only).
 
 Correlates operational signals already present in Vanya without executing
 actions, writing data, or modifying scoring/confidence/ranking.
 """
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
 
@@ -37,6 +38,69 @@ def _minutes_before(event_ts: Optional[str], reference_ts: Optional[str]) -> Opt
     if ev is None or ref is None:
         return None
     return max(0, int((ref - ev).total_seconds() / 60))
+
+
+def _minutes_apart(a: Optional[str], b: Optional[str]) -> Optional[int]:
+    da, db = _parse_iso(a), _parse_iso(b)
+    if da is None or db is None:
+        return None
+    return int(abs((db - da).total_seconds()) / 60)
+
+
+_RUN_DEDUPE_SOURCES = frozenset({"failed_run", "api_evidence"})
+_BROWSER_DEDUPE_WINDOW_MINUTES = 15
+
+
+def dedupe_correlated_evidence(evidence: List[CorrelatedEvidence]) -> List[CorrelatedEvidence]:
+    """Remove overlapping correlated evidence; keep the item with higher evidence weight."""
+    if len(evidence) < 2:
+        return list(evidence)
+
+    to_remove: Set[int] = set()
+
+    by_run: Dict[str, List[tuple[int, CorrelatedEvidence]]] = defaultdict(list)
+    for idx, item in enumerate(evidence):
+        if item.source in _RUN_DEDUPE_SOURCES:
+            rid = (item.related_run_id or "").strip()
+            if rid:
+                by_run[rid].append((idx, item))
+
+    for group in by_run.values():
+        sources = {item.source for _, item in group}
+        if not ({"failed_run", "api_evidence"} <= sources):
+            continue
+        best_idx = max(group, key=lambda pair: (pair[1].confidence, pair[1].source))[0]
+        for idx, _ in group:
+            if idx != best_idx:
+                to_remove.add(idx)
+
+    probes = [
+        (idx, item)
+        for idx, item in enumerate(evidence)
+        if item.source == "browser_probe" and idx not in to_remove
+    ]
+    watches = [
+        (idx, item)
+        for idx, item in enumerate(evidence)
+        if item.source == "browser_watch" and idx not in to_remove
+    ]
+
+    for probe_idx, probe in probes:
+        if probe_idx in to_remove:
+            continue
+        for watch_idx, watch in watches:
+            if watch_idx in to_remove:
+                continue
+            gap = _minutes_apart(probe.timestamp, watch.timestamp)
+            if gap is None or gap >= _BROWSER_DEDUPE_WINDOW_MINUTES:
+                continue
+            if probe.confidence >= watch.confidence:
+                to_remove.add(watch_idx)
+            else:
+                to_remove.add(probe_idx)
+                break
+
+    return [item for idx, item in enumerate(evidence) if idx not in to_remove]
 
 
 def correlate_failed_runs(
@@ -259,6 +323,14 @@ def build_evidence_correlation(
     evidence.extend(_correlate_pr_analysis(related_pr_analysis))
     evidence.extend(_correlate_system_memory(knowledge_hints))
 
+    if not evidence:
+        return EvidenceCorrelationSummary(
+            total_correlations=0,
+            strongest_source=None,
+            evidence=[],
+        )
+
+    evidence = dedupe_correlated_evidence(evidence)
     if not evidence:
         return EvidenceCorrelationSummary(
             total_correlations=0,

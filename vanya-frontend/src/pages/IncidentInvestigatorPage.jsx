@@ -183,13 +183,17 @@ function QaInvestigationReport({ report, t }) {
               <span><strong>{t("incident.qa.correlation_strongest")}:</strong> {report.evidence_correlation.strongest_source}</span>
             ) : null}
           </div>
+          <p style={{ fontSize: 12, color: "var(--text-3)", margin: "0 0 10px", lineHeight: 1.5 }}>
+            <strong>{t("incident.qa.correlation_global_confidence")}:</strong> {confidencePct(report.confidence)}
+            {" · "}{t("incident.qa.correlation_ranked_independently")}
+          </p>
           {(report.evidence_correlation.evidence?.length ?? 0) > 0 ? (
             <div className="card" style={{ overflow: "hidden", padding: 0 }}>
               <table className="data-table">
                 <thead>
                   <tr>
                     <th>{t("incident.qa.correlation_source")}</th>
-                    <th>{t("incident.qa.correlation_confidence")}</th>
+                    <th title={t("incident.qa.correlation_weight_tooltip")}>{t("incident.qa.correlation_evidence_weight")}</th>
                     <th>{t("incident.qa.correlation_evidence")}</th>
                   </tr>
                 </thead>
@@ -197,7 +201,7 @@ function QaInvestigationReport({ report, t }) {
                   {report.evidence_correlation.evidence.map((item, i) => (
                     <tr key={i}>
                       <td style={{ fontSize: 12 }}>{item.source}</td>
-                      <td style={{ fontSize: 12 }}>{confidencePct(item.confidence)}</td>
+                      <td style={{ fontSize: 12 }} title={t("incident.qa.correlation_weight_tooltip")}>{confidencePct(item.confidence)}</td>
                       <td style={{ fontSize: 12 }}>
                         <strong>{item.title}</strong>
                         <span style={{ display: "block", color: "var(--text-3)", marginTop: 2 }}>{item.detail}</span>
@@ -206,6 +210,9 @@ function QaInvestigationReport({ report, t }) {
                   ))}
                 </tbody>
               </table>
+              <p style={{ fontSize: 11, color: "var(--text-3)", margin: "8px 12px 12px", lineHeight: 1.5, fontStyle: "italic" }}>
+                {t("incident.qa.correlation_weight_tooltip")}
+              </p>
             </div>
           ) : (
             emptyStateText(t("incident.qa.evidence_correlation_empty"))
