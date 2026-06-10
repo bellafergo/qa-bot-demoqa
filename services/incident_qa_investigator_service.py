@@ -853,6 +853,18 @@ def investigate_project_incident(
         created_at=now,
     )
 
+    from services.database_validation_service import build_database_validation
+
+    database_validation = build_database_validation(
+        impact_map=impact_map,
+        test_recommendations=test_recommendations,
+        recommended_actions=recommended_actions,
+        deployment_risk_assessment=deployment_risk_assessment,
+        decision_center=decision_center,
+        historical_learning=historical_learning,
+        hypotheses=hypotheses,
+    )
+
     actions_available = _build_actions_available(
         req=req,
         related_runs=related_runs,
@@ -899,6 +911,7 @@ def investigate_project_incident(
         decision_center=decision_center,
         historical_learning=historical_learning,
         approval_workflow=approval_workflow,
+        database_validation=database_validation,
         confidence=confidence,
         confidence_breakdown=confidence_breakdown,
         next_steps=next_steps,

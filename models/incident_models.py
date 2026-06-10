@@ -263,6 +263,35 @@ class ApprovalWorkflowSummary(BaseModel):
     requests: List[ApprovalRequest] = Field(default_factory=list)
 
 
+class DatabaseValidationCheck(BaseModel):
+    check_id: str
+    name: str
+    description: str = ""
+    query: str
+    database_type: str = "postgresql"
+    expected_result_type: str = "row_exists"
+    expected_value: Optional[str] = None
+    enabled: bool = True
+    requires_user_approval: bool = True
+
+
+class DatabaseValidationResult(BaseModel):
+    check_id: str
+    status: str = "PLANNED"
+    summary: str = ""
+    observed_value: Optional[str] = None
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    executed_at: Optional[str] = None
+    read_only: bool = True
+
+
+class DatabaseValidationReport(BaseModel):
+    checks: List[DatabaseValidationCheck] = Field(default_factory=list)
+    results: List[DatabaseValidationResult] = Field(default_factory=list)
+    summary: str = ""
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
 class RecommendedAction(BaseModel):
     action_id: str
     title: str
@@ -347,6 +376,7 @@ class ProjectIncidentInvestigationReport(BaseModel):
     decision_center: Optional[DecisionCenterSummary] = None
     historical_learning: Optional[HistoricalLearningReport] = None
     approval_workflow: Optional[ApprovalWorkflowSummary] = None
+    database_validation: Optional[DatabaseValidationReport] = None
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     confidence_breakdown: List["ConfidenceFactor"] = Field(default_factory=list)
     next_steps: List[str] = Field(default_factory=list)

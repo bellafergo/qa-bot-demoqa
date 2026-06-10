@@ -26,12 +26,14 @@ import { buildTestRecommendationsViewModel } from "../utils/testRecommendationVi
 import { buildDecisionCenterViewModel } from "../utils/qualityDecisionCenterViewUtils.js";
 import { buildHistoricalLearningViewModel } from "../utils/historicalLearningViewUtils.js";
 import { buildApprovalWorkflowViewModel } from "../utils/approvalWorkflowViewUtils.js";
+import { buildDatabaseValidationViewModel } from "../utils/databaseValidationViewUtils.js";
 import { buildRecommendedActionsViewModel } from "../utils/incidentRecommendedActionsViewUtils.js";
 import EvidenceCorrelationDrilldownCell from "../components/incident/EvidenceCorrelationDrilldownCell.jsx";
 import RecommendedActionCard from "../components/incident/RecommendedActionCard.jsx";
 import RecommendedTestCard from "../components/incident/RecommendedTestCard.jsx";
 import SimilarIncidentCard from "../components/incident/SimilarIncidentCard.jsx";
 import ApprovalRequestCard from "../components/incident/ApprovalRequestCard.jsx";
+import DatabaseValidationCheckCard from "../components/incident/DatabaseValidationCheckCard.jsx";
 
 function fmtTs(iso) {
   if (!iso) return "—";
@@ -94,6 +96,7 @@ function QaInvestigationReport({ report, t }) {
   const impactMapVm = buildImpactMapViewModel(report, t);
   const deploymentRiskVm = buildDeploymentRiskViewModel(report, t);
   const testRecommendationsVm = buildTestRecommendationsViewModel(report, t);
+  const databaseValidationVm = buildDatabaseValidationViewModel(report, t);
   const decisionCenterVm = buildDecisionCenterViewModel(report, t);
   const historicalLearningVm = buildHistoricalLearningViewModel(report, t, fmtTs);
   const recommendedActionsVm = buildRecommendedActionsViewModel(report, t);
@@ -380,6 +383,50 @@ function QaInvestigationReport({ report, t }) {
                 ))}
               </ul>
             </>
+          )}
+        </div>
+      ) : null}
+
+      {databaseValidationVm.show ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {databaseValidationVm.title}
+          </div>
+          {databaseValidationVm.empty ? (
+            emptyStateText(databaseValidationVm.emptyMessage)
+          ) : (
+            <div
+              style={{
+                padding: "16px 18px",
+                background: "var(--bg-2)",
+                borderRadius: 8,
+                border: "1px solid var(--border, rgba(255,255,255,0.08))",
+              }}
+            >
+              <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.55, marginBottom: 12 }}>
+                {databaseValidationVm.validation.summary}
+              </div>
+              <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                {databaseValidationVm.validation.checks.map((check) => (
+                  <DatabaseValidationCheckCard
+                    key={check.check_id}
+                    check={check}
+                    labels={{
+                      approvalRequiredLabel: databaseValidationVm.approvalRequiredLabel,
+                      readOnlySafetyLabel: databaseValidationVm.readOnlySafetyLabel,
+                      databaseTypeLabel: databaseValidationVm.databaseTypeLabel,
+                      expectedResultLabel: databaseValidationVm.expectedResultLabel,
+                      enabledLabel: databaseValidationVm.enabledLabel,
+                      disabledLabel: databaseValidationVm.disabledLabel,
+                      previewLabel: databaseValidationVm.previewLabel,
+                    }}
+                  />
+                ))}
+              </ul>
+              <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+                {databaseValidationVm.futureFooter}
+              </p>
+            </div>
           )}
         </div>
       ) : null}
