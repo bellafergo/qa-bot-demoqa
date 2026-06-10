@@ -1085,6 +1085,16 @@ def investigate_project_incident(
         logger.debug("incident_qa: release readiness compositor failed project_id=%s: %s", pid, e)
 
     try:
+        from services.jira_issue_intelligence_service import build_jira_issue_intelligence_report
+
+        report.jira_issue_intelligence = build_jira_issue_intelligence_report(
+            incident_report=report,
+            release_readiness=report.release_readiness,
+        )
+    except Exception as e:
+        logger.debug("incident_qa: jira issue intelligence failed project_id=%s: %s", pid, e)
+
+    try:
         from services.db.incident_report_repository import incident_report_repo
 
         report_id = incident_report_repo.save(

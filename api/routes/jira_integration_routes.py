@@ -10,6 +10,7 @@ Route semantics (do not conflate with generic connector routes):
   GET /integrations/jira/releases     — released versions
   GET /integrations/jira/fix-versions — unreleased fix versions
   GET /integrations/jira/issue-types  — issue type catalog
+  GET /integrations/jira/intelligence — deterministic issue correlation report
 
 Generic connector framework status (health, enabled, config_summary):
   GET  /integrations/jira             — ConnectorStatus via integrations_routes
@@ -22,6 +23,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Query
 
+from models.jira_issue_intelligence_models import JiraIssueIntelligenceReport
 from models.jira_models import (
     JiraConnectionStatus,
     JiraEpicsResponse,
@@ -40,6 +42,7 @@ from services.jira_integration_service import (
     list_releases,
     validate_jira_connection,
 )
+from services.jira_issue_intelligence_service import build_jira_issue_intelligence_report
 
 logger = logging.getLogger("vanya.jira_integration_routes")
 
@@ -98,3 +101,11 @@ def get_jira_fix_versions(
 ):
     """List unreleased Jira fix versions (read-only)."""
     return list_fix_versions(project_key=project_key)
+
+
+@router.get("/intelligence", response_model=JiraIssueIntelligenceReport)
+def get_jira_issue_intelligence(
+    project_key: Optional[str] = Query(None, description="Filter by Jira project key"),
+):
+    """Deterministic Jira issue correlation report (read-only intelligence)."""
+    return build_jira_issue_intelligence_report(project_key=project_key)

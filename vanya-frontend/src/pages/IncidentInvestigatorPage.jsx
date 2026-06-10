@@ -58,6 +58,10 @@ import QualityHealthReportView from "../components/incident/QualityHealthReportV
 import QualityTrendReportView from "../components/incident/QualityTrendReportView.jsx";
 import EarlyDegradationReportView from "../components/incident/EarlyDegradationReportView.jsx";
 import MultiEnvironmentIntelligenceView from "../components/incident/MultiEnvironmentIntelligenceView.jsx";
+import ReleaseReadinessView from "../components/release-readiness/ReleaseReadinessView.jsx";
+import JiraIssueIntelligenceView from "../components/incident/JiraIssueIntelligenceView.jsx";
+import { buildReleaseReadinessViewModel } from "../utils/releaseReadinessViewUtils.js";
+import { buildJiraIssueIntelligenceViewModel } from "../utils/jiraIssueIntelligenceViewUtils.js";
 
 function fmtTs(iso) {
   if (!iso) return "—";
@@ -159,6 +163,8 @@ function QaInvestigationReport({ report, t }) {
   const decisionCenterVm = buildDecisionCenterViewModel(report, t);
   const historicalLearningVm = buildHistoricalLearningViewModel(report, t, fmtTs);
   const recommendedActionsVm = buildRecommendedActionsViewModel(report, t);
+  const releaseReadinessVm = buildReleaseReadinessViewModel(report, t);
+  const jiraIssueIntelligenceVm = buildJiraIssueIntelligenceViewModel(report, t);
   const approvalWorkflowVm = buildApprovalWorkflowViewModel(report, t);
   const es = report.evidence_strength;
   const temporal = report.temporal_correlation;
@@ -1073,6 +1079,28 @@ function QaInvestigationReport({ report, t }) {
               </ul>
             </div>
           )}
+        </div>
+      ) : null}
+
+      {releaseReadinessVm.show ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {releaseReadinessVm.title}
+          </div>
+          {releaseReadinessVm.empty ? (
+            emptyStateText(releaseReadinessVm.emptyMessage)
+          ) : (
+            <ReleaseReadinessView vm={releaseReadinessVm} />
+          )}
+        </div>
+      ) : null}
+
+      {jiraIssueIntelligenceVm.show ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {jiraIssueIntelligenceVm.title}
+          </div>
+          <JiraIssueIntelligenceView vm={jiraIssueIntelligenceVm} />
         </div>
       ) : null}
 
