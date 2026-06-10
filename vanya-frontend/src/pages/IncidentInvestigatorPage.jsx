@@ -19,6 +19,7 @@ import {
   correlationReasonText,
   isEvidenceCorrelationEmpty,
 } from "../utils/incidentReportViewUtils.js";
+import { buildStorylineViewModel } from "../utils/incidentStorylineViewUtils.js";
 import EvidenceCorrelationDrilldownCell from "../components/incident/EvidenceCorrelationDrilldownCell.jsx";
 
 function fmtTs(iso) {
@@ -78,6 +79,7 @@ function emptyStateText(message) {
 function QaInvestigationReport({ report, t }) {
   if (!report) return null;
   const vm = buildIncidentReportViewModel(report, t);
+  const storylineVm = buildStorylineViewModel(report, t);
   const es = report.evidence_strength;
   const temporal = report.temporal_correlation;
   return (
@@ -178,6 +180,102 @@ function QaInvestigationReport({ report, t }) {
             </ul>
           ) : (
             emptyStateText(t("incident.qa.investigation_plan_empty"))
+          )}
+        </div>
+      ) : null}
+
+      {storylineVm.show ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {storylineVm.title}
+          </div>
+          {storylineVm.empty ? (
+            emptyStateText(storylineVm.emptyMessage)
+          ) : (
+            <ol style={{ margin: 0, padding: 0, listStyle: "none" }}>
+              {storylineVm.steps.map((step) => (
+                <li
+                  key={`storyline-${step.step_number}-${step.title}`}
+                  style={{
+                    display: "flex",
+                    gap: 12,
+                    marginBottom: step.isLast ? 0 : 4,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      flexShrink: 0,
+                      width: 28,
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: "50%",
+                        background: "var(--accent, #f97316)",
+                        color: "#fff",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      {step.step_number}
+                    </div>
+                    {!step.isLast ? (
+                      <div
+                        style={{
+                          flex: 1,
+                          width: 2,
+                          minHeight: 24,
+                          background: "var(--border, rgba(255,255,255,0.12))",
+                          marginTop: 4,
+                        }}
+                      />
+                    ) : null}
+                  </div>
+                  <div
+                    style={{
+                      flex: 1,
+                      marginBottom: step.isLast ? 0 : 14,
+                      padding: "12px 14px",
+                      background: "var(--bg-2)",
+                      borderRadius: 8,
+                      fontSize: 13,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 6 }}>
+                      <span className="badge badge-blue">
+                        {storylineVm.stepLabel} {step.step_number}
+                      </span>
+                      <span className="badge badge-orange">
+                        {storylineVm.confidenceLabel}: {step.confidenceText}
+                      </span>
+                      {step.timestamp ? (
+                        <span style={{ fontSize: 12, color: "var(--text-3)" }}>
+                          {storylineVm.timestampLabel}: {fmtTs(step.timestamp)}
+                        </span>
+                      ) : null}
+                    </div>
+                    <strong style={{ color: "var(--text-1)", display: "block", marginBottom: 6 }}>
+                      {step.title}
+                    </strong>
+                    <div style={{ color: "var(--text-3)", marginBottom: step.drilldownItem ? 8 : 0 }}>
+                      {step.description}
+                    </div>
+                    {step.drilldownItem ? (
+                      <EvidenceCorrelationDrilldownCell item={step.drilldownItem} />
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ol>
           )}
         </div>
       ) : null}

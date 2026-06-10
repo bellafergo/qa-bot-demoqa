@@ -720,6 +720,21 @@ def investigate_project_incident(
         clusters=clusters,
     )
 
+    from services.incident_storyline_service import build_incident_storyline
+
+    storyline = build_incident_storyline(
+        hypotheses=hypotheses,
+        evidence_correlation=evidence_correlation,
+        related_runs=related_runs,
+        related_pr_analysis=related_pr_analysis,
+        related_prs=related_prs,
+        browser_events=browser_events,
+        clusters=clusters,
+        timeline=timeline,
+        temporal_correlation=temporal_correlation,
+        incident_reported_at=now,
+    )
+
     actions_available = _build_actions_available(
         req=req,
         related_runs=related_runs,
@@ -758,6 +773,7 @@ def investigate_project_incident(
         evidence_strength=evidence_strength,
         evidence_correlation=evidence_correlation,
         investigation_plan=investigation_plan,
+        storyline=storyline,
         confidence=confidence,
         confidence_breakdown=confidence_breakdown,
         next_steps=next_steps,
