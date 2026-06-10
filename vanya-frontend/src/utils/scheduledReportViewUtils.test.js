@@ -90,4 +90,24 @@ describe("scheduledReportViewUtils", () => {
     expect(riskLevelBadgeClass("HIGH")).toContain("badge-red");
     expect(trendBadgeClass("IMPROVING")).toContain("badge-green");
   });
+
+  it("maps Jira blocker KPI on preview", () => {
+    const vm = buildScheduledReportViewModel({
+      ...sampleCenter,
+      latest_preview: {
+        ...sampleCenter.latest_preview,
+        jira_blocker_count: 2,
+        jira_blocker_keys: ["PAY-451", "AUTH-228"],
+      },
+    }, t);
+    expect(vm.preview.showJiraKpi).toBe(true);
+    expect(vm.preview.jiraBlockerCount).toBe(2);
+    expect(vm.preview.jiraBlockerKeys).toEqual(["PAY-451", "AUTH-228"]);
+    expect(vm.preview.jiraBlockersLabel).toBe(SCHEDULED_REPORT_I18N_KEYS.jiraBlockers);
+  });
+
+  it("hides Jira KPI when blocker count is zero", () => {
+    const vm = buildScheduledReportViewModel(sampleCenter, t);
+    expect(vm.preview.showJiraKpi).toBe(false);
+  });
 });

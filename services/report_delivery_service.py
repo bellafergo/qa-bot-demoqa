@@ -111,6 +111,10 @@ def _format_body(preview: ExecutiveReportPreview, *, project_id: str) -> str:
         f"Critical Contracts: {preview.critical_contract_count}",
         f"Broken Journeys: {preview.broken_journey_count}",
     ])
+    if preview.jira_blocker_count and preview.jira_blocker_count > 0:
+        lines.append(f"Jira Blockers: {preview.jira_blocker_count}")
+        for key in (preview.jira_blocker_keys or [])[:5]:
+            lines.append(f"• {key}")
     return "\n".join(lines)
 
 

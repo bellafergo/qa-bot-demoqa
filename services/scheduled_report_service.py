@@ -15,6 +15,7 @@ from models.scheduled_report_models import (
     ExecutiveReportPreview,
     ExecutiveReportSchedule,
 )
+from services.jira_issue_intelligence_service import jira_executive_risk_lines
 
 logger = logging.getLogger("vanya.scheduled_reports")
 
@@ -172,6 +173,32 @@ def _journey_name_map(report: Dict[str, Any]) -> Dict[str, str]:
     return mapping
 
 
+def _jira_intel_from_report(report: Dict[str, Any]):
+    from models.jira_issue_intelligence_models import JiraIssueIntelligenceReport
+
+    raw = report.get("jira_issue_intelligence")
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return JiraIssueIntelligenceReport.model_validate(raw)
+    except Exception:
+        return None
+
+
+def _jira_preview_fields(report: Dict[str, Any]) -> Dict[str, Any]:
+    intel = _jira_intel_from_report(report)
+    if intel is None:
+        return {"jira_blocker_count": 0, "jira_blocker_keys": []}
+    return {
+        "jira_blocker_count": int(intel.blocker_count),
+        "jira_blocker_keys": [
+            str(b.issue_key).strip()
+            for b in (intel.top_blockers or [])
+            if str(b.issue_key or "").strip()
+        ][:5],
+    }
+
+
 def _top_risks(report: Dict[str, Any]) -> List[str]:
     risks: List[str] = []
 
@@ -217,6 +244,14 @@ def _top_risks(report: Dict[str, Any]) -> List[str]:
             title = str(factor.get("title") or factor.get("description") or "").strip()
             if title and title not in risks:
                 risks.append(title)
+
+    jira_lines = jira_executive_risk_lines(_jira_intel_from_report(report))
+    if jira_lines:
+        merged = list(jira_lines)
+        for line in risks:
+            if line not in merged:
+                merged.append(line)
+        risks = merged
 
     return risks[:5]
 
@@ -322,6 +357,7 @@ def build_executive_report_preview(
         incident_count=_incident_count(report),
         critical_contract_count=_critical_contract_count(report),
         broken_journey_count=_broken_journey_count(report),
+        **_jira_preview_fields(report),
     )
 
 

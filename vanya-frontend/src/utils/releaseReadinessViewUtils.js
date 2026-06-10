@@ -1,6 +1,7 @@
 /** View helpers for Release Readiness compositor (REL-01A). */
 
 import { buildDecisionCenterViewModel } from "./qualityDecisionCenterViewUtils.js";
+import { buildJiraIssueIntelligenceViewModel } from "./jiraIssueIntelligenceViewUtils.js";
 import { buildMultiEnvironmentIntelligenceViewModel } from "./environmentIntelligenceViewUtils.js";
 import { buildQualityHealthScoreViewModel } from "./qualityHealthScoreViewUtils.js";
 import { riskLevelBadgeClass } from "./scheduledReportViewUtils.js";
@@ -26,6 +27,8 @@ export const RELEASE_READINESS_I18N_KEYS = {
   qualityHealth: "release_readiness.quality_health",
   environments: "release_readiness.environments",
   decisionCenter: "release_readiness.decision_center",
+  jiraBlockers: "release_readiness.jira_blockers",
+  jiraBlockersEmpty: "release_readiness.jira_blockers_empty",
 };
 
 const OVERALL_STATUS_LABEL_KEY = {
@@ -100,7 +103,8 @@ export function isReleaseReadinessEmpty(payload) {
     || view.quality_trends
     || view.early_degradation
     || view.executive_quality_report
-    || view.decision_center,
+    || view.decision_center
+    || view.jira_issue_intelligence,
   );
   return !hasIntel && !(view.data_gaps || []).length;
 }
@@ -113,6 +117,9 @@ export function buildReleaseReadinessViewModel(payload, t) {
   const decisionCenterVm = buildDecisionCenterViewModel(reportLike, t);
   const qualityHealthVm = buildQualityHealthScoreViewModel(reportLike, t);
   const multiEnvironmentVm = buildMultiEnvironmentIntelligenceViewModel(reportLike, t);
+  const jiraIntelVm = buildJiraIssueIntelligenceViewModel(reportLike, t);
+  const compactJiraBlockers = (jiraIntelVm.topBlockers || []).slice(0, 3);
+  const showJiraBlockers = jiraIntelVm.show && !jiraIntelVm.empty && jiraIntelVm.blockerCount > 0;
 
   const deploymentRisk = view?.deployment_risk_assessment ?? null;
   const overallStatus = String(view?.overall_status || "UNKNOWN").toUpperCase();
@@ -151,6 +158,11 @@ export function buildReleaseReadinessViewModel(payload, t) {
     decisionCenterVm,
     qualityHealthVm,
     multiEnvironmentVm,
+    jiraIntelVm,
+    showJiraBlockers,
+    jiraBlockersLabel: t(RELEASE_READINESS_I18N_KEYS.jiraBlockers),
+    jiraBlockersEmptyMessage: t(RELEASE_READINESS_I18N_KEYS.jiraBlockersEmpty),
+    compactJiraBlockers,
     generated_at: view?.generated_at || null,
     source_incident_report_id: view?.source_incident_report_id || null,
   };

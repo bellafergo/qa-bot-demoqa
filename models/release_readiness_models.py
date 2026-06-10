@@ -27,6 +27,7 @@ if TYPE_CHECKING:
         QualityHealthReport,
         QualityTrendReport,
     )
+    from models.jira_issue_intelligence_models import JiraIssueIntelligenceReport
 
 
 class ReleaseReadinessView(BaseModel):
@@ -46,6 +47,7 @@ class ReleaseReadinessView(BaseModel):
     early_degradation: Optional["EarlyDegradationReport"] = None
     executive_quality_report: Optional["ExecutiveQualityReport"] = None
     decision_center: Optional["DecisionCenterSummary"] = None
+    jira_issue_intelligence: Optional["JiraIssueIntelligenceReport"] = None
 
     github: Optional[GitHubConnectionStatus] = None
     azure_devops: Optional[AzureDevOpsConnectionStatus] = None
@@ -73,6 +75,8 @@ def _resolve_forward_refs() -> None:
         QualityTrendReport,
     )
 
+    from models.jira_issue_intelligence_models import JiraIssueIntelligenceReport
+
     incident_types = {
         "DeploymentRiskAssessment": DeploymentRiskAssessment,
         "ContractRiskReport": ContractRiskReport,
@@ -84,6 +88,7 @@ def _resolve_forward_refs() -> None:
         "MultiEnvironmentReport": MultiEnvironmentReport,
         "QualityHealthReport": QualityHealthReport,
         "QualityTrendReport": QualityTrendReport,
+        "JiraIssueIntelligenceReport": JiraIssueIntelligenceReport,
     }
     ReleaseReadinessView.model_rebuild(_types_namespace=incident_types)
 

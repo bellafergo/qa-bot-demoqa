@@ -53,6 +53,26 @@ export default function ReleaseReadinessView({ vm }) {
         </div>
       ) : null}
 
+      {vm.showJiraBlockers ? (
+        <div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)" }}>
+              {vm.jiraBlockersLabel}
+            </div>
+            <span className="badge badge-red">{vm.jiraIntelVm.blockerCount}</span>
+          </div>
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "var(--text-2)", lineHeight: 1.5 }}>
+            {vm.compactJiraBlockers.map((blocker) => (
+              <li key={blocker.issueKey}>
+                <strong style={{ color: "var(--text-1)" }}>{blocker.issueKey}</strong>
+                {blocker.relatedModule ? ` (${blocker.relatedModule})` : ""}
+                {blocker.summary ? ` — ${blocker.summary}` : ""}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       {vm.data_gaps?.length ? (
         <div>
           <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 4 }}>

@@ -1095,6 +1095,26 @@ def investigate_project_incident(
         logger.debug("incident_qa: jira issue intelligence failed project_id=%s: %s", pid, e)
 
     try:
+        from services.jira_issue_intelligence_service import enrich_executive_quality_top_risks_with_jira
+
+        enrich_executive_quality_top_risks_with_jira(
+            report.executive_quality_report,
+            report.jira_issue_intelligence,
+        )
+    except Exception as e:
+        logger.debug("incident_qa: jira executive enrichment failed project_id=%s: %s", pid, e)
+
+    try:
+        from services.release_readiness_service import build_release_readiness_view
+
+        report.release_readiness = build_release_readiness_view(
+            project_id=pid,
+            incident_report=report,
+        )
+    except Exception as e:
+        logger.debug("incident_qa: release readiness refresh after jira failed project_id=%s: %s", pid, e)
+
+    try:
         from services.db.incident_report_repository import incident_report_repo
 
         report_id = incident_report_repo.save(

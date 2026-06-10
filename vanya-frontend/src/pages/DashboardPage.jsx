@@ -10,6 +10,7 @@ import {
   getDashboardSummary,
   getProjectQualityTrends,
   getProjectEarlyDegradation,
+  getProjectValueDashboard,
   getDashboardRecentRuns,
   getDashboardRecentJobs,
   getFailureIntel,
@@ -33,6 +34,8 @@ import EarlyDegradationReportView from "../components/incident/EarlyDegradationR
 import ReleaseReadinessView from "../components/release-readiness/ReleaseReadinessView.jsx";
 import ReportDeliveryCenter from "../components/executive-reports/ReportDeliveryCenter.jsx";
 import { buildReleaseReadinessViewModel } from "../utils/releaseReadinessViewUtils.js";
+import ValueDashboardView from "../components/value-dashboard/ValueDashboardView.jsx";
+import { buildValueDashboardViewModel } from "../utils/valueDashboardViewUtils.js";
 import { buildReportDeliveryViewModel } from "../utils/reportDeliveryViewUtils.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -960,6 +963,7 @@ export default function DashboardPage() {
   const [hasKnowledge, setHasKnowledge] = useState(null);
   const [qualityTrends, setQualityTrends] = useState(null);
   const [earlyDegradation, setEarlyDegradation] = useState(null);
+  const [valueDashboard, setValueDashboard] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -974,6 +978,7 @@ export default function DashboardPage() {
     setHasKnowledge(null);
     setQualityTrends(null);
     setEarlyDegradation(null);
+    setValueDashboard(null);
 
     const pid = projectId;
     const summaryParams = pid ? { project_id: pid } : {};
@@ -1030,8 +1035,12 @@ export default function DashboardPage() {
       getProjectEarlyDegradation(pid)
         .then((data) => setEarlyDegradation(data))
         .catch(() => setEarlyDegradation(null));
+      getProjectValueDashboard(pid)
+        .then((data) => setValueDashboard(data))
+        .catch(() => setValueDashboard(null));
     } else {
       setHasKnowledge(null);
+      setValueDashboard(null);
     }
 
     getFailureIntel(pid)
@@ -1080,6 +1089,11 @@ export default function DashboardPage() {
   const releaseReadinessVm = useMemo(
     () => buildReleaseReadinessViewModel(s, t),
     [s, t],
+  );
+
+  const valueDashboardVm = useMemo(
+    () => buildValueDashboardViewModel(valueDashboard, t),
+    [valueDashboard, t],
   );
 
   const reportDeliveryVm = useMemo(
@@ -1346,6 +1360,18 @@ export default function DashboardPage() {
             <ReleaseReadinessView vm={releaseReadinessVm} />
             <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
               {releaseReadinessVm.readOnlyNote}
+            </p>
+          </div>
+        ) : null}
+
+        {projectId && valueDashboardVm.show ? (
+          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
+              {valueDashboardVm.title}
+            </div>
+            <ValueDashboardView vm={valueDashboardVm} />
+            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+              {valueDashboardVm.labels?.readOnlyNote}
             </p>
           </div>
         ) : null}

@@ -26,6 +26,7 @@ from models.incident_models import (
 )
 from models.azure_devops_integration_models import AzureDevOpsConnectionStatus
 from models.github_integration_models import GitHubConnectionStatus
+from models.jira_issue_intelligence_models import JiraIssueCorrelation, JiraIssueIntelligenceReport
 from models.scheduled_report_models import ExecutiveReportPreview
 from services.release_readiness_service import (
     build_release_readiness_executive_preview,
@@ -117,6 +118,38 @@ def _incident(**overrides) -> ProjectIncidentInvestigationReport:
                 DecisionCenterInsight(title="Validate Orders Database", description="", priority=1),
             ],
         ),
+    )
+    for key, value in overrides.items():
+        setattr(base, key, value)
+    return base
+
+
+def _jira_intel(**overrides) -> JiraIssueIntelligenceReport:
+    base = JiraIssueIntelligenceReport(
+        connected=True,
+        total_issues=3,
+        correlated_issues=2,
+        blocker_count=2,
+        top_blockers=[
+            JiraIssueCorrelation(
+                issue_key="PAY-451",
+                issue_type="Bug",
+                status="Open",
+                priority="Blocker",
+                summary="timeout in staging",
+                related_module="Payments",
+                is_blocker=True,
+            ),
+            JiraIssueCorrelation(
+                issue_key="AUTH-228",
+                issue_type="Bug",
+                status="Open",
+                priority="Blocker",
+                summary="production login failures",
+                related_module="Authentication",
+                is_blocker=True,
+            ),
+        ],
     )
     for key, value in overrides.items():
         setattr(base, key, value)
@@ -237,6 +270,67 @@ def test_no_external_http(mock_github, mock_azure, mock_dispatcher):
             view = build_release_readiness_view(project_id="demo", incident_report=_incident())
 
     assert view.project_id == "demo"
+
+
+@patch("services.release_readiness_service.integration_dispatcher")
+@patch("services.project_azure_devops_settings_service.get_project_azure_devops_status")
+@patch("services.project_github_settings_service.get_project_github_status")
+def test_jira_intelligence_propagation(mock_github, mock_azure, mock_dispatcher):
+    mock_github.return_value = GitHubConnectionStatus(
+        project_id="demo",
+        connected=True,
+        enabled=True,
+        full_name="org/repo",
+    )
+    mock_azure.return_value = AzureDevOpsConnectionStatus(
+        project_id="demo",
+        connected=False,
+        enabled=False,
+    )
+    mock_dispatcher.readiness.return_value = {}
+
+    incident = _incident(jira_issue_intelligence=_jira_intel())
+    view = build_release_readiness_view(project_id="demo", incident_report=incident)
+
+    assert view.jira_issue_intelligence is not None
+    assert view.jira_issue_intelligence.blocker_count == 2
+    assert "Open Jira blockers detected." in view.summary
+
+    risks = top_risks_from_view(view)
+    assert any("PAY-451" in r for r in risks)
+    assert any("AUTH-228" in r for r in risks)
+
+    preview = build_release_readiness_executive_preview("demo", view)
+    assert preview.jira_blocker_count == 2
+    assert preview.jira_blocker_keys == ["PAY-451", "AUTH-228"]
+
+
+@patch("services.release_readiness_service.integration_dispatcher")
+@patch("services.project_azure_devops_settings_service.get_project_azure_devops_status")
+@patch("services.project_github_settings_service.get_project_github_status")
+def test_jira_not_connected_data_gap(mock_github, mock_azure, mock_dispatcher):
+    mock_github.return_value = GitHubConnectionStatus(
+        project_id="demo",
+        connected=True,
+        enabled=True,
+        full_name="org/repo",
+    )
+    mock_azure.return_value = AzureDevOpsConnectionStatus(
+        project_id="demo",
+        connected=False,
+        enabled=False,
+    )
+    mock_dispatcher.readiness.return_value = {}
+
+    incident = _incident(
+        jira_issue_intelligence=JiraIssueIntelligenceReport(
+            connected=False,
+            summary="No Jira connection configured.",
+            data_gaps=["No Jira connection configured."],
+        ),
+    )
+    view = build_release_readiness_view(project_id="demo", incident_report=incident)
+    assert any("Jira not connected" in gap for gap in view.data_gaps)
 
 
 @patch("services.release_readiness_service.build_release_readiness_executive_preview")

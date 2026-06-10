@@ -35,6 +35,8 @@ class ExecutiveReportPreview(BaseModel):
     incident_count: int = Field(default=0, ge=0)
     critical_contract_count: int = Field(default=0, ge=0)
     broken_journey_count: int = Field(default=0, ge=0)
+    jira_blocker_count: int = Field(default=0, ge=0)
+    jira_blocker_keys: List[str] = Field(default_factory=list)
 
 
 class ExecutiveReportCenter(BaseModel):

@@ -32,6 +32,35 @@ def _preview() -> ExecutiveReportPreview:
 
 
 @patch("services.report_delivery_service._load_executive_preview")
+def test_email_preview_includes_jira_blockers(mock_load):
+    mock_load.return_value = ExecutiveReportPreview(
+        preview_id="exec_preview:demo:quality_brief",
+        title="Weekly Quality Brief",
+        generated_at="2026-06-10T08:00:00+00:00",
+        quality_score=82,
+        quality_trend="DEGRADING",
+        risk_level="HIGH",
+        executive_summary="Payments require executive attention.",
+        top_risks=["Jira blocker PAY-451 (Payments): timeout in staging"],
+        top_recommendations=["Run Payments Regression Suite"],
+        incident_count=2,
+        critical_contract_count=1,
+        broken_journey_count=1,
+        jira_blocker_count=2,
+        jira_blocker_keys=["PAY-451", "AUTH-228"],
+    )
+    result = build_report_delivery_preview(
+        project_id="demo",
+        report_type="WEEKLY_QUALITY_BRIEF",
+        channel="email",
+        recipient="cto@example.com",
+    )
+    assert "Jira Blockers: 2" in result.payload["body"]
+    assert "• PAY-451" in result.payload["body"]
+    assert "• AUTH-228" in result.payload["body"]
+
+
+@patch("services.report_delivery_service._load_executive_preview")
 def test_email_preview(mock_load):
     mock_load.return_value = _preview()
     result = build_report_delivery_preview(

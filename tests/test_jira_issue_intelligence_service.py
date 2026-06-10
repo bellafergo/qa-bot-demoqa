@@ -6,16 +6,22 @@ from unittest.mock import patch
 
 import pytest
 
+from models.jira_issue_intelligence_models import JiraIssueCorrelation, JiraIssueIntelligenceReport
 from models.incident_models import (
     BlastRadiusModule,
     DeploymentRiskAssessment,
     EnvironmentProfile,
+    ExecutiveQualityReport,
     MultiEnvironmentReport,
     ProjectIncidentInvestigationReport,
 )
 from models.jira_models import JiraConnectionStatus
 from models.release_readiness_models import ReleaseReadinessView
-from services.jira_issue_intelligence_service import build_jira_issue_intelligence_report
+from services.jira_issue_intelligence_service import (
+    build_jira_issue_intelligence_report,
+    enrich_executive_quality_top_risks_with_jira,
+    jira_executive_risk_lines,
+)
 
 
 def _issue_raw(
@@ -182,6 +188,74 @@ class TestEmptyIntelligence:
             )
         assert report.correlated_issues == 1
         assert "Release risk context" in report.issue_correlations[0].correlation_reason
+
+
+def _sample_jira_intel(**overrides) -> JiraIssueIntelligenceReport:
+    base = JiraIssueIntelligenceReport(
+        connected=True,
+        total_issues=4,
+        correlated_issues=2,
+        blocker_count=2,
+        top_blockers=[
+            JiraIssueCorrelation(
+                issue_key="PAY-451",
+                issue_type="Bug",
+                status="Open",
+                priority="Blocker",
+                summary="timeout in staging",
+                related_module="Payments",
+                is_blocker=True,
+            ),
+            JiraIssueCorrelation(
+                issue_key="AUTH-228",
+                issue_type="Bug",
+                status="Open",
+                priority="Blocker",
+                summary="production login failures",
+                related_module="Authentication",
+                is_blocker=True,
+            ),
+        ],
+    )
+    for key, value in overrides.items():
+        setattr(base, key, value)
+    return base
+
+
+class TestJiraExecutiveRiskLines:
+    def test_formats_blocker_lines(self):
+        lines = jira_executive_risk_lines(_sample_jira_intel(), limit=3)
+        assert lines == [
+            "Jira blocker PAY-451 (Payments): timeout in staging",
+            "Jira blocker AUTH-228 (Authentication): production login failures",
+        ]
+
+    def test_respects_limit(self):
+        lines = jira_executive_risk_lines(_sample_jira_intel(), limit=1)
+        assert len(lines) == 1
+        assert lines[0].startswith("Jira blocker PAY-451")
+
+    def test_empty_when_not_connected(self):
+        assert jira_executive_risk_lines(_sample_jira_intel(connected=False, blocker_count=0)) == []
+
+    def test_empty_when_no_blockers(self):
+        assert jira_executive_risk_lines(_sample_jira_intel(blocker_count=0, top_blockers=[])) == []
+
+
+class TestExecutiveQualityEnrichment:
+    def test_appends_jira_blockers_without_rescoring(self):
+        eqr = ExecutiveQualityReport(
+            report_id="eqr-1",
+            generated_at="2026-06-10T08:00:00+00:00",
+            overall_quality_score=82,
+            overall_risk_level="HIGH",
+            top_risks=["Checkout latency spike"],
+        )
+        enrich_executive_quality_top_risks_with_jira(eqr, _sample_jira_intel())
+        assert eqr.overall_quality_score == 82
+        assert "Checkout latency spike" in eqr.top_risks
+        assert any("PAY-451" in r for r in eqr.top_risks)
+        assert len(eqr.top_risks) <= 5
 
 
 class TestIntelligenceRoute:

@@ -19,6 +19,7 @@ export const SCHEDULED_REPORT_I18N_KEYS = {
   executiveSummaryLabel: "scheduled_reports.executive_summary_label",
   topRisks: "scheduled_reports.top_risks",
   topRecommendations: "scheduled_reports.top_recommendations",
+  jiraBlockers: "scheduled_reports.jira_blockers",
   previewReport: "scheduled_reports.preview_report",
   editSchedule: "scheduled_reports.edit_schedule",
   sendReport: "scheduled_reports.send_report",
@@ -80,6 +81,7 @@ function mapSchedule(schedule, t) {
 
 function mapPreview(preview, t) {
   if (!preview) return null;
+  const jiraBlockerCount = preview.jira_blocker_count ?? 0;
   return {
     ...preview,
     qualityScoreLabel: t(SCHEDULED_REPORT_I18N_KEYS.qualityScore),
@@ -88,10 +90,14 @@ function mapPreview(preview, t) {
     executiveSummaryLabel: t(SCHEDULED_REPORT_I18N_KEYS.executiveSummaryLabel),
     topRisksLabel: t(SCHEDULED_REPORT_I18N_KEYS.topRisks),
     topRecommendationsLabel: t(SCHEDULED_REPORT_I18N_KEYS.topRecommendations),
+    jiraBlockersLabel: t(SCHEDULED_REPORT_I18N_KEYS.jiraBlockers),
     trendBadgeClass: trendBadgeClass(preview.quality_trend),
     riskBadgeClass: riskLevelBadgeClass(preview.risk_level),
     top_risks: preview.top_risks || [],
     top_recommendations: preview.top_recommendations || [],
+    jiraBlockerCount,
+    jiraBlockerKeys: preview.jira_blocker_keys || [],
+    showJiraKpi: jiraBlockerCount > 0,
   };
 }
 

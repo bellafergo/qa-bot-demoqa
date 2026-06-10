@@ -83,4 +83,65 @@ describe("releaseReadinessViewUtils", () => {
     expect(vm.decisionCenterVm.empty).toBe(false);
     expect(vm.qualityHealthVm.empty).toBe(false);
   });
+
+  it("builds compact Jira blocker slice when blockers exist", () => {
+    const vm = buildReleaseReadinessViewModel({
+      release_readiness: {
+        ...sampleView,
+        jira_issue_intelligence: {
+          connected: true,
+          total_issues: 4,
+          correlated_issues: 2,
+          blocker_count: 2,
+          top_blockers: [
+            {
+              issue_key: "PAY-451",
+              issue_type: "Bug",
+              status: "Open",
+              priority: "Blocker",
+              summary: "timeout in staging",
+              related_module: "Payments",
+              is_blocker: true,
+            },
+            {
+              issue_key: "AUTH-228",
+              issue_type: "Bug",
+              status: "Open",
+              priority: "Blocker",
+              summary: "production login failures",
+              related_module: "Authentication",
+              is_blocker: true,
+            },
+          ],
+          issue_correlations: [],
+          summary: "2 blockers detected.",
+          data_gaps: [],
+        },
+      },
+    }, t);
+    expect(vm.showJiraBlockers).toBe(true);
+    expect(vm.jiraIntelVm.blockerCount).toBe(2);
+    expect(vm.compactJiraBlockers).toHaveLength(2);
+    expect(vm.compactJiraBlockers[0].issueKey).toBe("PAY-451");
+    expect(vm.jiraBlockersLabel).toBe(RELEASE_READINESS_I18N_KEYS.jiraBlockers);
+  });
+
+  it("hides Jira blocker slice when no blockers", () => {
+    const vm = buildReleaseReadinessViewModel({
+      release_readiness: {
+        ...sampleView,
+        jira_issue_intelligence: {
+          connected: true,
+          total_issues: 2,
+          correlated_issues: 0,
+          blocker_count: 0,
+          top_blockers: [],
+          issue_correlations: [],
+          summary: "No blockers.",
+          data_gaps: [],
+        },
+      },
+    }, t);
+    expect(vm.showJiraBlockers).toBe(false);
+  });
 });

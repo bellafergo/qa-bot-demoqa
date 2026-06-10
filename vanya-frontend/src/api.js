@@ -343,6 +343,11 @@ export function getProjectReleaseReadiness(projectId) {
   return apiGet(`/projects/${encodeURIComponent(pid)}/release-readiness`);
 }
 
+export function getProjectValueDashboard(projectId) {
+  const pid = String(projectId || "").trim();
+  return apiGet(`/projects/${encodeURIComponent(pid)}/value-dashboard`);
+}
+
 export function previewReportDelivery(projectId, body) {
   const pid = String(projectId || "").trim();
   return apiPost(`/projects/${encodeURIComponent(pid)}/reports/preview`, body);

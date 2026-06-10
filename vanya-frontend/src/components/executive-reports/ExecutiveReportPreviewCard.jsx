@@ -25,6 +25,15 @@ export default function ExecutiveReportPreviewCard({ preview, labels }) {
           <span style={{ fontWeight: 600, color: "var(--text-3)", fontSize: 12 }}>{preview.qualityScoreLabel}: </span>
           <span style={{ fontWeight: 700, color: "var(--text-1)" }}>{preview.quality_score}</span>
         </div>
+        {preview.showJiraKpi ? (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <span style={{ fontWeight: 600, color: "var(--text-3)", fontSize: 12 }}>{preview.jiraBlockersLabel}: </span>
+            <span className="badge badge-red">{preview.jiraBlockerCount}</span>
+            {(preview.jiraBlockerKeys || []).slice(0, 3).map((key) => (
+              <span key={key} className="badge badge-gray" style={{ fontSize: 11 }}>{key}</span>
+            ))}
+          </div>
+        ) : null}
         <div style={{ fontSize: 12, color: "var(--text-2)" }}>
           <span style={{ fontWeight: 600, color: "var(--text-3)" }}>{preview.executiveSummaryLabel}: </span>
           {preview.executive_summary}

@@ -329,3 +329,48 @@ def build_jira_issue_intelligence_report(
         summary=summary,
         data_gaps=gaps,
     )
+
+
+def jira_executive_risk_lines(
+    intel: Optional[JiraIssueIntelligenceReport],
+    *,
+    limit: int = 3,
+) -> List[str]:
+    """Convert stored Jira intelligence into executive-friendly risk lines (no scoring)."""
+    if intel is None or not intel.connected or intel.blocker_count <= 0:
+        return []
+
+    lines: List[str] = []
+    for blocker in (intel.top_blockers or [])[:limit]:
+        key = str(blocker.issue_key or "").strip()
+        if not key:
+            continue
+        module = str(blocker.related_module or "").strip()
+        module_part = f" ({module})" if module else ""
+        summary = str(blocker.summary or "").strip()
+        if summary:
+            text = f"Jira blocker {key}{module_part}: {summary}"
+        else:
+            text = f"Jira blocker {key}{module_part}"
+        if text not in lines:
+            lines.append(text)
+    return lines
+
+
+def enrich_executive_quality_top_risks_with_jira(
+    executive_quality_report: Optional["ExecutiveQualityReport"],
+    jira_intel: Optional[JiraIssueIntelligenceReport],
+    *,
+    risk_cap: int = 5,
+) -> None:
+    """Post-enrich executive quality top_risks with Jira blockers (mutates in place)."""
+    if executive_quality_report is None:
+        return
+    lines = jira_executive_risk_lines(jira_intel)
+    if not lines:
+        return
+    merged = list(lines)
+    for line in list(executive_quality_report.top_risks or []):
+        if line not in merged:
+            merged.append(line)
+    executive_quality_report.top_risks = merged[:risk_cap]

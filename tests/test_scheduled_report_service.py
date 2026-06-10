@@ -152,6 +152,44 @@ def test_preview_generation(mock_report_repo):
     assert "Run Payments Regression Suite" in preview.top_recommendations
 
 
+def test_preview_includes_jira_blockers():
+    report = _incident_report(
+        jira_issue_intelligence={
+            "connected": True,
+            "total_issues": 3,
+            "correlated_issues": 2,
+            "blocker_count": 2,
+            "top_blockers": [
+                {
+                    "issue_key": "PAY-451",
+                    "issue_type": "Bug",
+                    "status": "Open",
+                    "priority": "Blocker",
+                    "summary": "timeout in staging",
+                    "related_module": "Payments",
+                    "is_blocker": True,
+                },
+                {
+                    "issue_key": "AUTH-228",
+                    "issue_type": "Bug",
+                    "status": "Open",
+                    "priority": "Blocker",
+                    "summary": "production login failures",
+                    "related_module": "Authentication",
+                    "is_blocker": True,
+                },
+            ],
+            "issue_correlations": [],
+            "summary": "2 blockers detected.",
+            "data_gaps": [],
+        },
+    )
+    preview = build_executive_report_preview("demo", report)
+    assert preview.jira_blocker_count == 2
+    assert preview.jira_blocker_keys == ["PAY-451", "AUTH-228"]
+    assert any("PAY-451" in r for r in preview.top_risks)
+
+
 @patch("services.db.incident_report_repository.incident_report_repo")
 def test_deterministic_output(mock_report_repo):
     report = _incident_report()
