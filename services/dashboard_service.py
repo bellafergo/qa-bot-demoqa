@@ -139,6 +139,15 @@ class DashboardService:
         except Exception:
             pass
 
+        onboarding = None
+        if pid:
+            try:
+                from services.onboarding_service import build_onboarding_checklist
+
+                onboarding = build_onboarding_checklist(pid)
+            except Exception:
+                logger.debug("dashboard: onboarding checklist failed project_id=%s", pid, exc_info=True)
+
         return DashboardSummary(
             total_test_cases             = total_tc,
             active_test_cases            = active,
@@ -164,6 +173,7 @@ class DashboardService:
             flaky_tests_count            = fi_flaky_count,
             recurrent_regressions_count  = fi_regression_count,
             total_failure_clusters       = fi_cluster_count,
+            onboarding                   = onboarding,
         )
 
     # ── Recent records ────────────────────────────────────────────────────────

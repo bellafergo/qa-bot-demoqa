@@ -7,6 +7,8 @@ from __future__ import annotations
 from typing import Dict, List, Optional
 from pydantic import BaseModel
 
+from models.onboarding_models import OnboardingChecklist
+
 
 class DashboardSummary(BaseModel):
     """Compact platform-wide operational summary."""
@@ -47,6 +49,9 @@ class DashboardSummary(BaseModel):
     flaky_tests_count:           int = 0
     recurrent_regressions_count: int = 0
     total_failure_clusters:      int = 0
+
+    # Guided onboarding (ENT-03A) — populated when project_id is scoped
+    onboarding: Optional[OnboardingChecklist] = None
 
 
 class DashboardModuleMetrics(BaseModel):

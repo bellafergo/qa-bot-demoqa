@@ -20,6 +20,8 @@ import {
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
 import ProjectHealthStrip from "../components/ProjectHealthStrip.jsx";
+import OnboardingChecklistView from "../components/onboarding/OnboardingChecklistView.jsx";
+import { buildOnboardingViewModel } from "../utils/onboardingViewUtils.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -1043,6 +1045,11 @@ export default function DashboardPage() {
   const passRateValid = passRateNum != null && !Number.isNaN(passRateNum);
   const passRate = passRateValid ? `${passRateNum.toFixed(1)}%` : "—";
 
+  const onboardingVm = useMemo(
+    () => buildOnboardingViewModel(s.onboarding ?? null, t),
+    [s.onboarding, t],
+  );
+
   const filteredRecentRuns = useMemo(
     () => filterDashboardRuns(recentRuns, recentRunsFilter),
     [recentRuns, recentRunsFilter],
@@ -1234,6 +1241,18 @@ export default function DashboardPage() {
       <SystemStatusRibbon ribbon={systemRibbon} />
 
       <div style={{ padding: "24px 40px 0" }}>
+        {projectId && onboardingVm.show ? (
+          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
+              {onboardingVm.title}
+            </div>
+            <OnboardingChecklistView vm={onboardingVm} />
+            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+              {onboardingVm.readOnlyNote}
+            </p>
+          </div>
+        ) : null}
+
         <ProjectHealthStrip
           t={t}
           projectId={projectId}

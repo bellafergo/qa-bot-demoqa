@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 
 from core.json_api import json_error_from_exception
 from models.project import ProjectCreate, ProjectPublic, ProjectUpdate
+from models.onboarding_models import OnboardingChecklist
 from models.project_initialize_models import ProjectInitializeRequest, ProjectInitializeResponse
 from services.db.catalog_repository import catalog_repo
 from services.db.project_errors import ProjectDuplicateIdError
@@ -92,6 +93,28 @@ def patch_project(project_id: str, body: ProjectUpdate):
     if updated is None:
         raise HTTPException(status_code=404, detail="Project not found")
     return _to_public(updated)
+
+
+@router.get("/{project_id}/onboarding", response_model=OnboardingChecklist)
+def get_project_onboarding(project_id: str):
+    """Read-only guided onboarding checklist for a project (ENT-03A)."""
+    from services.onboarding_service import build_onboarding_checklist
+
+    pid = _norm_pid(project_id)
+    try:
+        return build_onboarding_checklist(pid)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from None
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+    except Exception as exc:
+        return json_error_from_exception(
+            500,
+            "Project onboarding checklist failed",
+            exc,
+            logger=logger,
+            context={"endpoint": f"/projects/{pid}/onboarding"},
+        )
 
 
 @router.post("/{project_id}/initialize", response_model=ProjectInitializeResponse)
