@@ -977,6 +977,15 @@ def investigate_project_incident(
         impact_map=impact_map,
     )
 
+    from services.quality_trend_service import build_quality_trend_report
+
+    quality_trends = build_quality_trend_report(
+        pid,
+        quality_health=quality_health,
+        executive_quality_report=executive_quality_report,
+        historical_learning=historical_learning,
+    )
+
     actions_available = _build_actions_available(
         req=req,
         related_runs=related_runs,
@@ -1031,6 +1040,7 @@ def investigate_project_incident(
         executive_quality_report=executive_quality_report,
         multi_environment=multi_environment,
         quality_health=quality_health,
+        quality_trends=quality_trends,
         confidence=confidence,
         confidence_breakdown=confidence_breakdown,
         next_steps=next_steps,

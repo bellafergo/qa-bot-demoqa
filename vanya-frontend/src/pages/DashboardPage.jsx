@@ -8,6 +8,7 @@ import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   getDashboardSummary,
+  getProjectQualityTrends,
   getDashboardRecentRuns,
   getDashboardRecentJobs,
   getFailureIntel,
@@ -22,6 +23,8 @@ import { useProject } from "../context/ProjectContext.jsx";
 import ProjectHealthStrip from "../components/ProjectHealthStrip.jsx";
 import OnboardingChecklistView from "../components/onboarding/OnboardingChecklistView.jsx";
 import { buildOnboardingViewModel } from "../utils/onboardingViewUtils.js";
+import { buildQualityTrendViewModelFromApi } from "../utils/qualityTrendViewUtils.js";
+import QualityTrendReportView from "../components/incident/QualityTrendReportView.jsx";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -946,6 +949,7 @@ export default function DashboardPage() {
   const [topProblemBusy, setTopProblemBusy]   = useState(false);
   const [topProblemError, setTopProblemError] = useState("");
   const [hasKnowledge, setHasKnowledge] = useState(null);
+  const [qualityTrends, setQualityTrends] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -958,6 +962,7 @@ export default function DashboardPage() {
     setAnalyticsLoading(true);
     setAnalyticsError("");
     setHasKnowledge(null);
+    setQualityTrends(null);
 
     const pid = projectId;
     const summaryParams = pid ? { project_id: pid } : {};
@@ -1008,6 +1013,9 @@ export default function DashboardPage() {
           if (e?.status === 404) setHasKnowledge(false);
           else setHasKnowledge(null);
         });
+      getProjectQualityTrends(pid)
+        .then((data) => setQualityTrends(data))
+        .catch(() => setQualityTrends(null));
     } else {
       setHasKnowledge(null);
     }
@@ -1048,6 +1056,11 @@ export default function DashboardPage() {
   const onboardingVm = useMemo(
     () => buildOnboardingViewModel(s.onboarding ?? null, t),
     [s.onboarding, t],
+  );
+
+  const qualityTrendVm = useMemo(
+    () => buildQualityTrendViewModelFromApi(qualityTrends, t),
+    [qualityTrends, t],
   );
 
   const filteredRecentRuns = useMemo(
@@ -1266,6 +1279,18 @@ export default function DashboardPage() {
           lastRefresh={lastRefresh}
           onInitialized={() => load()}
         />
+
+        {projectId && qualityTrendVm.show && !qualityTrendVm.empty ? (
+          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
+              {qualityTrendVm.title}
+            </div>
+            <QualityTrendReportView vm={qualityTrendVm} />
+            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+              {qualityTrendVm.readOnlyNote}
+            </p>
+          </div>
+        ) : null}
       </div>
 
       <div style={{ padding: "32px 40px" }}>

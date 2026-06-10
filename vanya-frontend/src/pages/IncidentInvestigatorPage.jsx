@@ -33,6 +33,7 @@ import { buildDataJourneyValidationViewModel } from "../utils/dataJourneyValidat
 import { buildEnterpriseDependencyMapViewModel } from "../utils/enterpriseDependencyMapViewUtils.js";
 import { buildExecutiveQualityReportViewModel } from "../utils/executiveQualityReportViewUtils.js";
 import { buildQualityHealthScoreViewModel } from "../utils/qualityHealthScoreViewUtils.js";
+import { buildQualityTrendViewModel } from "../utils/qualityTrendViewUtils.js";
 import { buildMultiEnvironmentIntelligenceViewModel } from "../utils/environmentIntelligenceViewUtils.js";
 import { buildRecommendedActionsViewModel } from "../utils/incidentRecommendedActionsViewUtils.js";
 import EvidenceCorrelationDrilldownCell from "../components/incident/EvidenceCorrelationDrilldownCell.jsx";
@@ -53,6 +54,7 @@ import DataJourneyCard from "../components/incident/DataJourneyCard.jsx";
 import EnterpriseDependencyMapView from "../components/incident/EnterpriseDependencyMapView.jsx";
 import ExecutiveQualityReportView from "../components/incident/ExecutiveQualityReportView.jsx";
 import QualityHealthReportView from "../components/incident/QualityHealthReportView.jsx";
+import QualityTrendReportView from "../components/incident/QualityTrendReportView.jsx";
 import MultiEnvironmentIntelligenceView from "../components/incident/MultiEnvironmentIntelligenceView.jsx";
 
 function fmtTs(iso) {
@@ -149,6 +151,7 @@ function QaInvestigationReport({ report, t }) {
   const enterpriseDependencyMapVm = buildEnterpriseDependencyMapViewModel(report, t);
   const executiveQualityReportVm = buildExecutiveQualityReportViewModel(report, t);
   const qualityHealthVm = buildQualityHealthScoreViewModel(report, t);
+  const qualityTrendVm = buildQualityTrendViewModel(report, t);
   const multiEnvironmentVm = buildMultiEnvironmentIntelligenceViewModel(report, t);
   const decisionCenterVm = buildDecisionCenterViewModel(report, t);
   const historicalLearningVm = buildHistoricalLearningViewModel(report, t, fmtTs);
@@ -227,6 +230,31 @@ function QaInvestigationReport({ report, t }) {
               <QualityHealthReportView vm={qualityHealthVm} />
               <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
                 {qualityHealthVm.readOnlyNote}
+              </p>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {qualityTrendVm.show ? (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {qualityTrendVm.title}
+          </div>
+          {qualityTrendVm.empty ? (
+            emptyStateText(qualityTrendVm.emptyMessage)
+          ) : (
+            <div
+              style={{
+                padding: "16px 18px",
+                background: "var(--bg-2)",
+                borderRadius: 8,
+                border: "1px solid var(--border, rgba(255,255,255,0.08))",
+              }}
+            >
+              <QualityTrendReportView vm={qualityTrendVm} />
+              <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+                {qualityTrendVm.readOnlyNote}
               </p>
             </div>
           )}

@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 
 from core.json_api import json_error_from_exception
 from models.project import ProjectCreate, ProjectPublic, ProjectUpdate
+from models.incident_models import QualityTrendReport
 from models.onboarding_models import OnboardingChecklist
 from models.project_initialize_models import ProjectInitializeRequest, ProjectInitializeResponse
 from services.db.catalog_repository import catalog_repo
@@ -93,6 +94,31 @@ def patch_project(project_id: str, body: ProjectUpdate):
     if updated is None:
         raise HTTPException(status_code=404, detail="Project not found")
     return _to_public(updated)
+
+
+@router.get("/{project_id}/quality-trends", response_model=QualityTrendReport)
+def get_project_quality_trends(project_id: str):
+    """Read-only quality trend analytics from stored incident history (OBS-01B)."""
+    from services.quality_trend_service import build_quality_trend_report
+
+    pid = _norm_pid(project_id)
+    try:
+        report = build_quality_trend_report(pid)
+        if report is None:
+            raise HTTPException(status_code=404, detail="Not enough historical data available")
+        return report
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+    except Exception as exc:
+        return json_error_from_exception(
+            500,
+            "Project quality trends failed",
+            exc,
+            logger=logger,
+            context={"endpoint": f"/projects/{pid}/quality-trends"},
+        )
 
 
 @router.get("/{project_id}/onboarding", response_model=OnboardingChecklist)

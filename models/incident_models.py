@@ -504,6 +504,29 @@ class QualityHealthReport(BaseModel):
     summary: str = ""
 
 
+class QualityTrendPoint(BaseModel):
+    timestamp: str
+    score: int = Field(default=0, ge=0, le=100)
+    status: str = "UNKNOWN"
+
+
+class QualityTrend(BaseModel):
+    trend_id: str
+    scope_type: str
+    scope_name: str
+    trend_direction: str = "UNKNOWN"
+    score_change: int = 0
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    points: List[QualityTrendPoint] = Field(default_factory=list)
+
+
+class QualityTrendReport(BaseModel):
+    overall_trend: str = "UNKNOWN"
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    trends: List[QualityTrend] = Field(default_factory=list)
+    summary: str = ""
+
+
 class ExecutiveQualityReport(BaseModel):
     report_id: str
     generated_at: str
@@ -614,6 +637,7 @@ class ProjectIncidentInvestigationReport(BaseModel):
     executive_quality_report: Optional[ExecutiveQualityReport] = None
     multi_environment: Optional[MultiEnvironmentReport] = None
     quality_health: Optional[QualityHealthReport] = None
+    quality_trends: Optional[QualityTrendReport] = None
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     confidence_breakdown: List["ConfidenceFactor"] = Field(default_factory=list)
     next_steps: List[str] = Field(default_factory=list)
