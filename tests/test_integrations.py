@@ -174,7 +174,11 @@ class TestJiraConnector:
         assert health == "unconfigured"
 
     def test_health_check_enabled_full_config(self):
-        health, msg = self._connector().health_check(self._full_config())
+        from unittest.mock import MagicMock, patch
+
+        fake = MagicMock(connected=True, server_url="https://example.atlassian.net")
+        with patch("services.jira_integration_service.validate_jira_connection", return_value=fake):
+            health, msg = self._connector().health_check(self._full_config())
         assert health == "ok"
         assert "jira" in msg.lower()
 

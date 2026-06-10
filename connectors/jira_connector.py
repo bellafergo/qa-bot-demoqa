@@ -39,8 +39,14 @@ class JiraConnector(BaseConnector):
         valid, msg = self.validate_config(config)
         if not valid:
             return "unconfigured", msg
-        # Stub: real impl would call GET {base_url}/rest/api/3/myself
-        return "ok", f"Jira stub reachable at {config.base_url}"
+        from services.jira_integration_service import validate_jira_connection
+
+        status = validate_jira_connection()
+        if status.connected:
+            return "ok", f"Jira connected at {status.server_url}"
+        if config.base_url:
+            return "degraded", "Jira configured but connection could not be validated"
+        return "unconfigured", msg
 
     def get_status(self, config: ConnectorConfig) -> ConnectorStatus:
         health, msg = self.health_check(config)

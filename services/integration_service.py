@@ -32,6 +32,7 @@ logger = logging.getLogger("vanya.integration_service")
 _LOCK = threading.RLock()
 _CONFIGS: Dict[str, ConnectorConfig] = {}  # connector_id → ConnectorConfig
 _LAST_HEALTH: Dict[str, ConnectorStatus] = {}  # connector_id → last health result
+_SECRETS: Dict[str, Dict[str, str]] = {}  # connector_id → {token|api_key} (in-memory only)
 
 _CONFIG_PATH = Path("evidence/integrations_config.json")
 
@@ -161,11 +162,21 @@ class IntegrationService:
             if update.extra is not None:
                 data["extra"] = update.extra
 
-            # Secrets: set presence flags only, discard values immediately
+            # Secrets: persist in-memory only; disk stores presence flags
             if update.token is not None:
-                data["token_present"] = bool(update.token.strip())
+                stripped = update.token.strip()
+                data["token_present"] = bool(stripped)
+                if stripped:
+                    _SECRETS.setdefault(connector_id, {})["token"] = stripped
+                elif connector_id in _SECRETS:
+                    _SECRETS[connector_id].pop("token", None)
             if update.api_key is not None:
-                data["api_key_present"] = bool(update.api_key.strip())
+                stripped = update.api_key.strip()
+                data["api_key_present"] = bool(stripped)
+                if stripped:
+                    _SECRETS.setdefault(connector_id, {})["api_key"] = stripped
+                elif connector_id in _SECRETS:
+                    _SECRETS[connector_id].pop("api_key", None)
 
             new_cfg = ConnectorConfig(**data)
             _CONFIGS[connector_id] = new_cfg
@@ -206,6 +217,11 @@ class IntegrationService:
         if connector is None:
             raise KeyError(f"Unknown connector: {connector_id!r}")
         return connector.supported_actions()
+
+    def get_connector_secret(self, connector_id: str, key: str) -> Optional[str]:
+        """Return an in-memory connector secret (never persisted to disk)."""
+        with _LOCK:
+            return _SECRETS.get(connector_id, {}).get(key)
 
 
 # Module-level singleton

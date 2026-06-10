@@ -48,6 +48,7 @@ from api.routes.api_testing_routes import router as api_testing_router
 from api.routes.execution_routes import router as execution_router
 from api.routes.failure_intelligence_routes import router as failure_intelligence_router
 from api.routes.integrations_routes import router as integrations_router
+from api.routes.jira_integration_routes import router as jira_integration_router
 from api.routes.app_explorer_routes import router as app_explorer_router
 from api.routes.browser_inspector_routes import router as browser_inspector_router
 from api.routes.browser_inspection_history_routes import router as browser_inspection_history_router
@@ -473,6 +474,7 @@ app.include_router(risk_selection_router)   # POST /risk-selection/select-tests,
 app.include_router(api_testing_router)      # POST /api-testing/parse-spec, /generate-tests, /approve, /run
 app.include_router(execution_router)        # GET /execution/health|status, POST /execution/run-batch|retry-failed
 app.include_router(failure_intelligence_router)  # GET /failure-intelligence/summary|clusters|flaky-tests|regressions
+app.include_router(jira_integration_router)      # GET /integrations/jira/* (read-only discovery)
 app.include_router(integrations_router)          # GET|POST /integrations, /integrations/{id}/health-check|enable|disable|config|actions
 app.include_router(app_explorer_router)          # GET /app-explorer/health, POST /app-explorer/explore
 app.include_router(browser_inspector_router)     # POST /inspect-url

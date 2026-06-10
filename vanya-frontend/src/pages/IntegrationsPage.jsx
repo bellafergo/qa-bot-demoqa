@@ -21,11 +21,25 @@ import {
   listProjectAzureDevOpsProjects,
   listProjectAzureDevOpsRepositories,
   selectProjectAzureDevOpsTarget,
+  getJiraStatus,
 } from "../api";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
+import JiraIntegrationPanel from "../components/integrations/JiraIntegrationPanel.jsx";
+import { deriveJiraHeaderState } from "../utils/jiraViewUtils.js";
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+const CONNECTOR_DISPLAY_ORDER = ["github", "azure_devops", "jira"];
+
+function sortConnectors(connectors) {
+  return [...connectors].sort((a, b) => {
+    const ia = CONNECTOR_DISPLAY_ORDER.indexOf(a.connector_id);
+    const ib = CONNECTOR_DISPLAY_ORDER.indexOf(b.connector_id);
+    const ra = ia === -1 ? 100 : ia;
+    const rb = ib === -1 ? 100 : ib;
+    if (ra !== rb) return ra - rb;
+    return a.connector_id.localeCompare(b.connector_id);
+  });
+}
 
 const HEALTH_COLOR = {
   ok:            "var(--green, #22c55e)",
@@ -93,7 +107,7 @@ function deriveAzureHeaderState(status) {
 }
 
 /** Align KPI counts with SCM card badges (project OAuth), not legacy registry flags. */
-function effectiveConnectorStatus(summary, ghStatus, azStatus) {
+function effectiveConnectorStatus(summary, ghStatus, azStatus, jiraStatus) {
   if (summary.connector_id === "github") {
     const st = deriveGitHubHeaderState(ghStatus);
     return { enabled: st.enabled, health: st.health };
@@ -101,6 +115,10 @@ function effectiveConnectorStatus(summary, ghStatus, azStatus) {
   if (summary.connector_id === "azure_devops") {
     const st = deriveAzureHeaderState(azStatus);
     return { enabled: st.enabled, health: st.health };
+  }
+  if (summary.connector_id === "jira") {
+    const st = deriveJiraHeaderState(jiraStatus);
+    return { enabled: Boolean(summary.enabled) || st.enabled, health: st.health };
   }
   return { enabled: Boolean(summary.enabled), health: summary.health || "unknown" };
 }
@@ -1034,11 +1052,12 @@ function GitHubAppPanel({ onStatusChange }) {
 
 // ── Connector card ────────────────────────────────────────────────────────────
 
-function ConnectorCard({ summary, onAction }) {
+function ConnectorCard({ summary, onAction, jiraStatus, onJiraStatusChange }) {
   const { t, lang } = useLang();
   const { currentProject } = useProject();
   const isGitHub = summary.connector_id === "github";
   const isAzureDevOps = summary.connector_id === "azure_devops";
+  const isJira = summary.connector_id === "jira";
   const isScmPanel = isGitHub || isAzureDevOps;
   const [expanded,  setExpanded]  = useState(false);
   const [detail,    setDetail]    = useState(null);
@@ -1048,6 +1067,7 @@ function ConnectorCard({ summary, onAction }) {
   const [config,    setConfig]    = useState(null);
   const [ghStatus,  setGhStatus]  = useState(null);
   const [azStatus,  setAzStatus]  = useState(null);
+  const [jiraRefreshToken, setJiraRefreshToken] = useState(0);
 
   const loadGitHubHeaderStatus = useCallback(async () => {
     if (!isGitHub || !currentProject?.id) {
@@ -1128,9 +1148,14 @@ function ConnectorCard({ summary, onAction }) {
   const icon = CONNECTOR_ICONS[summary.connector_id] || "◇";
   const ghHeader = isGitHub ? deriveGitHubHeaderState(ghStatus) : null;
   const azHeader = isAzureDevOps ? deriveAzureHeaderState(azStatus) : null;
+  const jiraHeader = isJira ? deriveJiraHeaderState(jiraStatus) : null;
   const scmHeader = ghHeader || azHeader;
-  const health = isScmPanel ? scmHeader.health : ((detail && detail.health) || summary.health);
-  const healthLabel = isScmPanel && scmHeader ? t(scmHeader.labelKey) : undefined;
+  const health = isScmPanel
+    ? scmHeader.health
+    : (isJira && jiraHeader ? jiraHeader.health : ((detail && detail.health) || summary.health));
+  const healthLabel = isScmPanel && scmHeader
+    ? t(scmHeader.labelKey)
+    : (isJira && jiraHeader ? t(jiraHeader.labelKey) : undefined);
   const enabled = isScmPanel ? Boolean(scmHeader?.enabled) : summary.enabled;
 
   return (
@@ -1251,6 +1276,27 @@ function ConnectorCard({ summary, onAction }) {
             <GitHubAppPanel onStatusChange={setGhStatus} />
           ) : summary.connector_id === "azure_devops" ? (
             <AzureDevOpsPanel onStatusChange={setAzStatus} />
+          ) : summary.connector_id === "jira" ? (
+            <>
+              <ConfigForm
+                connectorId={summary.connector_id}
+                currentConfig={config}
+                onSaved={async () => {
+                  try {
+                    const st = await getIntegration(summary.connector_id);
+                    setDetail(st);
+                    setConfig(st.config_summary || null);
+                  } catch { /* best-effort */ }
+                  try {
+                    const jst = await getJiraStatus();
+                    if (onJiraStatusChange) onJiraStatusChange(jst);
+                  } catch { /* best-effort */ }
+                  setJiraRefreshToken((n) => n + 1);
+                  if (onAction) await onAction(summary.connector_id, "config");
+                }}
+              />
+              <JiraIntegrationPanel refreshToken={jiraRefreshToken} />
+            </>
           ) : (
             <ConfigForm
               connectorId={summary.connector_id}
@@ -1281,6 +1327,16 @@ export default function IntegrationsPage() {
   const [error,      setError]      = useState(null);
   const [ghStatus,   setGhStatus]   = useState(null);
   const [azStatus,   setAzStatus]   = useState(null);
+  const [jiraStatus, setJiraStatus] = useState(null);
+
+  const loadJiraHeaderStatus = useCallback(async () => {
+    try {
+      const st = await getJiraStatus();
+      setJiraStatus(st);
+    } catch {
+      setJiraStatus(null);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -1295,6 +1351,10 @@ export default function IntegrationsPage() {
   }, [t]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    loadJiraHeaderStatus();
+  }, [loadJiraHeaderStatus]);
 
   useEffect(() => {
     const pid = currentProject?.id;
@@ -1326,10 +1386,13 @@ export default function IntegrationsPage() {
 
   const handleAction = useCallback(async (connectorId, type) => {
     if (type === "toggle" || type === "health" || type === "config") await load();
-  }, [load]);
+    if (connectorId === "jira" && (type === "toggle" || type === "health" || type === "config")) {
+      await loadJiraHeaderStatus();
+    }
+  }, [load, loadJiraHeaderStatus]);
 
-  const enabledCount = connectors.filter((c) => effectiveConnectorStatus(c, ghStatus, azStatus).enabled).length;
-  const healthyCount = connectors.filter((c) => effectiveConnectorStatus(c, ghStatus, azStatus).health === "ok").length;
+  const enabledCount = connectors.filter((c) => effectiveConnectorStatus(c, ghStatus, azStatus, jiraStatus).enabled).length;
+  const healthyCount = connectors.filter((c) => effectiveConnectorStatus(c, ghStatus, azStatus, jiraStatus).health === "ok").length;
 
   const kpiItems = [
     { labelKey: "integrations.kpi.connectors", value: connectors.length },
@@ -1382,11 +1445,13 @@ export default function IntegrationsPage() {
         </div>
       )}
 
-      {!loading && connectors.map(c => (
+      {!loading && sortConnectors(connectors).map(c => (
         <ConnectorCard
           key={c.connector_id}
           summary={c}
           onAction={handleAction}
+          jiraStatus={jiraStatus}
+          onJiraStatusChange={setJiraStatus}
         />
       ))}
     </div>

@@ -624,6 +624,36 @@ export const sendAlert                = (body)      => apiPost("/integrations/se
 export const integrationsReadiness    = ()          => apiGet(`/integrations/readiness`);
 export const createItsmTicket         = (body)      => apiPost("/integrations/create-ticket", body);
 
+// ========= Jira (read-only discovery, JIRA-01A) =========
+export const getJiraStatus            = ()          => apiGet("/integrations/jira/status");
+export const listJiraProjects         = ()          => apiGet("/integrations/jira/projects");
+export const listJiraIssues           = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.project_key) qs.set("project_key", params.project_key);
+  if (params.max_results != null) qs.set("max_results", String(params.max_results));
+  const q = qs.toString();
+  return apiGet(`/integrations/jira/issues${q ? `?${q}` : ""}`);
+};
+export const listJiraEpics            = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.project_key) qs.set("project_key", params.project_key);
+  if (params.max_results != null) qs.set("max_results", String(params.max_results));
+  const q = qs.toString();
+  return apiGet(`/integrations/jira/epics${q ? `?${q}` : ""}`);
+};
+export const listJiraReleases         = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.project_key) qs.set("project_key", params.project_key);
+  const q = qs.toString();
+  return apiGet(`/integrations/jira/releases${q ? `?${q}` : ""}`);
+};
+export const listJiraFixVersions      = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.project_key) qs.set("project_key", params.project_key);
+  const q = qs.toString();
+  return apiGet(`/integrations/jira/fix-versions${q ? `?${q}` : ""}`);
+};
+
 // ========= Projects (multi-project catalog scope) =========
 /** GET /projects — 200 + [] or empty body must be success (never throw from JSON parse). */
 export async function listProjects() {
