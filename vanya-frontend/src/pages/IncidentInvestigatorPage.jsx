@@ -28,6 +28,7 @@ import { buildHistoricalLearningViewModel } from "../utils/historicalLearningVie
 import { buildApprovalWorkflowViewModel } from "../utils/approvalWorkflowViewUtils.js";
 import { buildDatabaseValidationViewModel } from "../utils/databaseValidationViewUtils.js";
 import { buildApiContractIntelligenceViewModel } from "../utils/apiContractIntelligenceViewUtils.js";
+import { buildDataJourneyValidationViewModel } from "../utils/dataJourneyValidationViewUtils.js";
 import { buildRecommendedActionsViewModel } from "../utils/incidentRecommendedActionsViewUtils.js";
 import EvidenceCorrelationDrilldownCell from "../components/incident/EvidenceCorrelationDrilldownCell.jsx";
 import RecommendedActionCard from "../components/incident/RecommendedActionCard.jsx";
@@ -42,6 +43,7 @@ import {
 } from "../api";
 import { buildExecuteValidationPreviewPayload, pickConnectionForCheck } from "../utils/databaseConnectorViewUtils.js";
 import ApiContractCard from "../components/incident/ApiContractCard.jsx";
+import DataJourneyCard from "../components/incident/DataJourneyCard.jsx";
 
 function fmtTs(iso) {
   if (!iso) return "—";
@@ -132,6 +134,7 @@ function QaInvestigationReport({ report, t }) {
     approvalStatusByCheckId,
   });
   const apiContractIntelligenceVm = buildApiContractIntelligenceViewModel(report, t);
+  const dataJourneyValidationVm = buildDataJourneyValidationViewModel(report, t);
   const decisionCenterVm = buildDecisionCenterViewModel(report, t);
   const historicalLearningVm = buildHistoricalLearningViewModel(report, t, fmtTs);
   const recommendedActionsVm = buildRecommendedActionsViewModel(report, t);
@@ -548,6 +551,55 @@ function QaInvestigationReport({ report, t }) {
               </ul>
               <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
                 {apiContractIntelligenceVm.readOnlyNote}
+              </p>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {dataJourneyValidationVm.show ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {dataJourneyValidationVm.title}
+          </div>
+          {dataJourneyValidationVm.empty ? (
+            emptyStateText(dataJourneyValidationVm.emptyMessage)
+          ) : (
+            <div
+              style={{
+                padding: "16px 18px",
+                background: "var(--bg-2)",
+                borderRadius: 8,
+                border: "1px solid var(--border, rgba(255,255,255,0.08))",
+              }}
+            >
+              <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.55, marginBottom: 12 }}>
+                {dataJourneyValidationVm.report.summary}
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                <span className="badge badge-orange">
+                  {dataJourneyValidationVm.confidenceLabel}: {dataJourneyValidationVm.report.confidenceText}
+                </span>
+              </div>
+              <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                {dataJourneyValidationVm.report.journeys.map((journey) => (
+                  <DataJourneyCard
+                    key={journey.journey_id}
+                    journey={journey}
+                    labels={{
+                      journeyStatusLabel: dataJourneyValidationVm.journeyStatusLabel,
+                      completedStagesLabel: dataJourneyValidationVm.completedStagesLabel,
+                      missingStagesLabel: dataJourneyValidationVm.missingStagesLabel,
+                      inconsistentStagesLabel: dataJourneyValidationVm.inconsistentStagesLabel,
+                      confidenceLabel: dataJourneyValidationVm.confidenceLabel,
+                      previewLabel: dataJourneyValidationVm.previewLabel,
+                      stageStatusLabel: dataJourneyValidationVm.stageStatusLabel,
+                    }}
+                  />
+                ))}
+              </ul>
+              <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+                {dataJourneyValidationVm.readOnlyNote}
               </p>
             </div>
           )}

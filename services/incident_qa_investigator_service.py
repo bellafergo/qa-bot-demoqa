@@ -877,6 +877,16 @@ def investigate_project_incident(
         hypotheses=hypotheses,
     )
 
+    from services.data_journey_validation_service import build_data_journey_validation
+
+    data_journey_validation = build_data_journey_validation(
+        impact_map=impact_map,
+        database_validation=database_validation,
+        api_contract_intelligence=api_contract_intelligence,
+        deployment_risk_assessment=deployment_risk_assessment,
+        hypotheses=hypotheses,
+    )
+
     actions_available = _build_actions_available(
         req=req,
         related_runs=related_runs,
@@ -925,6 +935,7 @@ def investigate_project_incident(
         approval_workflow=approval_workflow,
         database_validation=database_validation,
         api_contract_intelligence=api_contract_intelligence,
+        data_journey_validation=data_journey_validation,
         confidence=confidence,
         confidence_breakdown=confidence_breakdown,
         next_steps=next_steps,

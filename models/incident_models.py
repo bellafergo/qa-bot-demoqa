@@ -329,6 +329,39 @@ class ApiContractReport(BaseModel):
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
+class JourneyStage(BaseModel):
+    stage_id: str
+    name: str
+    stage_type: str
+    validation_check_ids: List[str] = Field(default_factory=list)
+
+
+class DataJourney(BaseModel):
+    journey_id: str
+    name: str
+    description: str = ""
+    business_area: str = ""
+    stages: List[JourneyStage] = Field(default_factory=list)
+
+
+class DataJourneyResult(BaseModel):
+    journey_id: str
+    status: str
+    completed_stages: int = Field(default=0, ge=0)
+    total_stages: int = Field(default=0, ge=0)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    summary: str = ""
+    missing_stages: List[str] = Field(default_factory=list)
+    inconsistent_stages: List[str] = Field(default_factory=list)
+
+
+class DataJourneyReport(BaseModel):
+    journeys: List[DataJourney] = Field(default_factory=list)
+    results: List[DataJourneyResult] = Field(default_factory=list)
+    summary: str = ""
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
 class RecommendedAction(BaseModel):
     action_id: str
     title: str
@@ -415,6 +448,7 @@ class ProjectIncidentInvestigationReport(BaseModel):
     approval_workflow: Optional[ApprovalWorkflowSummary] = None
     database_validation: Optional[DatabaseValidationReport] = None
     api_contract_intelligence: Optional[ApiContractReport] = None
+    data_journey_validation: Optional[DataJourneyReport] = None
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     confidence_breakdown: List["ConfidenceFactor"] = Field(default_factory=list)
     next_steps: List[str] = Field(default_factory=list)
