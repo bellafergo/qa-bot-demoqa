@@ -27,6 +27,7 @@ import { buildDecisionCenterViewModel } from "../utils/qualityDecisionCenterView
 import { buildHistoricalLearningViewModel } from "../utils/historicalLearningViewUtils.js";
 import { buildApprovalWorkflowViewModel } from "../utils/approvalWorkflowViewUtils.js";
 import { buildDatabaseValidationViewModel } from "../utils/databaseValidationViewUtils.js";
+import { buildApiContractIntelligenceViewModel } from "../utils/apiContractIntelligenceViewUtils.js";
 import { buildRecommendedActionsViewModel } from "../utils/incidentRecommendedActionsViewUtils.js";
 import EvidenceCorrelationDrilldownCell from "../components/incident/EvidenceCorrelationDrilldownCell.jsx";
 import RecommendedActionCard from "../components/incident/RecommendedActionCard.jsx";
@@ -34,6 +35,7 @@ import RecommendedTestCard from "../components/incident/RecommendedTestCard.jsx"
 import SimilarIncidentCard from "../components/incident/SimilarIncidentCard.jsx";
 import ApprovalRequestCard from "../components/incident/ApprovalRequestCard.jsx";
 import DatabaseValidationCheckCard from "../components/incident/DatabaseValidationCheckCard.jsx";
+import ApiContractCard from "../components/incident/ApiContractCard.jsx";
 
 function fmtTs(iso) {
   if (!iso) return "—";
@@ -97,6 +99,7 @@ function QaInvestigationReport({ report, t }) {
   const deploymentRiskVm = buildDeploymentRiskViewModel(report, t);
   const testRecommendationsVm = buildTestRecommendationsViewModel(report, t);
   const databaseValidationVm = buildDatabaseValidationViewModel(report, t);
+  const apiContractIntelligenceVm = buildApiContractIntelligenceViewModel(report, t);
   const decisionCenterVm = buildDecisionCenterViewModel(report, t);
   const historicalLearningVm = buildHistoricalLearningViewModel(report, t, fmtTs);
   const recommendedActionsVm = buildRecommendedActionsViewModel(report, t);
@@ -425,6 +428,56 @@ function QaInvestigationReport({ report, t }) {
               </ul>
               <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
                 {databaseValidationVm.futureFooter}
+              </p>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {apiContractIntelligenceVm.show ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {apiContractIntelligenceVm.title}
+          </div>
+          {apiContractIntelligenceVm.empty ? (
+            emptyStateText(apiContractIntelligenceVm.emptyMessage)
+          ) : (
+            <div
+              style={{
+                padding: "16px 18px",
+                background: "var(--bg-2)",
+                borderRadius: 8,
+                border: "1px solid var(--border, rgba(255,255,255,0.08))",
+              }}
+            >
+              <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.55, marginBottom: 12 }}>
+                {apiContractIntelligenceVm.intel.summary}
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                <span className="badge badge-orange">
+                  {apiContractIntelligenceVm.confidenceLabel}: {apiContractIntelligenceVm.intel.confidenceText}
+                </span>
+              </div>
+              <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                {apiContractIntelligenceVm.intel.contracts.map((contract) => (
+                  <ApiContractCard
+                    key={contract.contract_id}
+                    contract={contract}
+                    labels={{
+                      contractChangesLabel: apiContractIntelligenceVm.contractChangesLabel,
+                      riskAssessmentLabel: apiContractIntelligenceVm.riskAssessmentLabel,
+                      previewLabel: apiContractIntelligenceVm.previewLabel,
+                      endpointLabel: apiContractIntelligenceVm.endpointLabel,
+                      methodLabel: apiContractIntelligenceVm.methodLabel,
+                      versionLabel: apiContractIntelligenceVm.versionLabel,
+                      riskLevelLabel: apiContractIntelligenceVm.riskLevelLabel,
+                      changeCountLabel: apiContractIntelligenceVm.changeCountLabel,
+                    }}
+                  />
+                ))}
+              </ul>
+              <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+                {apiContractIntelligenceVm.readOnlyNote}
               </p>
             </div>
           )}

@@ -292,6 +292,43 @@ class DatabaseValidationReport(BaseModel):
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
+class ApiContract(BaseModel):
+    contract_id: str
+    service_name: str
+    endpoint: str
+    method: str
+    version: str
+    request_schema: Dict[str, Any] = Field(default_factory=dict)
+    response_schema: Dict[str, Any] = Field(default_factory=dict)
+    source: str = ""
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class ContractChange(BaseModel):
+    change_id: str
+    severity: str
+    change_type: str
+    field_name: str
+    old_value: Optional[str] = None
+    new_value: Optional[str] = None
+    description: str = ""
+
+
+class ContractRiskAssessment(BaseModel):
+    assessment_id: str
+    risk_level: str
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    summary: str = ""
+    changes: List[ContractChange] = Field(default_factory=list)
+
+
+class ApiContractReport(BaseModel):
+    contracts: List[ApiContract] = Field(default_factory=list)
+    risk_assessments: List[ContractRiskAssessment] = Field(default_factory=list)
+    summary: str = ""
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
 class RecommendedAction(BaseModel):
     action_id: str
     title: str
@@ -377,6 +414,7 @@ class ProjectIncidentInvestigationReport(BaseModel):
     historical_learning: Optional[HistoricalLearningReport] = None
     approval_workflow: Optional[ApprovalWorkflowSummary] = None
     database_validation: Optional[DatabaseValidationReport] = None
+    api_contract_intelligence: Optional[ApiContractReport] = None
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     confidence_breakdown: List["ConfidenceFactor"] = Field(default_factory=list)
     next_steps: List[str] = Field(default_factory=list)

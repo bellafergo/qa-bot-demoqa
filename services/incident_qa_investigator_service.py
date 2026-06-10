@@ -865,6 +865,18 @@ def investigate_project_incident(
         hypotheses=hypotheses,
     )
 
+    from services.api_contract_intelligence_service import build_api_contract_intelligence
+
+    api_contract_intelligence = build_api_contract_intelligence(
+        impact_map=impact_map,
+        related_pr_analysis=related_pr_analysis,
+        deployment_risk_assessment=deployment_risk_assessment,
+        historical_learning=historical_learning,
+        test_recommendations=test_recommendations,
+        recommended_actions=recommended_actions,
+        hypotheses=hypotheses,
+    )
+
     actions_available = _build_actions_available(
         req=req,
         related_runs=related_runs,
@@ -912,6 +924,7 @@ def investigate_project_incident(
         historical_learning=historical_learning,
         approval_workflow=approval_workflow,
         database_validation=database_validation,
+        api_contract_intelligence=api_contract_intelligence,
         confidence=confidence,
         confidence_breakdown=confidence_breakdown,
         next_steps=next_steps,
