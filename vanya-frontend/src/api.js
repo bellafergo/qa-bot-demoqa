@@ -348,6 +348,11 @@ export function getProjectValueDashboard(projectId) {
   return apiGet(`/projects/${encodeURIComponent(pid)}/value-dashboard`);
 }
 
+export function getProjectExecutiveImpact(projectId) {
+  const pid = String(projectId || "").trim();
+  return apiGet(`/projects/${encodeURIComponent(pid)}/executive-impact`);
+}
+
 export function previewReportDelivery(projectId, body) {
   const pid = String(projectId || "").trim();
   return apiPost(`/projects/${encodeURIComponent(pid)}/reports/preview`, body);

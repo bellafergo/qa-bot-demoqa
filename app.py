@@ -73,6 +73,7 @@ from api.routes.incident_routes import router as incident_router
 from api.routes.incident_project_routes import router as incident_project_router
 from api.routes.release_readiness_routes import router as release_readiness_router
 from api.routes.value_dashboard_routes import router as value_dashboard_router
+from api.routes.executive_impact_routes import router as executive_impact_router
 from api.routes.report_delivery_routes import router as report_delivery_router
 from api.routes.security_routes import router as security_router
 from api.routes.project_routes import router as project_router
@@ -503,6 +504,7 @@ app.include_router(incident_router)           # POST /incidents/investigate, GET
 app.include_router(incident_project_router)   # POST /projects/{id}/incidents/investigate
 app.include_router(release_readiness_router)   # GET /projects/{id}/release-readiness
 app.include_router(value_dashboard_router)     # GET /projects/{id}/value-dashboard
+app.include_router(executive_impact_router)    # GET /projects/{id}/executive-impact
 app.include_router(report_delivery_router)     # POST /projects/{id}/reports/preview|send
 app.include_router(security_router)            # GET /security/readiness, /security/providers
 app.include_router(project_knowledge_router)    # GET|POST /projects/{id}/knowledge
