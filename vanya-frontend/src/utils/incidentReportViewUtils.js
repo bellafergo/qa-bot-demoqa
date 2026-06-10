@@ -45,6 +45,17 @@ export function shouldShowTemporalEmptyState(temporalCorrelation) {
   return temporalCorrelation.signal === "none" || !temporalCorrelation.signal;
 }
 
+export function isEvidenceCorrelationEmpty(evidenceCorrelation) {
+  if (!evidenceCorrelation) return false;
+  return (evidenceCorrelation.total_correlations ?? 0) === 0
+    || !(evidenceCorrelation.evidence?.length > 0);
+}
+
+export function correlationReasonText(item, t) {
+  const reason = String(item?.reason || "").trim();
+  return reason || t("incident.qa.correlation_reason_unavailable");
+}
+
 export function buildIncidentReportViewModel(report, t) {
   const legacy = isLegacyIncidentReport(report);
   const v13b = isV13BReport(report);

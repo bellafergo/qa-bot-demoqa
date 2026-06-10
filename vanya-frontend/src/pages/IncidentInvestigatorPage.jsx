@@ -14,7 +14,11 @@ import {
 } from "../api";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
-import { buildIncidentReportViewModel } from "../utils/incidentReportViewUtils.js";
+import {
+  buildIncidentReportViewModel,
+  correlationReasonText,
+  isEvidenceCorrelationEmpty,
+} from "../utils/incidentReportViewUtils.js";
 
 function fmtTs(iso) {
   if (!iso) return "—";
@@ -187,13 +191,14 @@ function QaInvestigationReport({ report, t }) {
             <strong>{t("incident.qa.correlation_global_confidence")}:</strong> {confidencePct(report.confidence)}
             {" · "}{t("incident.qa.correlation_ranked_independently")}
           </p>
-          {(report.evidence_correlation.evidence?.length ?? 0) > 0 ? (
+          {!isEvidenceCorrelationEmpty(report.evidence_correlation) ? (
             <div className="card" style={{ overflow: "hidden", padding: 0 }}>
               <table className="data-table">
                 <thead>
                   <tr>
                     <th>{t("incident.qa.correlation_source")}</th>
                     <th title={t("incident.qa.correlation_weight_tooltip")}>{t("incident.qa.correlation_evidence_weight")}</th>
+                    <th>{t("incident.qa.correlation_reason")}</th>
                     <th>{t("incident.qa.correlation_evidence")}</th>
                   </tr>
                 </thead>
@@ -202,8 +207,18 @@ function QaInvestigationReport({ report, t }) {
                     <tr key={i}>
                       <td style={{ fontSize: 12 }}>{item.source}</td>
                       <td style={{ fontSize: 12 }} title={t("incident.qa.correlation_weight_tooltip")}>{confidencePct(item.confidence)}</td>
+                      <td style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5 }}>{correlationReasonText(item, t)}</td>
                       <td style={{ fontSize: 12 }}>
                         <strong>{item.title}</strong>
+                        {String(item.reason || "").trim() ? (
+                          <span style={{ display: "block", color: "var(--text-3)", marginTop: 2, lineHeight: 1.5 }}>
+                            {correlationReasonText(item, t)}
+                          </span>
+                        ) : (
+                          <span style={{ display: "block", color: "var(--text-3)", marginTop: 2, lineHeight: 1.5, fontStyle: "italic" }}>
+                            {t("incident.qa.correlation_reason_unavailable")}
+                          </span>
+                        )}
                         <span style={{ display: "block", color: "var(--text-3)", marginTop: 2 }}>{item.detail}</span>
                       </td>
                     </tr>
@@ -215,7 +230,12 @@ function QaInvestigationReport({ report, t }) {
               </p>
             </div>
           ) : (
-            emptyStateText(t("incident.qa.evidence_correlation_empty"))
+            <div>
+              {emptyStateText(t("incident.qa.evidence_correlation_empty"))}
+              <p style={{ fontSize: 13, color: "var(--text-3)", lineHeight: 1.6, margin: "8px 0 0", fontStyle: "italic" }}>
+                {t("incident.qa.evidence_correlation_empty_hint")}
+              </p>
+            </div>
           )}
         </div>
       ) : null}

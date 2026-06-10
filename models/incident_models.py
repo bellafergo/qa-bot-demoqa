@@ -131,6 +131,9 @@ class CorrelatedEvidence(BaseModel):
     detail: str
     timestamp: Optional[str] = None
     related_run_id: Optional[str] = None
+    reason: str = ""
+    related_entity_type: Optional[str] = None
+    related_entity_id: Optional[str] = None
 
 
 class EvidenceCorrelationSummary(BaseModel):

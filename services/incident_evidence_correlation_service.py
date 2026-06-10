@@ -1,6 +1,6 @@
 # services/incident_evidence_correlation_service.py
 """
-Incident Investigator II-02A/II-02B — Evidence Correlation Engine (read-only).
+Incident Investigator II-02A/II-02B/II-02C — Evidence Correlation Engine (read-only).
 
 Correlates operational signals already present in Vanya without executing
 actions, writing data, or modifying scoring/confidence/ranking.
@@ -118,6 +118,13 @@ def correlate_failed_runs(
             detail += f" ({run.test_name or run.test_id})"
         if run.error_summary:
             detail += f" — {run.error_summary[:120]}"
+        module_part = ""
+        if (run.module or "").strip():
+            module_part = f" and overlaps affected module {(run.module or '').strip().upper()}"
+        if mins is not None:
+            reason = f"Run failed {mins} minutes before the incident{module_part}."
+        else:
+            reason = f"Run failed within the investigation time window{module_part}."
         items.append(CorrelatedEvidence(
             source="failed_run",
             confidence=0.85,
@@ -125,6 +132,9 @@ def correlate_failed_runs(
             detail=detail,
             timestamp=run.started_at,
             related_run_id=run.run_id,
+            reason=reason,
+            related_entity_type="run",
+            related_entity_id=run.run_id,
         ))
     return items
 
@@ -145,6 +155,9 @@ def correlate_browser_alerts(
             title="Browser alert detected",
             detail=detail,
             timestamp=str(ev.get("timestamp") or "") or None,
+            reason="Browser Watch alert detected on the same route referenced by the incident.",
+            related_entity_type="browser_watch",
+            related_entity_id=watch_id,
         ))
     return items
 
@@ -157,12 +170,16 @@ def correlate_browser_investigations(
     detail = "Passive browser observation captured evidence"
     if browser_investigation.probable_cause:
         detail = f"{detail} — {browser_investigation.probable_cause[:160]}"
+    probe_id = (browser_investigation.id or "").strip() or None
     return [CorrelatedEvidence(
         source="browser_probe",
         confidence=0.80,
         title="Browser investigation available",
         detail=detail,
         timestamp=browser_investigation.created_at,
+        reason="Browser probe captured evidence on the target URL under investigation.",
+        related_entity_type="browser_probe",
+        related_entity_id=probe_id,
     )]
 
 
@@ -222,6 +239,9 @@ def correlate_api_failures(
                 detail=detail,
                 timestamp=run.started_at,
                 related_run_id=rid,
+                reason="API evidence was extracted from a correlated failed run.",
+                related_entity_type="run",
+                related_entity_id=rid,
             ))
     return items
 
@@ -248,11 +268,15 @@ def correlate_failure_clusters(
         fails = int(cluster.get("total_failures") or 0)
         cat = str(cluster.get("root_cause_category") or "unknown")
         detail = f"Failure cluster overlaps incident modules ({mod}, {fails} failure(s), {cat})"
+        cluster_id = str(cluster.get("cluster_id") or mod).strip() or mod
         items.append(CorrelatedEvidence(
             source="failure_cluster",
             confidence=min(0.88, 0.65 + fails * 0.03),
             title="Failure cluster overlap",
             detail=detail,
+            reason="Failure cluster overlaps incident modules and occurred within the investigation window.",
+            related_entity_type="failure_cluster",
+            related_entity_id=cluster_id,
         ))
     return items
 
@@ -268,12 +292,16 @@ def _correlate_pr_analysis(
         detail = f"PR Analysis references impacted module {mods}"
         if pra.reason:
             detail = f"{detail} — {pra.reason}"
+        entity_id = f"{pra.provider}:{pra.pr_number}"
         items.append(CorrelatedEvidence(
             source="pr_analysis",
             confidence=min(0.82, 0.55 + pra.pr_risk_score / 200.0),
             title="PR Analysis snapshot",
             detail=detail,
             timestamp=pra.analyzed_at,
+            reason="Stored PR Analysis references the same impacted module identified by the investigation.",
+            related_entity_type="pr_analysis",
+            related_entity_id=entity_id,
         ))
     return items
 
@@ -284,7 +312,7 @@ def _correlate_system_memory(
     limit: int = 3,
 ) -> List[CorrelatedEvidence]:
     items: List[CorrelatedEvidence] = []
-    for hint in (knowledge_hints or [])[:limit]:
+    for idx, hint in enumerate((knowledge_hints or [])[:limit]):
         text = str(hint or "").strip()
         if not text:
             continue
@@ -293,6 +321,9 @@ def _correlate_system_memory(
             confidence=0.55,
             title="System Memory hint",
             detail=text[:240],
+            reason="System Memory contains route or module hints matching the incident context.",
+            related_entity_type="memory_hint",
+            related_entity_id=f"hint-{idx}",
         ))
     return items
 

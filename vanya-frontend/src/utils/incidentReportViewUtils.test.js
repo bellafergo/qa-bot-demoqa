@@ -10,6 +10,8 @@ import {
   shouldShowRecommendedTestsEmptyState,
   shouldShowTemporalEmptyState,
   buildIncidentReportViewModel,
+  isEvidenceCorrelationEmpty,
+  correlationReasonText,
 } from "./incidentReportViewUtils";
 
 const t = (key) => key;
@@ -121,5 +123,21 @@ describe("helper predicates", () => {
   it("shouldShowBlastRadiusEmptyState and recommended tests empty", () => {
     expect(shouldShowBlastRadiusEmptyState(v13bSparseReport)).toBe(true);
     expect(shouldShowRecommendedTestsEmptyState(v13bSparseReport)).toBe(true);
+  });
+});
+
+describe("evidence correlation view helpers", () => {
+  it("isEvidenceCorrelationEmpty when total_correlations is zero", () => {
+    expect(isEvidenceCorrelationEmpty({ total_correlations: 0, evidence: [] })).toBe(true);
+    expect(isEvidenceCorrelationEmpty({ total_correlations: 2, evidence: [{ source: "failed_run" }] })).toBe(false);
+  });
+
+  it("correlationReasonText returns reason or fallback", () => {
+    expect(correlationReasonText(
+      { reason: "Run failed 32 minutes before the incident." },
+      t,
+    )).toBe("Run failed 32 minutes before the incident.");
+    expect(correlationReasonText({ reason: "" }, t)).toBe("incident.qa.correlation_reason_unavailable");
+    expect(correlationReasonText({}, t)).toBe("incident.qa.correlation_reason_unavailable");
   });
 });
