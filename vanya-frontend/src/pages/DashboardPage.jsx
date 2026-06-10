@@ -9,6 +9,7 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   getDashboardSummary,
   getProjectQualityTrends,
+  getProjectEarlyDegradation,
   getDashboardRecentRuns,
   getDashboardRecentJobs,
   getFailureIntel,
@@ -27,6 +28,8 @@ import { buildQualityTrendViewModelFromApi } from "../utils/qualityTrendViewUtil
 import QualityTrendReportView from "../components/incident/QualityTrendReportView.jsx";
 import { buildScheduledReportViewModel } from "../utils/scheduledReportViewUtils.js";
 import ExecutiveReportCenterView from "../components/executive-reports/ExecutiveReportCenterView.jsx";
+import { buildEarlyDegradationViewModelFromApi } from "../utils/earlyDegradationViewUtils.js";
+import EarlyDegradationReportView from "../components/incident/EarlyDegradationReportView.jsx";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -952,6 +955,7 @@ export default function DashboardPage() {
   const [topProblemError, setTopProblemError] = useState("");
   const [hasKnowledge, setHasKnowledge] = useState(null);
   const [qualityTrends, setQualityTrends] = useState(null);
+  const [earlyDegradation, setEarlyDegradation] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -965,6 +969,7 @@ export default function DashboardPage() {
     setAnalyticsError("");
     setHasKnowledge(null);
     setQualityTrends(null);
+    setEarlyDegradation(null);
 
     const pid = projectId;
     const summaryParams = pid ? { project_id: pid } : {};
@@ -1018,6 +1023,9 @@ export default function DashboardPage() {
       getProjectQualityTrends(pid)
         .then((data) => setQualityTrends(data))
         .catch(() => setQualityTrends(null));
+      getProjectEarlyDegradation(pid)
+        .then((data) => setEarlyDegradation(data))
+        .catch(() => setEarlyDegradation(null));
     } else {
       setHasKnowledge(null);
     }
@@ -1068,6 +1076,11 @@ export default function DashboardPage() {
   const qualityTrendVm = useMemo(
     () => buildQualityTrendViewModelFromApi(qualityTrends, t),
     [qualityTrends, t],
+  );
+
+  const earlyDegradationVm = useMemo(
+    () => buildEarlyDegradationViewModelFromApi(earlyDegradation, t, { quality_trends: qualityTrends }),
+    [earlyDegradation, qualityTrends, t],
   );
 
   const filteredRecentRuns = useMemo(
@@ -1273,18 +1286,6 @@ export default function DashboardPage() {
           </div>
         ) : null}
 
-        {projectId && scheduledReportVm.show ? (
-          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
-              {scheduledReportVm.title}
-            </div>
-            <ExecutiveReportCenterView vm={scheduledReportVm} />
-            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
-              {scheduledReportVm.readOnlyNote}
-            </p>
-          </div>
-        ) : null}
-
         <ProjectHealthStrip
           t={t}
           projectId={projectId}
@@ -1307,6 +1308,30 @@ export default function DashboardPage() {
             <QualityTrendReportView vm={qualityTrendVm} />
             <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
               {qualityTrendVm.readOnlyNote}
+            </p>
+          </div>
+        ) : null}
+
+        {projectId && earlyDegradationVm.show && !earlyDegradationVm.empty ? (
+          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
+              {earlyDegradationVm.title}
+            </div>
+            <EarlyDegradationReportView vm={earlyDegradationVm} />
+            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+              {earlyDegradationVm.readOnlyNote}
+            </p>
+          </div>
+        ) : null}
+
+        {projectId && scheduledReportVm.show ? (
+          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
+              {scheduledReportVm.title}
+            </div>
+            <ExecutiveReportCenterView vm={scheduledReportVm} />
+            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+              {scheduledReportVm.readOnlyNote}
             </p>
           </div>
         ) : null}

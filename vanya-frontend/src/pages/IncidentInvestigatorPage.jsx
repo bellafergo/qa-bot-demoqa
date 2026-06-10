@@ -34,6 +34,7 @@ import { buildEnterpriseDependencyMapViewModel } from "../utils/enterpriseDepend
 import { buildExecutiveQualityReportViewModel } from "../utils/executiveQualityReportViewUtils.js";
 import { buildQualityHealthScoreViewModel } from "../utils/qualityHealthScoreViewUtils.js";
 import { buildQualityTrendViewModel } from "../utils/qualityTrendViewUtils.js";
+import { buildEarlyDegradationViewModel } from "../utils/earlyDegradationViewUtils.js";
 import { buildMultiEnvironmentIntelligenceViewModel } from "../utils/environmentIntelligenceViewUtils.js";
 import { buildRecommendedActionsViewModel } from "../utils/incidentRecommendedActionsViewUtils.js";
 import EvidenceCorrelationDrilldownCell from "../components/incident/EvidenceCorrelationDrilldownCell.jsx";
@@ -55,6 +56,7 @@ import EnterpriseDependencyMapView from "../components/incident/EnterpriseDepend
 import ExecutiveQualityReportView from "../components/incident/ExecutiveQualityReportView.jsx";
 import QualityHealthReportView from "../components/incident/QualityHealthReportView.jsx";
 import QualityTrendReportView from "../components/incident/QualityTrendReportView.jsx";
+import EarlyDegradationReportView from "../components/incident/EarlyDegradationReportView.jsx";
 import MultiEnvironmentIntelligenceView from "../components/incident/MultiEnvironmentIntelligenceView.jsx";
 
 function fmtTs(iso) {
@@ -152,6 +154,7 @@ function QaInvestigationReport({ report, t }) {
   const executiveQualityReportVm = buildExecutiveQualityReportViewModel(report, t);
   const qualityHealthVm = buildQualityHealthScoreViewModel(report, t);
   const qualityTrendVm = buildQualityTrendViewModel(report, t);
+  const earlyDegradationVm = buildEarlyDegradationViewModel(report, t);
   const multiEnvironmentVm = buildMultiEnvironmentIntelligenceViewModel(report, t);
   const decisionCenterVm = buildDecisionCenterViewModel(report, t);
   const historicalLearningVm = buildHistoricalLearningViewModel(report, t, fmtTs);
@@ -255,6 +258,31 @@ function QaInvestigationReport({ report, t }) {
               <QualityTrendReportView vm={qualityTrendVm} />
               <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
                 {qualityTrendVm.readOnlyNote}
+              </p>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {earlyDegradationVm.show ? (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {earlyDegradationVm.title}
+          </div>
+          {earlyDegradationVm.empty ? (
+            emptyStateText(earlyDegradationVm.emptyMessage)
+          ) : (
+            <div
+              style={{
+                padding: "16px 18px",
+                background: "var(--bg-2)",
+                borderRadius: 8,
+                border: "1px solid var(--border, rgba(255,255,255,0.08))",
+              }}
+            >
+              <EarlyDegradationReportView vm={earlyDegradationVm} />
+              <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+                {earlyDegradationVm.readOnlyNote}
               </p>
             </div>
           )}

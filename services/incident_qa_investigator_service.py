@@ -986,6 +986,20 @@ def investigate_project_incident(
         historical_learning=historical_learning,
     )
 
+    from services.early_degradation_detection_service import build_early_degradation_report
+
+    early_degradation = build_early_degradation_report(
+        pid,
+        quality_health=quality_health,
+        quality_trends=quality_trends,
+        historical_learning=historical_learning,
+        executive_quality_report=executive_quality_report,
+        multi_environment=multi_environment,
+        deployment_risk_assessment=deployment_risk_assessment,
+        contract_risk_assessment=contract_risk_assessment,
+        data_journey_validation=data_journey_validation,
+    )
+
     actions_available = _build_actions_available(
         req=req,
         related_runs=related_runs,
@@ -1041,6 +1055,7 @@ def investigate_project_incident(
         multi_environment=multi_environment,
         quality_health=quality_health,
         quality_trends=quality_trends,
+        early_degradation=early_degradation,
         confidence=confidence,
         confidence_breakdown=confidence_breakdown,
         next_steps=next_steps,

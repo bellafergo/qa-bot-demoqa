@@ -527,6 +527,40 @@ class QualityTrendReport(BaseModel):
     summary: str = ""
 
 
+class DegradationSignal(BaseModel):
+    signal_id: str
+    scope_type: str
+    scope_name: str
+    current_score: int = Field(default=0, ge=0, le=100)
+    previous_score: int = Field(default=0, ge=0, le=100)
+    score_delta: int = 0
+    degradation_velocity: float = Field(default=0.0, ge=0.0)
+    severity: str = "LOW"
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    summary: str = ""
+    related_entity_type: Optional[str] = None
+    related_entity_id: Optional[str] = None
+
+
+class DegradationAssessment(BaseModel):
+    assessment_id: str
+    scope_type: str
+    scope_name: str
+    status: str = "STABLE"
+    risk_projection: str = "LOW_RISK"
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    signals: List[DegradationSignal] = Field(default_factory=list)
+
+
+class EarlyDegradationReport(BaseModel):
+    overall_status: str = "STABLE"
+    degrading_areas: int = Field(default=0, ge=0)
+    critical_areas: int = Field(default=0, ge=0)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    assessments: List[DegradationAssessment] = Field(default_factory=list)
+    summary: str = ""
+
+
 class ExecutiveQualityReport(BaseModel):
     report_id: str
     generated_at: str
@@ -638,6 +672,7 @@ class ProjectIncidentInvestigationReport(BaseModel):
     multi_environment: Optional[MultiEnvironmentReport] = None
     quality_health: Optional[QualityHealthReport] = None
     quality_trends: Optional[QualityTrendReport] = None
+    early_degradation: Optional[EarlyDegradationReport] = None
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     confidence_breakdown: List["ConfidenceFactor"] = Field(default_factory=list)
     next_steps: List[str] = Field(default_factory=list)

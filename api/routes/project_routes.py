@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 
 from core.json_api import json_error_from_exception
 from models.project import ProjectCreate, ProjectPublic, ProjectUpdate
-from models.incident_models import QualityTrendReport
+from models.incident_models import EarlyDegradationReport, QualityTrendReport
 from models.onboarding_models import OnboardingChecklist
 from models.project_initialize_models import ProjectInitializeRequest, ProjectInitializeResponse
 from services.db.catalog_repository import catalog_repo
@@ -118,6 +118,31 @@ def get_project_quality_trends(project_id: str):
             exc,
             logger=logger,
             context={"endpoint": f"/projects/{pid}/quality-trends"},
+        )
+
+
+@router.get("/{project_id}/early-degradation", response_model=EarlyDegradationReport)
+def get_project_early_degradation(project_id: str):
+    """Read-only early degradation detection from stored incident intelligence (OBS-01C)."""
+    from services.early_degradation_detection_service import build_early_degradation_report
+
+    pid = _norm_pid(project_id)
+    try:
+        report = build_early_degradation_report(pid)
+        if report is None:
+            raise HTTPException(status_code=404, detail="No degradation signals detected")
+        return report
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+    except Exception as exc:
+        return json_error_from_exception(
+            500,
+            "Project early degradation detection failed",
+            exc,
+            logger=logger,
+            context={"endpoint": f"/projects/{pid}/early-degradation"},
         )
 
 

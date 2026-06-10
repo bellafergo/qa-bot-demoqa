@@ -333,6 +333,11 @@ export function getProjectQualityTrends(projectId) {
   return apiGet(`/projects/${encodeURIComponent(pid)}/quality-trends`);
 }
 
+export function getProjectEarlyDegradation(projectId) {
+  const pid = String(projectId || "").trim();
+  return apiGet(`/projects/${encodeURIComponent(pid)}/early-degradation`);
+}
+
 export function getDashboardRecentRuns(limit = 20, project_id) {
   const q = new URLSearchParams({ limit: String(limit) });
   if (project_id != null && String(project_id).trim()) {
