@@ -735,6 +735,26 @@ def investigate_project_incident(
         incident_reported_at=now,
     )
 
+    from services.incident_impact_map_service import build_incident_impact_map
+
+    impact_map = build_incident_impact_map(
+        hypotheses=hypotheses,
+        evidence_correlation=evidence_correlation,
+        related_runs=related_runs,
+        related_pr_analysis=related_pr_analysis,
+        browser_events=browser_events,
+        clusters=clusters,
+        timeline=timeline,
+        storyline=storyline,
+        impacted_modules=impacted_modules,
+        impacted_modules_ranked=impacted_modules_ranked,
+        temporal_correlation=temporal_correlation,
+        meta={
+            "topic_hints": sorted(hints),
+            "failure_clusters_count": len(clusters),
+        },
+    )
+
     actions_available = _build_actions_available(
         req=req,
         related_runs=related_runs,
@@ -774,6 +794,7 @@ def investigate_project_incident(
         evidence_correlation=evidence_correlation,
         investigation_plan=investigation_plan,
         storyline=storyline,
+        impact_map=impact_map,
         confidence=confidence,
         confidence_breakdown=confidence_breakdown,
         next_steps=next_steps,

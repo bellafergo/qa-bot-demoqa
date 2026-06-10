@@ -160,6 +160,16 @@ class IncidentStorylineStep(BaseModel):
     timestamp: Optional[str] = None
 
 
+class IncidentImpactNode(BaseModel):
+    title: str
+    description: str
+    severity: Literal["high", "medium", "low"] = "low"
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    related_entity_count: int = Field(default=0, ge=0)
+    related_entity_type: Optional[str] = None
+    related_entity_id: Optional[str] = None
+
+
 class IncidentActionAvailable(BaseModel):
     action: str
     label: str
@@ -224,6 +234,7 @@ class ProjectIncidentInvestigationReport(BaseModel):
     evidence_correlation: Optional[EvidenceCorrelationSummary] = None
     investigation_plan: List[InvestigationPlanItem] = Field(default_factory=list)
     storyline: List[IncidentStorylineStep] = Field(default_factory=list)
+    impact_map: List[IncidentImpactNode] = Field(default_factory=list)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     confidence_breakdown: List["ConfidenceFactor"] = Field(default_factory=list)
     next_steps: List[str] = Field(default_factory=list)

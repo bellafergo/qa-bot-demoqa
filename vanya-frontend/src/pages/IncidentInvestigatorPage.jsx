@@ -20,6 +20,7 @@ import {
   isEvidenceCorrelationEmpty,
 } from "../utils/incidentReportViewUtils.js";
 import { buildStorylineViewModel } from "../utils/incidentStorylineViewUtils.js";
+import { buildImpactMapViewModel } from "../utils/incidentImpactMapViewUtils.js";
 import EvidenceCorrelationDrilldownCell from "../components/incident/EvidenceCorrelationDrilldownCell.jsx";
 
 function fmtTs(iso) {
@@ -80,6 +81,7 @@ function QaInvestigationReport({ report, t }) {
   if (!report) return null;
   const vm = buildIncidentReportViewModel(report, t);
   const storylineVm = buildStorylineViewModel(report, t);
+  const impactMapVm = buildImpactMapViewModel(report, t);
   const es = report.evidence_strength;
   const temporal = report.temporal_correlation;
   return (
@@ -276,6 +278,60 @@ function QaInvestigationReport({ report, t }) {
                 </li>
               ))}
             </ol>
+          )}
+        </div>
+      ) : null}
+
+      {impactMapVm.show ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {impactMapVm.title}
+          </div>
+          {impactMapVm.empty ? (
+            emptyStateText(impactMapVm.emptyMessage)
+          ) : (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+                gap: 12,
+              }}
+            >
+              {impactMapVm.nodes.map((node) => (
+                <div
+                  key={`impact-${node.title}`}
+                  style={{
+                    padding: "14px 16px",
+                    background: "var(--bg-2)",
+                    borderRadius: 8,
+                    fontSize: 13,
+                    lineHeight: 1.5,
+                    border: "1px solid var(--border, rgba(255,255,255,0.08))",
+                  }}
+                >
+                  <strong style={{ color: "var(--text-1)", display: "block", marginBottom: 8, fontSize: 14 }}>
+                    {node.title}
+                  </strong>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                    <span className={node.severityBadgeClass}>
+                      {impactMapVm.severityLabel}: {node.severityLabel}
+                    </span>
+                    <span className="badge badge-blue">
+                      {node.related_entity_count} {impactMapVm.signalsLabel.toLowerCase()}
+                    </span>
+                    <span className="badge badge-orange">
+                      {impactMapVm.confidenceLabel}: {node.confidenceText}
+                    </span>
+                  </div>
+                  <div style={{ color: "var(--text-3)", marginBottom: node.drilldownItem ? 10 : 0 }}>
+                    {node.description}
+                  </div>
+                  {node.drilldownItem ? (
+                    <EvidenceCorrelationDrilldownCell item={node.drilldownItem} />
+                  ) : null}
+                </div>
+              ))}
+            </div>
           )}
         </div>
       ) : null}
