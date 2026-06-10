@@ -142,6 +142,14 @@ class EvidenceCorrelationSummary(BaseModel):
     evidence: List[CorrelatedEvidence] = Field(default_factory=list)
 
 
+class InvestigationPlanItem(BaseModel):
+    title: str
+    reason: str
+    priority: int = Field(default=0, ge=0, le=100)
+    related_entity_type: Optional[str] = None
+    related_entity_id: Optional[str] = None
+
+
 class IncidentActionAvailable(BaseModel):
     action: str
     label: str
@@ -204,6 +212,7 @@ class ProjectIncidentInvestigationReport(BaseModel):
     recommended_tests_v2: List[RecommendedTestRecommendation] = Field(default_factory=list)
     evidence_strength: Optional[IncidentEvidenceStrength] = None
     evidence_correlation: Optional[EvidenceCorrelationSummary] = None
+    investigation_plan: List[InvestigationPlanItem] = Field(default_factory=list)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     confidence_breakdown: List["ConfidenceFactor"] = Field(default_factory=list)
     next_steps: List[str] = Field(default_factory=list)

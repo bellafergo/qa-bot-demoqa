@@ -709,6 +709,17 @@ def investigate_project_incident(
         incident_reported_at=now,
     )
 
+    from services.incident_investigation_plan_service import build_investigation_plan
+
+    investigation_plan = build_investigation_plan(
+        hypotheses=hypotheses,
+        evidence_correlation=evidence_correlation,
+        related_runs=related_runs,
+        related_pr_analysis=related_pr_analysis,
+        browser_events=browser_events,
+        clusters=clusters,
+    )
+
     actions_available = _build_actions_available(
         req=req,
         related_runs=related_runs,
@@ -746,6 +757,7 @@ def investigate_project_incident(
         recommended_tests_v2=recommended_tests_v2,
         evidence_strength=evidence_strength,
         evidence_correlation=evidence_correlation,
+        investigation_plan=investigation_plan,
         confidence=confidence,
         confidence_breakdown=confidence_breakdown,
         next_steps=next_steps,

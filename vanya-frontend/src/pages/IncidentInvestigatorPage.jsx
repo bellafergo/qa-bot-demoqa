@@ -135,6 +135,53 @@ function QaInvestigationReport({ report, t }) {
         </div>
       ) : null}
 
+      {Array.isArray(report.investigation_plan) ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {t("incident.qa.investigation_plan")}
+          </div>
+          {report.investigation_plan.length > 0 ? (
+            <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none" }}>
+              {report.investigation_plan.map((step, i) => (
+                <li
+                  key={`${step.title}-${i}`}
+                  style={{
+                    marginBottom: 10,
+                    padding: "12px 14px",
+                    background: "var(--bg-2)",
+                    borderRadius: 8,
+                    fontSize: 13,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 6 }}>
+                    <span className="badge badge-orange">
+                      {t("incident.qa.investigation_plan_priority")}: {step.priority ?? 0}
+                    </span>
+                    <strong style={{ color: "var(--text-1)" }}>{step.title}</strong>
+                  </div>
+                  <div style={{ color: "var(--text-3)", marginBottom: 8 }}>{step.reason}</div>
+                  {step.related_entity_type && step.related_entity_id ? (
+                    <EvidenceCorrelationDrilldownCell
+                      item={{
+                        source: step.related_entity_type,
+                        related_entity_type: step.related_entity_type,
+                        related_entity_id: step.related_entity_id,
+                        reason: step.reason,
+                        detail: step.title,
+                        title: step.title,
+                      }}
+                    />
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            emptyStateText(t("incident.qa.investigation_plan_empty"))
+          )}
+        </div>
+      ) : null}
+
       {vm.evidenceStrength.show ? (
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.evidence_strength")}</div>
