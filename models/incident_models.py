@@ -242,6 +242,27 @@ class HistoricalLearningReport(BaseModel):
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
+ApprovalStatus = Literal["PENDING", "APPROVED", "REJECTED"]
+
+
+class ApprovalRequest(BaseModel):
+    approval_id: str
+    approval_type: str
+    title: str
+    description: str = ""
+    status: ApprovalStatus = "PENDING"
+    created_at: str = ""
+    related_entity_type: Optional[str] = None
+    related_entity_id: Optional[str] = None
+
+
+class ApprovalWorkflowSummary(BaseModel):
+    pending_count: int = Field(default=0, ge=0)
+    approved_count: int = Field(default=0, ge=0)
+    rejected_count: int = Field(default=0, ge=0)
+    requests: List[ApprovalRequest] = Field(default_factory=list)
+
+
 class RecommendedAction(BaseModel):
     action_id: str
     title: str
@@ -325,6 +346,7 @@ class ProjectIncidentInvestigationReport(BaseModel):
     test_recommendations: Optional[TestRecommendationReport] = None
     decision_center: Optional[DecisionCenterSummary] = None
     historical_learning: Optional[HistoricalLearningReport] = None
+    approval_workflow: Optional[ApprovalWorkflowSummary] = None
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     confidence_breakdown: List["ConfidenceFactor"] = Field(default_factory=list)
     next_steps: List[str] = Field(default_factory=list)

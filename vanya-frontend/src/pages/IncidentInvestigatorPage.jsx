@@ -25,11 +25,13 @@ import { buildDeploymentRiskViewModel } from "../utils/deploymentRiskAssessmentV
 import { buildTestRecommendationsViewModel } from "../utils/testRecommendationViewUtils.js";
 import { buildDecisionCenterViewModel } from "../utils/qualityDecisionCenterViewUtils.js";
 import { buildHistoricalLearningViewModel } from "../utils/historicalLearningViewUtils.js";
+import { buildApprovalWorkflowViewModel } from "../utils/approvalWorkflowViewUtils.js";
 import { buildRecommendedActionsViewModel } from "../utils/incidentRecommendedActionsViewUtils.js";
 import EvidenceCorrelationDrilldownCell from "../components/incident/EvidenceCorrelationDrilldownCell.jsx";
 import RecommendedActionCard from "../components/incident/RecommendedActionCard.jsx";
 import RecommendedTestCard from "../components/incident/RecommendedTestCard.jsx";
 import SimilarIncidentCard from "../components/incident/SimilarIncidentCard.jsx";
+import ApprovalRequestCard from "../components/incident/ApprovalRequestCard.jsx";
 
 function fmtTs(iso) {
   if (!iso) return "—";
@@ -95,6 +97,7 @@ function QaInvestigationReport({ report, t }) {
   const decisionCenterVm = buildDecisionCenterViewModel(report, t);
   const historicalLearningVm = buildHistoricalLearningViewModel(report, t, fmtTs);
   const recommendedActionsVm = buildRecommendedActionsViewModel(report, t);
+  const approvalWorkflowVm = buildApprovalWorkflowViewModel(report, t);
   const es = report.evidence_strength;
   const temporal = report.temporal_correlation;
   return (
@@ -652,6 +655,55 @@ function QaInvestigationReport({ report, t }) {
                 />
               ))}
             </ul>
+          )}
+        </div>
+      ) : null}
+
+      {approvalWorkflowVm.show ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {approvalWorkflowVm.title}
+          </div>
+          {approvalWorkflowVm.empty ? (
+            emptyStateText(approvalWorkflowVm.emptyMessage)
+          ) : (
+            <div
+              style={{
+                padding: "16px 18px",
+                background: "var(--bg-2)",
+                borderRadius: 8,
+                border: "1px solid var(--border, rgba(255,255,255,0.08))",
+              }}
+            >
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+                <span className="badge badge-orange">
+                  {approvalWorkflowVm.pendingLabel}: {approvalWorkflowVm.workflow.pending_count}
+                </span>
+                <span className="badge badge-gray">
+                  {approvalWorkflowVm.approvedLabel}: {approvalWorkflowVm.workflow.approved_count}
+                </span>
+                <span className="badge badge-red">
+                  {approvalWorkflowVm.rejectedLabel}: {approvalWorkflowVm.workflow.rejected_count}
+                </span>
+              </div>
+              <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                {approvalWorkflowVm.workflow.requests.map((request) => (
+                  <ApprovalRequestCard
+                    key={request.approval_id}
+                    request={request}
+                    labels={{
+                      statusLabel: approvalWorkflowVm.statusLabel,
+                      approvalTypeLabel: approvalWorkflowVm.approvalTypeLabel,
+                      approveLabel: approvalWorkflowVm.approveLabel,
+                      rejectLabel: approvalWorkflowVm.rejectLabel,
+                    }}
+                  />
+                ))}
+              </ul>
+              <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+                {approvalWorkflowVm.readOnlyNote}
+              </p>
+            </div>
           )}
         </div>
       ) : null}

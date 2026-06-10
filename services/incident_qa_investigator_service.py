@@ -843,6 +843,16 @@ def investigate_project_incident(
         impacted_modules=impacted_modules,
     )
 
+    from services.approval_workflow_service import build_approval_workflow
+
+    approval_workflow = build_approval_workflow(
+        recommended_actions=recommended_actions,
+        test_recommendations=test_recommendations,
+        deployment_risk_assessment=deployment_risk_assessment,
+        impact_map=impact_map,
+        created_at=now,
+    )
+
     actions_available = _build_actions_available(
         req=req,
         related_runs=related_runs,
@@ -888,6 +898,7 @@ def investigate_project_incident(
         test_recommendations=test_recommendations,
         decision_center=decision_center,
         historical_learning=historical_learning,
+        approval_workflow=approval_workflow,
         confidence=confidence,
         confidence_breakdown=confidence_breakdown,
         next_steps=next_steps,
