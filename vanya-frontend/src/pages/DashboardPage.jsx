@@ -25,6 +25,8 @@ import OnboardingChecklistView from "../components/onboarding/OnboardingChecklis
 import { buildOnboardingViewModel } from "../utils/onboardingViewUtils.js";
 import { buildQualityTrendViewModelFromApi } from "../utils/qualityTrendViewUtils.js";
 import QualityTrendReportView from "../components/incident/QualityTrendReportView.jsx";
+import { buildScheduledReportViewModel } from "../utils/scheduledReportViewUtils.js";
+import ExecutiveReportCenterView from "../components/executive-reports/ExecutiveReportCenterView.jsx";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -1058,6 +1060,11 @@ export default function DashboardPage() {
     [s.onboarding, t],
   );
 
+  const scheduledReportVm = useMemo(
+    () => buildScheduledReportViewModel(s.report_center ?? null, t),
+    [s.report_center, t],
+  );
+
   const qualityTrendVm = useMemo(
     () => buildQualityTrendViewModelFromApi(qualityTrends, t),
     [qualityTrends, t],
@@ -1262,6 +1269,18 @@ export default function DashboardPage() {
             <OnboardingChecklistView vm={onboardingVm} />
             <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
               {onboardingVm.readOnlyNote}
+            </p>
+          </div>
+        ) : null}
+
+        {projectId && scheduledReportVm.show ? (
+          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
+              {scheduledReportVm.title}
+            </div>
+            <ExecutiveReportCenterView vm={scheduledReportVm} />
+            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+              {scheduledReportVm.readOnlyNote}
             </p>
           </div>
         ) : null}

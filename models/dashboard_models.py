@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 from pydantic import BaseModel
 
 from models.onboarding_models import OnboardingChecklist
+from models.scheduled_report_models import ExecutiveReportCenter
 
 
 class DashboardSummary(BaseModel):
@@ -52,6 +53,9 @@ class DashboardSummary(BaseModel):
 
     # Guided onboarding (ENT-03A) — populated when project_id is scoped
     onboarding: Optional[OnboardingChecklist] = None
+
+    # Scheduled executive reports (ENT-02B) — populated when project_id is scoped
+    report_center: Optional[ExecutiveReportCenter] = None
 
 
 class DashboardModuleMetrics(BaseModel):

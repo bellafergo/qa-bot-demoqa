@@ -140,6 +140,7 @@ class DashboardService:
             pass
 
         onboarding = None
+        report_center = None
         if pid:
             try:
                 from services.onboarding_service import build_onboarding_checklist
@@ -147,6 +148,13 @@ class DashboardService:
                 onboarding = build_onboarding_checklist(pid)
             except Exception:
                 logger.debug("dashboard: onboarding checklist failed project_id=%s", pid, exc_info=True)
+
+            try:
+                from services.scheduled_report_service import build_executive_report_center
+
+                report_center = build_executive_report_center(pid)
+            except Exception:
+                logger.debug("dashboard: report center failed project_id=%s", pid, exc_info=True)
 
         return DashboardSummary(
             total_test_cases             = total_tc,
@@ -174,6 +182,7 @@ class DashboardService:
             recurrent_regressions_count  = fi_regression_count,
             total_failure_clusters       = fi_cluster_count,
             onboarding                   = onboarding,
+            report_center                = report_center,
         )
 
     # ── Recent records ────────────────────────────────────────────────────────
