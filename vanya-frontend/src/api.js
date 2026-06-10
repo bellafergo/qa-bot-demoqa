@@ -362,6 +362,18 @@ export function getSecurityProviders(enabledOnly = true) {
   return apiGet(`/security/providers${q}`);
 }
 
+export function getRbacReadiness() {
+  return apiGet("/security/rbac");
+}
+
+export function getSecurityRoles() {
+  return apiGet("/security/roles");
+}
+
+export function getSecurityPermissions() {
+  return apiGet("/security/permissions");
+}
+
 export function getDashboardRecentRuns(limit = 20, project_id) {
   const q = new URLSearchParams({ limit: String(limit) });
   if (project_id != null && String(project_id).trim()) {

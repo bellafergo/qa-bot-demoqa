@@ -158,7 +158,10 @@ def build_security_readiness_report(
     providers = list_identity_providers()
     sso_ready = any(p.enabled and p.provider_type in _SSO_PROVIDER_TYPES for p in providers)
     audit_ready = False
-    rbac_ready = False
+    from services.rbac_service import build_rbac_readiness_report
+
+    rbac_report = build_rbac_readiness_report()
+    rbac_ready = rbac_report.default_roles_ready
     active_provider = resolve_authentication_source(auth_kind=auth_kind)
 
     method = "LOCAL"
@@ -171,6 +174,7 @@ def build_security_readiness_report(
     summary = (
         f"Authentication is {method} via {active_provider}. "
         f"SSO {'is configured' if sso_ready else 'is not configured'}. "
+        f"RBAC {'is configured' if rbac_ready else 'is not configured'}. "
         f"Security score {score}/100."
     )
     if identity.email:
