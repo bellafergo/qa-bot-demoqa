@@ -49,8 +49,8 @@ class ConnectorConfig(BaseModel):
 
 class ConnectorConfigUpdate(BaseModel):
     """
-    Write-only update body.  Token / api_key values are consumed and discarded;
-    only the presence flag is stored.  No secrets are echoed back.
+    Write-only update body. Token / api_key values are never echoed back.
+    Presence flags are persisted; raw values may be retained in-memory for runtime use.
     """
     enabled:     Optional[bool]           = None
     base_url:    Optional[str]            = None

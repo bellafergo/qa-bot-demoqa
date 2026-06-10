@@ -72,10 +72,31 @@ describe("jiraViewUtils", () => {
       status: sampleStatus,
       projects: [],
       issues: [],
+      epics: [],
+      releases: [],
+      fixVersions: [],
       t,
     });
     expect(vm.showEmptyProjects).toBe(true);
     expect(vm.showEmptyIssues).toBe(true);
+    expect(vm.epics.showEmpty).toBe(true);
+    expect(vm.releases.showEmpty).toBe(true);
+    expect(vm.fixVersions.showEmpty).toBe(true);
+  });
+
+  it("renders epic and release list items", () => {
+    const vm = buildJiraIntegrationViewModel({
+      status: sampleStatus,
+      projects: [],
+      issues: [],
+      epics: [{ epic_key: "QA-10", epic_name: "Checkout Epic" }],
+      releases: [{ release_id: "1", release_name: "2026.1", release_date: "2026-03-01" }],
+      fixVersions: [{ version_id: "2", version_name: "2026.2" }],
+      t,
+    });
+    expect(vm.epics.items[0].label).toBe("Checkout Epic");
+    expect(vm.releases.items[0].label).toBe("2026.1");
+    expect(vm.fixVersions.items[0].label).toBe("2026.2");
   });
 
   it("derives header state from connection status", () => {

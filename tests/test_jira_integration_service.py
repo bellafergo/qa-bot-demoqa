@@ -201,6 +201,28 @@ class TestFixVersionListing:
         assert result.fix_versions[0].released is False
 
 
+class TestIssueTypeListing:
+    def test_list_issue_types_empty_when_disabled(self, integration_svc):
+        with patch.object(svc, "integration_service", integration_svc):
+            result = svc.list_issue_types()
+        assert result.issue_types == []
+        assert result.total == 0
+
+    def test_list_issue_types(self, integration_svc):
+        _enable_jira(integration_svc)
+        with patch.object(svc, "integration_service", integration_svc), patch(
+            "services.jira_integration_service.fetch_jira_projects",
+            return_value=[{"id": "100", "key": "QA", "name": "QA"}],
+        ), patch(
+            "services.jira_integration_service.list_issue_types_for_project",
+            return_value=[{"id": "1", "name": "Bug"}, {"id": "2", "name": "Epic"}],
+        ):
+            result = svc.list_issue_types(project_key="QA")
+
+        assert result.total == 2
+        assert result.issue_types[0].issue_type_name == "Bug"
+
+
 class TestJiraApiRoutes:
     def _client(self):
         from fastapi.testclient import TestClient
@@ -240,5 +262,19 @@ class TestJiraApiRoutes:
             ),
         ):
             res = self._client().get("/integrations/jira/projects")
+        assert res.status_code == 200
+        assert res.json()["total"] == 1
+
+    def test_issue_types_route(self):
+        from models.jira_models import JiraIssueType, JiraIssueTypesResponse
+
+        with patch(
+            "api.routes.jira_integration_routes.list_issue_types",
+            return_value=JiraIssueTypesResponse(
+                issue_types=[JiraIssueType(issue_type_id="1", issue_type_name="Bug")],
+                total=1,
+            ),
+        ):
+            res = self._client().get("/integrations/jira/issue-types")
         assert res.status_code == 200
         assert res.json()["total"] == 1

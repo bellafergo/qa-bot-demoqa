@@ -16,6 +16,9 @@ export const JIRA_I18N_KEYS = {
   emptyConnection: "integrations.jira.empty_connection",
   emptyProjects: "integrations.jira.empty_projects",
   emptyIssues: "integrations.jira.empty_issues",
+  emptyEpics: "integrations.jira.empty_epics",
+  emptyReleases: "integrations.jira.empty_releases",
+  emptyFixVersions: "integrations.jira.empty_fix_versions",
   refresh: "integrations.jira.refresh",
   loading: "integrations.jira.loading",
   projectKey: "integrations.jira.project_key",
@@ -82,7 +85,41 @@ export function buildIssueCardViewModel(issue) {
   };
 }
 
-export function buildJiraIntegrationViewModel({ status, projects, issues, t }) {
+export function buildEpicListItem(epic) {
+  if (!epic?.epic_key) return null;
+  return {
+    key: epic.epic_key,
+    label: epic.epic_name || epic.epic_key,
+  };
+}
+
+export function buildReleaseListItem(release) {
+  if (!release?.release_id) return null;
+  return {
+    key: release.release_id,
+    label: release.release_name || release.release_id,
+    meta: release.release_date || null,
+  };
+}
+
+export function buildFixVersionListItem(version) {
+  if (!version?.version_id) return null;
+  return {
+    key: version.version_id,
+    label: version.version_name || version.version_id,
+  };
+}
+
+function buildDiscoverySection({ label, items, emptyText, connected }) {
+  return {
+    label,
+    items,
+    showEmpty: connected && items.length === 0,
+    emptyText,
+  };
+}
+
+export function buildJiraIntegrationViewModel({ status, projects, issues, epics, releases, fixVersions, t }) {
   const connection = buildConnectionCardViewModel(status, t);
   const connected = Boolean(status?.connected);
   const projectItems = (projects || [])
@@ -91,11 +128,32 @@ export function buildJiraIntegrationViewModel({ status, projects, issues, t }) {
   const issueItems = (issues || [])
     .map(buildIssueCardViewModel)
     .filter(Boolean);
+  const epicItems = (epics || []).map(buildEpicListItem).filter(Boolean);
+  const releaseItems = (releases || []).map(buildReleaseListItem).filter(Boolean);
+  const fixVersionItems = (fixVersions || []).map(buildFixVersionListItem).filter(Boolean);
 
   return {
     connection,
     projects: projectItems,
     issues: issueItems,
+    epics: buildDiscoverySection({
+      label: t(JIRA_I18N_KEYS.epics),
+      items: epicItems,
+      emptyText: t(JIRA_I18N_KEYS.emptyEpics),
+      connected,
+    }),
+    releases: buildDiscoverySection({
+      label: t(JIRA_I18N_KEYS.releases),
+      items: releaseItems,
+      emptyText: t(JIRA_I18N_KEYS.emptyReleases),
+      connected,
+    }),
+    fixVersions: buildDiscoverySection({
+      label: t(JIRA_I18N_KEYS.fixVersions),
+      items: fixVersionItems,
+      emptyText: t(JIRA_I18N_KEYS.emptyFixVersions),
+      connected,
+    }),
     showEmptyProjects: connected && projectItems.length === 0,
     emptyProjectsText: t(JIRA_I18N_KEYS.emptyProjects),
     showEmptyIssues: connected && issueItems.length === 0,

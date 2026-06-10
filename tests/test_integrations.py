@@ -182,10 +182,15 @@ class TestJiraConnector:
         assert health == "ok"
         assert "jira" in msg.lower()
 
-    def test_list_projects_stub(self):
-        projects = self._connector().list_projects_stub()
-        assert isinstance(projects, list)
-        assert all("key" in p for p in projects)
+    def test_list_projects_canonical_service(self):
+        """Project listing is owned by jira_integration_service, not the connector."""
+        from services import jira_integration_service as jira_svc
+
+        with patch("services.jira_integration_service._resolve_http_config", return_value=None):
+            result = jira_svc.list_projects()
+        assert result.projects == []
+        assert result.total == 0
+        assert not hasattr(self._connector(), "list_projects_stub")
 
     def test_push_result_stub(self):
         result = self._connector().push_result_stub("run-123", "pass")

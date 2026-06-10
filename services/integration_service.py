@@ -7,8 +7,10 @@ Persistence pattern: same as memory_store.py —
   - JSON file under evidence/integrations_config.json (cross-restart survival)
   - Supabase optional future layer (not wired here)
 
-Secrets are NEVER persisted or returned. ConnectorConfigUpdate.token /
-.api_key are consumed and converted to presence flags only.
+Secrets are NEVER written to disk or returned in API responses.
+ConnectorConfigUpdate.token / .api_key set presence flags on disk-backed config and may
+be retained in-memory (_SECRETS) for runtime connector use until process restart.
+Env-var fallbacks (e.g. JIRA_API_TOKEN, SLACK_BOT_TOKEN) are supported by individual connectors.
 """
 from __future__ import annotations
 
@@ -137,8 +139,8 @@ class IntegrationService:
         self, connector_id: str, update: ConnectorConfigUpdate
     ) -> ConnectorConfig:
         """
-        Apply a config update.  Secrets (token, api_key) are consumed and
-        stored ONLY as presence flags — never echoed back in the response.
+        Apply a config update. Secrets (token, api_key) are never echoed back.
+        Presence flags are persisted to disk; raw values are kept in-memory only.
         """
         if registry.get(connector_id) is None:
             raise KeyError(f"Unknown connector: {connector_id!r}")

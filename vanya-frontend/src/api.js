@@ -653,6 +653,12 @@ export const listJiraFixVersions      = (params = {}) => {
   const q = qs.toString();
   return apiGet(`/integrations/jira/fix-versions${q ? `?${q}` : ""}`);
 };
+export const listJiraIssueTypes         = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.project_key) qs.set("project_key", params.project_key);
+  const q = qs.toString();
+  return apiGet(`/integrations/jira/issue-types${q ? `?${q}` : ""}`);
+};
 
 // ========= Projects (multi-project catalog scope) =========
 /** GET /projects — 200 + [] or empty body must be success (never throw from JSON parse). */

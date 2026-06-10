@@ -1,5 +1,20 @@
 # api/routes/jira_integration_routes.py
-"""Read-only Jira discovery routes (JIRA-01A)."""
+"""
+Read-only Jira discovery routes (JIRA-01A).
+
+Route semantics (do not conflate with generic connector routes):
+  GET /integrations/jira/status       — Jira discovery aggregate (counts, last_sync, connected)
+  GET /integrations/jira/projects     — canonical project listing
+  GET /integrations/jira/issues       — issue discovery
+  GET /integrations/jira/epics        — epic discovery
+  GET /integrations/jira/releases     — released versions
+  GET /integrations/jira/fix-versions — unreleased fix versions
+  GET /integrations/jira/issue-types  — issue type catalog
+
+Generic connector framework status (health, enabled, config_summary):
+  GET  /integrations/jira             — ConnectorStatus via integrations_routes
+  POST /integrations/jira/health-check
+"""
 from __future__ import annotations
 
 import logging
@@ -11,6 +26,7 @@ from models.jira_models import (
     JiraConnectionStatus,
     JiraEpicsResponse,
     JiraFixVersionsResponse,
+    JiraIssueTypesResponse,
     JiraIssuesResponse,
     JiraProjectsResponse,
     JiraReleasesResponse,
@@ -18,6 +34,7 @@ from models.jira_models import (
 from services.jira_integration_service import (
     list_epics,
     list_fix_versions,
+    list_issue_types,
     list_issues,
     list_projects,
     list_releases,
@@ -31,14 +48,22 @@ router = APIRouter(prefix="/integrations/jira", tags=["jira-integration"])
 
 @router.get("/status", response_model=JiraConnectionStatus)
 def get_jira_status():
-    """Validate Jira connectivity and return aggregate discovery counts."""
+    """Jira discovery aggregate — connectivity plus project/issue/epic/version counts."""
     return validate_jira_connection()
 
 
 @router.get("/projects", response_model=JiraProjectsResponse)
 def get_jira_projects():
-    """List Jira projects (read-only)."""
+    """List Jira projects (read-only). Canonical project listing path."""
     return list_projects()
+
+
+@router.get("/issue-types", response_model=JiraIssueTypesResponse)
+def get_jira_issue_types(
+    project_key: Optional[str] = Query(None, description="Filter by Jira project key"),
+):
+    """List Jira issue types (read-only)."""
+    return list_issue_types(project_key=project_key)
 
 
 @router.get("/issues", response_model=JiraIssuesResponse)

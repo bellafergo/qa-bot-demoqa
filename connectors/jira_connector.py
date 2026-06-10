@@ -1,12 +1,14 @@
 # connectors/jira_connector.py
 """
-Jira connector stub.
+Jira connector — integration framework adapter (JIRA-01A read-only foundation).
 
 Implements the BaseConnector contract with:
-- Config validation (base_url + token required)
-- Deterministic health check (no real network call)
-- list-projects stub / payload builder
-- Extension point: push_result(run, project_key)
+- Local config validation (base_url + token + workspace)
+- Health check that delegates to real Jira validation when credentials are configured
+- Write-operation payload builders (stubs for future JIRA-01B+; not invoked in JIRA-01A)
+
+Canonical read-only discovery (projects, issues, epics, releases, fix versions) lives in
+services/jira_integration_service.py — not in this connector.
 """
 from __future__ import annotations
 
@@ -20,7 +22,7 @@ from models.connector import ConnectorConfig, ConnectorStatus
 class JiraConnector(BaseConnector):
     connector_id   = "jira"
     connector_name = "Jira"
-    description    = "Push test results and create tickets in Jira projects."
+    description    = "Discover Jira projects and issues (read-only). Write actions planned for a future sprint."
 
     # ── Contract ──────────────────────────────────────────────────────────────
 
@@ -34,6 +36,7 @@ class JiraConnector(BaseConnector):
         return True, "Config is valid"
 
     def health_check(self, config: ConnectorConfig) -> Tuple[str, str]:
+        """Delegate to jira_integration_service when enabled and configured."""
         if not config.enabled:
             return "unconfigured", "Connector is disabled"
         valid, msg = self.validate_config(config)
@@ -75,15 +78,7 @@ class JiraConnector(BaseConnector):
             "transition_issue",
         ]
 
-    # ── Extension points ──────────────────────────────────────────────────────
-
-    def list_projects_stub(self) -> List[Dict[str, Any]]:
-        """Stub: returns a deterministic list of mock Jira projects."""
-        return [
-            {"key": "QA",   "name": "QA Platform",  "type": "software"},
-            {"key": "WEB",  "name": "Web Frontend",  "type": "software"},
-            {"key": "AUTH", "name": "Auth Service",  "type": "software"},
-        ]
+    # ── Write stubs (JIRA-01B+ — not used in read-only JIRA-01A) ───────────────
 
     def build_issue_payload(
         self,

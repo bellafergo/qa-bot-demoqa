@@ -131,7 +131,11 @@ def list_integrations():
 
 @router.get("/{connector_id}", response_model=ConnectorStatus)
 def get_integration(connector_id: str):
-    """Return the current status for a single connector."""
+    """
+    Return generic connector framework status (health, enabled, config_summary).
+
+    For Jira discovery aggregates (counts, last_sync), use GET /integrations/jira/status instead.
+    """
     try:
         return integration_service.get_connector_status(connector_id)
     except KeyError:
