@@ -473,6 +473,37 @@ class MultiEnvironmentReport(BaseModel):
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
+class QualityHealthFactor(BaseModel):
+    factor_id: str
+    title: str
+    description: str = ""
+    impact: int = Field(default=0, ge=0, le=100)
+    severity: str = "LOW"
+    related_entity_type: Optional[str] = None
+    related_entity_id: Optional[str] = None
+
+
+class QualityHealthScore(BaseModel):
+    score_id: str
+    scope_type: str
+    scope_name: str
+    environment: Optional[str] = None
+    score: int = Field(default=0, ge=0, le=100)
+    status: str = "UNKNOWN"
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    trend: str = "UNKNOWN"
+    contributing_factors: List[QualityHealthFactor] = Field(default_factory=list)
+
+
+class QualityHealthReport(BaseModel):
+    overall_score: int = Field(default=0, ge=0, le=100)
+    overall_status: str = "UNKNOWN"
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    trend: str = "UNKNOWN"
+    scores: List[QualityHealthScore] = Field(default_factory=list)
+    summary: str = ""
+
+
 class ExecutiveQualityReport(BaseModel):
     report_id: str
     generated_at: str
@@ -582,6 +613,7 @@ class ProjectIncidentInvestigationReport(BaseModel):
     enterprise_dependency_map: Optional[EnterpriseDependencyMap] = None
     executive_quality_report: Optional[ExecutiveQualityReport] = None
     multi_environment: Optional[MultiEnvironmentReport] = None
+    quality_health: Optional[QualityHealthReport] = None
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     confidence_breakdown: List["ConfidenceFactor"] = Field(default_factory=list)
     next_steps: List[str] = Field(default_factory=list)

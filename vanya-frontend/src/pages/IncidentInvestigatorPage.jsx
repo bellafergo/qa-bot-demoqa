@@ -32,6 +32,7 @@ import { buildContractRiskAssessmentViewModel } from "../utils/contractRiskAsses
 import { buildDataJourneyValidationViewModel } from "../utils/dataJourneyValidationViewUtils.js";
 import { buildEnterpriseDependencyMapViewModel } from "../utils/enterpriseDependencyMapViewUtils.js";
 import { buildExecutiveQualityReportViewModel } from "../utils/executiveQualityReportViewUtils.js";
+import { buildQualityHealthScoreViewModel } from "../utils/qualityHealthScoreViewUtils.js";
 import { buildMultiEnvironmentIntelligenceViewModel } from "../utils/environmentIntelligenceViewUtils.js";
 import { buildRecommendedActionsViewModel } from "../utils/incidentRecommendedActionsViewUtils.js";
 import EvidenceCorrelationDrilldownCell from "../components/incident/EvidenceCorrelationDrilldownCell.jsx";
@@ -51,6 +52,7 @@ import ContractRiskAssessmentCard from "../components/incident/ContractRiskAsses
 import DataJourneyCard from "../components/incident/DataJourneyCard.jsx";
 import EnterpriseDependencyMapView from "../components/incident/EnterpriseDependencyMapView.jsx";
 import ExecutiveQualityReportView from "../components/incident/ExecutiveQualityReportView.jsx";
+import QualityHealthReportView from "../components/incident/QualityHealthReportView.jsx";
 import MultiEnvironmentIntelligenceView from "../components/incident/MultiEnvironmentIntelligenceView.jsx";
 
 function fmtTs(iso) {
@@ -146,6 +148,7 @@ function QaInvestigationReport({ report, t }) {
   const dataJourneyValidationVm = buildDataJourneyValidationViewModel(report, t);
   const enterpriseDependencyMapVm = buildEnterpriseDependencyMapViewModel(report, t);
   const executiveQualityReportVm = buildExecutiveQualityReportViewModel(report, t);
+  const qualityHealthVm = buildQualityHealthScoreViewModel(report, t);
   const multiEnvironmentVm = buildMultiEnvironmentIntelligenceViewModel(report, t);
   const decisionCenterVm = buildDecisionCenterViewModel(report, t);
   const historicalLearningVm = buildHistoricalLearningViewModel(report, t, fmtTs);
@@ -199,6 +202,31 @@ function QaInvestigationReport({ report, t }) {
               <ExecutiveQualityReportView vm={executiveQualityReportVm} />
               <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
                 {executiveQualityReportVm.readOnlyNote}
+              </p>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {qualityHealthVm.show ? (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {qualityHealthVm.title}
+          </div>
+          {qualityHealthVm.empty ? (
+            emptyStateText(qualityHealthVm.emptyMessage)
+          ) : (
+            <div
+              style={{
+                padding: "16px 18px",
+                background: "var(--bg-2)",
+                borderRadius: 8,
+                border: "1px solid var(--border, rgba(255,255,255,0.08))",
+              }}
+            >
+              <QualityHealthReportView vm={qualityHealthVm} />
+              <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+                {qualityHealthVm.readOnlyNote}
               </p>
             </div>
           )}

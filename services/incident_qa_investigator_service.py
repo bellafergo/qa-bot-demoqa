@@ -959,6 +959,24 @@ def investigate_project_incident(
         browser_watch_alert_count=len(browser_events),
     )
 
+    from services.quality_health_score_service import build_quality_health_report
+
+    quality_health = build_quality_health_report(
+        project_id=pid,
+        executive_quality_report=executive_quality_report,
+        multi_environment=multi_environment,
+        decision_center=decision_center,
+        deployment_risk_assessment=deployment_risk_assessment,
+        contract_risk_assessment=contract_risk_assessment,
+        data_journey_validation=data_journey_validation,
+        database_validation=database_validation,
+        enterprise_dependency_map=enterprise_dependency_map,
+        historical_learning=historical_learning,
+        test_recommendations=test_recommendations,
+        recommended_actions=recommended_actions,
+        impact_map=impact_map,
+    )
+
     actions_available = _build_actions_available(
         req=req,
         related_runs=related_runs,
@@ -1012,6 +1030,7 @@ def investigate_project_incident(
         enterprise_dependency_map=enterprise_dependency_map,
         executive_quality_report=executive_quality_report,
         multi_environment=multi_environment,
+        quality_health=quality_health,
         confidence=confidence,
         confidence_breakdown=confidence_breakdown,
         next_steps=next_steps,
