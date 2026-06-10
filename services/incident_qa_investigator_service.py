@@ -899,6 +899,21 @@ def investigate_project_incident(
         decision_center=decision_center,
     )
 
+    from services.enterprise_dependency_map_service import build_enterprise_dependency_map
+
+    enterprise_dependency_map = build_enterprise_dependency_map(
+        impact_map=impact_map,
+        data_journey_validation=data_journey_validation,
+        api_contract_intelligence=api_contract_intelligence,
+        contract_risk_assessment=contract_risk_assessment,
+        database_validation=database_validation,
+        deployment_risk_assessment=deployment_risk_assessment,
+        historical_learning=historical_learning,
+        decision_center=decision_center,
+        test_recommendations=test_recommendations,
+        recommended_tests=recommended_tests,
+    )
+
     actions_available = _build_actions_available(
         req=req,
         related_runs=related_runs,
@@ -949,6 +964,7 @@ def investigate_project_incident(
         api_contract_intelligence=api_contract_intelligence,
         contract_risk_assessment=contract_risk_assessment,
         data_journey_validation=data_journey_validation,
+        enterprise_dependency_map=enterprise_dependency_map,
         confidence=confidence,
         confidence_breakdown=confidence_breakdown,
         next_steps=next_steps,

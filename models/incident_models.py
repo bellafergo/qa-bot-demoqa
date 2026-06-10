@@ -397,6 +397,30 @@ class ContractRiskReport(BaseModel):
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
+class DependencyNode(BaseModel):
+    node_id: str
+    node_type: str
+    name: str
+    description: str = ""
+    risk_level: str = "LOW"
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class DependencyEdge(BaseModel):
+    edge_id: str
+    source_node_id: str
+    target_node_id: str
+    relationship_type: str
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class EnterpriseDependencyMap(BaseModel):
+    nodes: List[DependencyNode] = Field(default_factory=list)
+    edges: List[DependencyEdge] = Field(default_factory=list)
+    summary: str = ""
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
 class RecommendedAction(BaseModel):
     action_id: str
     title: str
@@ -485,6 +509,7 @@ class ProjectIncidentInvestigationReport(BaseModel):
     api_contract_intelligence: Optional[ApiContractReport] = None
     contract_risk_assessment: Optional[ContractRiskReport] = None
     data_journey_validation: Optional[DataJourneyReport] = None
+    enterprise_dependency_map: Optional[EnterpriseDependencyMap] = None
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     confidence_breakdown: List["ConfidenceFactor"] = Field(default_factory=list)
     next_steps: List[str] = Field(default_factory=list)
