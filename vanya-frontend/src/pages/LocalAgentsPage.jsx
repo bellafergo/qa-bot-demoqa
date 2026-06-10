@@ -1,11 +1,12 @@
 // src/pages/LocalAgentsPage.jsx
 /** Phase 4E — Local agents admin UI (list, health heuristic, detail, disable). */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { listLocalAgents, getLocalAgent, disableLocalAgent, apiErrorMessage } from "../api";
+import { listLocalAgents, getLocalAgent, disableLocalAgent, getLocalAgentFoundationReport, apiErrorMessage } from "../api";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
 import { useToast } from "../context/ToastContext.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
+import { buildLocalAgentsViewModel } from "../utils/localAgentsViewUtils.js";
 
 function fmtTs(iso) {
   if (!iso) return "—";
@@ -53,6 +54,7 @@ export default function LocalAgentsPage() {
   const { currentProject, projects } = useProject();
   const { showToast } = useToast();
   const [agents, setAgents] = useState([]);
+  const [foundationReport, setFoundationReport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
@@ -79,8 +81,12 @@ export default function LocalAgentsPage() {
       }
       try {
         const pid = currentProject?.id ? String(currentProject.id).trim() : "";
-        const data = await listLocalAgents({ project_id: pid || undefined, limit: 200 });
+        const [data, report] = await Promise.all([
+          listLocalAgents({ project_id: pid || undefined, limit: 200 }),
+          getLocalAgentFoundationReport({ project_id: pid || undefined, limit: 200 }).catch(() => null),
+        ]);
         setAgents(Array.isArray(data) ? data : []);
+        setFoundationReport(report && typeof report === "object" ? report : null);
       } catch (e) {
         const msg = apiErrorMessage(e);
         if (!silent) {
@@ -162,6 +168,14 @@ export default function LocalAgentsPage() {
   };
 
   const selectedSummary = useMemo(() => agents.find((a) => a.agent_id === selectedId) || null, [agents, selectedId]);
+  const foundationVm = useMemo(
+    () => buildLocalAgentsViewModel(foundationReport || { agents: [], inventory: [], summary: "" }, t, fmtTs),
+    [foundationReport, t],
+  );
+  const selectedFoundation = useMemo(
+    () => foundationVm.agents.find((a) => a.agent_id === selectedId) || null,
+    [foundationVm.agents, selectedId],
+  );
 
   return (
     <div style={{ padding: "24px 24px 40px", maxWidth: 1400, margin: "0 auto" }}>
@@ -193,6 +207,14 @@ export default function LocalAgentsPage() {
           <p style={{ fontSize: 13, color: "var(--text-3)", margin: "6px 0 0" }}>{t("localAgents.subtitle")}</p>
           <p style={{ fontSize: 12, color: "var(--text-2)", margin: "8px 0 0", maxWidth: 560, lineHeight: 1.5 }}>
             {t("localAgents.beta_desc")}
+          </p>
+          {foundationVm.summary ? (
+            <p style={{ fontSize: 12, color: "var(--text-2)", margin: "8px 0 0", maxWidth: 560, lineHeight: 1.5 }}>
+              <strong>{foundationVm.summaryLabel}:</strong> {foundationVm.summary}
+            </p>
+          ) : null}
+          <p style={{ fontSize: 11, color: "var(--text-3)", margin: "8px 0 0", maxWidth: 560, lineHeight: 1.5, fontStyle: "italic" }}>
+            {foundationVm.readOnlyNote}
           </p>
           <p style={{ fontSize: 12, color: "var(--text-2)", margin: "8px 0 0" }}>
             {currentProject ? t("localAgents.scope_project", { name: currentProject.name }) : t("localAgents.scope_all")}
@@ -231,9 +253,10 @@ export default function LocalAgentsPage() {
                   <tr>
                     <th>{t("localAgents.col.name")}</th>
                     <th>{t("localAgents.col.health")}</th>
+                    <th>{t("localAgents.foundation.environment")}</th>
                     <th>{t("localAgents.col.status")}</th>
                     <th>{t("localAgents.col.project")}</th>
-                    <th>{t("localAgents.col.capabilities")}</th>
+                    <th>{t("localAgents.foundation.capabilities")}</th>
                     <th>{t("localAgents.col.version")}</th>
                     <th>{t("localAgents.col.last_seen")}</th>
                     <th>{t("localAgents.col.enabled")}</th>
@@ -244,6 +267,7 @@ export default function LocalAgentsPage() {
                 <tbody>
                   {agents.map((a) => {
                     const hk = agentHealthKey(a);
+                    const foundationRow = foundationVm.agents.find((row) => row.agent_id === a.agent_id);
                     return (
                       <tr
                         key={a.agent_id}
@@ -259,9 +283,22 @@ export default function LocalAgentsPage() {
                             {t(`localAgents.health.${hk}`)}
                           </span>
                         </td>
-                        <td style={{ fontSize: 11 }}>{a.status || "—"}</td>
+                        <td style={{ fontSize: 11 }}>
+                          {foundationRow?.environment || a.metadata?.environment || "—"}
+                        </td>
+                        <td style={{ fontSize: 11 }}>
+                          {foundationRow ? (
+                            <span className={`badge ${foundationRow.statusBadgeClass}`} style={{ fontSize: 10 }}>
+                              {foundationRow.statusLabel}
+                            </span>
+                          ) : (
+                            a.status || "—"
+                          )}
+                        </td>
                         <td style={{ fontSize: 11, maxWidth: 160, wordBreak: "break-word" }}>{projectName(a.project_id)}</td>
-                        <td style={{ fontSize: 11, maxWidth: 200 }}>{(a.capabilities || []).join(", ") || "—"}</td>
+                        <td style={{ fontSize: 11, maxWidth: 220 }}>
+                          {(foundationRow?.capabilityLabels || a.capabilities || []).join(", ") || "—"}
+                        </td>
                         <td style={{ fontSize: 11 }}>{a.version || "—"}</td>
                         <td style={{ fontSize: 11, whiteSpace: "nowrap" }}>{fmtTs(a.last_seen_at)}</td>
                         <td style={{ fontSize: 11 }}>{a.enabled ? "✓" : "—"}</td>
@@ -323,6 +360,54 @@ export default function LocalAgentsPage() {
                       {t(`localAgents.health.${agentHealthKey(detail)}`)}
                     </span>
                   </div>
+                  {selectedFoundation ? (
+                    <>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 6 }}>
+                        {foundationVm.environmentLabel}
+                      </div>
+                      <div style={{ marginBottom: 10, fontSize: 12, color: "var(--text-2)" }}>
+                        {selectedFoundation.environment} · {foundationVm.versionLabel}: {selectedFoundation.version}
+                      </div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 6 }}>
+                        {foundationVm.lastHeartbeatLabel}
+                      </div>
+                      <div style={{ marginBottom: 10, fontSize: 12, color: "var(--text-2)" }}>
+                        {selectedFoundation.lastHeartbeatText}
+                      </div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 6 }}>
+                        {foundationVm.capabilitiesLabel}
+                      </div>
+                      <ul style={{ margin: "0 0 12px", paddingLeft: 18, fontSize: 12, color: "var(--text-2)" }}>
+                        {selectedFoundation.capabilityLabels.map((label) => (
+                          <li key={label}>{label}</li>
+                        ))}
+                      </ul>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 6 }}>
+                        {foundationVm.inventoryLabel}
+                      </div>
+                      {selectedFoundation.hasInventory ? (
+                        <ul style={{ margin: "0 0 12px", paddingLeft: 18, fontSize: 12, color: "var(--text-2)" }}>
+                          {selectedFoundation.inventoryLines.databases.map((item) => (
+                            <li key={`db-${item}`}>
+                              {foundationVm.databasesLabel}: {item}
+                            </li>
+                          ))}
+                          {selectedFoundation.inventoryLines.repositories.map((item) => (
+                            <li key={`repo-${item}`}>
+                              {foundationVm.repositoriesLabel}: {item}
+                            </li>
+                          ))}
+                          {selectedFoundation.inventoryLines.services.map((item) => (
+                            <li key={`svc-${item}`}>
+                              {foundationVm.servicesLabel}: {item}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 12 }}>—</div>
+                      )}
+                    </>
+                  ) : null}
                   <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 6 }}>{t("localAgents.detail.meta")}</div>
                   <pre
                     style={{

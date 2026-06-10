@@ -7,19 +7,26 @@ from typing import List, Optional
 from fastapi import APIRouter, File, Header, Query, Request, UploadFile
 
 from models.local_agent_models import (
+    AgentCapability,
     LocalAgent,
     LocalAgentArtifactUploadResponse,
     LocalAgentBrowserInspectionPersistRequest,
     LocalAgentBrowserInspectionPersistResponse,
     LocalAgentDetail,
+    LocalAgentFoundationHeartbeat,
+    LocalAgentFoundationRegistrationRequest,
+    LocalAgentFoundationRegistrationResponse,
+    LocalAgentFoundationView,
     LocalAgentHeartbeat,
     LocalAgentJob,
     LocalAgentJobResultSubmit,
+    LocalAgentMockHeartbeatRequest,
     LocalAgentPatchRequest,
     LocalAgentPollRequest,
     LocalAgentPollResponse,
     LocalAgentRegistrationRequest,
     LocalAgentRegistrationResponse,
+    LocalAgentReport,
 )
 from services import local_agent_service
 
@@ -30,6 +37,37 @@ agent_router = APIRouter(prefix="/agent-api", tags=["local-agent-api"])
 @admin_router.post("/register", response_model=LocalAgentRegistrationResponse)
 def register_local_agent(body: LocalAgentRegistrationRequest, request: Request) -> LocalAgentRegistrationResponse:
     return local_agent_service.register_agent(body, request)
+
+
+@admin_router.post("/foundation/register", response_model=LocalAgentFoundationRegistrationResponse)
+def register_foundation_local_agent(
+    body: LocalAgentFoundationRegistrationRequest,
+    request: Request,
+) -> LocalAgentFoundationRegistrationResponse:
+    return local_agent_service.register_foundation_agent(body, request)
+
+
+@admin_router.get("/foundation/report", response_model=LocalAgentReport)
+def get_foundation_local_agent_report(
+    request: Request,
+    project_id: Optional[str] = None,
+    limit: int = 200,
+) -> LocalAgentReport:
+    return local_agent_service.get_local_agent_report(project_id=project_id, limit=limit, request=request)
+
+
+@admin_router.get("/foundation/capabilities", response_model=List[AgentCapability])
+def list_foundation_capabilities(request: Request) -> List[AgentCapability]:
+    local_agent_service.require_local_agent_admin(request)
+    return local_agent_service.list_foundation_capabilities()
+
+
+@admin_router.post("/foundation/mock-heartbeat", response_model=LocalAgentFoundationView)
+def mock_foundation_local_agent_heartbeat(
+    body: LocalAgentMockHeartbeatRequest,
+    request: Request,
+) -> LocalAgentFoundationView:
+    return local_agent_service.mock_foundation_heartbeat(body, request)
 
 
 @admin_router.get("", response_model=List[LocalAgent])
@@ -64,6 +102,14 @@ def agent_heartbeat(
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
 ) -> LocalAgent:
     return local_agent_service.heartbeat(agent_id, body, authorization)
+
+
+@agent_router.post("/foundation/heartbeat", response_model=LocalAgentFoundationView)
+def agent_foundation_heartbeat(
+    body: LocalAgentFoundationHeartbeat,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> LocalAgentFoundationView:
+    return local_agent_service.process_foundation_heartbeat(body, authorization)
 
 
 @agent_router.post("/{agent_id}/poll", response_model=LocalAgentPollResponse)

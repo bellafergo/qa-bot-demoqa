@@ -687,6 +687,20 @@ export function disableLocalAgent(agentId) {
   });
 }
 
+/** GET /local-agents/foundation/report — INT-03A foundation inventory report. */
+export function getLocalAgentFoundationReport(params = {}) {
+  const q = new URLSearchParams();
+  if (params.limit != null) q.set("limit", String(params.limit));
+  if (params.project_id != null && String(params.project_id).trim()) {
+    q.set("project_id", String(params.project_id).trim());
+  }
+  const qs = q.toString();
+  return apiFetchJson(`/local-agents/foundation/report${qs ? `?${qs}` : ""}`, {
+    method: "GET",
+    headers: { ...localAgentAdminHeaders(), "Content-Type": "application/json" },
+  });
+}
+
 // ========= Incident Investigator (Autonomous) =========
 
 /** POST /incidents/investigate */

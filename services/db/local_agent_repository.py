@@ -149,6 +149,22 @@ class LocalAgentRepository:
             row = s.query(LocalAgentRow).filter_by(agent_id=aid).first()
             return _agent_to_dict(row) if row else None
 
+    def get_agent_by_project_and_name(self, project_id: str, name: str) -> Optional[Dict[str, Any]]:
+        pid = (project_id or "").strip()
+        nm = (name or "").strip()
+        if not pid or not nm:
+            return None
+        with get_session() as s:
+            row = (
+                s.query(LocalAgentRow)
+                .filter(
+                    LocalAgentRow.project_id == pid,
+                    LocalAgentRow.name == nm,
+                )
+                .first()
+            )
+            return _agent_to_dict(row) if row else None
+
     def get_agent_by_token_hash(self, token_hash: str) -> Optional[Dict[str, Any]]:
         th = (token_hash or "").strip().lower()
         if not th:

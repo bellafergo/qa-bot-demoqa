@@ -10,7 +10,19 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from models.browser_inspection_models import BrowserInspectionResult
 
 LocalAgentStatus = Literal["online", "offline", "disabled"]
-LocalAgentCapability = Literal["browser_inspection", "playwright", "localhost_access", "intranet_access"]
+LocalAgentCapability = Literal[
+    "browser_inspection",
+    "playwright",
+    "localhost_access",
+    "intranet_access",
+    "database_validation",
+    "contract_validation",
+    "browser_probe",
+    "filesystem_inventory",
+    "repo_inventory",
+    "network_inventory",
+]
+FoundationAgentStatus = Literal["ONLINE", "OFFLINE", "UNKNOWN"]
 LocalAgentJobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
 LocalAgentJobType = Literal["browser_inspection"]
 
@@ -23,7 +35,18 @@ LOCAL_AGENT_MAX_RESULT_REF_LEN = 512
 LOCAL_AGENT_MAX_ARTIFACT_BYTES = 8 * 1024 * 1024  # Phase 4D — single screenshot per inspection
 
 _CAPABILITIES_ALLOWED = frozenset(
-    {"browser_inspection", "playwright", "localhost_access", "intranet_access"}
+    {
+        "browser_inspection",
+        "playwright",
+        "localhost_access",
+        "intranet_access",
+        "database_validation",
+        "contract_validation",
+        "browser_probe",
+        "filesystem_inventory",
+        "repo_inventory",
+        "network_inventory",
+    }
 )
 
 
@@ -237,3 +260,122 @@ class LocalAgentBrowserInspectionPersistResponse(BaseModel):
     persisted: bool = False
     persistence_warning: Optional[str] = Field(default=None, max_length=512)
     evidence_url: Optional[str] = Field(default=None, max_length=2048)
+
+
+# ── INT-03A Local Agents Foundation ───────────────────────────────────────────
+
+
+class AgentCapability(BaseModel):
+    capability_id: str
+    name: str
+    description: str = ""
+
+
+class AgentInventory(BaseModel):
+    agent_id: str = ""
+    databases_detected: List[str] = Field(default_factory=list)
+    repositories_detected: List[str] = Field(default_factory=list)
+    services_detected: List[str] = Field(default_factory=list)
+
+
+class LocalAgentFoundationView(BaseModel):
+    """Read-only foundation view for admin UI and reports."""
+
+    agent_id: str
+    name: str
+    version: str = ""
+    status: FoundationAgentStatus = "UNKNOWN"
+    registered_at: str
+    last_heartbeat_at: Optional[str] = None
+    environment: str = "unknown"
+    capabilities: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class LocalAgentReport(BaseModel):
+    agents: List[LocalAgentFoundationView] = Field(default_factory=list)
+    inventory: List[AgentInventory] = Field(default_factory=list)
+    summary: str = ""
+
+
+class LocalAgentFoundationRegistrationRequest(BaseModel):
+    project_id: str = Field(..., min_length=1, max_length=256)
+    name: str = Field(..., min_length=1, max_length=LOCAL_AGENT_MAX_NAME_LEN)
+    environment: str = Field(default="production", max_length=64)
+    version: str = Field(default="1.0.0", max_length=LOCAL_AGENT_MAX_VERSION_LEN)
+    capabilities: List[LocalAgentCapability] = Field(
+        default_factory=lambda: normalize_capabilities(["database_validation", "contract_validation"])
+    )
+    inventory: Optional[AgentInventory] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("capabilities", mode="before")
+    @classmethod
+    def _foundation_caps(cls, v: Any) -> Any:
+        if v is None:
+            return normalize_capabilities(["database_validation", "contract_validation"])
+        if not isinstance(v, list):
+            raise TypeError("capabilities must be a list of strings")
+        return normalize_capabilities([str(x) for x in v])
+
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def _foundation_metadata_size(cls, v: Any) -> Any:
+        if v is None:
+            return {}
+        import json
+
+        raw = json.dumps(v, separators=(",", ":"), default=str)
+        if len(raw.encode("utf-8")) > LOCAL_AGENT_MAX_METADATA_JSON:
+            raise ValueError(f"metadata JSON must be <= {LOCAL_AGENT_MAX_METADATA_JSON} bytes")
+        return v
+
+
+class LocalAgentFoundationRegistrationResponse(BaseModel):
+    agent_id: str
+    agent_token: str = Field(description="Bearer secret for /agent-api/* — store securely; not shown again.")
+    token_fingerprint: str
+    project_id: str
+    name: str
+    environment: str
+    version: str
+    capabilities: List[LocalAgentCapability]
+    registered_at: str = Field(default_factory=_utc_now_iso)
+
+
+class LocalAgentFoundationHeartbeat(BaseModel):
+    """Agent → cloud foundation heartbeat (no remote commands)."""
+
+    agent_id: str = Field(..., min_length=1, max_length=256)
+    version: Optional[str] = Field(default=None, max_length=LOCAL_AGENT_MAX_VERSION_LEN)
+    capabilities: Optional[List[LocalAgentCapability]] = None
+    timestamp: Optional[str] = None
+    inventory: Optional[AgentInventory] = None
+
+    @field_validator("capabilities", mode="before")
+    @classmethod
+    def _heartbeat_caps(cls, v: Any) -> Any:
+        if v is None:
+            return v
+        if not isinstance(v, list):
+            raise TypeError("capabilities must be a list of strings")
+        return normalize_capabilities([str(x) for x in v])
+
+
+class LocalAgentMockHeartbeatRequest(BaseModel):
+    """Admin-only mock heartbeat for connectivity verification (INT-03A)."""
+
+    agent_id: str = Field(..., min_length=1, max_length=256)
+    version: Optional[str] = Field(default=None, max_length=LOCAL_AGENT_MAX_VERSION_LEN)
+    capabilities: Optional[List[LocalAgentCapability]] = None
+    timestamp: Optional[str] = None
+    inventory: Optional[AgentInventory] = None
+
+    @field_validator("capabilities", mode="before")
+    @classmethod
+    def _mock_caps(cls, v: Any) -> Any:
+        if v is None:
+            return v
+        if not isinstance(v, list):
+            raise TypeError("capabilities must be a list of strings")
+        return normalize_capabilities([str(x) for x in v])
