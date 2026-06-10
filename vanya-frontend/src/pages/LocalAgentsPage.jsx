@@ -20,6 +20,8 @@ import {
   buildDatabaseExecutionsViewModel,
   DATABASE_CONNECTOR_I18N_KEYS,
 } from "../utils/databaseConnectorViewUtils.js";
+import { buildInternalApiConnectorViewModel } from "../utils/internalApiConnectorViewUtils.js";
+import InternalApiConnectorView from "../components/local-agents/InternalApiConnectorView.jsx";
 
 function fmtTs(iso) {
   if (!iso) return "—";
@@ -70,6 +72,7 @@ export default function LocalAgentsPage() {
   const [foundationReport, setFoundationReport] = useState(null);
   const [dbConnections, setDbConnections] = useState([]);
   const [dbExecutions, setDbExecutions] = useState([]);
+  const [internalApiReport, setInternalApiReport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
@@ -106,6 +109,7 @@ export default function LocalAgentsPage() {
         setFoundationReport(report && typeof report === "object" ? report : null);
         setDbConnections(Array.isArray(connections) ? connections : []);
         setDbExecutions(Array.isArray(executions) ? executions : []);
+        setInternalApiReport(report?.internal_api_connectors || null);
       } catch (e) {
         const msg = apiErrorMessage(e);
         if (!silent) {
@@ -202,6 +206,10 @@ export default function LocalAgentsPage() {
   const executionsVm = useMemo(
     () => buildDatabaseExecutionsViewModel(dbExecutions, t, fmtTs),
     [dbExecutions, t],
+  );
+  const internalApiVm = useMemo(
+    () => buildInternalApiConnectorViewModel(internalApiReport || { connectors: [], endpoints: [], validations: [] }, t),
+    [internalApiReport, t],
   );
 
   return (
@@ -555,6 +563,16 @@ export default function LocalAgentsPage() {
             </table>
           </div>
         )}
+      </div>
+
+      <div style={{ marginTop: 28 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", marginBottom: 10 }}>
+          {internalApiVm.title}
+        </div>
+        <InternalApiConnectorView vm={internalApiVm} />
+        <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+          {internalApiVm.readOnlyNote}
+        </p>
       </div>
     </div>
   );

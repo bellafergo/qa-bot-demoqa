@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from models.browser_inspection_models import BrowserInspectionResult
+from models.internal_api_connector_models import ApiConnectorReport
 
 LocalAgentStatus = Literal["online", "offline", "disabled"]
 LocalAgentCapability = Literal[
@@ -296,6 +297,7 @@ class LocalAgentReport(BaseModel):
     agents: List[LocalAgentFoundationView] = Field(default_factory=list)
     inventory: List[AgentInventory] = Field(default_factory=list)
     summary: str = ""
+    internal_api_connectors: Optional[ApiConnectorReport] = None
 
 
 class LocalAgentFoundationRegistrationRequest(BaseModel):

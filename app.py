@@ -55,6 +55,8 @@ from api.routes.browser_inspection_watch_routes import router as browser_inspect
 from api.routes.local_agent_routes import admin_router as local_agent_admin_router
 from api.routes.database_connector_routes import admin_router as database_connector_admin_router
 from api.routes.database_connector_routes import validation_router as database_validation_router
+from api.routes.internal_api_connector_routes import admin_router as internal_api_connector_admin_router
+from api.routes.internal_api_connector_routes import validation_router as internal_api_validation_router
 from api.routes.local_agent_routes import agent_router as local_agent_api_router
 from api.routes.drafts_routes import router as drafts_router
 from api.routes.github_routes import router as github_router
@@ -474,6 +476,8 @@ app.include_router(browser_inspector_router)     # POST /inspect-url
 app.include_router(browser_inspection_watch_router)   # /browser-inspections/watch
 app.include_router(local_agent_admin_router)          # /local-agents (admin)
 app.include_router(database_connector_admin_router)   # /local-agents/database-connections
+app.include_router(internal_api_connector_admin_router)  # /local-agents/internal-apis
+app.include_router(internal_api_validation_router)     # /internal-api-validations
 app.include_router(database_validation_router)        # /database-validation/*
 app.include_router(local_agent_api_router)            # /agent-api (local agent)
 app.include_router(browser_inspection_history_router)  # GET /browser-inspections, diff, …

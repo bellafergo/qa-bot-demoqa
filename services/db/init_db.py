@@ -27,6 +27,7 @@ def init_catalog_db() -> None:
     from services.db import browser_inspection_watch_repository  # noqa: F401 — browser_inspection_watches tables
     from services.db import local_agent_repository  # noqa: F401 — Phase 4A local_agents / local_agent_jobs
     from services.db import database_connector_repository  # noqa: F401 — INT-03B database connectors
+    from services.db import internal_api_connector_repository  # noqa: F401 — INT-03C internal API connectors
     from services.db import incident_investigation_repository  # noqa: F401 — incident_investigation_runs
     from services.db import incident_report_repository  # noqa: F401 — incident_investigation_reports
     from services.db import pr_analysis_report_repository  # noqa: F401 — pr_analysis_reports
