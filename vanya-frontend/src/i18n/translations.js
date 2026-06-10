@@ -622,6 +622,25 @@ export const translations = {
     "report_delivery.channel.slack": "Slack",
     "report_delivery.channel.teams": "Microsoft Teams",
 
+    // ── Security readiness (SEC-01A) ───────────────────────────────────────
+    "security_readiness.title": "Security Readiness",
+    "security_readiness.subtitle": "Enterprise authentication foundation — SSO, RBAC, and audit architecture visibility.",
+    "security_readiness.empty": "No identity providers configured.",
+    "security_readiness.authentication": "Authentication",
+    "security_readiness.sso_readiness": "SSO Readiness",
+    "security_readiness.rbac": "RBAC",
+    "security_readiness.audit_trail": "Audit Trail",
+    "security_readiness.security_score": "Security Score",
+    "security_readiness.configured": "Configured",
+    "security_readiness.not_configured": "Not Configured",
+    "security_readiness.providers_title": "Identity Providers",
+    "security_readiness.provider_enabled": "Enabled",
+    "security_readiness.provider_disabled": "Disabled",
+    "security_readiness.read_only_note": "Architecture foundation only — existing login unchanged. No SAML or OAuth provisioning in this release.",
+    "security_readiness.method.local": "LOCAL",
+    "security_readiness.method.sso": "SSO",
+    "security_readiness.method.hybrid": "HYBRID",
+
     // ── Executive health strip (dashboard) ───────────────────────────────────
     "health.executive_title":"Executive status",
     "health.general":        "Overall health",
@@ -3149,6 +3168,25 @@ export const translations = {
     "report_delivery.channel.email": "Email",
     "report_delivery.channel.slack": "Slack",
     "report_delivery.channel.teams": "Microsoft Teams",
+
+    // ── Preparación de seguridad (SEC-01A) ───────────────────────────────────
+    "security_readiness.title": "Preparación de Seguridad",
+    "security_readiness.subtitle": "Fundación de autenticación empresarial — visibilidad de arquitectura SSO, RBAC y auditoría.",
+    "security_readiness.empty": "No hay proveedores de identidad configurados.",
+    "security_readiness.authentication": "Autenticación",
+    "security_readiness.sso_readiness": "Preparación SSO",
+    "security_readiness.rbac": "RBAC",
+    "security_readiness.audit_trail": "Auditoría",
+    "security_readiness.security_score": "Puntuación de Seguridad",
+    "security_readiness.configured": "Configurado",
+    "security_readiness.not_configured": "No Configurado",
+    "security_readiness.providers_title": "Proveedores de Identidad",
+    "security_readiness.provider_enabled": "Habilitado",
+    "security_readiness.provider_disabled": "Deshabilitado",
+    "security_readiness.read_only_note": "Solo fundación de arquitectura — el login actual no cambia. Sin aprovisionamiento SAML u OAuth en esta versión.",
+    "security_readiness.method.local": "LOCAL",
+    "security_readiness.method.sso": "SSO",
+    "security_readiness.method.hybrid": "HÍBRIDO",
 
     // ── Franja de salud ejecutiva (dashboard) ────────────────────────────────
     "health.executive_title":"Estado ejecutivo",

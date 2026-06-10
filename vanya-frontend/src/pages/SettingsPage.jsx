@@ -3,6 +3,7 @@ import React, { useEffect, useState } from "react";
 import { useLang } from "../i18n/LangContext";
 import { useTheme } from "../context/ThemeContext.jsx";
 import { apiGet, apiErrorMessage, API_BASE } from "../api.js";
+import SecuritySection from "../components/security/SecuritySection.jsx";
 
 function InfoRow({ label, value, mono = false, badge }) {
   return (
@@ -103,6 +104,8 @@ export default function SettingsPage() {
       </div>
 
       <ThemeAppearanceCard />
+
+      <SecuritySection />
 
       {/* ── API config card ─────────────────────────────── */}
       <div className="card" style={{ marginBottom: 20 }}>

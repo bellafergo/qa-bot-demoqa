@@ -353,6 +353,15 @@ export function sendReportDelivery(projectId, body) {
   return apiPost(`/projects/${encodeURIComponent(pid)}/reports/send`, body);
 }
 
+export function getSecurityReadiness() {
+  return apiGet("/security/readiness");
+}
+
+export function getSecurityProviders(enabledOnly = true) {
+  const q = enabledOnly ? "?enabled_only=true" : "?enabled_only=false";
+  return apiGet(`/security/providers${q}`);
+}
+
 export function getDashboardRecentRuns(limit = 20, project_id) {
   const q = new URLSearchParams({ limit: String(limit) });
   if (project_id != null && String(project_id).trim()) {
