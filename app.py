@@ -70,6 +70,7 @@ from api.routes.planner_routes import router as planner_router
 from api.routes.evidence_routes import router as evidence_router
 from api.routes.incident_routes import router as incident_router
 from api.routes.incident_project_routes import router as incident_project_router
+from api.routes.release_readiness_routes import router as release_readiness_router
 from api.routes.project_routes import router as project_router
 from api.routes.project_knowledge_routes import router as project_knowledge_router
 
@@ -495,4 +496,5 @@ app.include_router(planner_router)             # POST /plan_from_text, POST /exe
 app.include_router(evidence_router)           # GET /evidences
 app.include_router(incident_router)           # POST /incidents/investigate, GET /incidents/runs
 app.include_router(incident_project_router)   # POST /projects/{id}/incidents/investigate
+app.include_router(release_readiness_router)   # GET /projects/{id}/release-readiness
 app.include_router(project_knowledge_router)    # GET|POST /projects/{id}/knowledge

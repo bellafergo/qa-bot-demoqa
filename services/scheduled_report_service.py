@@ -297,6 +297,18 @@ def build_executive_report_preview(
         rtype = "QUALITY_BRIEF"
 
     generated_at = str(report.get("created_at") or "2026-01-01T08:00:00+00:00").strip()
+
+    if rtype == "RELEASE_READINESS":
+        from models.incident_models import ProjectIncidentInvestigationReport
+        from services.release_readiness_service import (
+            build_release_readiness_executive_preview,
+            build_release_readiness_view,
+        )
+
+        incident = ProjectIncidentInvestigationReport.model_validate(report)
+        view = build_release_readiness_view(project_id=pid, incident_report=incident)
+        return build_release_readiness_executive_preview(pid, view, generated_at=generated_at)
+
     return ExecutiveReportPreview(
         preview_id=f"exec_preview:{pid}:{rtype.lower()}",
         title=_REPORT_TITLES.get(rtype, _REPORT_TITLES["QUALITY_BRIEF"]),

@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 from pydantic import BaseModel
 
 from models.onboarding_models import OnboardingChecklist
+from models.release_readiness_models import ReleaseReadinessView
 from models.scheduled_report_models import ExecutiveReportCenter
 
 
@@ -56,6 +57,9 @@ class DashboardSummary(BaseModel):
 
     # Scheduled executive reports (ENT-02B) — populated when project_id is scoped
     report_center: Optional[ExecutiveReportCenter] = None
+
+    # Release readiness compositor (REL-01A) — populated when project_id is scoped
+    release_readiness: Optional[ReleaseReadinessView] = None
 
 
 class DashboardModuleMetrics(BaseModel):

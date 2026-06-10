@@ -673,6 +673,7 @@ class ProjectIncidentInvestigationReport(BaseModel):
     quality_health: Optional[QualityHealthReport] = None
     quality_trends: Optional[QualityTrendReport] = None
     early_degradation: Optional[EarlyDegradationReport] = None
+    release_readiness: Optional["ReleaseReadinessView"] = None
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     confidence_breakdown: List["ConfidenceFactor"] = Field(default_factory=list)
     next_steps: List[str] = Field(default_factory=list)
@@ -732,3 +733,14 @@ class IncidentInvestigationReportRecord(BaseModel):
 class ProjectIncidentInvestigationListResponse(BaseModel):
     items: List[IncidentInvestigationReportRecord] = Field(default_factory=list)
     total: int = 0
+
+
+def _resolve_forward_refs() -> None:
+    from models.release_readiness_models import ReleaseReadinessView
+
+    ProjectIncidentInvestigationReport.model_rebuild(
+        _types_namespace={"ReleaseReadinessView": ReleaseReadinessView},
+    )
+
+
+_resolve_forward_refs()

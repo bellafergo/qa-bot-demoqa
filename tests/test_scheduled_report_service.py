@@ -16,6 +16,8 @@ from services.scheduled_report_service import (
 def _incident_report(**overrides):
     base = {
         "id": "rep-1",
+        "project_id": "demo",
+        "description": "Scheduled report preview fixture",
         "created_at": "2026-06-04T08:00:00+00:00",
         "quality_health": {
             "overall_score": 82,
@@ -178,6 +180,33 @@ def test_trend_integration(mock_report_repo):
     )
     preview = build_executive_report_preview("demo", report)
     assert preview.quality_trend == "DEGRADING"
+
+
+@patch("services.release_readiness_service.build_release_readiness_executive_preview")
+@patch("services.release_readiness_service.build_release_readiness_view")
+def test_release_readiness_preview_uses_compositor(mock_view, mock_preview):
+    from models.scheduled_report_models import ExecutiveReportPreview
+
+    incident = _incident_report()
+    mock_view.return_value = SimpleNamespace(
+        generated_at="2026-06-04T08:00:00+00:00",
+        summary="composed",
+    )
+    mock_preview.return_value = ExecutiveReportPreview(
+        preview_id="exec_preview:demo:release_readiness",
+        title="Release Readiness",
+        generated_at="2026-06-04T08:00:00+00:00",
+        quality_score=82,
+        quality_trend="DEGRADING",
+        risk_level="HIGH",
+        executive_summary="composed",
+    )
+
+    preview = build_executive_report_preview("demo", incident, report_type="RELEASE_READINESS")
+    mock_view.assert_called_once()
+    mock_preview.assert_called_once()
+    assert preview.title == "Release Readiness"
+    assert preview.preview_id == "exec_preview:demo:release_readiness"
 
 
 @patch("services.db.incident_report_repository.incident_report_repo")

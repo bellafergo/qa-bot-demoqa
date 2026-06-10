@@ -141,6 +141,7 @@ class DashboardService:
 
         onboarding = None
         report_center = None
+        release_readiness = None
         if pid:
             try:
                 from services.onboarding_service import build_onboarding_checklist
@@ -155,6 +156,13 @@ class DashboardService:
                 report_center = build_executive_report_center(pid)
             except Exception:
                 logger.debug("dashboard: report center failed project_id=%s", pid, exc_info=True)
+
+            try:
+                from services.release_readiness_service import build_release_readiness_view
+
+                release_readiness = build_release_readiness_view(project_id=pid)
+            except Exception:
+                logger.debug("dashboard: release readiness failed project_id=%s", pid, exc_info=True)
 
         return DashboardSummary(
             total_test_cases             = total_tc,
@@ -183,6 +191,7 @@ class DashboardService:
             total_failure_clusters       = fi_cluster_count,
             onboarding                   = onboarding,
             report_center                = report_center,
+            release_readiness            = release_readiness,
         )
 
     # ── Recent records ────────────────────────────────────────────────────────

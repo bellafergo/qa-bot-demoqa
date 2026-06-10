@@ -1075,6 +1075,16 @@ def investigate_project_incident(
     )
 
     try:
+        from services.release_readiness_service import build_release_readiness_view
+
+        report.release_readiness = build_release_readiness_view(
+            project_id=pid,
+            incident_report=report,
+        )
+    except Exception as e:
+        logger.debug("incident_qa: release readiness compositor failed project_id=%s: %s", pid, e)
+
+    try:
         from services.db.incident_report_repository import incident_report_repo
 
         report_id = incident_report_repo.save(
