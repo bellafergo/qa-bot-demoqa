@@ -7,7 +7,7 @@
  * Run evidence: /evidence/run/:runId (inspection run id)
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   listBrowserInspectionWatches,
   createBrowserInspectionWatch,
@@ -109,6 +109,8 @@ export default function BrowserWatchPage() {
   const { t } = useLang();
   const { currentProject } = useProject();
   const { showToast } = useToast();
+  const [searchParams] = useSearchParams();
+  const drilldownWatchId = String(searchParams.get("watch") || "").trim() || null;
   const [watches, setWatches] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -119,6 +121,7 @@ export default function BrowserWatchPage() {
   const [formMode, setFormMode] = useState("create");
   const [formEditWatch, setFormEditWatch] = useState(null);
   const selectedIdRef = useRef(null);
+  const drilldownToastShownRef = useRef(null);
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
@@ -155,6 +158,22 @@ export default function BrowserWatchPage() {
   useEffect(() => {
     loadWatches({ silent: false });
   }, [loadWatches]);
+
+  useEffect(() => {
+    drilldownToastShownRef.current = null;
+  }, [drilldownWatchId]);
+
+  useEffect(() => {
+    if (!drilldownWatchId || loading) return;
+    const found = watches.some((w) => String(w.watch_id || "") === drilldownWatchId);
+    if (found) {
+      setSelectedId(drilldownWatchId);
+      return;
+    }
+    if (drilldownToastShownRef.current === drilldownWatchId) return;
+    drilldownToastShownRef.current = drilldownWatchId;
+    showToast(t("incident.qa.drilldown.entity_unavailable"), "warning");
+  }, [drilldownWatchId, loading, watches, showToast, t]);
 
   const bumpDetailIfSelected = useCallback((watchId) => {
     if (selectedIdRef.current === watchId) {

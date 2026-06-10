@@ -5,8 +5,8 @@
  * POST /pr-analysis/analyze      — analyze impact and match catalog tests
  * POST /execution/run-batch      — enqueue matched test IDs via Execution Center
  */
-import React, { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   analyzePR,
   analyzeProjectPR,
@@ -27,11 +27,22 @@ import { useProject } from "../context/ProjectContext.jsx";
 import PRAnalysisEnterpriseView from "../components/pr/PRAnalysisEnterpriseView";
 import PREmptyState from "../components/pr/PREmptyState";
 import { parseChangedFilesList } from "../utils/prAnalysisViewUtils";
+import {
+  isAzureDrilldownProvider,
+  isGithubDrilldownProvider,
+  parsePrAnalysisDrilldown,
+  resolvePrAnalysisDrilldown,
+} from "../utils/prAnalysisDrilldownUtils.js";
 
 export default function PRAnalysisPage() {
   const { t } = useLang();
   const { currentProject } = useProject();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const drilldownTarget = parsePrAnalysisDrilldown(searchParams);
+  const drilldownResolvedRef = useRef(false);
+  const [drilldownHighlightPr, setDrilldownHighlightPr] = useState(null);
+  const [drilldownNotFound, setDrilldownNotFound] = useState(false);
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -148,6 +159,38 @@ export default function PRAnalysisPage() {
   useEffect(() => {
     loadAzStatus();
   }, [loadAzStatus]);
+
+  useEffect(() => {
+    drilldownResolvedRef.current = false;
+    setDrilldownHighlightPr(null);
+    setDrilldownNotFound(false);
+  }, [drilldownTarget?.provider, drilldownTarget?.prNumber]);
+
+  useEffect(() => {
+    if (!drilldownTarget || drilldownResolvedRef.current) return;
+
+    const waitingGithub = isGithubDrilldownProvider(drilldownTarget.provider) && ghPRsLoading;
+    const waitingAzure = isAzureDrilldownProvider(drilldownTarget.provider) && azPRsLoading;
+    if (waitingGithub || waitingAzure) return;
+
+    const resolved = resolvePrAnalysisDrilldown({
+      provider: drilldownTarget.provider,
+      prNumber: drilldownTarget.prNumber,
+      ghPRs,
+      azPRs,
+    });
+    drilldownResolvedRef.current = true;
+
+    if (resolved.found && resolved.formPatch) {
+      setDrilldownHighlightPr(String(drilldownTarget.prNumber));
+      setDrilldownNotFound(false);
+      setForm((f) => ({ ...f, ...resolved.formPatch }));
+      return;
+    }
+
+    setDrilldownHighlightPr(null);
+    setDrilldownNotFound(true);
+  }, [drilldownTarget, ghPRs, azPRs, ghPRsLoading, azPRsLoading]);
 
   useEffect(() => {
     if (!currentProject?.id) {
@@ -409,6 +452,21 @@ export default function PRAnalysisPage() {
   return (
     <div className="page-wrap">
 
+      {drilldownTarget ? (
+        drilldownNotFound ? (
+          <div className="alert alert-warning" style={{ marginBottom: 16, fontSize: 13, lineHeight: 1.5 }}>
+            {t("incident.qa.drilldown.pr_analysis_not_found")}
+          </div>
+        ) : drilldownHighlightPr ? (
+          <div className="alert alert-info" style={{ marginBottom: 16, fontSize: 13, lineHeight: 1.5 }}>
+            {t("incident.qa.drilldown.pr_analysis_selected", {
+              provider: drilldownTarget.provider,
+              pr: drilldownHighlightPr,
+            })}
+          </div>
+        ) : null
+      ) : null}
+
       {/* GitHub — read-only integration status (configure in Integrations) */}
       <div className="card" style={{ marginBottom: 20 }}>
         <div className="section-title" style={{ marginBottom: 8 }}>{t("gh.title")}</div>
@@ -449,7 +507,23 @@ export default function PRAnalysisPage() {
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {ghPRs.map((pr) => (
-                    <div key={pr.number} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "10px 12px", border: "1px solid var(--border)", borderRadius: 6 }}>
+                    <div
+                      key={pr.number}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: 10,
+                        padding: "10px 12px",
+                        border: String(drilldownHighlightPr) === String(pr.number)
+                          ? "2px solid var(--accent)"
+                          : "1px solid var(--border)",
+                        borderRadius: 6,
+                        background: String(drilldownHighlightPr) === String(pr.number)
+                          ? "var(--blue-bg, rgba(59,130,246,0.08))"
+                          : undefined,
+                      }}
+                    >
                       <div>
                         <div style={{ fontSize: 13, fontWeight: 600 }}>#{pr.number} {pr.title}</div>
                         <div style={{ fontSize: 11, color: "var(--text-3)" }}>{pr.branch} → {pr.base_branch} · {pr.author}</div>
@@ -510,7 +584,23 @@ export default function PRAnalysisPage() {
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {azPRs.map((pr) => (
-                    <div key={pr.pull_request_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "10px 12px", border: "1px solid var(--border)", borderRadius: 6 }}>
+                    <div
+                      key={pr.pull_request_id}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: 10,
+                        padding: "10px 12px",
+                        border: String(drilldownHighlightPr) === String(pr.pull_request_id)
+                          ? "2px solid var(--accent)"
+                          : "1px solid var(--border)",
+                        borderRadius: 6,
+                        background: String(drilldownHighlightPr) === String(pr.pull_request_id)
+                          ? "var(--blue-bg, rgba(59,130,246,0.08))"
+                          : undefined,
+                      }}
+                    >
                       <div>
                         <div style={{ fontSize: 13, fontWeight: 600 }}>#{pr.pull_request_id} {pr.title}</div>
                         <div style={{ fontSize: 11, color: "var(--text-3)" }}>{pr.branch} → {pr.base_branch} · {pr.author}</div>

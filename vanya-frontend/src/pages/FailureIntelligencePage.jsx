@@ -8,11 +8,12 @@
  *
  * No AI. All metrics are deterministic heuristics computed over run history.
  */
-import React, { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { getFlakyTests, getRegressions, getClusters, getDeepInsights, apiErrorMessage } from "../api";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
+import { useToast } from "../context/ToastContext.jsx";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -249,7 +250,7 @@ function categoryLabel(cat) {
   return String(cat || "unknown").replace(/_/g, " ");
 }
 
-function ClustersTab({ data, loading, error, t }) {
+function ClustersTab({ data, loading, error, t, highlightedClusterId = null }) {
   if (loading) return <div style={{ padding: 24, color: "var(--text-3)", fontSize: 13 }}>{t("fi.loading")}</div>;
   if (error)   return <div style={{ padding: 16 }} className="alert alert-error">{error}</div>;
   if (!data || data.length === 0) return (
@@ -277,7 +278,12 @@ function ClustersTab({ data, loading, error, t }) {
         </tr></thead>
         <tbody>
           {data.map(cl => (
-            <tr key={cl.cluster_id}>
+            <tr
+              key={cl.cluster_id}
+              style={String(cl.cluster_id) === String(highlightedClusterId || "")
+                ? { background: "var(--blue-bg, rgba(59,130,246,0.08))" }
+                : undefined}
+            >
               <td style={{ fontFamily: "monospace", fontSize: 10, color: "var(--text-3)" }}>
                 {cl.cluster_id}
               </td>
@@ -471,8 +477,12 @@ function DeepInsightsTab({ projectId, t }) {
 export default function FailureIntelligencePage({ embedded = false }) {
   const { t } = useLang();
   const { currentProject } = useProject();
+  const { showToast } = useToast();
   const projectId = currentProject?.id;
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const drilldownClusterId = String(searchParams.get("cluster") || "").trim() || null;
+  const drilldownTab = String(searchParams.get("tab") || "").trim() || null;
 
   const [tab, setTab]                       = useState("flaky");
   const [hasUserSelectedSubtab, setHasUserSelectedSubtab] = useState(false);
@@ -485,6 +495,7 @@ export default function FailureIntelligencePage({ embedded = false }) {
   const [errorFlaky, setErrorFlaky]         = useState("");
   const [errorReg,   setErrorReg]           = useState("");
   const [errorClusters, setErrorClusters]   = useState("");
+  const drilldownClusterToastShownRef = useRef(null);
 
   const loadFlaky = useCallback(async () => {
     setLoadingFlaky(true);
@@ -530,6 +541,26 @@ export default function FailureIntelligencePage({ embedded = false }) {
     loadReg();
     loadClusters();
   }, [loadFlaky, loadReg, loadClusters]);
+
+  useEffect(() => {
+    if (drilldownTab === "clusters") {
+      setTab("clusters");
+      setHasUserSelectedSubtab(true);
+    }
+  }, [drilldownTab]);
+
+  useEffect(() => {
+    drilldownClusterToastShownRef.current = null;
+  }, [drilldownClusterId]);
+
+  useEffect(() => {
+    if (!drilldownClusterId || loadingClusters || clusters === null) return;
+    const found = clusters.some((cl) => String(cl.cluster_id || "") === drilldownClusterId);
+    if (found) return;
+    if (drilldownClusterToastShownRef.current === drilldownClusterId) return;
+    drilldownClusterToastShownRef.current = drilldownClusterId;
+    showToast(t("incident.qa.drilldown.entity_unavailable"), "warning");
+  }, [clusters, drilldownClusterId, loadingClusters, showToast, t]);
 
   // Select the most informative subtab once all three datasets are loaded,
   // but only if the user hasn't already picked one manually.
@@ -617,7 +648,13 @@ export default function FailureIntelligencePage({ embedded = false }) {
           <RegressionsTab data={regressions} loading={loadingReg} error={errorReg} t={t} />
         )}
         {tab === "clusters" && (
-          <ClustersTab data={clusters} loading={loadingClusters} error={errorClusters} t={t} />
+          <ClustersTab
+            data={clusters}
+            loading={loadingClusters}
+            error={errorClusters}
+            t={t}
+            highlightedClusterId={drilldownClusterId}
+          />
         )}
         {tab === "deep" && (
           <DeepInsightsTab projectId={projectId} t={t} />

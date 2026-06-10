@@ -19,6 +19,7 @@ import {
   correlationReasonText,
   isEvidenceCorrelationEmpty,
 } from "../utils/incidentReportViewUtils.js";
+import EvidenceCorrelationDrilldownCell from "../components/incident/EvidenceCorrelationDrilldownCell.jsx";
 
 function fmtTs(iso) {
   if (!iso) return "—";
@@ -193,6 +194,9 @@ function QaInvestigationReport({ report, t }) {
           </p>
           {!isEvidenceCorrelationEmpty(report.evidence_correlation) ? (
             <div className="card" style={{ overflow: "hidden", padding: 0 }}>
+              <p style={{ fontSize: 11, color: "var(--text-3)", margin: "10px 12px 0", lineHeight: 1.5, fontStyle: "italic" }}>
+                {t("incident.qa.drilldown.navigation_tooltip")}
+              </p>
               <table className="data-table">
                 <thead>
                   <tr>
@@ -200,6 +204,7 @@ function QaInvestigationReport({ report, t }) {
                     <th title={t("incident.qa.correlation_weight_tooltip")}>{t("incident.qa.correlation_evidence_weight")}</th>
                     <th>{t("incident.qa.correlation_reason")}</th>
                     <th>{t("incident.qa.correlation_evidence")}</th>
+                    <th>{t("incident.qa.drilldown.action")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -220,6 +225,9 @@ function QaInvestigationReport({ report, t }) {
                           </span>
                         )}
                         <span style={{ display: "block", color: "var(--text-3)", marginTop: 2 }}>{item.detail}</span>
+                      </td>
+                      <td style={{ fontSize: 12 }}>
+                        <EvidenceCorrelationDrilldownCell item={item} />
                       </td>
                     </tr>
                   ))}
