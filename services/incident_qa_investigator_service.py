@@ -815,6 +815,34 @@ def investigate_project_incident(
         test_recommendations=test_recommendations,
     )
 
+    previous_reports: List[ProjectIncidentInvestigationReport] = []
+    try:
+        from services.db.incident_report_repository import incident_report_repo
+
+        for row in incident_report_repo.list_reports(project_id=pid, limit=50):
+            rid = (row.get("id") or "").strip()
+            if not rid:
+                continue
+            full = incident_report_repo.get(rid)
+            if full:
+                previous_reports.append(ProjectIncidentInvestigationReport.model_validate(full))
+    except Exception as e:
+        logger.warning("incident_qa: failed to load historical reports project_id=%s: %s", pid, e)
+
+    from services.similar_incidents_service import build_historical_learning
+
+    historical_learning = build_historical_learning(
+        hypotheses=hypotheses,
+        impact_map=impact_map,
+        deployment_risk_assessment=deployment_risk_assessment,
+        storyline=storyline,
+        recommended_actions=recommended_actions,
+        test_recommendations=test_recommendations,
+        failure_clusters=clusters,
+        previous_reports=previous_reports,
+        impacted_modules=impacted_modules,
+    )
+
     actions_available = _build_actions_available(
         req=req,
         related_runs=related_runs,
@@ -859,6 +887,7 @@ def investigate_project_incident(
         deployment_risk_assessment=deployment_risk_assessment,
         test_recommendations=test_recommendations,
         decision_center=decision_center,
+        historical_learning=historical_learning,
         confidence=confidence,
         confidence_breakdown=confidence_breakdown,
         next_steps=next_steps,

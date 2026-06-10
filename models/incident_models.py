@@ -226,6 +226,22 @@ class DecisionCenterSummary(BaseModel):
     key_takeaways: List[DecisionCenterInsight] = Field(default_factory=list)
 
 
+class SimilarIncident(BaseModel):
+    incident_id: str
+    title: str
+    similarity_score: float = Field(ge=0.0, le=1.0)
+    summary: str = ""
+    occurrence_timestamp: Optional[str] = None
+    related_entity_type: Optional[str] = None
+    related_entity_id: Optional[str] = None
+
+
+class HistoricalLearningReport(BaseModel):
+    similar_incidents: List[SimilarIncident] = Field(default_factory=list)
+    pattern_summary: str = ""
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
 class RecommendedAction(BaseModel):
     action_id: str
     title: str
@@ -308,6 +324,7 @@ class ProjectIncidentInvestigationReport(BaseModel):
     deployment_risk_assessment: Optional[DeploymentRiskAssessment] = None
     test_recommendations: Optional[TestRecommendationReport] = None
     decision_center: Optional[DecisionCenterSummary] = None
+    historical_learning: Optional[HistoricalLearningReport] = None
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     confidence_breakdown: List["ConfidenceFactor"] = Field(default_factory=list)
     next_steps: List[str] = Field(default_factory=list)

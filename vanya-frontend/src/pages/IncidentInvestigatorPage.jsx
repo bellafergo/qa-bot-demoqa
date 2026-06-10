@@ -24,10 +24,12 @@ import { buildImpactMapViewModel } from "../utils/incidentImpactMapViewUtils.js"
 import { buildDeploymentRiskViewModel } from "../utils/deploymentRiskAssessmentViewUtils.js";
 import { buildTestRecommendationsViewModel } from "../utils/testRecommendationViewUtils.js";
 import { buildDecisionCenterViewModel } from "../utils/qualityDecisionCenterViewUtils.js";
+import { buildHistoricalLearningViewModel } from "../utils/historicalLearningViewUtils.js";
 import { buildRecommendedActionsViewModel } from "../utils/incidentRecommendedActionsViewUtils.js";
 import EvidenceCorrelationDrilldownCell from "../components/incident/EvidenceCorrelationDrilldownCell.jsx";
 import RecommendedActionCard from "../components/incident/RecommendedActionCard.jsx";
 import RecommendedTestCard from "../components/incident/RecommendedTestCard.jsx";
+import SimilarIncidentCard from "../components/incident/SimilarIncidentCard.jsx";
 
 function fmtTs(iso) {
   if (!iso) return "—";
@@ -91,6 +93,7 @@ function QaInvestigationReport({ report, t }) {
   const deploymentRiskVm = buildDeploymentRiskViewModel(report, t);
   const testRecommendationsVm = buildTestRecommendationsViewModel(report, t);
   const decisionCenterVm = buildDecisionCenterViewModel(report, t);
+  const historicalLearningVm = buildHistoricalLearningViewModel(report, t, fmtTs);
   const recommendedActionsVm = buildRecommendedActionsViewModel(report, t);
   const es = report.evidence_strength;
   const temporal = report.temporal_correlation;
@@ -346,86 +349,6 @@ function QaInvestigationReport({ report, t }) {
         </div>
       ) : null}
 
-      {deploymentRiskVm.show ? (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
-            {deploymentRiskVm.title}
-          </div>
-          {deploymentRiskVm.empty ? (
-            emptyStateText(deploymentRiskVm.emptyMessage)
-          ) : (
-            <div
-              style={{
-                padding: "16px 18px",
-                background: "var(--bg-2)",
-                borderRadius: 8,
-                border: "1px solid var(--border, rgba(255,255,255,0.08))",
-              }}
-            >
-              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
-                <div
-                  style={{
-                    minWidth: 88,
-                    padding: "10px 14px",
-                    borderRadius: 8,
-                    background: "var(--bg-3, rgba(255,255,255,0.04))",
-                    textAlign: "center",
-                  }}
-                >
-                  <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 4 }}>
-                    {deploymentRiskVm.riskScoreLabel}
-                  </div>
-                  <div style={{ fontSize: 22, fontWeight: 700, color: "var(--text-1)" }}>
-                    {deploymentRiskVm.assessment.risk_score}
-                    <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-3)" }}> / 100</span>
-                  </div>
-                </div>
-                <span className={deploymentRiskVm.assessment.riskLevelBadgeClass}>
-                  {deploymentRiskVm.riskLevelLabel}: {deploymentRiskVm.assessment.riskLevelLabel}
-                </span>
-                <span className="badge badge-orange">
-                  {deploymentRiskVm.confidenceLabel}: {deploymentRiskVm.assessment.confidenceText}
-                </span>
-              </div>
-              <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.55, marginBottom: 14 }}>
-                {deploymentRiskVm.assessment.summary}
-              </div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
-                {deploymentRiskVm.factorsLabel}
-              </div>
-              <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
-                {deploymentRiskVm.assessment.factors.map((factor) => (
-                  <li
-                    key={factor.title}
-                    style={{
-                      marginBottom: 10,
-                      padding: "10px 12px",
-                      background: "var(--bg-3, rgba(255,255,255,0.03))",
-                      borderRadius: 6,
-                      fontSize: 13,
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 4 }}>
-                      <strong style={{ color: "var(--text-1)" }}>{factor.title}</strong>
-                      <span className="badge badge-blue">
-                        {deploymentRiskVm.weightLabel}: {factor.weightText}
-                      </span>
-                    </div>
-                    <div style={{ color: "var(--text-3)", marginBottom: factor.drilldownItem ? 8 : 0 }}>
-                      {factor.description}
-                    </div>
-                    {factor.drilldownItem ? (
-                      <EvidenceCorrelationDrilldownCell item={factor.drilldownItem} />
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      ) : null}
-
       {testRecommendationsVm.show ? (
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
@@ -568,6 +491,140 @@ function QaInvestigationReport({ report, t }) {
               <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
                 {decisionCenterVm.readOnlyNote}
               </p>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {historicalLearningVm.show ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {historicalLearningVm.title}
+          </div>
+          {historicalLearningVm.empty ? (
+            emptyStateText(historicalLearningVm.emptyMessage)
+          ) : (
+            <div
+              style={{
+                padding: "16px 18px",
+                background: "var(--bg-2)",
+                borderRadius: 8,
+                border: "1px solid var(--border, rgba(255,255,255,0.08))",
+              }}
+            >
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+                <span className="badge badge-orange">
+                  {historicalLearningVm.confidenceLabel}: {historicalLearningVm.learning.confidenceText}
+                </span>
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 6 }}>
+                {historicalLearningVm.patternSummaryLabel}
+              </div>
+              <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.55, marginBottom: 14 }}>
+                {historicalLearningVm.learning.pattern_summary}
+              </div>
+              {historicalLearningVm.learning.incidents?.length > 0 ? (
+                <>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+                    {historicalLearningVm.similarIncidentsLabel}
+                  </div>
+                  <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                    {historicalLearningVm.learning.incidents.map((incident) => (
+                      <SimilarIncidentCard
+                        key={incident.incident_id}
+                        incident={incident}
+                        labels={{
+                          similarityLabel: historicalLearningVm.similarityLabel,
+                          previewLabel: historicalLearningVm.previewLabel,
+                        }}
+                      />
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+              <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+                {historicalLearningVm.readOnlyNote}
+              </p>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {deploymentRiskVm.show ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {deploymentRiskVm.title}
+          </div>
+          {deploymentRiskVm.empty ? (
+            emptyStateText(deploymentRiskVm.emptyMessage)
+          ) : (
+            <div
+              style={{
+                padding: "16px 18px",
+                background: "var(--bg-2)",
+                borderRadius: 8,
+                border: "1px solid var(--border, rgba(255,255,255,0.08))",
+              }}
+            >
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+                <div
+                  style={{
+                    minWidth: 88,
+                    padding: "10px 14px",
+                    borderRadius: 8,
+                    background: "var(--bg-3, rgba(255,255,255,0.04))",
+                    textAlign: "center",
+                  }}
+                >
+                  <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 4 }}>
+                    {deploymentRiskVm.riskScoreLabel}
+                  </div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: "var(--text-1)" }}>
+                    {deploymentRiskVm.assessment.risk_score}
+                    <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-3)" }}> / 100</span>
+                  </div>
+                </div>
+                <span className={deploymentRiskVm.assessment.riskLevelBadgeClass}>
+                  {deploymentRiskVm.riskLevelLabel}: {deploymentRiskVm.assessment.riskLevelLabel}
+                </span>
+                <span className="badge badge-orange">
+                  {deploymentRiskVm.confidenceLabel}: {deploymentRiskVm.assessment.confidenceText}
+                </span>
+              </div>
+              <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.55, marginBottom: 14 }}>
+                {deploymentRiskVm.assessment.summary}
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+                {deploymentRiskVm.factorsLabel}
+              </div>
+              <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                {deploymentRiskVm.assessment.factors.map((factor) => (
+                  <li
+                    key={factor.title}
+                    style={{
+                      marginBottom: 10,
+                      padding: "10px 12px",
+                      background: "var(--bg-3, rgba(255,255,255,0.03))",
+                      borderRadius: 6,
+                      fontSize: 13,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 4 }}>
+                      <strong style={{ color: "var(--text-1)" }}>{factor.title}</strong>
+                      <span className="badge badge-blue">
+                        {deploymentRiskVm.weightLabel}: {factor.weightText}
+                      </span>
+                    </div>
+                    <div style={{ color: "var(--text-3)", marginBottom: factor.drilldownItem ? 8 : 0 }}>
+                      {factor.description}
+                    </div>
+                    {factor.drilldownItem ? (
+                      <EvidenceCorrelationDrilldownCell item={factor.drilldownItem} />
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
         </div>
