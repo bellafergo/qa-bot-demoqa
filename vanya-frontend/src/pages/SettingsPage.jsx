@@ -4,6 +4,7 @@ import { useLang } from "../i18n/LangContext";
 import { useTheme } from "../context/ThemeContext.jsx";
 import { apiGet, apiErrorMessage, API_BASE } from "../api.js";
 import SecuritySection from "../components/security/SecuritySection.jsx";
+import AuthenticationIdentitySection from "../components/security/AuthenticationIdentitySection.jsx";
 import SSOConfigurationSection from "../components/security/SSOConfigurationSection.jsx";
 import RBACSection from "../components/security/RBACSection.jsx";
 import AuditTrailSection from "../components/security/AuditTrailSection.jsx";
@@ -109,6 +110,8 @@ export default function SettingsPage() {
       <ThemeAppearanceCard />
 
       <SecuritySection />
+
+      <AuthenticationIdentitySection />
 
       <SSOConfigurationSection />
 

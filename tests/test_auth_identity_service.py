@@ -33,6 +33,10 @@ def test_resolve_authentication_source_local():
     assert resolve_authentication_source(auth_kind="user") == "LOCAL"
 
 
+def test_resolve_authentication_source_sso():
+    assert resolve_authentication_source(auth_kind="sso", provider_type="MICROSOFT") == "MICROSOFT"
+
+
 def test_get_user_identity_from_context():
     identity = get_user_identity(
         user_id="user-123",

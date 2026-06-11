@@ -10,6 +10,9 @@ from pydantic import BaseModel, Field
 AuditEventType = Literal[
     "SSO_PROVIDER_VALIDATED",
     "SSO_LOGIN_URL_GENERATED",
+    "SSO_LOGIN_SUCCESS",
+    "SSO_LOGIN_FAILED",
+    "SSO_IDENTITY_RESOLVED",
     "REPORT_PREVIEWED",
     "REPORT_SENT",
     "INTEGRATION_CONFIG_UPDATED",

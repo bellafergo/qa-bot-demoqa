@@ -123,8 +123,11 @@ class Settings:
     SSO_REDIRECT_URI: str = (os.getenv("SSO_REDIRECT_URI") or "http://localhost:5173/auth/callback").strip().rstrip("/")
     SSO_MICROSOFT_CLIENT_ID: str = (os.getenv("SSO_MICROSOFT_CLIENT_ID") or "").strip()
     SSO_MICROSOFT_TENANT_ID: str = (os.getenv("SSO_MICROSOFT_TENANT_ID") or "").strip()
+    SSO_MICROSOFT_CLIENT_SECRET: str = (os.getenv("SSO_MICROSOFT_CLIENT_SECRET") or "").strip()
     SSO_GOOGLE_CLIENT_ID: str = (os.getenv("SSO_GOOGLE_CLIENT_ID") or "").strip()
+    SSO_GOOGLE_CLIENT_SECRET: str = (os.getenv("SSO_GOOGLE_CLIENT_SECRET") or "").strip()
     SSO_OKTA_CLIENT_ID: str = (os.getenv("SSO_OKTA_CLIENT_ID") or "").strip()
+    SSO_OKTA_CLIENT_SECRET: str = (os.getenv("SSO_OKTA_CLIENT_SECRET") or "").strip()
     SSO_OKTA_ISSUER: str = (os.getenv("SSO_OKTA_ISSUER") or "").strip().rstrip("/")
 
     # ----------------------------

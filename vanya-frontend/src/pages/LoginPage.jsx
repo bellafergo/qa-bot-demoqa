@@ -1,21 +1,46 @@
 // src/pages/LoginPage.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext.jsx";
 import { useLang } from "../i18n/LangContext.jsx";
 import { ZuperioLogo } from "../ui";
+import { getSsoLoginProviders, apiErrorMessage } from "../api";
+import SSOLoginView from "../components/auth/SSOLoginView.jsx";
+import { buildSsoLoginViewModel } from "../utils/ssoLoginViewUtils.js";
 
 export default function LoginPage() {
   const { t } = useLang();
-  const { session, loading, supabaseConfigured, signInWithGoogle } = useAuth();
+  const {
+    session,
+    loading,
+    supabaseConfigured,
+    signInWithGoogle,
+    signInWithEnterpriseSso,
+  } = useAuth();
   const [busy, setBusy] = useState(false);
+  const [busyProvider, setBusyProvider] = useState("");
   const [err, setErr] = useState("");
+  const [ssoProviders, setSsoProviders] = useState([]);
 
   useEffect(() => {
     setErr("");
+    getSsoLoginProviders()
+      .then((data) => setSsoProviders(data?.providers || []))
+      .catch(() => setSsoProviders([]));
   }, []);
 
-  if (!supabaseConfigured) {
+  const ssoVm = useMemo(
+    () => buildSsoLoginViewModel({ providers: ssoProviders, t }),
+    [ssoProviders, t],
+  );
+
+  const hasAnyLogin = supabaseConfigured || !ssoVm.empty;
+
+  if (!loading && session) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  if (!hasAnyLogin && !loading) {
     return (
       <div style={{
         minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
@@ -26,14 +51,10 @@ export default function LoginPage() {
             <ZuperioLogo variant="mark" />
           </div>
           <p style={{ color: "var(--text-2)", fontSize: 13, marginBottom: 6 }}>{t("auth.brand_stack")}</p>
-          <p style={{ color: "var(--text-3)", fontSize: 14 }}>{t("auth.config_missing")}</p>
+          <p style={{ color: "var(--text-3)", fontSize: 14 }}>{ssoVm.emptyMessage}</p>
         </div>
       </div>
     );
-  }
-
-  if (!loading && session) {
-    return <Navigate to="/dashboard" replace />;
   }
 
   async function onGoogle() {
@@ -46,6 +67,19 @@ export default function LoginPage() {
       setErr(e?.message || String(e));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function onEnterpriseProvider(provider) {
+    setErr("");
+    setBusyProvider(provider);
+    try {
+      const { error } = await signInWithEnterpriseSso(provider);
+      if (error) setErr(apiErrorMessage(error) || error.message || String(error));
+    } catch (e) {
+      setErr(e?.message || String(e));
+    } finally {
+      setBusyProvider("");
     }
   }
 
@@ -74,16 +108,39 @@ export default function LoginPage() {
           <div className="alert alert-error" style={{ marginBottom: 16, fontSize: 13 }}>{err}</div>
         ) : null}
 
-        <button
-          type="button"
-          className="btn btn-primary"
-          style={{ width: "100%", justifyContent: "center", gap: 10 }}
-          disabled={busy || loading}
-          onClick={onGoogle}
-        >
-          <span style={{ fontSize: 18 }}>G</span>
-          {busy ? t("auth.redirecting") : t("auth.google")}
-        </button>
+        {!ssoVm.empty ? (
+          <div style={{ marginBottom: supabaseConfigured ? 18 : 0 }}>
+            <SSOLoginView
+              vm={ssoVm}
+              busyProvider={busyProvider}
+              onProviderLogin={onEnterpriseProvider}
+            />
+          </div>
+        ) : null}
+
+        {supabaseConfigured && !ssoVm.empty ? (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 10, margin: "18px 0",
+            color: "var(--text-4)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em",
+          }}>
+            <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+            <span>{ssoVm.localDivider}</span>
+            <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+          </div>
+        ) : null}
+
+        {supabaseConfigured ? (
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{ width: "100%", justifyContent: "center", gap: 10 }}
+            disabled={busy || loading || Boolean(busyProvider)}
+            onClick={onGoogle}
+          >
+            <span style={{ fontSize: 18 }}>G</span>
+            {busy ? t("auth.redirecting") : t("auth.google")}
+          </button>
+        ) : null}
 
         <p style={{ fontSize: 12, color: "var(--text-4)", textAlign: "center", marginTop: 20 }}>
           {t("auth.hint")}

@@ -49,7 +49,9 @@ def get_security_readiness(request: Request):
     return build_security_readiness_report(
         user_id=ctx.get("user_id"),
         email=ctx.get("email"),
+        display_name=ctx.get("display_name"),
         auth_kind=ctx.get("auth_kind"),
+        provider_type=ctx.get("provider_type"),
     )
 
 

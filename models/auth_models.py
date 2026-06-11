@@ -38,6 +38,7 @@ class AuthenticationSession(BaseModel):
     provider_type: ProviderType = "LOCAL"
     login_time: Optional[str] = None
     last_activity: Optional[str] = None
+    access_token: Optional[str] = None
 
 
 class SSOProviderConfig(BaseModel):

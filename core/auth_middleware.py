@@ -13,6 +13,7 @@ from starlette.responses import JSONResponse, Response
 
 from core.vanya_auth import (
     apply_service_to_state,
+    apply_sso_user_to_state,
     apply_user_to_state,
     auth_enforcement_enabled,
     check_email_domain_policy,
@@ -22,6 +23,7 @@ from core.vanya_auth import (
     machine_request_authorized,
     resolve_allowed_email_domains,
     verify_supabase_user_jwt,
+    verify_vanya_sso_jwt,
 )
 
 logger = logging.getLogger("vanya.auth")
@@ -68,11 +70,27 @@ class VanyaAuthMiddleware(BaseHTTPMiddleware):
         if not token:
             return _json_401("Authentication required. Empty Bearer token.")
 
+        claims = None
+        auth_kind = None
         try:
             claims = verify_supabase_user_jwt(token)
-        except Exception as e:
-            logger.info("JWT validation failed: %s", type(e).__name__)
-            return _json_401("Invalid or expired token.")
+            auth_kind = "user"
+        except Exception:
+            try:
+                claims = verify_vanya_sso_jwt(token)
+                auth_kind = "sso"
+            except Exception as e:
+                logger.info("JWT validation failed: %s", type(e).__name__)
+                return _json_401("Invalid or expired token.")
+
+        if auth_kind == "sso":
+            email = str(claims.get("email") or "").strip() or None
+            domains = resolve_allowed_email_domains(claims=claims)
+            ok_domain, msg = check_email_domain_policy(email, domains)
+            if not ok_domain:
+                return _json_403(msg or "Email domain policy denied access.")
+            apply_sso_user_to_state(request.state, claims)
+            return await call_next(request)
 
         email = extract_user_email_from_claims(claims)
         domains = resolve_allowed_email_domains(claims=claims)

@@ -402,6 +402,24 @@ export function getSsoLoginUrl(provider) {
   return apiGet(`/security/sso/login-url?${qs.toString()}`);
 }
 
+export function getSsoAuthLoginUrl(provider) {
+  const qs = new URLSearchParams({ provider });
+  return apiGet(`/auth/sso/login-url?${qs.toString()}`);
+}
+
+export function completeSsoAuthCallback(provider, code, state) {
+  const qs = new URLSearchParams({ provider, code, state });
+  return apiGet(`/auth/sso/callback?${qs.toString()}`);
+}
+
+export function getSsoAuthMe() {
+  return apiGet("/auth/sso/me");
+}
+
+export function getSsoLoginProviders() {
+  return apiGet("/auth/sso/providers");
+}
+
 export function getAuditEvents(params = {}) {
   const qs = new URLSearchParams();
   if (params.event_type) qs.set("event_type", params.event_type);

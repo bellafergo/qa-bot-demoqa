@@ -74,12 +74,13 @@ def list_enabled_providers() -> List[IdentityProvider]:
 def resolve_authentication_source(
     *,
     auth_kind: Optional[str] = None,
+    provider_type: Optional[str] = None,
 ) -> str:
-    """
-    Resolve active authentication source for the current request context.
-    Foundation sprint: always LOCAL (Supabase JWT maps to local identity layer).
-    """
-    _ = auth_kind
+    """Resolve active authentication source for the current request context."""
+    if auth_kind == "sso":
+        provider = str(provider_type or "").strip().upper()
+        if provider in _SSO_PROVIDER_TYPES:
+            return provider
     return "LOCAL"
 
 
@@ -90,12 +91,16 @@ def get_user_identity(
     display_name: Optional[str] = None,
     auth_kind: Optional[str] = None,
     external_id: Optional[str] = None,
+    provider_type: Optional[str] = None,
 ) -> UserIdentity:
     """Build a read-only user identity view from request context."""
-    provider_type = resolve_authentication_source(auth_kind=auth_kind)
+    resolved_provider = resolve_authentication_source(
+        auth_kind=auth_kind,
+        provider_type=provider_type,
+    )
     uid = str(user_id or "").strip() or "anonymous"
     resolved_external = external_id or (uid if uid not in ("anonymous", "service") else None)
-    identity_id = f"identity:{provider_type.lower()}:{uid}"
+    identity_id = f"identity:{resolved_provider.lower()}:{uid}"
 
     if auth_kind == "service":
         return UserIdentity(
@@ -114,7 +119,7 @@ def get_user_identity(
     return UserIdentity(
         identity_id=identity_id,
         user_id=uid,
-        provider_type=provider_type,  # type: ignore[arg-type]
+        provider_type=resolved_provider,  # type: ignore[arg-type]
         external_id=resolved_external,
         email=(email or "").strip() or None,
         display_name=name,
@@ -125,20 +130,24 @@ def get_session_provider(
     *,
     user_id: Optional[str] = None,
     auth_kind: Optional[str] = None,
+    provider_type: Optional[str] = None,
     session_id: Optional[str] = None,
     login_time: Optional[str] = None,
     last_activity: Optional[str] = None,
 ) -> AuthenticationSession:
     """Return session ownership metadata for the current authentication context."""
-    provider_type = resolve_authentication_source(auth_kind=auth_kind)
+    resolved_provider = resolve_authentication_source(
+        auth_kind=auth_kind,
+        provider_type=provider_type,
+    )
     uid = str(user_id or "").strip() or "anonymous"
-    sid = (session_id or "").strip() or f"session:{provider_type.lower()}:{uid}"
+    sid = (session_id or "").strip() or f"session:{resolved_provider.lower()}:{uid}"
     now = _utc_now_iso()
 
     return AuthenticationSession(
         session_id=sid,
         user_id=uid,
-        provider_type=provider_type,  # type: ignore[arg-type]
+        provider_type=resolved_provider,  # type: ignore[arg-type]
         login_time=login_time or now,
         last_activity=last_activity or now,
     )
@@ -159,7 +168,9 @@ def build_security_readiness_report(
     *,
     user_id: Optional[str] = None,
     email: Optional[str] = None,
+    display_name: Optional[str] = None,
     auth_kind: Optional[str] = None,
+    provider_type: Optional[str] = None,
 ) -> SecurityReadinessReport:
     """Deterministic enterprise security readiness snapshot (foundation only)."""
     from services.sso_service import (
@@ -179,15 +190,26 @@ def build_security_readiness_report(
 
     rbac_report = build_rbac_readiness_report()
     rbac_ready = rbac_report.default_roles_ready
-    active_provider = resolve_authentication_source(auth_kind=auth_kind)
+    active_provider = resolve_authentication_source(
+        auth_kind=auth_kind,
+        provider_type=provider_type,
+    )
 
     method = "LOCAL"
-    if sso_ready:
+    if auth_kind == "sso":
+        method = "SSO"
+    elif sso_ready:
         method = "HYBRID"
 
     score = _security_score(sso_ready=sso_ready, audit_ready=audit_ready, rbac_ready=rbac_ready)
 
-    identity = get_user_identity(user_id=user_id, email=email, auth_kind=auth_kind)
+    identity = get_user_identity(
+        user_id=user_id,
+        email=email,
+        display_name=display_name,
+        auth_kind=auth_kind,
+        provider_type=provider_type,
+    )
     sso_status = "SSO READY" if sso_ready else "LOCAL ONLY"
     summary = (
         f"Authentication status: {sso_status} ({method} via {active_provider}). "
@@ -222,4 +244,7 @@ def auth_context_from_state(state: Any) -> Dict[str, Optional[str]]:
         "user_id": getattr(state, "user_id", None),
         "email": getattr(state, "email", None),
         "auth_kind": getattr(state, "auth_kind", None),
+        "provider_type": getattr(state, "sso_provider", None),
+        "display_name": getattr(state, "display_name", None),
+        "external_id": getattr(state, "external_id", None),
     }

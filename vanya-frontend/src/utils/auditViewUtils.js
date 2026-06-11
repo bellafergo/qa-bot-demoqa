@@ -22,6 +22,9 @@ export const AUDIT_I18N_KEYS = {
 const EVENT_TYPE_LABEL_KEY = {
   SSO_PROVIDER_VALIDATED: "audit_trail.event.sso_provider_validated",
   SSO_LOGIN_URL_GENERATED: "audit_trail.event.sso_login_url_generated",
+  SSO_LOGIN_SUCCESS: "audit_trail.event.sso_login_success",
+  SSO_LOGIN_FAILED: "audit_trail.event.sso_login_failed",
+  SSO_IDENTITY_RESOLVED: "audit_trail.event.sso_identity_resolved",
   REPORT_PREVIEWED: "audit_trail.event.report_previewed",
   REPORT_SENT: "audit_trail.event.report_sent",
   INTEGRATION_CONFIG_UPDATED: "audit_trail.event.integration_config_updated",

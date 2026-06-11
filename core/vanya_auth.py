@@ -187,6 +187,9 @@ PUBLIC_PATH_PREFIXES: Tuple[str, ...] = (
     "/agent-api",
     "/local-agents",
     "/azure-devops/callback",
+    "/auth/sso/login-url",
+    "/auth/sso/callback",
+    "/auth/sso/providers",
 )
 
 PUBLIC_PATHS_EXACT: FrozenSet[str] = frozenset()
@@ -342,3 +345,22 @@ def apply_service_to_state(state: Any) -> None:
     state.email_domain = ""
     state.auth_claims = {}
     state.auth_kind = "service"
+
+
+def apply_sso_user_to_state(state: Any, claims: Dict[str, Any]) -> None:
+    email = str(claims.get("email") or "").strip() or None
+    domain = _domain_part_from_email(email) if email else ""
+    state.user_id = str(claims.get("sub") or "")
+    state.email = email
+    state.email_domain = domain or ""
+    state.display_name = str(claims.get("name") or "").strip() or None
+    state.external_id = str(claims.get("external_id") or "").strip() or None
+    state.sso_provider = str(claims.get("provider") or "").strip().upper() or None
+    state.auth_claims = claims
+    state.auth_kind = "sso"
+
+
+def verify_vanya_sso_jwt(token: str) -> Dict[str, Any]:
+    from services.oauth_authentication_service import verify_sso_access_token
+
+    return verify_sso_access_token(token)
