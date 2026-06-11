@@ -1115,12 +1115,15 @@ def investigate_project_incident(
         logger.debug("incident_qa: release readiness refresh after jira failed project_id=%s: %s", pid, e)
 
     try:
+        from services.business_risk_estimation_service import build_business_risk_report
         from services.qmetry_coverage_intelligence_service import build_coverage_intelligence_report
 
+        business_risk = build_business_risk_report(project_id=pid)
         report.coverage_intelligence = build_coverage_intelligence_report(
             project_id=pid,
             incident_report=report,
             release_readiness=report.release_readiness,
+            business_risk_report=business_risk,
         )
     except Exception as e:
         logger.debug("incident_qa: coverage intelligence failed project_id=%s: %s", pid, e)

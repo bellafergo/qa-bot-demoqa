@@ -22,9 +22,9 @@ from models.jira_issue_intelligence_models import JiraIssueCorrelation, JiraIssu
 from models.release_readiness_models import ReleaseReadinessView
 from services.business_risk_estimation_service import (
     _confidence_from_evidence,
-    _map_capability,
     build_business_risk_report,
 )
+from services.capability_mapping_service import map_text_to_capability
 
 
 def _report(**overrides) -> ProjectIncidentInvestigationReport:
@@ -99,13 +99,13 @@ def _report(**overrides) -> ProjectIncidentInvestigationReport:
 
 class TestCapabilityMapping:
     def test_maps_payments(self):
-        assert _map_capability("payments_api") == "Revenue Collection"
+        assert map_text_to_capability("payments_api") == "Revenue Collection"
 
     def test_maps_checkout(self):
-        assert _map_capability("Checkout journey") == "Customer Purchase Flow"
+        assert map_text_to_capability("Checkout journey") == "Customer Purchase Flow"
 
     def test_maps_authentication(self):
-        assert _map_capability("Authentication service") == "Customer Access"
+        assert map_text_to_capability("Authentication service") == "Customer Access"
 
 
 class TestConfidenceRules:

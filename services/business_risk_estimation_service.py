@@ -8,9 +8,8 @@ No financial estimates, predictions, AI, or new scoring engines.
 from __future__ import annotations
 
 import logging
-import re
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional
 
 from models.business_risk_models import (
     BusinessRiskAssessment,
@@ -20,22 +19,10 @@ from models.business_risk_models import (
     ExecutiveSeverity,
 )
 from models.incident_models import ProjectIncidentInvestigationReport
+from services.capability_mapping_service import map_text_to_capability
 from services.value_dashboard_service import _load_incident_reports, _release_status_blocked
 
 logger = logging.getLogger("vanya.business_risk_estimation")
-
-_CAPABILITY_MAP: Dict[str, str] = {
-    "payments": "Revenue Collection",
-    "payment": "Revenue Collection",
-    "checkout": "Customer Purchase Flow",
-    "authentication": "Customer Access",
-    "auth": "Customer Access",
-    "orders": "Order Processing",
-    "order": "Order Processing",
-    "inventory": "Inventory Accuracy",
-    "candidates": "Recruiting Operations",
-    "candidate": "Recruiting Operations",
-}
 
 _BROKEN_JOURNEY_STATUSES = frozenset({"BROKEN", "DEGRADED", "FAILED", "INCONSISTENT"})
 _CRITICAL_CONTRACT_LEVELS = frozenset({"CRITICAL", "HIGH"})
@@ -45,25 +32,6 @@ _SEVERITY_RANK = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def _normalize_key(text: str) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", (text or "").strip().lower()).strip()
-
-
-def _map_capability(text: str) -> Optional[str]:
-    key = _normalize_key(text)
-    if not key:
-        return None
-    for token, capability in _CAPABILITY_MAP.items():
-        if token in key.split():
-            return capability
-        if token in key:
-            return capability
-    for token, capability in _CAPABILITY_MAP.items():
-        if key.startswith(token) or key.endswith(token):
-            return capability
-    return None
 
 
 def _confidence_from_evidence(count: int) -> ExecutiveConfidence:
@@ -121,7 +89,7 @@ def _collect_evidence_by_capability(
     intel = report.jira_issue_intelligence
     if intel is not None and intel.connected and intel.blocker_count > 0:
         for blocker in intel.top_blockers or []:
-            cap = _map_capability(blocker.related_module or "") or _map_capability(blocker.summary or "")
+            cap = map_text_to_capability(blocker.related_module or "") or map_text_to_capability(blocker.summary or "")
             bump(cap or "Platform Operations", "jira_blockers")
 
     # Broken journeys
@@ -134,7 +102,7 @@ def _collect_evidence_by_capability(
             journey = journey_map.get(result.journey_id)
             name = journey.name if journey else result.journey_id
             area = journey.business_area if journey else ""
-            cap = _map_capability(area or name or "")
+            cap = map_text_to_capability(area or name or "")
             bump(cap or "Customer Purchase Flow", "broken_journeys")
 
     # Critical contracts
@@ -146,11 +114,11 @@ def _collect_evidence_by_capability(
                 continue
             cap = None
             for module in assessment.affected_modules or []:
-                cap = _map_capability(module)
+                cap = map_text_to_capability(module)
                 if cap:
                     break
             if not cap:
-                cap = _map_capability(assessment.contract_id or "")
+                cap = map_text_to_capability(assessment.contract_id or "")
             bump(cap or "Platform Operations", "critical_contracts")
 
     # Environment issues
@@ -159,7 +127,7 @@ def _collect_evidence_by_capability(
         for env in multi.environments or []:
             if str(env.status or "").upper() not in _DEGRADED_ENV_STATUSES:
                 continue
-            cap = _map_capability(env.name or env.environment_id or "")
+            cap = map_text_to_capability(env.name or env.environment_id or "")
             bump(cap or "Platform Operations", "environment_issues")
 
     # Release blocked (platform-wide)
@@ -177,14 +145,14 @@ def _collect_evidence_by_capability(
         for node in edm.nodes or []:
             if str(node.risk_level or "").upper() not in ("HIGH", "CRITICAL"):
                 continue
-            cap = _map_capability(node.name or "")
+            cap = map_text_to_capability(node.name or "")
             bump(cap or "Platform Operations", "critical_dependencies")
 
     # Decision center impacted area
     dc = report.decision_center
     if dc is not None:
         for insight in dc.key_takeaways or []:
-            cap = _map_capability(insight.title or "")
+            cap = map_text_to_capability(insight.title or "")
             if cap:
                 bump(cap, "decision_insights")
 

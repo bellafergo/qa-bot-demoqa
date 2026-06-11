@@ -4,6 +4,11 @@ QMETRY-01B — Deterministic QMetry coverage intelligence (read-only).
 
 Correlates existing intelligence slices with QMetry test case discovery.
 No AI, embeddings, execution, uploads, or QMetry writes.
+
+Deferred to QMETRY-01C+ (not used for gap severity pressure in QMETRY-01B):
+  enterprise_dependency_map, data_journey_validation, contract_risk_assessment,
+  deployment_risk_assessment — business risk and release compositors already ingest
+  these; coverage reuses their outputs via BusinessRiskReport and release top risks.
 """
 from __future__ import annotations
 
@@ -11,6 +16,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set, Tuple
 
+from models.business_risk_models import BusinessRiskReport
 from models.incident_models import ProjectIncidentInvestigationReport
 from models.qmetry_coverage_models import (
     CoverageAssessment,
@@ -21,33 +27,15 @@ from models.qmetry_coverage_models import (
     GapSeverity,
 )
 from models.qmetry_models import QMetryTestCase
-from services.business_risk_estimation_service import _map_capability
+from services.capability_mapping_service import (
+    known_capabilities,
+    known_module_keywords,
+    map_text_to_capability,
+    match_module_keyword,
+)
 from services.qmetry_integration_service import list_test_cases, validate_qmetry_connection
 
 logger = logging.getLogger("vanya.qmetry_coverage_intelligence")
-
-# Longer tokens first for deterministic substring matching.
-_MODULE_RULES: Tuple[Tuple[str, str, str], ...] = (
-    ("checkout", "Checkout", "Customer Purchase Flow"),
-    ("payments", "Payments", "Revenue Collection"),
-    ("payment", "Payment", "Revenue Collection"),
-    ("authentication", "Authentication", "Customer Access"),
-    ("login", "Login", "Customer Access"),
-    ("orders", "Orders", "Order Processing"),
-    ("order", "Order", "Order Processing"),
-    ("inventory", "Inventory", "Inventory Accuracy"),
-    ("recruiting", "Recruiting", "Recruiting Operations"),
-    ("candidate", "Candidate", "Recruiting Operations"),
-)
-
-_KNOWN_CAPABILITIES: Tuple[str, ...] = (
-    "Revenue Collection",
-    "Customer Purchase Flow",
-    "Customer Access",
-    "Order Processing",
-    "Inventory Accuracy",
-    "Recruiting Operations",
-)
 
 _BLOCKED_RELEASE_STATUSES = frozenset({"BLOCKED", "NO_GO"})
 _BUSINESS_RISK_SEVERITIES = frozenset({"HIGH", "CRITICAL"})
@@ -65,13 +53,72 @@ def _coverage_status(matched_count: int) -> CoverageStatus:
 
 def _match_test_case(test_case: QMetryTestCase) -> Optional[Tuple[str, str, str]]:
     """Return (module, capability, reason) when test case name matches a module keyword."""
-    haystack = (test_case.name or test_case.test_case_id or "").lower()
-    if not haystack:
-        return None
-    for keyword, module, capability in _MODULE_RULES:
-        if keyword in haystack:
-            return module, capability, f'Test case name contains "{keyword.title()}"'
-    return None
+    return match_module_keyword(test_case.name or test_case.test_case_id or "")
+
+
+def _jira_pressure_capabilities(incident_report: Optional[ProjectIncidentInvestigationReport]) -> Set[str]:
+    pressured: Set[str] = set()
+    if not incident_report or not incident_report.jira_issue_intelligence:
+        return pressured
+    for blocker in incident_report.jira_issue_intelligence.top_blockers or []:
+        for text in (blocker.related_module, blocker.summary, blocker.issue_key):
+            cap = map_text_to_capability(text or "")
+            if cap:
+                pressured.add(cap)
+    return pressured
+
+
+def _release_blocked_pressure_capabilities(
+    release_readiness: Optional[object],
+) -> Set[str]:
+    """When release is blocked, pressure only capabilities named in release top risks."""
+    if release_readiness is None:
+        return set()
+    status = str(getattr(release_readiness, "overall_status", "") or "").upper()
+    if status not in _BLOCKED_RELEASE_STATUSES:
+        return set()
+    try:
+        from services.release_readiness_service import top_risks_from_view
+
+        caps: Set[str] = set()
+        for risk_text in top_risks_from_view(release_readiness):
+            cap = map_text_to_capability(risk_text)
+            if cap:
+                caps.add(cap)
+        return caps
+    except Exception as exc:
+        logger.debug("qmetry coverage: release top risks failed: %s", exc)
+        return set()
+
+
+def _capabilities_from_business_risk_report(report: Optional[BusinessRiskReport]) -> Set[str]:
+    if report is None:
+        return set()
+    caps: Set[str] = set()
+    for risk in report.business_risks or []:
+        if str(risk.severity or "").upper() in _BUSINESS_RISK_SEVERITIES:
+            caps.add(risk.capability)
+    for cap in report.top_capabilities_at_risk or []:
+        caps.add(cap)
+    return caps
+
+
+def _business_risk_capabilities(
+    project_id: Optional[str],
+    *,
+    business_risk_report: Optional[BusinessRiskReport] = None,
+) -> Set[str]:
+    if business_risk_report is not None:
+        return _capabilities_from_business_risk_report(business_risk_report)
+    if not project_id:
+        return set()
+    try:
+        from services.business_risk_estimation_service import build_business_risk_report
+
+        return _capabilities_from_business_risk_report(build_business_risk_report(project_id=project_id))
+    except Exception as exc:
+        logger.debug("qmetry coverage: business risk lookup failed: %s", exc)
+        return set()
 
 
 def _collect_pressure_capabilities(
@@ -79,42 +126,14 @@ def _collect_pressure_capabilities(
     incident_report: Optional[ProjectIncidentInvestigationReport],
     release_readiness: Optional[object],
     business_risk_capabilities: Set[str],
+    coverage_match_capabilities: Set[str],
 ) -> Set[str]:
-    """Capabilities under business/release/jira pressure for gap severity."""
+    """Capabilities under business/release/jira/coverage pressure for gap severity."""
     pressured: Set[str] = set(business_risk_capabilities)
-
-    if incident_report and incident_report.jira_issue_intelligence:
-        for blocker in incident_report.jira_issue_intelligence.top_blockers or []:
-            for text in (blocker.related_module, blocker.summary, blocker.issue_key):
-                cap = _map_capability(text or "")
-                if cap:
-                    pressured.add(cap)
-
-    if release_readiness is not None:
-        status = str(getattr(release_readiness, "overall_status", "") or "").upper()
-        if status in _BLOCKED_RELEASE_STATUSES:
-            pressured.update(_KNOWN_CAPABILITIES)
-
+    pressured.update(_jira_pressure_capabilities(incident_report))
+    pressured.update(_release_blocked_pressure_capabilities(release_readiness))
+    pressured.update(coverage_match_capabilities)
     return pressured
-
-
-def _business_risk_capabilities(project_id: Optional[str]) -> Set[str]:
-    if not project_id:
-        return set()
-    try:
-        from services.business_risk_estimation_service import build_business_risk_report
-
-        report = build_business_risk_report(project_id=project_id)
-        caps: Set[str] = set()
-        for risk in report.business_risks or []:
-            if str(risk.severity or "").upper() in _BUSINESS_RISK_SEVERITIES:
-                caps.add(risk.capability)
-        for cap in report.top_capabilities_at_risk or []:
-            caps.add(cap)
-        return caps
-    except Exception as exc:
-        logger.debug("qmetry coverage: business risk lookup failed: %s", exc)
-        return set()
 
 
 def _build_executive_summary(
@@ -172,11 +191,13 @@ def build_coverage_intelligence_report(
     project_id: Optional[str] = None,
     incident_report: Optional[ProjectIncidentInvestigationReport] = None,
     release_readiness: Optional[object] = None,
+    business_risk_report: Optional[BusinessRiskReport] = None,
 ) -> CoverageIntelligenceReport:
     """
     Build deterministic coverage intelligence from QMetry discovery and existing slices.
 
     Reuses jira_issue_intelligence, release_readiness, and business_risk narratives only.
+    Pass business_risk_report when already computed to avoid redundant recomputation.
     """
     now = datetime.now(timezone.utc)
     data_gaps: List[str] = []
@@ -216,7 +237,8 @@ def build_coverage_intelligence_report(
         release_readiness = incident_report.release_readiness
 
     matches: List[CoverageMatch] = []
-    capability_counts: Dict[str, int] = {cap: 0 for cap in _KNOWN_CAPABILITIES}
+    capability_counts: Dict[str, int] = {cap: 0 for cap in known_capabilities()}
+    coverage_match_capabilities: Set[str] = set()
 
     for tc in test_cases:
         hit = _match_test_case(tc)
@@ -224,6 +246,7 @@ def build_coverage_intelligence_report(
             continue
         module, capability, reason = hit
         capability_counts[capability] = capability_counts.get(capability, 0) + 1
+        coverage_match_capabilities.add(capability)
         matches.append(
             CoverageMatch(
                 test_case_id=tc.test_case_id,
@@ -241,14 +264,18 @@ def build_coverage_intelligence_report(
             matched_tests=capability_counts.get(cap, 0),
             coverage_status=_coverage_status(capability_counts.get(cap, 0)),
         )
-        for cap in _KNOWN_CAPABILITIES
+        for cap in known_capabilities()
     ]
 
-    business_pressure = _business_risk_capabilities(project_id)
+    business_pressure = _business_risk_capabilities(
+        project_id,
+        business_risk_report=business_risk_report,
+    )
     pressured = _collect_pressure_capabilities(
         incident_report=incident_report,
         release_readiness=release_readiness,
         business_risk_capabilities=business_pressure,
+        coverage_match_capabilities=coverage_match_capabilities,
     )
 
     gaps: List[CoverageGap] = []
@@ -262,7 +289,10 @@ def build_coverage_intelligence_report(
             if severity == "CRITICAL"
             else f"No QMetry test cases match {assessment.capability}."
         )
-        module = next((m[1] for m in _MODULE_RULES if m[2] == assessment.capability), None)
+        module = next(
+            (rule[1] for rule in known_module_keywords() if rule[2] == assessment.capability),
+            None,
+        )
         gaps.append(
             CoverageGap(
                 capability=assessment.capability,

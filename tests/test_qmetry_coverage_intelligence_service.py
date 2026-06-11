@@ -7,8 +7,10 @@ from unittest.mock import patch
 
 import pytest
 
+from models.business_risk_models import BusinessRiskAssessment, BusinessRiskReport
 from models.jira_issue_intelligence_models import JiraIssueCorrelation, JiraIssueIntelligenceReport
 from models.qmetry_coverage_models import CoverageIntelligenceReport
+from models.release_readiness_models import ReleaseReadinessView
 from models.qmetry_models import QMetryTestCase, QMetryTestCasesResponse
 from services import qmetry_coverage_intelligence_service as svc
 from services.qmetry_integration_service import QMetryConnectionStatus
@@ -51,6 +53,11 @@ class TestModuleMatching:
         hit = svc._match_test_case(QMetryTestCase(test_case_id="2", name="Payment gateway timeout"))
         assert hit is not None
         assert hit[1] == "Revenue Collection"
+
+    def test_match_authentication_module(self):
+        hit = svc._match_test_case(QMetryTestCase(test_case_id="3", name="Login with MFA"))
+        assert hit is not None
+        assert hit[1] == "Customer Access"
 
     def test_no_match_returns_none(self):
         assert svc._match_test_case(QMetryTestCase(test_case_id="9", name="Generic smoke test")) is None
@@ -163,6 +170,74 @@ class TestCoverageReport:
         ):
             report = svc.build_coverage_intelligence_report(incident_report=incident)
 
+        revenue_gap = next(g for g in report.coverage_gaps if g.capability == "Revenue Collection")
+        assert revenue_gap.severity == "CRITICAL"
+
+    def test_blocked_release_does_not_pressure_unrelated_capabilities(self):
+        incident = type("Report", (), {})()
+        incident.jira_issue_intelligence = None
+        incident.release_readiness = ReleaseReadinessView(
+            project_id="demo",
+            generated_at="2026-06-10T08:00:00+00:00",
+            overall_status="BLOCKED",
+            summary="Release blocked with no mapped top risks.",
+        )
+
+        with patch(
+            "services.qmetry_coverage_intelligence_service.validate_qmetry_connection",
+            return_value=_connected_status(),
+        ), patch(
+            "services.qmetry_coverage_intelligence_service.list_test_cases",
+            return_value=QMetryTestCasesResponse(
+                test_cases=[QMetryTestCase(test_case_id="1", name="Checkout flow")],
+                total=1,
+            ),
+        ), patch(
+            "services.qmetry_coverage_intelligence_service._business_risk_capabilities",
+            return_value=set(),
+        ), patch(
+            "services.release_readiness_service.top_risks_from_view",
+            return_value=[],
+        ):
+            report = svc.build_coverage_intelligence_report(incident_report=incident)
+
+        recruiting_gap = next(g for g in report.coverage_gaps if g.capability == "Recruiting Operations")
+        assert recruiting_gap.severity == "MEDIUM"
+
+    def test_prefers_attached_business_risk_report(self):
+        attached = BusinessRiskReport(
+            generated_at="2026-06-10T08:00:00+00:00",
+            has_intelligence=True,
+            business_risks=[
+                BusinessRiskAssessment(
+                    risk_id="risk:revenue",
+                    capability="Revenue Collection",
+                    severity="HIGH",
+                    confidence="MEDIUM",
+                    summary="Revenue at risk",
+                ),
+            ],
+            top_capabilities_at_risk=["Revenue Collection"],
+        )
+
+        with patch(
+            "services.qmetry_coverage_intelligence_service.validate_qmetry_connection",
+            return_value=_connected_status(),
+        ), patch(
+            "services.qmetry_coverage_intelligence_service.list_test_cases",
+            return_value=QMetryTestCasesResponse(
+                test_cases=[QMetryTestCase(test_case_id="1", name="Checkout flow")],
+                total=1,
+            ),
+        ), patch(
+            "services.business_risk_estimation_service.build_business_risk_report",
+        ) as mock_build:
+            report = svc.build_coverage_intelligence_report(
+                project_id="demo",
+                business_risk_report=attached,
+            )
+
+        mock_build.assert_not_called()
         revenue_gap = next(g for g in report.coverage_gaps if g.capability == "Revenue Collection")
         assert revenue_gap.severity == "CRITICAL"
 
