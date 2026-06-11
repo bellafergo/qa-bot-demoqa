@@ -8,6 +8,7 @@ import {
 import { useLang } from "../../i18n/LangContext";
 import { buildSsoConfigurationViewModel } from "../../utils/ssoViewUtils.js";
 import SSOProviderCard from "./SSOProviderCard.jsx";
+import PermissionGate from "./PermissionGate.jsx";
 
 export default function SSOConfigurationSection() {
   const { t } = useLang();
@@ -81,6 +82,7 @@ export default function SSOConfigurationSection() {
         {vm.subtitle}
       </p>
 
+      <PermissionGate permission="MANAGE_SECURITY" showDenied>
       {loading ? (
         <div style={{ fontSize: 12, color: "var(--text-3)" }}>…</div>
       ) : error ? (
@@ -107,6 +109,7 @@ export default function SSOConfigurationSection() {
       <p style={{ margin: "12px 0 0", fontSize: 11, color: "var(--text-3)", fontStyle: "italic" }}>
         {vm.readOnlyNote}
       </p>
+      </PermissionGate>
     </div>
   );
 }

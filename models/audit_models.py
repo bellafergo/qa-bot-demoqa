@@ -17,9 +17,18 @@ AuditEventType = Literal[
     "INCIDENT_INVESTIGATION_STARTED",
     "INCIDENT_INVESTIGATION_COMPLETED",
     "RELEASE_READINESS_VIEWED",
+    "PERMISSION_DENIED",
+    "UNAUTHORIZED_ACCESS",
 ]
 
-AuditResourceType = Literal["SECURITY", "REPORTS", "INTEGRATIONS", "INCIDENTS", "RELEASES"]
+AuditResourceType = Literal[
+    "SECURITY",
+    "REPORTS",
+    "INTEGRATIONS",
+    "INCIDENTS",
+    "RELEASES",
+    "AUTHORIZATION",
+]
 AuditResult = Literal["SUCCESS", "FAILURE"]
 
 

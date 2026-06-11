@@ -122,15 +122,18 @@ def create_ticket(body: CreateTicketRequest) -> Dict[str, Any]:
 # ── List ──────────────────────────────────────────────────────────────────────
 
 @router.get("", response_model=List[ConnectorSummary])
-def list_integrations():
+def list_integrations(request: Request):
     """Return a summary of all registered connectors."""
+    from services.authorization_service import require_permission_from_request
+
+    require_permission_from_request(request, "VIEW_DASHBOARD", resource_type="INTEGRATIONS", resource_id="catalog")
     return integration_service.list_connectors()
 
 
 # ── Single connector status ───────────────────────────────────────────────────
 
 @router.get("/{connector_id}", response_model=ConnectorStatus)
-def get_integration(connector_id: str):
+def get_integration(connector_id: str, request: Request):
     """
     Return generic connector framework status (health, enabled, config_summary).
 
@@ -138,6 +141,14 @@ def get_integration(connector_id: str):
       GET /integrations/jira/status   — Jira discovery aggregate
       GET /integrations/qmetry/status — QMetry discovery aggregate
     """
+    from services.authorization_service import require_permission_from_request
+
+    require_permission_from_request(
+        request,
+        "VIEW_DASHBOARD",
+        resource_type="INTEGRATIONS",
+        resource_id=connector_id,
+    )
     try:
         return integration_service.get_connector_status(connector_id)
     except KeyError:
@@ -152,6 +163,14 @@ def run_health_check(connector_id: str, request: Request):
     from services.audit_event_service import set_audit_actor
     from services.auth_identity_service import auth_context_from_state
 
+    from services.authorization_service import require_permission_from_request
+
+    require_permission_from_request(
+        request,
+        "MANAGE_INTEGRATIONS",
+        resource_type="INTEGRATIONS",
+        resource_id=connector_id,
+    )
     ctx = auth_context_from_state(request.state)
     set_audit_actor(user_id=ctx.get("user_id"), user_email=ctx.get("email"))
     try:
@@ -163,8 +182,16 @@ def run_health_check(connector_id: str, request: Request):
 # ── Enable ────────────────────────────────────────────────────────────────────
 
 @router.post("/{connector_id}/enable", response_model=ConnectorConfig)
-def enable_integration(connector_id: str):
+def enable_integration(connector_id: str, request: Request):
     """Enable a connector."""
+    from services.authorization_service import require_permission_from_request
+
+    require_permission_from_request(
+        request,
+        "MANAGE_INTEGRATIONS",
+        resource_type="INTEGRATIONS",
+        resource_id=connector_id,
+    )
     try:
         return integration_service.enable(connector_id)
     except KeyError:
@@ -174,8 +201,16 @@ def enable_integration(connector_id: str):
 # ── Disable ───────────────────────────────────────────────────────────────────
 
 @router.post("/{connector_id}/disable", response_model=ConnectorConfig)
-def disable_integration(connector_id: str):
+def disable_integration(connector_id: str, request: Request):
     """Disable a connector."""
+    from services.authorization_service import require_permission_from_request
+
+    require_permission_from_request(
+        request,
+        "MANAGE_INTEGRATIONS",
+        resource_type="INTEGRATIONS",
+        resource_id=connector_id,
+    )
     try:
         return integration_service.disable(connector_id)
     except KeyError:
@@ -194,6 +229,14 @@ def update_config(connector_id: str, body: ConnectorConfigUpdate, request: Reque
     from services.audit_event_service import set_audit_actor
     from services.auth_identity_service import auth_context_from_state
 
+    from services.authorization_service import require_permission_from_request
+
+    require_permission_from_request(
+        request,
+        "MANAGE_INTEGRATIONS",
+        resource_type="INTEGRATIONS",
+        resource_id=connector_id,
+    )
     ctx = auth_context_from_state(request.state)
     set_audit_actor(user_id=ctx.get("user_id"), user_email=ctx.get("email"))
     try:

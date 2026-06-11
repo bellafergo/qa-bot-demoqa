@@ -801,6 +801,8 @@ export const translations = {
     "audit_trail.event.incident_investigation_started": "Incident Investigation Started",
     "audit_trail.event.incident_investigation_completed": "Incident Investigation Completed",
     "audit_trail.event.release_readiness_viewed": "Release Readiness Viewed",
+    "audit_trail.event.permission_denied": "Permission Denied",
+    "audit_trail.event.unauthorized_access": "Unauthorized Access",
 
     // ── RBAC foundation (SEC-01B) ────────────────────────────────────────────
     "rbac.title": "Role Based Access Control",
@@ -816,12 +818,20 @@ export const translations = {
     "rbac.readiness": "Readiness",
     "rbac.roles_title": "Roles",
     "rbac.permissions_title": "Permissions",
-    "rbac.read_only_note": "Architecture foundation only — no permission enforcement or page restrictions in this release.",
+    "rbac.read_only_note": "Role catalog is read-only here. Permission enforcement is active on protected routes and actions.",
     "rbac.role.viewer": "Viewer",
     "rbac.role.qa_engineer": "QA Engineer",
     "rbac.role.qa_manager": "QA Manager",
     "rbac.role.release_manager": "Release Manager",
     "rbac.role.admin": "Admin",
+
+    // ── Permission enforcement (SEC-01F) ─────────────────────────────────────
+    "permissions.denied": "You do not have permission to perform this action.",
+    "permissions.read_only_note": "Resolved from your assigned role. Contact an administrator to change access.",
+    "permissions.current.title": "Current Permissions",
+    "permissions.current.subtitle": "Permissions enforced for your account on protected routes and actions.",
+    "permissions.current.role": "Role",
+    "permissions.current.empty": "No permissions resolved for this account.",
 
     // ── Executive health strip (dashboard) ───────────────────────────────────
     "health.executive_title":"Executive status",
@@ -3583,6 +3593,8 @@ export const translations = {
     "audit_trail.event.incident_investigation_started": "Investigación de Incidente Iniciada",
     "audit_trail.event.incident_investigation_completed": "Investigación de Incidente Completada",
     "audit_trail.event.release_readiness_viewed": "Release Readiness Consultado",
+    "audit_trail.event.permission_denied": "Permiso Denegado",
+    "audit_trail.event.unauthorized_access": "Acceso No Autorizado",
 
     // ── Fundación RBAC (SEC-01B) ─────────────────────────────────────────────
     "rbac.title": "Control de Acceso Basado en Roles",
@@ -3598,12 +3610,20 @@ export const translations = {
     "rbac.readiness": "Preparación",
     "rbac.roles_title": "Roles",
     "rbac.permissions_title": "Permisos",
-    "rbac.read_only_note": "Solo fundación de arquitectura — sin aplicación de permisos ni restricciones de páginas en esta versión.",
+    "rbac.read_only_note": "El catálogo de roles es de solo lectura aquí. La aplicación de permisos está activa en rutas y acciones protegidas.",
     "rbac.role.viewer": "Visor",
     "rbac.role.qa_engineer": "Ingeniero QA",
     "rbac.role.qa_manager": "Gerente QA",
     "rbac.role.release_manager": "Gerente de Release",
     "rbac.role.admin": "Administrador",
+
+    // ── Permission enforcement (SEC-01F) ─────────────────────────────────────
+    "permissions.denied": "No tienes permiso para realizar esta acción.",
+    "permissions.read_only_note": "Resueltos desde tu rol asignado. Contacta a un administrador para cambiar el acceso.",
+    "permissions.current.title": "Permisos Actuales",
+    "permissions.current.subtitle": "Permisos aplicados a tu cuenta en rutas y acciones protegidas.",
+    "permissions.current.role": "Rol",
+    "permissions.current.empty": "No se resolvieron permisos para esta cuenta.",
 
     // ── Franja de salud ejecutiva (dashboard) ────────────────────────────────
     "health.executive_title":"Estado ejecutivo",

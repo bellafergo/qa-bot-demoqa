@@ -38,6 +38,14 @@ def post_project_investigate_incident(
     from services.audit_event_service import set_audit_actor
     from services.auth_identity_service import auth_context_from_state
 
+    from services.authorization_service import require_permission_from_request
+
+    require_permission_from_request(
+        request,
+        "VIEW_INCIDENTS",
+        resource_type="INCIDENTS",
+        resource_id=project_id,
+    )
     ctx = auth_context_from_state(request.state)
     set_audit_actor(user_id=ctx.get("user_id"), user_email=ctx.get("email"))
     try:
@@ -57,9 +65,18 @@ def post_project_investigate_incident(
 )
 def get_project_incident_history(
     project_id: str,
+    request: Request,
     limit: int = Query(default=50, ge=1, le=200),
 ):
     """List persisted project-scoped incident investigation reports."""
+    from services.authorization_service import require_permission_from_request
+
+    require_permission_from_request(
+        request,
+        "VIEW_INCIDENTS",
+        resource_type="INCIDENTS",
+        resource_id=project_id,
+    )
     try:
         return list_project_incident_history(project_id, limit=limit)
     except LookupError as e:
@@ -75,8 +92,16 @@ def get_project_incident_history(
     "/{project_id}/incidents/{incident_id}",
     response_model=ProjectIncidentInvestigationReport,
 )
-def get_project_incident_by_id(project_id: str, incident_id: str):
+def get_project_incident_by_id(project_id: str, incident_id: str, request: Request):
     """Retrieve a persisted project-scoped incident investigation report."""
+    from services.authorization_service import require_permission_from_request
+
+    require_permission_from_request(
+        request,
+        "VIEW_INCIDENTS",
+        resource_type="INCIDENTS",
+        resource_id=project_id,
+    )
     try:
         return get_project_incident_report(project_id, incident_id)
     except LookupError as e:

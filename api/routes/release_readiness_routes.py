@@ -20,6 +20,14 @@ def get_project_release_readiness(project_id: str, request: Request):
     from services.audit_event_service import set_audit_actor
     from services.auth_identity_service import auth_context_from_state
 
+    from services.authorization_service import require_permission_from_request
+
+    require_permission_from_request(
+        request,
+        "VIEW_RELEASE_INTELLIGENCE",
+        resource_type="RELEASES",
+        resource_id=project_id,
+    )
     ctx = auth_context_from_state(request.state)
     set_audit_actor(user_id=ctx.get("user_id"), user_email=ctx.get("email"))
     pid = (project_id or "").strip().lower()

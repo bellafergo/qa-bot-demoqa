@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from models.auth_models import (
     IdentityProvidersResponse,
@@ -27,6 +27,10 @@ from services.rbac_service import (
     build_rbac_readiness_report,
     build_roles_response,
 )
+from services.authorization_service import (
+    build_resolved_permissions_response,
+    require_permission_from_request,
+)
 from services.sso_service import build_login_url, list_sso_provider_configs, validate_provider_config
 
 logger = logging.getLogger("vanya.security_routes")
@@ -38,6 +42,13 @@ class SSOValidateRequest(BaseModel):
     client_id: Optional[str] = None
     tenant_id: Optional[str] = None
     issuer: Optional[str] = None
+
+
+class MePermissionsResponse(BaseModel):
+    user_id: str
+    role_name: str
+    permissions: List[str] = Field(default_factory=list)
+
 
 router = APIRouter(prefix="/security", tags=["security"])
 
@@ -79,9 +90,27 @@ def get_security_permissions():
     return build_permissions_response()
 
 
+@router.get("/me/permissions", response_model=MePermissionsResponse)
+def get_my_permissions(request: Request):
+    """Return resolved permissions for the current user."""
+    ctx = auth_context_from_state(request.state)
+    resolved = build_resolved_permissions_response(
+        user_id=ctx.get("user_id"),
+        email=ctx.get("email"),
+        auth_kind=ctx.get("auth_kind"),
+        request=request,
+    )
+    return MePermissionsResponse(
+        user_id=str(ctx.get("user_id") or "anonymous"),
+        role_name=resolved.role_name,
+        permissions=resolved.permissions,
+    )
+
+
 @router.get("/sso/providers", response_model=SSOProvidersResponse)
-def get_sso_providers():
+def get_sso_providers(request: Request):
     """Return configured enterprise SSO providers (SEC-01D)."""
+    require_permission_from_request(request, "MANAGE_SECURITY", resource_type="SECURITY", resource_id="sso")
     return list_sso_provider_configs()
 
 
@@ -95,6 +124,7 @@ def _bind_request_audit(request: Request) -> None:
 @router.post("/sso/validate", response_model=SSOValidationResult)
 def post_sso_validate(body: SSOValidateRequest, request: Request):
     """Validate enterprise SSO provider configuration without login."""
+    require_permission_from_request(request, "MANAGE_SECURITY", resource_type="SECURITY", resource_id="sso")
     _bind_request_audit(request)
     return validate_provider_config(
         provider=body.provider,
@@ -111,6 +141,7 @@ def get_sso_login_url(
     provider: SSOProviderType = Query(..., description="Enterprise SSO provider"),
 ):
     """Generate OAuth login URL for a validated provider (no token exchange)."""
+    require_permission_from_request(request, "MANAGE_SECURITY", resource_type="SECURITY", resource_id="sso")
     _bind_request_audit(request)
     try:
         return build_login_url(provider=provider)

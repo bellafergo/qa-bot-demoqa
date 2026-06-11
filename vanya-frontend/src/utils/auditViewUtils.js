@@ -29,6 +29,8 @@ const EVENT_TYPE_LABEL_KEY = {
   INCIDENT_INVESTIGATION_STARTED: "audit_trail.event.incident_investigation_started",
   INCIDENT_INVESTIGATION_COMPLETED: "audit_trail.event.incident_investigation_completed",
   RELEASE_READINESS_VIEWED: "audit_trail.event.release_readiness_viewed",
+  PERMISSION_DENIED: "audit_trail.event.permission_denied",
+  UNAUTHORIZED_ACCESS: "audit_trail.event.unauthorized_access",
 };
 
 export function eventTypeLabelKey(eventType) {

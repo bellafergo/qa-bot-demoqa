@@ -1,5 +1,7 @@
 // src/pages/IntegrationsPage.jsx
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { usePermissions } from "../context/PermissionsContext.jsx";
+import { hasPermission } from "../utils/permissionViewUtils.js";
 import {
   listIntegrations,
   getIntegration,
@@ -242,6 +244,9 @@ function ConfigForm({ connectorId, currentConfig, onSaved }) {
     }
   };
 
+  const { permissions } = usePermissions();
+  const canManageIntegrations = hasPermission(permissions, "MANAGE_INTEGRATIONS");
+
   if (!fields.length) return null;
 
   return (
@@ -287,24 +292,30 @@ function ConfigForm({ connectorId, currentConfig, onSaved }) {
         <div style={{ marginTop: 8, fontSize: 12, color: "var(--green, #22c55e)" }}>{t("integrations.config.saved")}</div>
       )}
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
-        <button
-          className="btn btn-primary btn-sm"
-          onClick={handleSave}
-          disabled={saving}
-        >
-          {saving ? t("integrations.config.saving") : t("integrations.config.save")}
-        </button>
-        {connectorId === "slack" && (
+      {canManageIntegrations ? (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
           <button
-            className="btn btn-secondary btn-sm"
-            onClick={handleSaveAndEnable}
+            className="btn btn-primary btn-sm"
+            onClick={handleSave}
             disabled={saving}
           >
-            {saving ? t("integrations.config.saving") : t("integrations.config.save_enable")}
+            {saving ? t("integrations.config.saving") : t("integrations.config.save")}
           </button>
-        )}
-      </div>
+          {connectorId === "slack" && (
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={handleSaveAndEnable}
+              disabled={saving}
+            >
+              {saving ? t("integrations.config.saving") : t("integrations.config.save_enable")}
+            </button>
+          )}
+        </div>
+      ) : (
+        <p style={{ marginTop: 10, fontSize: 12, color: "var(--text-3)", marginBottom: 0 }}>
+          {t("permissions.denied")}
+        </p>
+      )}
     </div>
   );
 }
@@ -1062,6 +1073,8 @@ function GitHubAppPanel({ onStatusChange }) {
 function ConnectorCard({ summary, onAction, jiraStatus, onJiraStatusChange, qmetryStatus, onQMetryStatusChange }) {
   const { t, lang } = useLang();
   const { currentProject } = useProject();
+  const { permissions } = usePermissions();
+  const canManageIntegrations = hasPermission(permissions, "MANAGE_INTEGRATIONS");
   const isGitHub = summary.connector_id === "github";
   const isAzureDevOps = summary.connector_id === "azure_devops";
   const isJira = summary.connector_id === "jira";
@@ -1207,7 +1220,7 @@ function ConnectorCard({ summary, onAction, jiraStatus, onJiraStatusChange, qmet
 
         {/* Actions */}
         <div style={{ display: "flex", gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-          {summary.connector_id !== "github" && summary.connector_id !== "azure_devops" && (
+          {canManageIntegrations && summary.connector_id !== "github" && summary.connector_id !== "azure_devops" && (
             <>
               <button
                 className="btn btn-secondary btn-sm"

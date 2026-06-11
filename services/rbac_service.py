@@ -97,12 +97,23 @@ def get_role_permissions(role_name: str) -> RolePermission:
     return RolePermission(role_name=key or _DEFAULT_ROLE, permissions=perms)
 
 
-def resolve_user_role(*, user_id: Optional[str] = None) -> UserRole:
+def resolve_user_role(
+    *,
+    user_id: Optional[str] = None,
+    email: Optional[str] = None,
+    auth_kind: Optional[str] = None,
+    role_name: Optional[str] = None,
+) -> UserRole:
     """
-    Resolve role for a user. Foundation sprint: unassigned users default to VIEWER.
-    No persistent role assignments yet.
+    Resolve role for a user. Unassigned users default to VIEWER.
+    Service tokens map to ADMIN; optional role_name override for assignments.
     """
     uid = str(user_id or "").strip() or "anonymous"
+    if role_name and str(role_name).upper() in _ROLE_PERMISSION_MATRIX:
+        return UserRole(user_id=uid, role_name=str(role_name).upper())
+    if auth_kind == "service":
+        return UserRole(user_id=uid, role_name="ADMIN")
+    _ = email
     return UserRole(user_id=uid, role_name=_DEFAULT_ROLE)
 
 
@@ -116,8 +127,10 @@ def build_rbac_readiness_report() -> RBACReadinessReport:
     roles = list_roles()
     permissions = list_permissions()
     default_roles_ready = len(roles) >= 5 and len(permissions) >= 9
-    enforcement_enabled = False
-    readiness_score = 50 if default_roles_ready else 0
+    from services.authorization_service import is_enforcement_enabled
+
+    enforcement_enabled = is_enforcement_enabled()
+    readiness_score = 100 if default_roles_ready and enforcement_enabled else (50 if default_roles_ready else 0)
 
     summary = (
         f"RBAC foundation defines {len(roles)} roles and {len(permissions)} permissions. "

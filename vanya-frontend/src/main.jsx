@@ -6,6 +6,7 @@ import "./index.css";
 import App from "./App.jsx";
 import { LangProvider } from "./i18n/LangContext.jsx";
 import { AuthProvider } from "./auth/AuthContext.jsx";
+import { PermissionsProvider } from "./context/PermissionsContext.jsx";
 import { ToastProvider } from "./context/ToastContext.jsx";
 import { ThemeProvider } from "./context/ThemeContext.jsx";
 
@@ -15,9 +16,11 @@ createRoot(document.getElementById("root")).render(
       <ThemeProvider>
         <LangProvider>
           <AuthProvider>
-            <ToastProvider>
-              <App />
-            </ToastProvider>
+            <PermissionsProvider>
+              <ToastProvider>
+                <App />
+              </ToastProvider>
+            </PermissionsProvider>
           </AuthProvider>
         </LangProvider>
       </ThemeProvider>

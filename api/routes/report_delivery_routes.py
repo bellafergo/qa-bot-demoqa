@@ -40,6 +40,9 @@ def post_report_delivery_preview(project_id: str, body: ReportDeliveryPreviewReq
     from services.audit_event_service import set_audit_actor
     from services.auth_identity_service import auth_context_from_state
 
+    from services.authorization_service import require_permission_from_request
+
+    require_permission_from_request(request, "VIEW_REPORTS", resource_type="REPORTS", resource_id=pid)
     ctx = auth_context_from_state(request.state)
     set_audit_actor(user_id=ctx.get("user_id"), user_email=ctx.get("email"))
     try:
@@ -65,6 +68,9 @@ def post_report_delivery_send(project_id: str, body: ReportDeliverySendRequest, 
     from services.audit_event_service import set_audit_actor
     from services.auth_identity_service import auth_context_from_state
 
+    from services.authorization_service import require_permission_from_request
+
+    require_permission_from_request(request, "SEND_REPORTS", resource_type="REPORTS", resource_id=pid)
     ctx = auth_context_from_state(request.state)
     set_audit_actor(user_id=ctx.get("user_id"), user_email=ctx.get("email"))
     if not body.requires_user_approval:

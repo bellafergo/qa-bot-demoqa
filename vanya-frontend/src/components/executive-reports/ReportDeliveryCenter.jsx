@@ -12,6 +12,7 @@ import {
   buildReportDeliveryViewModel,
   canSendDelivery,
 } from "../../utils/reportDeliveryViewUtils.js";
+import PermissionGate from "../security/PermissionGate.jsx";
 
 export default function ReportDeliveryCenter({ projectId }) {
   const { t } = useLang();
@@ -156,14 +157,16 @@ export default function ReportDeliveryCenter({ projectId }) {
         >
           {loadingPreview ? "…" : vm.previewLabel}
         </button>
-        <button
-          type="button"
-          className="btn btn-primary btn-sm"
-          onClick={handleSend}
-          disabled={!sendEnabled}
-        >
-          {sending ? "…" : vm.sendLabel}
-        </button>
+        <PermissionGate permission="SEND_REPORTS">
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={handleSend}
+            disabled={!sendEnabled}
+          >
+            {sending ? "…" : vm.sendLabel}
+          </button>
+        </PermissionGate>
       </div>
 
       <p style={{ fontSize: 12, color: "var(--text-3)", margin: 0, fontStyle: "italic" }}>

@@ -389,6 +389,10 @@ export function getSecurityPermissions() {
   return apiGet("/security/permissions");
 }
 
+export function getMyPermissions() {
+  return apiGet("/security/me/permissions");
+}
+
 export function getSsoProviders() {
   return apiGet("/security/sso/providers");
 }
