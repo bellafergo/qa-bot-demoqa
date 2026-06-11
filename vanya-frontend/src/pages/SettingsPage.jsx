@@ -4,6 +4,7 @@ import { useLang } from "../i18n/LangContext";
 import { useTheme } from "../context/ThemeContext.jsx";
 import { apiGet, apiErrorMessage, API_BASE } from "../api.js";
 import SecuritySection from "../components/security/SecuritySection.jsx";
+import SSOConfigurationSection from "../components/security/SSOConfigurationSection.jsx";
 import RBACSection from "../components/security/RBACSection.jsx";
 
 function InfoRow({ label, value, mono = false, badge }) {
@@ -107,6 +108,8 @@ export default function SettingsPage() {
       <ThemeAppearanceCard />
 
       <SecuritySection />
+
+      <SSOConfigurationSection />
 
       <RBACSection />
 

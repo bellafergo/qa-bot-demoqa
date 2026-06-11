@@ -23,6 +23,14 @@ export default function SecurityReadinessCard({ vm }) {
           <span className={vm.ssoReadinessBadgeClass}>{vm.ssoReadinessText}</span>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <span style={{ color: "var(--text-3)", fontWeight: 600 }}>{vm.availableSsoLabel}</span>
+          <span style={{ color: "var(--text-2)", textAlign: "right" }}>{vm.availableSsoProviders}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <span style={{ color: "var(--text-3)", fontWeight: 600 }}>{vm.configuredSsoLabel}</span>
+          <span style={{ color: "var(--text-2)", textAlign: "right" }}>{vm.configuredSsoProviders}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <span style={{ color: "var(--text-3)", fontWeight: 600 }}>{vm.rbacLabel}</span>
           <span className={vm.rbacBadgeClass}>{vm.rbacText}</span>
         </div>

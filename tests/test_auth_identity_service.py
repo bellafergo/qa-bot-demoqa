@@ -66,11 +66,13 @@ def test_security_readiness_report_defaults():
     )
     assert report.authentication_method == "LOCAL"
     assert report.sso_ready is False
+    assert report.available_sso_providers == ["MICROSOFT", "GOOGLE", "OKTA"]
+    assert report.configured_sso_providers == []
     assert report.audit_ready is False
     assert report.rbac_ready is True
     assert report.security_score == 50
     assert report.active_provider_type == "LOCAL"
-    assert "SSO is not configured" in report.summary
+    assert "LOCAL ONLY" in report.summary
     assert "RBAC is configured" in report.summary
 
 

@@ -6,8 +6,14 @@ Sets up a temporary SQLite database before any test module is imported,
 so that all services that use the catalog/run/job repositories point at
 an isolated, ephemeral DB rather than the development data/vanya.db.
 """
+from __future__ import annotations
+
 import os
 import tempfile
+
+import pytest
+
+from services import sso_service as sso_svc
 
 # ── Set VANYA_SQLITE_PATH before any service module is imported ───────────────
 # This must happen at module level (not inside a fixture) because SQLAlchemy
@@ -33,3 +39,15 @@ def pytest_configure(config):
         init_catalog_db()
     except Exception as exc:
         print(f"[conftest] WARNING: init_catalog_db() failed: {exc}")
+
+
+@pytest.fixture(autouse=True)
+def isolated_sso_config(tmp_path, monkeypatch):
+    """Prevent SSO config bleed across tests and developer evidence files."""
+    config_file = tmp_path / "sso_config.json"
+    monkeypatch.setattr(sso_svc, "_CONFIG_PATH", config_file)
+    with sso_svc._LOCK:
+        sso_svc._CONFIGS.clear()
+    yield
+    with sso_svc._LOCK:
+        sso_svc._CONFIGS.clear()

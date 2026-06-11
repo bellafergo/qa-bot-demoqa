@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 ProviderType = Literal["LOCAL", "GOOGLE", "MICROSOFT", "OKTA", "SAML"]
 AuthenticationMethod = Literal["LOCAL", "SSO", "HYBRID"]
+SSOProviderType = Literal["MICROSOFT", "GOOGLE", "OKTA"]
 
 
 class IdentityProvider(BaseModel):
@@ -39,6 +40,32 @@ class AuthenticationSession(BaseModel):
     last_activity: Optional[str] = None
 
 
+class SSOProviderConfig(BaseModel):
+    provider: SSOProviderType
+    enabled: bool = False
+    client_id: Optional[str] = None
+    tenant_id: Optional[str] = None
+    issuer: Optional[str] = None
+    configured: bool = False
+    validated: bool = False
+
+
+class SSOValidationResult(BaseModel):
+    provider: SSOProviderType
+    valid: bool = False
+    message: str = ""
+
+
+class SSOLoginUrl(BaseModel):
+    provider: SSOProviderType
+    login_url: str = ""
+
+
+class SSOProvidersResponse(BaseModel):
+    providers: List[SSOProviderConfig] = Field(default_factory=list)
+    total: int = Field(default=0, ge=0)
+
+
 class SecurityReadinessReport(BaseModel):
     authentication_method: AuthenticationMethod = "LOCAL"
     sso_ready: bool = False
@@ -46,6 +73,8 @@ class SecurityReadinessReport(BaseModel):
     rbac_ready: bool = False
     security_score: int = Field(default=25, ge=0, le=100)
     active_provider_type: ProviderType = "LOCAL"
+    available_sso_providers: List[SSOProviderType] = Field(default_factory=list)
+    configured_sso_providers: List[SSOProviderType] = Field(default_factory=list)
     summary: str = ""
 
 

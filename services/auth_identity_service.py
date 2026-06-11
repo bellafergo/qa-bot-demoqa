@@ -37,9 +37,16 @@ def _utc_now_iso() -> str:
 
 
 def _build_provider_catalog() -> List[IdentityProvider]:
+    from services.sso_service import is_provider_enabled
+
     providers: List[IdentityProvider] = []
     for provider_id, provider_name, provider_type in _PROVIDER_CATALOG:
-        enabled = provider_type == "LOCAL"
+        if provider_type == "LOCAL":
+            enabled = True
+        elif provider_type in _SSO_PROVIDER_TYPES:
+            enabled = is_provider_enabled(provider_type)
+        else:
+            enabled = False
         providers.append(
             IdentityProvider(
                 provider_id=provider_id,
@@ -155,8 +162,16 @@ def build_security_readiness_report(
     auth_kind: Optional[str] = None,
 ) -> SecurityReadinessReport:
     """Deterministic enterprise security readiness snapshot (foundation only)."""
+    from services.sso_service import (
+        available_sso_providers,
+        configured_sso_providers,
+        is_sso_ready,
+    )
+
     providers = list_identity_providers()
-    sso_ready = any(p.enabled and p.provider_type in _SSO_PROVIDER_TYPES for p in providers)
+    sso_ready = is_sso_ready()
+    available = available_sso_providers()
+    configured = configured_sso_providers()
     audit_ready = False
     from services.rbac_service import build_rbac_readiness_report
 
@@ -166,14 +181,15 @@ def build_security_readiness_report(
 
     method = "LOCAL"
     if sso_ready:
-        method = "SSO"
+        method = "HYBRID"
 
     score = _security_score(sso_ready=sso_ready, audit_ready=audit_ready, rbac_ready=rbac_ready)
 
     identity = get_user_identity(user_id=user_id, email=email, auth_kind=auth_kind)
+    sso_status = "SSO READY" if sso_ready else "LOCAL ONLY"
     summary = (
-        f"Authentication is {method} via {active_provider}. "
-        f"SSO {'is configured' if sso_ready else 'is not configured'}. "
+        f"Authentication status: {sso_status} ({method} via {active_provider}). "
+        f"Configured SSO providers: {len(configured)} of {len(available)}. "
         f"RBAC {'is configured' if rbac_ready else 'is not configured'}. "
         f"Security score {score}/100."
     )
@@ -187,6 +203,8 @@ def build_security_readiness_report(
         rbac_ready=rbac_ready,
         security_score=score,
         active_provider_type=active_provider,  # type: ignore[arg-type]
+        available_sso_providers=available,
+        configured_sso_providers=configured,
         summary=summary,
     )
 

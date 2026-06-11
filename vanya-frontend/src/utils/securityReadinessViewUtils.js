@@ -18,6 +18,8 @@ export const SECURITY_READINESS_I18N_KEYS = {
   methodLocal: "security_readiness.method.local",
   methodSso: "security_readiness.method.sso",
   methodHybrid: "security_readiness.method.hybrid",
+  availableSso: "security_readiness.available_sso",
+  configuredSso: "security_readiness.configured_sso",
 };
 
 const METHOD_LABEL_KEY = {
@@ -75,6 +77,10 @@ export function buildSecurityReadinessViewModel({ readiness, providers, t }) {
     securityScoreLabel: t(SECURITY_READINESS_I18N_KEYS.securityScore),
     securityScore: report.security_score ?? 0,
     securityScoreBadgeClass: securityScoreBadgeClass(report.security_score),
+    availableSsoLabel: t(SECURITY_READINESS_I18N_KEYS.availableSso),
+    configuredSsoLabel: t(SECURITY_READINESS_I18N_KEYS.configuredSso),
+    availableSsoProviders: (report.available_sso_providers || []).join(", ") || "—",
+    configuredSsoProviders: (report.configured_sso_providers || []).join(", ") || "—",
     summary: report.summary || "",
     providersTitle: t(SECURITY_READINESS_I18N_KEYS.providersTitle),
     providerEnabledLabel: t(SECURITY_READINESS_I18N_KEYS.providerEnabled),

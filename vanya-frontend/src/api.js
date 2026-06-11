@@ -389,6 +389,19 @@ export function getSecurityPermissions() {
   return apiGet("/security/permissions");
 }
 
+export function getSsoProviders() {
+  return apiGet("/security/sso/providers");
+}
+
+export function validateSsoProvider(body) {
+  return apiPost("/security/sso/validate", body);
+}
+
+export function getSsoLoginUrl(provider) {
+  const qs = new URLSearchParams({ provider });
+  return apiGet(`/security/sso/login-url?${qs.toString()}`);
+}
+
 export function getDashboardRecentRuns(limit = 20, project_id) {
   const q = new URLSearchParams({ limit: String(limit) });
   if (project_id != null && String(project_id).trim()) {
