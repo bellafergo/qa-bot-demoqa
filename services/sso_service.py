@@ -170,40 +170,69 @@ def validate_provider_config(
     tid = (tenant_id or "").strip()
     iss = (issuer or "").strip().rstrip("/")
 
+    def _audit_validation(result: SSOValidationResult) -> SSOValidationResult:
+        from services.audit_event_service import safe_record_event
+
+        safe_record_event(
+            event_type="SSO_PROVIDER_VALIDATED",
+            resource_type="SECURITY",
+            resource_id=provider,
+            action="validate",
+            result="SUCCESS" if result.valid else "FAILURE",
+            metadata={"message": result.message, "enabled": enabled},
+        )
+        return result
+
     if provider == "MICROSOFT":
         if not cid:
-            return SSOValidationResult(provider=provider, valid=False, message="Microsoft client_id is required.")
+            return _audit_validation(
+                SSOValidationResult(provider=provider, valid=False, message="Microsoft client_id is required.")
+            )
         if not tid:
-            return SSOValidationResult(
-                provider=provider,
-                valid=False,
-                message="Microsoft tenant_id is required.",
+            return _audit_validation(
+                SSOValidationResult(
+                    provider=provider,
+                    valid=False,
+                    message="Microsoft tenant_id is required.",
+                )
             )
         if tid.lower() not in _MICROSOFT_TENANT_ALIASES and not _UUID_RE.match(tid):
-            return SSOValidationResult(
-                provider=provider,
-                valid=False,
-                message="Microsoft tenant_id must be a GUID or one of common, organizations, consumers.",
+            return _audit_validation(
+                SSOValidationResult(
+                    provider=provider,
+                    valid=False,
+                    message="Microsoft tenant_id must be a GUID or one of common, organizations, consumers.",
+                )
             )
         message = "Microsoft Entra ID configuration is valid."
     elif provider == "GOOGLE":
         if not cid:
-            return SSOValidationResult(provider=provider, valid=False, message="Google client_id is required.")
+            return _audit_validation(
+                SSOValidationResult(provider=provider, valid=False, message="Google client_id is required.")
+            )
         message = "Google Workspace configuration is valid."
     elif provider == "OKTA":
         if not iss:
-            return SSOValidationResult(provider=provider, valid=False, message="Okta issuer URL is required.")
+            return _audit_validation(
+                SSOValidationResult(provider=provider, valid=False, message="Okta issuer URL is required.")
+            )
         if not iss.startswith("https://"):
-            return SSOValidationResult(
-                provider=provider,
-                valid=False,
-                message="Okta issuer must be an https URL.",
+            return _audit_validation(
+                SSOValidationResult(
+                    provider=provider,
+                    valid=False,
+                    message="Okta issuer must be an https URL.",
+                )
             )
         if not cid:
-            return SSOValidationResult(provider=provider, valid=False, message="Okta client_id is required.")
+            return _audit_validation(
+                SSOValidationResult(provider=provider, valid=False, message="Okta client_id is required.")
+            )
         message = "Okta configuration is valid."
     else:
-        return SSOValidationResult(provider=provider, valid=False, message="Unsupported SSO provider.")
+        return _audit_validation(
+            SSOValidationResult(provider=provider, valid=False, message="Unsupported SSO provider.")
+        )
 
     _persist_provider_config(
         provider=provider,
@@ -213,7 +242,7 @@ def validate_provider_config(
         enabled=enabled,
         validated=True,
     )
-    return SSOValidationResult(provider=provider, valid=True, message=message)
+    return _audit_validation(SSOValidationResult(provider=provider, valid=True, message=message))
 
 
 def _persist_provider_config(
@@ -280,4 +309,15 @@ def build_login_url(*, provider: SSOProviderType) -> SSOLoginUrl:
             "state": state,
         }
 
-    return SSOLoginUrl(provider=provider, login_url=f"{base}?{urlencode(params)}")
+    login = SSOLoginUrl(provider=provider, login_url=f"{base}?{urlencode(params)}")
+    from services.audit_event_service import safe_record_event
+
+    safe_record_event(
+        event_type="SSO_LOGIN_URL_GENERATED",
+        resource_type="SECURITY",
+        resource_id=provider,
+        action="generate_login_url",
+        result="SUCCESS",
+        metadata={"redirect_uri": redirect_uri},
+    )
+    return login

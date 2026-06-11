@@ -485,6 +485,16 @@ def investigate_project_incident(
         raise LookupError(f"project not found: {pid}")
 
     desc = req.description.strip()
+    from services.audit_event_service import safe_record_event
+
+    safe_record_event(
+        event_type="INCIDENT_INVESTIGATION_STARTED",
+        resource_type="INCIDENTS",
+        resource_id=pid,
+        action="investigate",
+        result="SUCCESS",
+        metadata={"severity": req.severity, "module": req.module},
+    )
     hints = extract_topic_hints(desc, module=req.module)
     data_gaps: List[str] = []
     evidence_found: List[str] = []
@@ -1160,6 +1170,18 @@ def investigate_project_incident(
         data_gaps.append("Report could not be persisted — results are ephemeral for this request.")
         report.data_gaps = data_gaps
 
+    safe_record_event(
+        event_type="INCIDENT_INVESTIGATION_COMPLETED",
+        resource_type="INCIDENTS",
+        resource_id=str(report.id or pid),
+        action="investigate",
+        result="SUCCESS",
+        metadata={
+            "project_id": pid,
+            "confidence": confidence,
+            "summary": (report.summary or "")[:200],
+        },
+    )
     return report
 
 

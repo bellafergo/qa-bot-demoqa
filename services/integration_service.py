@@ -184,6 +184,16 @@ class IntegrationService:
             _CONFIGS[connector_id] = new_cfg
             _save_configs_to_disk(_CONFIGS)
 
+        from services.audit_event_service import safe_record_event
+
+        safe_record_event(
+            event_type="INTEGRATION_CONFIG_UPDATED",
+            resource_type="INTEGRATIONS",
+            resource_id=connector_id,
+            action="update_config",
+            result="SUCCESS",
+            metadata={"enabled": new_cfg.enabled},
+        )
         return new_cfg
 
     # ── Enable / disable ──────────────────────────────────────────────────────
@@ -210,6 +220,16 @@ class IntegrationService:
         with _LOCK:
             _LAST_HEALTH[connector_id] = status
 
+        from services.audit_event_service import safe_record_event
+
+        safe_record_event(
+            event_type="INTEGRATION_VALIDATED",
+            resource_type="INTEGRATIONS",
+            resource_id=connector_id,
+            action="health_check",
+            result="SUCCESS" if status.health == "healthy" else "FAILURE",
+            metadata={"health": status.health, "message": status.last_check_message},
+        )
         return status
 
     # ── Actions ───────────────────────────────────────────────────────────────

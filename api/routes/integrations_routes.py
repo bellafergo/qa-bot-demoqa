@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, AliasChoices
 
 from models.connector import (
@@ -147,8 +147,13 @@ def get_integration(connector_id: str):
 # ── Health check ──────────────────────────────────────────────────────────────
 
 @router.post("/{connector_id}/health-check", response_model=ConnectorStatus)
-def run_health_check(connector_id: str):
+def run_health_check(connector_id: str, request: Request):
     """Run a fresh health check and return the updated status."""
+    from services.audit_event_service import set_audit_actor
+    from services.auth_identity_service import auth_context_from_state
+
+    ctx = auth_context_from_state(request.state)
+    set_audit_actor(user_id=ctx.get("user_id"), user_email=ctx.get("email"))
     try:
         return integration_service.run_health_check(connector_id)
     except KeyError:
@@ -180,12 +185,17 @@ def disable_integration(connector_id: str):
 # ── Config update ─────────────────────────────────────────────────────────────
 
 @router.post("/{connector_id}/config", response_model=ConnectorConfig)
-def update_config(connector_id: str, body: ConnectorConfigUpdate):
+def update_config(connector_id: str, body: ConnectorConfigUpdate, request: Request):
     """
     Update connector configuration.
     Secrets (token, api_key) are consumed server-side and stored only as
     presence flags.  They are NEVER echoed back in the response.
     """
+    from services.audit_event_service import set_audit_actor
+    from services.auth_identity_service import auth_context_from_state
+
+    ctx = auth_context_from_state(request.state)
+    set_audit_actor(user_id=ctx.get("user_id"), user_email=ctx.get("email"))
     try:
         return integration_service.update_config(connector_id, body)
     except KeyError:

@@ -402,6 +402,20 @@ export function getSsoLoginUrl(provider) {
   return apiGet(`/security/sso/login-url?${qs.toString()}`);
 }
 
+export function getAuditEvents(params = {}) {
+  const qs = new URLSearchParams();
+  if (params.event_type) qs.set("event_type", params.event_type);
+  if (params.resource_type) qs.set("resource_type", params.resource_type);
+  if (params.user_id) qs.set("user_id", params.user_id);
+  if (params.limit != null) qs.set("limit", String(params.limit));
+  const q = qs.toString();
+  return apiGet(`/audit/events${q ? `?${q}` : ""}`);
+}
+
+export function getAuditSummary() {
+  return apiGet("/audit/summary");
+}
+
 export function getDashboardRecentRuns(limit = 20, project_id) {
   const q = new URLSearchParams({ limit: String(limit) });
   if (project_id != null && String(project_id).trim()) {

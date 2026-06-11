@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from models.release_readiness_models import ReleaseReadinessView
 from services.release_readiness_service import build_release_readiness_view
@@ -15,8 +15,13 @@ router = APIRouter(prefix="/projects", tags=["release-readiness"])
 
 
 @router.get("/{project_id}/release-readiness", response_model=ReleaseReadinessView)
-def get_project_release_readiness(project_id: str):
+def get_project_release_readiness(project_id: str, request: Request):
     """Return composed release readiness intelligence for a project."""
+    from services.audit_event_service import set_audit_actor
+    from services.auth_identity_service import auth_context_from_state
+
+    ctx = auth_context_from_state(request.state)
+    set_audit_actor(user_id=ctx.get("user_id"), user_email=ctx.get("email"))
     pid = (project_id or "").strip().lower()
     if not pid:
         raise HTTPException(status_code=400, detail="project_id is required")

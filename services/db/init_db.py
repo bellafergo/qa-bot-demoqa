@@ -33,6 +33,7 @@ def init_catalog_db() -> None:
     from services.db import incident_report_repository  # noqa: F401 — incident_investigation_reports
     from services.db import pr_analysis_report_repository  # noqa: F401 — pr_analysis_reports
     from services.db import project_knowledge_repository  # noqa: F401 — project_knowledge
+    from services.db import audit_event_repository  # noqa: F401 — audit_events
 
     Base.metadata.create_all(bind=engine, checkfirst=True)
     logger.info("db: catalog tables initialized (SQLite)")

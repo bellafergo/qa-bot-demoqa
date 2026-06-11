@@ -224,13 +224,24 @@ def build_report_delivery_preview(
     else:
         payload = _build_teams_payload(preview, subject=subject, body=body)
 
-    return ReportDeliveryPreview(
+    preview = ReportDeliveryPreview(
         channel=ch,
         report_type=rtype,
         subject=subject,
         summary=summary,
         payload=payload,
     )
+    from services.audit_event_service import safe_record_event
+
+    safe_record_event(
+        event_type="REPORT_PREVIEWED",
+        resource_type="REPORTS",
+        resource_id=f"{pid}:{rtype}",
+        action="preview",
+        result="SUCCESS",
+        metadata={"channel": ch, "report_type": rtype},
+    )
+    return preview
 
 
 def send_report_delivery(
@@ -303,7 +314,17 @@ def send_report_delivery(
         context={"report_type": rtype, "request_id": request.request_id},
     )
 
+    from services.audit_event_service import safe_record_event
+
     if ok:
+        safe_record_event(
+            event_type="REPORT_SENT",
+            resource_type="REPORTS",
+            resource_id=f"{pid}:{rtype}",
+            action="send",
+            result="SUCCESS",
+            metadata={"channel": ch, "report_type": rtype, "request_id": request.request_id},
+        )
         return ReportDeliveryResult(
             success=True,
             channel=ch,
@@ -313,6 +334,14 @@ def send_report_delivery(
         )
 
     error = str(detail.get("error") or detail.get("message") or "Delivery failed")
+    safe_record_event(
+        event_type="REPORT_SENT",
+        resource_type="REPORTS",
+        resource_id=f"{pid}:{rtype}",
+        action="send",
+        result="FAILURE",
+        metadata={"channel": ch, "report_type": rtype, "error": error},
+    )
     return ReportDeliveryResult(
         success=False,
         channel=ch,

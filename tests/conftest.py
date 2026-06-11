@@ -42,6 +42,20 @@ def pytest_configure(config):
 
 
 @pytest.fixture(autouse=True)
+def isolated_audit_events():
+    from services.db.audit_event_repository import AuditEventRow
+    from services.db.sqlite_db import get_session
+
+    with get_session() as session:
+        session.query(AuditEventRow).delete()
+        session.commit()
+    yield
+    with get_session() as session:
+        session.query(AuditEventRow).delete()
+        session.commit()
+
+
+@pytest.fixture(autouse=True)
 def isolated_sso_config(tmp_path, monkeypatch):
     """Prevent SSO config bleed across tests and developer evidence files."""
     config_file = tmp_path / "sso_config.json"

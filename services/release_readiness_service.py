@@ -387,6 +387,16 @@ def build_release_readiness_view(
     )
     view.overall_status = _derive_overall_status(view)
     view.summary = _derive_summary(view)
+    from services.audit_event_service import safe_record_event
+
+    safe_record_event(
+        event_type="RELEASE_READINESS_VIEWED",
+        resource_type="RELEASES",
+        resource_id=pid or "unknown",
+        action="view",
+        result="SUCCESS",
+        metadata={"overall_status": view.overall_status},
+    )
     return view
 
 

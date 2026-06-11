@@ -172,7 +172,9 @@ def build_security_readiness_report(
     sso_ready = is_sso_ready()
     available = available_sso_providers()
     configured = configured_sso_providers()
-    audit_ready = False
+    from services.audit_event_service import build_audit_summary
+
+    audit_ready = build_audit_summary().total_events > 0
     from services.rbac_service import build_rbac_readiness_report
 
     rbac_report = build_rbac_readiness_report()

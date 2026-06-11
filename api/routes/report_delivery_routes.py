@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from models.report_delivery_models import (
     ReportDeliveryPreview,
@@ -34,9 +34,14 @@ def _ensure_project(project_id: str) -> str:
 
 
 @router.post("/{project_id}/reports/preview", response_model=ReportDeliveryPreview)
-def post_report_delivery_preview(project_id: str, body: ReportDeliveryPreviewRequest):
+def post_report_delivery_preview(project_id: str, body: ReportDeliveryPreviewRequest, request: Request):
     """Preview how an existing executive report will be delivered."""
     pid = _ensure_project(project_id)
+    from services.audit_event_service import set_audit_actor
+    from services.auth_identity_service import auth_context_from_state
+
+    ctx = auth_context_from_state(request.state)
+    set_audit_actor(user_id=ctx.get("user_id"), user_email=ctx.get("email"))
     try:
         return build_report_delivery_preview(
             project_id=pid,
@@ -54,9 +59,14 @@ def post_report_delivery_preview(project_id: str, body: ReportDeliveryPreviewReq
 
 
 @router.post("/{project_id}/reports/send", response_model=ReportDeliveryResult)
-def post_report_delivery_send(project_id: str, body: ReportDeliverySendRequest):
+def post_report_delivery_send(project_id: str, body: ReportDeliverySendRequest, request: Request):
     """Send an executive report through a configured delivery channel (explicit approval required)."""
     pid = _ensure_project(project_id)
+    from services.audit_event_service import set_audit_actor
+    from services.auth_identity_service import auth_context_from_state
+
+    ctx = auth_context_from_state(request.state)
+    set_audit_actor(user_id=ctx.get("user_id"), user_email=ctx.get("email"))
     if not body.requires_user_approval:
         raise HTTPException(
             status_code=400,

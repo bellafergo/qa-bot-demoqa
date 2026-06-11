@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from models.incident_models import (
     ProjectIncidentInvestigationListResponse,
@@ -26,11 +26,20 @@ router = APIRouter(prefix="/projects", tags=["incidents"])
     "/{project_id}/incidents/investigate",
     response_model=ProjectIncidentInvestigationReport,
 )
-def post_project_investigate_incident(project_id: str, body: ProjectInvestigateIncidentRequest):
+def post_project_investigate_incident(
+    project_id: str,
+    body: ProjectInvestigateIncidentRequest,
+    request: Request,
+):
     """
     Correlate a user-reported incident with real QA data for the project.
     Persists the generated report automatically (v1.1).
     """
+    from services.audit_event_service import set_audit_actor
+    from services.auth_identity_service import auth_context_from_state
+
+    ctx = auth_context_from_state(request.state)
+    set_audit_actor(user_id=ctx.get("user_id"), user_email=ctx.get("email"))
     try:
         return investigate_project_incident(project_id, body)
     except LookupError as e:

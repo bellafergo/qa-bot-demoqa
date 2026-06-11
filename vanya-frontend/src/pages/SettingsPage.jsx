@@ -6,6 +6,7 @@ import { apiGet, apiErrorMessage, API_BASE } from "../api.js";
 import SecuritySection from "../components/security/SecuritySection.jsx";
 import SSOConfigurationSection from "../components/security/SSOConfigurationSection.jsx";
 import RBACSection from "../components/security/RBACSection.jsx";
+import AuditTrailSection from "../components/security/AuditTrailSection.jsx";
 
 function InfoRow({ label, value, mono = false, badge }) {
   return (
@@ -112,6 +113,8 @@ export default function SettingsPage() {
       <SSOConfigurationSection />
 
       <RBACSection />
+
+      <AuditTrailSection />
 
       {/* ── API config card ─────────────────────────────── */}
       <div className="card" style={{ marginBottom: 20 }}>

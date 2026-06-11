@@ -85,9 +85,17 @@ def get_sso_providers():
     return list_sso_provider_configs()
 
 
+def _bind_request_audit(request: Request) -> None:
+    from services.audit_event_service import set_audit_actor
+
+    ctx = auth_context_from_state(request.state)
+    set_audit_actor(user_id=ctx.get("user_id"), user_email=ctx.get("email"))
+
+
 @router.post("/sso/validate", response_model=SSOValidationResult)
-def post_sso_validate(body: SSOValidateRequest):
+def post_sso_validate(body: SSOValidateRequest, request: Request):
     """Validate enterprise SSO provider configuration without login."""
+    _bind_request_audit(request)
     return validate_provider_config(
         provider=body.provider,
         client_id=body.client_id,
@@ -99,9 +107,11 @@ def post_sso_validate(body: SSOValidateRequest):
 
 @router.get("/sso/login-url", response_model=SSOLoginUrl)
 def get_sso_login_url(
+    request: Request,
     provider: SSOProviderType = Query(..., description="Enterprise SSO provider"),
 ):
     """Generate OAuth login URL for a validated provider (no token exchange)."""
+    _bind_request_audit(request)
     try:
         return build_login_url(provider=provider)
     except ValueError as exc:
