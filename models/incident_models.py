@@ -676,6 +676,7 @@ class ProjectIncidentInvestigationReport(BaseModel):
     release_readiness: Optional["ReleaseReadinessView"] = None
     jira_issue_intelligence: Optional["JiraIssueIntelligenceReport"] = None
     coverage_intelligence: Optional["CoverageIntelligenceReport"] = None
+    qmetry_recommendation_report: Optional["QMetryRecommendationReport"] = None
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     confidence_breakdown: List["ConfidenceFactor"] = Field(default_factory=list)
     next_steps: List[str] = Field(default_factory=list)
@@ -740,6 +741,7 @@ class ProjectIncidentInvestigationListResponse(BaseModel):
 def _resolve_forward_refs() -> None:
     from models.jira_issue_intelligence_models import JiraIssueIntelligenceReport
     from models.qmetry_coverage_models import CoverageIntelligenceReport
+    from models.qmetry_recommendation_models import QMetryRecommendationReport
     from models.release_readiness_models import ReleaseReadinessView
 
     incident_types = {
@@ -752,6 +754,7 @@ def _resolve_forward_refs() -> None:
         "ExecutiveQualityReport": ExecutiveQualityReport,
         "JiraIssueIntelligenceReport": JiraIssueIntelligenceReport,
         "CoverageIntelligenceReport": CoverageIntelligenceReport,
+        "QMetryRecommendationReport": QMetryRecommendationReport,
         "MultiEnvironmentReport": MultiEnvironmentReport,
         "QualityHealthReport": QualityHealthReport,
         "QualityTrendReport": QualityTrendReport,

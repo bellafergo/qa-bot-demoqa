@@ -61,9 +61,11 @@ import MultiEnvironmentIntelligenceView from "../components/incident/MultiEnviro
 import ReleaseReadinessView from "../components/release-readiness/ReleaseReadinessView.jsx";
 import JiraIssueIntelligenceView from "../components/incident/JiraIssueIntelligenceView.jsx";
 import CoverageIntelligenceView from "../components/coverage-intelligence/CoverageIntelligenceView.jsx";
+import QMetryRecommendationView from "../components/qmetry-recommendations/QMetryRecommendationView.jsx";
 import { buildReleaseReadinessViewModel } from "../utils/releaseReadinessViewUtils.js";
 import { buildJiraIssueIntelligenceViewModel } from "../utils/jiraIssueIntelligenceViewUtils.js";
 import { buildCoverageIntelligenceViewModel } from "../utils/qmetryCoverageViewUtils.js";
+import { buildRecommendationCorrelationViewModel } from "../utils/qmetryRecommendationViewUtils.js";
 
 function fmtTs(iso) {
   if (!iso) return "—";
@@ -168,6 +170,7 @@ function QaInvestigationReport({ report, t }) {
   const releaseReadinessVm = buildReleaseReadinessViewModel(report, t);
   const jiraIssueIntelligenceVm = buildJiraIssueIntelligenceViewModel(report, t);
   const coverageIntelligenceVm = buildCoverageIntelligenceViewModel(report, t);
+  const recommendationCorrelationVm = buildRecommendationCorrelationViewModel(report, t);
   const approvalWorkflowVm = buildApprovalWorkflowViewModel(report, t);
   const es = report.evidence_strength;
   const temporal = report.temporal_correlation;
@@ -1115,6 +1118,18 @@ function QaInvestigationReport({ report, t }) {
           <CoverageIntelligenceView vm={coverageIntelligenceVm} />
           <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
             {coverageIntelligenceVm.readOnlyNote}
+          </p>
+        </div>
+      ) : null}
+
+      {recommendationCorrelationVm.show ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {recommendationCorrelationVm.title}
+          </div>
+          <QMetryRecommendationView vm={recommendationCorrelationVm} />
+          <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+            {recommendationCorrelationVm.readOnlyNote}
           </p>
         </div>
       ) : null}

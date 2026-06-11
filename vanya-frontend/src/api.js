@@ -718,6 +718,12 @@ export const getQMetryCoverage          = (params = {}) => {
   const q = qs.toString();
   return apiGet(`/integrations/qmetry/coverage${q ? `?${q}` : ""}`);
 };
+export const getQMetryRecommendations   = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.project_id) qs.set("project_id", params.project_id);
+  const q = qs.toString();
+  return apiGet(`/integrations/qmetry/recommendations${q ? `?${q}` : ""}`);
+};
 
 // ========= Projects (multi-project catalog scope) =========
 /** GET /projects — 200 + [] or empty body must be success (never throw from JSON parse). */

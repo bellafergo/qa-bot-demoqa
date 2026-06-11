@@ -10,6 +10,7 @@ Route semantics (do not conflate with generic connector routes):
   GET /integrations/qmetry/test-suites  — test suite discovery
   GET /integrations/qmetry/test-runs    — test run discovery
   GET /integrations/qmetry/coverage     — deterministic coverage intelligence (QMETRY-01B)
+  GET /integrations/qmetry/recommendations — test recommendation correlation (QMETRY-01C)
 
 Test result discovery (execution-level pass/fail details) remains deferred beyond QMETRY-01B.
 
@@ -28,6 +29,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from models.qmetry_coverage_models import CoverageIntelligenceReport
+from models.qmetry_recommendation_models import QMetryRecommendationReport
 from models.qmetry_models import (
     QMetryConnectionStatus,
     QMetryProjectsResponse,
@@ -37,6 +39,7 @@ from models.qmetry_models import (
     QMetryTestSuitesResponse,
 )
 from services.qmetry_coverage_intelligence_service import build_coverage_intelligence_report
+from services.qmetry_test_recommendation_service import build_qmetry_recommendation_report
 from services.qmetry_integration_service import (
     list_projects,
     list_test_cases,
@@ -115,3 +118,21 @@ def get_qmetry_coverage(
     except Exception as exc:
         logger.exception("GET /integrations/qmetry/coverage failed")
         raise HTTPException(status_code=500, detail=f"Coverage intelligence failed: {exc}") from exc
+
+
+@router.get("/recommendations", response_model=QMetryRecommendationReport)
+def get_qmetry_recommendations(
+    project_id: Optional[str] = Query(None, description="Optional project id for intelligence correlation"),
+):
+    """Deterministic QMetry test recommendations (read-only, no execution)."""
+    pid = (project_id or "").strip().lower() or None
+    if pid:
+        from services.db.project_repository import project_repo
+
+        if project_repo.get_project(pid) is None:
+            raise HTTPException(status_code=404, detail=f"project not found: {pid}")
+    try:
+        return build_qmetry_recommendation_report(project_id=pid)
+    except Exception as exc:
+        logger.exception("GET /integrations/qmetry/recommendations failed")
+        raise HTTPException(status_code=500, detail=f"Test recommendations failed: {exc}") from exc
