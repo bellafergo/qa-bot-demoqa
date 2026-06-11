@@ -134,7 +134,9 @@ def get_integration(connector_id: str):
     """
     Return generic connector framework status (health, enabled, config_summary).
 
-    For Jira discovery aggregates (counts, last_sync), use GET /integrations/jira/status instead.
+    For discovery aggregates (counts, last_sync), use the connector-specific status routes:
+      GET /integrations/jira/status   — Jira discovery aggregate
+      GET /integrations/qmetry/status — QMetry discovery aggregate
     """
     try:
         return integration_service.get_connector_status(connector_id)

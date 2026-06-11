@@ -30,3 +30,40 @@ class BusinessRiskResult(BaseModel):
     # Optional enrichment fields
     rca_category:             Optional[str] = None   # forwarded from RCA for context
     test_module:              Optional[str] = None   # module that triggered the score
+
+
+# ── ROI-01C Executive Business Risk Estimation ────────────────────────────────
+
+ExecutiveSeverity = Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+ExecutiveConfidence = Literal["LOW", "MEDIUM", "HIGH"]
+
+
+class BusinessRiskSignal(BaseModel):
+    """Deterministic evidence signal mapped to a business capability."""
+    signal_id: str
+    title: str
+    severity: ExecutiveSeverity = "LOW"
+    confidence: ExecutiveConfidence = "LOW"
+    impacted_capability: str
+    evidence_count: int = 1
+
+
+class BusinessRiskAssessment(BaseModel):
+    """Business-oriented risk narrative for a single capability."""
+    risk_id: str
+    capability: str
+    severity: ExecutiveSeverity = "LOW"
+    confidence: ExecutiveConfidence = "LOW"
+    summary: str = ""
+    evidence: list[str] = []
+
+
+class BusinessRiskReport(BaseModel):
+    """Executive-facing business risk overview from existing intelligence."""
+    generated_at: str
+    overall_business_risk: ExecutiveSeverity = "LOW"
+    business_risks: list[BusinessRiskAssessment] = []
+    top_capabilities_at_risk: list[str] = []
+    executive_summary: str = ""
+    signals: list[BusinessRiskSignal] = []
+    has_intelligence: bool = False

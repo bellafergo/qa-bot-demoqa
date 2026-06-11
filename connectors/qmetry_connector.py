@@ -1,11 +1,21 @@
 # connectors/qmetry_connector.py
 """
-QMetry connector stub / framework placeholder.
+QMetry connector — integration framework adapter (QMETRY-01A read-only foundation).
 
-QMetry is a test management tool (Jira-native or standalone).
-This implementation provides the connector contract and placeholder sync hooks.
-The design is intentionally kept thin — extend when the QMetry API details
-are finalized.
+QMETRY-01A is discovery-only. This connector owns:
+  - Framework lifecycle (enable/disable, config validation)
+  - Health delegation to services/qmetry_integration_service.py
+
+Canonical read-only discovery (projects, test cases, cycles, suites, runs) lives in
+qmetry_integration_service.py — not in this connector:
+  - list_projects()
+  - list_test_cases()
+  - list_test_cycles()
+  - list_test_suites()
+  - list_test_runs()
+
+Write/sync operations (test execution, result upload, cycle/suite mutation) are NOT
+implemented in QMETRY-01A. Test result discovery is deferred to QMETRY-01B.
 """
 from __future__ import annotations
 
@@ -19,7 +29,7 @@ from models.connector import ConnectorConfig, ConnectorStatus
 class QMetryConnector(BaseConnector):
     connector_id   = "qmetry"
     connector_name = "QMetry"
-    description    = "Sync test cases and execution results with QMetry TM for Jira."
+    description    = "Discover QMetry projects, test cases, cycles, suites, and runs (read-only)."
 
     # ── Contract ──────────────────────────────────────────────────────────────
 
@@ -31,13 +41,20 @@ class QMetryConnector(BaseConnector):
         return True, "Config is valid"
 
     def health_check(self, config: ConnectorConfig) -> Tuple[str, str]:
+        """Delegate to qmetry_integration_service when enabled and configured."""
         if not config.enabled:
             return "unconfigured", "Connector is disabled"
         valid, msg = self.validate_config(config)
         if not valid:
             return "unconfigured", msg
-        # Stub: real impl would call QMetry /api/authenticate or /rest/atm/1.0/testcase
-        return "ok", f"QMetry stub reachable at {config.base_url}"
+        from services.qmetry_integration_service import validate_qmetry_connection
+
+        status = validate_qmetry_connection()
+        if status.connected:
+            return "ok", f"QMetry connected — {status.project_count} project(s)"
+        if config.base_url:
+            return "unreachable", f"QMetry not reachable at {config.base_url}"
+        return "unconfigured", "QMetry credentials incomplete"
 
     def get_status(self, config: ConnectorConfig) -> ConnectorStatus:
         health, msg = self.health_check(config)
@@ -57,27 +74,35 @@ class QMetryConnector(BaseConnector):
 
     def supported_actions(self) -> List[str]:
         return [
-            "sync_test_cases",
-            "push_execution_result",
-            "fetch_test_cycles",
-            "create_test_cycle",
+            "discover_projects",
+            "discover_test_cases",
+            "discover_test_cycles",
+            "discover_test_suites",
+            "discover_test_runs",
         ]
 
-    # ── Placeholder sync hooks ────────────────────────────────────────────────
+    # ── Legacy stubs (not part of live discovery path) ────────────────────────
+    #
+    # These pre-QMETRY-01A placeholders remain for backward-compatible tests only.
+    # They do NOT call the QMetry API and are NOT used by discovery routes or UI.
+    # Canonical cycle discovery: qmetry_integration_service.list_test_cycles()
+    # Write paths will be redesigned in a future sprint — not QMETRY-01A/01B.
 
     def sync_test_cases_stub(
         self,
         test_case_ids: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
-        Placeholder: sync Vanya test cases to QMetry.
-        Implement by calling QMetry REST API when credentials are available.
+        DEPRECATED — legacy compatibility stub. Not part of live discovery.
+
+        Do not use for QMetry integration. Real test case discovery is
+        qmetry_integration_service.list_test_cases().
         """
         return {
             "synced":        len(test_case_ids or []),
             "test_case_ids": test_case_ids or [],
             "status":        "stub",
-            "message":       "QMetry sync hook — awaiting real API credentials",
+            "message":       "Legacy stub — use qmetry_integration_service.list_test_cases()",
         }
 
     def push_execution_result_stub(
@@ -88,8 +113,9 @@ class QMetryConnector(BaseConnector):
         cycle_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Placeholder: push a test execution result to a QMetry test cycle.
-        Implement by calling POST /rest/atm/1.0/testrun when ready.
+        DEPRECATED — legacy compatibility stub. Not part of live discovery.
+
+        Write operations are not implemented in QMETRY-01A. Do not use.
         """
         return {
             "pushed":       True,
@@ -101,7 +127,12 @@ class QMetryConnector(BaseConnector):
         }
 
     def fetch_test_cycles_stub(self) -> List[Dict[str, Any]]:
-        """Stub: returns deterministic list of mock QMetry test cycles."""
+        """
+        DEPRECATED — legacy compatibility stub. Not part of live discovery.
+
+        Returns mock data only. Canonical cycle discovery is
+        qmetry_integration_service.list_test_cycles().
+        """
         return [
             {"id": "CYC-001", "name": "Sprint 42 Regression", "status": "active"},
             {"id": "CYC-002", "name": "Release 2.1 Smoke",    "status": "closed"},
@@ -109,7 +140,7 @@ class QMetryConnector(BaseConnector):
 
 
 def _map_status(vanya_status: str) -> str:
-    """Map Vanya run status → QMetry execution status."""
+    """Map Vanya run status → QMetry execution status (legacy stub helper)."""
     return {
         "pass":  "PASS",
         "fail":  "FAIL",

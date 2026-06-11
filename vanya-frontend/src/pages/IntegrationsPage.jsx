@@ -22,13 +22,16 @@ import {
   listProjectAzureDevOpsRepositories,
   selectProjectAzureDevOpsTarget,
   getJiraStatus,
+  getQMetryStatus,
 } from "../api";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
 import JiraIntegrationPanel from "../components/integrations/JiraIntegrationPanel.jsx";
+import QMetryIntegrationPanel from "../components/integrations/QMetryIntegrationPanel.jsx";
 import { deriveJiraHeaderState } from "../utils/jiraViewUtils.js";
+import { deriveQMetryHeaderState } from "../utils/qmetryViewUtils.js";
 
-const CONNECTOR_DISPLAY_ORDER = ["github", "azure_devops", "jira"];
+const CONNECTOR_DISPLAY_ORDER = ["github", "azure_devops", "jira", "qmetry"];
 
 function sortConnectors(connectors) {
   return [...connectors].sort((a, b) => {
@@ -107,7 +110,7 @@ function deriveAzureHeaderState(status) {
 }
 
 /** Align KPI counts with SCM card badges (project OAuth), not legacy registry flags. */
-function effectiveConnectorStatus(summary, ghStatus, azStatus, jiraStatus) {
+function effectiveConnectorStatus(summary, ghStatus, azStatus, jiraStatus, qmetryStatus) {
   if (summary.connector_id === "github") {
     const st = deriveGitHubHeaderState(ghStatus);
     return { enabled: st.enabled, health: st.health };
@@ -118,6 +121,10 @@ function effectiveConnectorStatus(summary, ghStatus, azStatus, jiraStatus) {
   }
   if (summary.connector_id === "jira") {
     const st = deriveJiraHeaderState(jiraStatus);
+    return { enabled: Boolean(summary.enabled) || st.enabled, health: st.health };
+  }
+  if (summary.connector_id === "qmetry") {
+    const st = deriveQMetryHeaderState(qmetryStatus);
     return { enabled: Boolean(summary.enabled) || st.enabled, health: st.health };
   }
   return { enabled: Boolean(summary.enabled), health: summary.health || "unknown" };
@@ -1052,12 +1059,13 @@ function GitHubAppPanel({ onStatusChange }) {
 
 // ── Connector card ────────────────────────────────────────────────────────────
 
-function ConnectorCard({ summary, onAction, jiraStatus, onJiraStatusChange }) {
+function ConnectorCard({ summary, onAction, jiraStatus, onJiraStatusChange, qmetryStatus, onQMetryStatusChange }) {
   const { t, lang } = useLang();
   const { currentProject } = useProject();
   const isGitHub = summary.connector_id === "github";
   const isAzureDevOps = summary.connector_id === "azure_devops";
   const isJira = summary.connector_id === "jira";
+  const isQmetry = summary.connector_id === "qmetry";
   const isScmPanel = isGitHub || isAzureDevOps;
   const [expanded,  setExpanded]  = useState(false);
   const [detail,    setDetail]    = useState(null);
@@ -1068,6 +1076,7 @@ function ConnectorCard({ summary, onAction, jiraStatus, onJiraStatusChange }) {
   const [ghStatus,  setGhStatus]  = useState(null);
   const [azStatus,  setAzStatus]  = useState(null);
   const [jiraRefreshToken, setJiraRefreshToken] = useState(0);
+  const [qmetryRefreshToken, setQmetryRefreshToken] = useState(0);
 
   const loadGitHubHeaderStatus = useCallback(async () => {
     if (!isGitHub || !currentProject?.id) {
@@ -1149,13 +1158,20 @@ function ConnectorCard({ summary, onAction, jiraStatus, onJiraStatusChange }) {
   const ghHeader = isGitHub ? deriveGitHubHeaderState(ghStatus) : null;
   const azHeader = isAzureDevOps ? deriveAzureHeaderState(azStatus) : null;
   const jiraHeader = isJira ? deriveJiraHeaderState(jiraStatus) : null;
+  const qmetryHeader = isQmetry ? deriveQMetryHeaderState(qmetryStatus) : null;
   const scmHeader = ghHeader || azHeader;
   const health = isScmPanel
     ? scmHeader.health
-    : (isJira && jiraHeader ? jiraHeader.health : ((detail && detail.health) || summary.health));
+    : (isJira && jiraHeader
+      ? jiraHeader.health
+      : (isQmetry && qmetryHeader
+        ? qmetryHeader.health
+        : ((detail && detail.health) || summary.health)));
   const healthLabel = isScmPanel && scmHeader
     ? t(scmHeader.labelKey)
-    : (isJira && jiraHeader ? t(jiraHeader.labelKey) : undefined);
+    : (isJira && jiraHeader
+      ? t(jiraHeader.labelKey)
+      : (isQmetry && qmetryHeader ? t(qmetryHeader.labelKey) : undefined));
   const enabled = isScmPanel ? Boolean(scmHeader?.enabled) : summary.enabled;
 
   return (
@@ -1297,6 +1313,27 @@ function ConnectorCard({ summary, onAction, jiraStatus, onJiraStatusChange }) {
               />
               <JiraIntegrationPanel refreshToken={jiraRefreshToken} />
             </>
+          ) : summary.connector_id === "qmetry" ? (
+            <>
+              <ConfigForm
+                connectorId={summary.connector_id}
+                currentConfig={config}
+                onSaved={async () => {
+                  try {
+                    const st = await getIntegration(summary.connector_id);
+                    setDetail(st);
+                    setConfig(st.config_summary || null);
+                  } catch { /* best-effort */ }
+                  try {
+                    const qst = await getQMetryStatus();
+                    if (onQMetryStatusChange) onQMetryStatusChange(qst);
+                  } catch { /* best-effort */ }
+                  setQmetryRefreshToken((n) => n + 1);
+                  if (onAction) await onAction(summary.connector_id, "config");
+                }}
+              />
+              <QMetryIntegrationPanel refreshToken={qmetryRefreshToken} />
+            </>
           ) : (
             <ConfigForm
               connectorId={summary.connector_id}
@@ -1328,6 +1365,7 @@ export default function IntegrationsPage() {
   const [ghStatus,   setGhStatus]   = useState(null);
   const [azStatus,   setAzStatus]   = useState(null);
   const [jiraStatus, setJiraStatus] = useState(null);
+  const [qmetryStatus, setQmetryStatus] = useState(null);
 
   const loadJiraHeaderStatus = useCallback(async () => {
     try {
@@ -1335,6 +1373,15 @@ export default function IntegrationsPage() {
       setJiraStatus(st);
     } catch {
       setJiraStatus(null);
+    }
+  }, []);
+
+  const loadQMetryHeaderStatus = useCallback(async () => {
+    try {
+      const st = await getQMetryStatus();
+      setQmetryStatus(st);
+    } catch {
+      setQmetryStatus(null);
     }
   }, []);
 
@@ -1355,6 +1402,10 @@ export default function IntegrationsPage() {
   useEffect(() => {
     loadJiraHeaderStatus();
   }, [loadJiraHeaderStatus]);
+
+  useEffect(() => {
+    loadQMetryHeaderStatus();
+  }, [loadQMetryHeaderStatus]);
 
   useEffect(() => {
     const pid = currentProject?.id;
@@ -1389,10 +1440,13 @@ export default function IntegrationsPage() {
     if (connectorId === "jira" && (type === "toggle" || type === "health" || type === "config")) {
       await loadJiraHeaderStatus();
     }
-  }, [load, loadJiraHeaderStatus]);
+    if (connectorId === "qmetry" && (type === "toggle" || type === "health" || type === "config")) {
+      await loadQMetryHeaderStatus();
+    }
+  }, [load, loadJiraHeaderStatus, loadQMetryHeaderStatus]);
 
-  const enabledCount = connectors.filter((c) => effectiveConnectorStatus(c, ghStatus, azStatus, jiraStatus).enabled).length;
-  const healthyCount = connectors.filter((c) => effectiveConnectorStatus(c, ghStatus, azStatus, jiraStatus).health === "ok").length;
+  const enabledCount = connectors.filter((c) => effectiveConnectorStatus(c, ghStatus, azStatus, jiraStatus, qmetryStatus).enabled).length;
+  const healthyCount = connectors.filter((c) => effectiveConnectorStatus(c, ghStatus, azStatus, jiraStatus, qmetryStatus).health === "ok").length;
 
   const kpiItems = [
     { labelKey: "integrations.kpi.connectors", value: connectors.length },
@@ -1452,6 +1506,8 @@ export default function IntegrationsPage() {
           onAction={handleAction}
           jiraStatus={jiraStatus}
           onJiraStatusChange={setJiraStatus}
+          qmetryStatus={qmetryStatus}
+          onQMetryStatusChange={setQmetryStatus}
         />
       ))}
     </div>

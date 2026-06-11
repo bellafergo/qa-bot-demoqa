@@ -340,8 +340,15 @@ class TestQMetryConnector:
         assert ok is True
 
     def test_health_check_ok(self):
-        health, msg = self._connector().health_check(self._full_config())
+        from models.qmetry_models import QMetryConnectionStatus
+
+        with patch(
+            "services.qmetry_integration_service.validate_qmetry_connection",
+            return_value=QMetryConnectionStatus(connected=True, project_count=2),
+        ):
+            health, msg = self._connector().health_check(self._full_config())
         assert health == "ok"
+        assert "2 project" in msg
 
     def test_sync_test_cases_stub(self):
         result = self._connector().sync_test_cases_stub(["TC-001", "TC-002"])

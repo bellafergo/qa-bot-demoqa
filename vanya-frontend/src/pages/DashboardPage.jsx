@@ -12,6 +12,7 @@ import {
   getProjectEarlyDegradation,
   getProjectValueDashboard,
   getProjectExecutiveImpact,
+  getProjectBusinessRisk,
   getDashboardRecentRuns,
   getDashboardRecentJobs,
   getFailureIntel,
@@ -39,6 +40,8 @@ import ValueDashboardView from "../components/value-dashboard/ValueDashboardView
 import { buildValueDashboardViewModel } from "../utils/valueDashboardViewUtils.js";
 import ExecutiveImpactView from "../components/executive-impact/ExecutiveImpactView.jsx";
 import { buildExecutiveImpactViewModel } from "../utils/executiveImpactViewUtils.js";
+import BusinessRiskView from "../components/business-risk/BusinessRiskView.jsx";
+import { buildBusinessRiskViewModel } from "../utils/businessRiskViewUtils.js";
 import { buildReportDeliveryViewModel } from "../utils/reportDeliveryViewUtils.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -968,6 +971,7 @@ export default function DashboardPage() {
   const [earlyDegradation, setEarlyDegradation] = useState(null);
   const [valueDashboard, setValueDashboard] = useState(null);
   const [executiveImpact, setExecutiveImpact] = useState(null);
+  const [businessRisk, setBusinessRisk] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -984,6 +988,7 @@ export default function DashboardPage() {
     setEarlyDegradation(null);
     setValueDashboard(null);
     setExecutiveImpact(null);
+    setBusinessRisk(null);
 
     const pid = projectId;
     const summaryParams = pid ? { project_id: pid } : {};
@@ -1046,10 +1051,14 @@ export default function DashboardPage() {
       getProjectExecutiveImpact(pid)
         .then((data) => setExecutiveImpact(data))
         .catch(() => setExecutiveImpact(null));
+      getProjectBusinessRisk(pid)
+        .then((data) => setBusinessRisk(data))
+        .catch(() => setBusinessRisk(null));
     } else {
       setHasKnowledge(null);
       setValueDashboard(null);
       setExecutiveImpact(null);
+      setBusinessRisk(null);
     }
 
     getFailureIntel(pid)
@@ -1108,6 +1117,11 @@ export default function DashboardPage() {
   const executiveImpactVm = useMemo(
     () => buildExecutiveImpactViewModel(executiveImpact, t),
     [executiveImpact, t],
+  );
+
+  const businessRiskVm = useMemo(
+    () => buildBusinessRiskViewModel(businessRisk, t),
+    [businessRisk, t],
   );
 
   const reportDeliveryVm = useMemo(
@@ -1398,6 +1412,18 @@ export default function DashboardPage() {
             <ExecutiveImpactView vm={executiveImpactVm} />
             <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
               {executiveImpactVm.readOnlyNote}
+            </p>
+          </div>
+        ) : null}
+
+        {projectId && businessRiskVm.show ? (
+          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
+              {businessRiskVm.title}
+            </div>
+            <BusinessRiskView vm={businessRiskVm} />
+            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+              {businessRiskVm.readOnlyNote}
             </p>
           </div>
         ) : null}

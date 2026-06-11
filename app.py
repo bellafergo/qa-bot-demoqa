@@ -49,6 +49,7 @@ from api.routes.execution_routes import router as execution_router
 from api.routes.failure_intelligence_routes import router as failure_intelligence_router
 from api.routes.integrations_routes import router as integrations_router
 from api.routes.jira_integration_routes import router as jira_integration_router
+from api.routes.qmetry_integration_routes import router as qmetry_integration_router
 from api.routes.app_explorer_routes import router as app_explorer_router
 from api.routes.browser_inspector_routes import router as browser_inspector_router
 from api.routes.browser_inspection_history_routes import router as browser_inspection_history_router
@@ -74,6 +75,7 @@ from api.routes.incident_project_routes import router as incident_project_router
 from api.routes.release_readiness_routes import router as release_readiness_router
 from api.routes.value_dashboard_routes import router as value_dashboard_router
 from api.routes.executive_impact_routes import router as executive_impact_router
+from api.routes.business_risk_estimation_routes import router as business_risk_estimation_router
 from api.routes.report_delivery_routes import router as report_delivery_router
 from api.routes.security_routes import router as security_router
 from api.routes.project_routes import router as project_router
@@ -477,6 +479,7 @@ app.include_router(api_testing_router)      # POST /api-testing/parse-spec, /gen
 app.include_router(execution_router)        # GET /execution/health|status, POST /execution/run-batch|retry-failed
 app.include_router(failure_intelligence_router)  # GET /failure-intelligence/summary|clusters|flaky-tests|regressions
 app.include_router(jira_integration_router)      # GET /integrations/jira/* (read-only discovery)
+app.include_router(qmetry_integration_router)    # GET /integrations/qmetry/* (read-only discovery)
 app.include_router(integrations_router)          # GET|POST /integrations, /integrations/{id}/health-check|enable|disable|config|actions
 app.include_router(app_explorer_router)          # GET /app-explorer/health, POST /app-explorer/explore
 app.include_router(browser_inspector_router)     # POST /inspect-url
@@ -505,6 +508,7 @@ app.include_router(incident_project_router)   # POST /projects/{id}/incidents/in
 app.include_router(release_readiness_router)   # GET /projects/{id}/release-readiness
 app.include_router(value_dashboard_router)     # GET /projects/{id}/value-dashboard
 app.include_router(executive_impact_router)    # GET /projects/{id}/executive-impact
+app.include_router(business_risk_estimation_router)  # GET /projects/{id}/business-risk
 app.include_router(report_delivery_router)     # POST /projects/{id}/reports/preview|send
 app.include_router(security_router)            # GET /security/readiness, /security/providers
 app.include_router(project_knowledge_router)    # GET|POST /projects/{id}/knowledge

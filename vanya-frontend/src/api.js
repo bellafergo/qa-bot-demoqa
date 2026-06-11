@@ -353,6 +353,11 @@ export function getProjectExecutiveImpact(projectId) {
   return apiGet(`/projects/${encodeURIComponent(pid)}/executive-impact`);
 }
 
+export function getProjectBusinessRisk(projectId) {
+  const pid = String(projectId || "").trim();
+  return apiGet(`/projects/${encodeURIComponent(pid)}/business-risk`);
+}
+
 export function previewReportDelivery(projectId, body) {
   const pid = String(projectId || "").trim();
   return apiPost(`/projects/${encodeURIComponent(pid)}/reports/preview`, body);
@@ -674,6 +679,38 @@ export const getJiraIssueIntelligence   = (params = {}) => {
   if (params.project_key) qs.set("project_key", params.project_key);
   const q = qs.toString();
   return apiGet(`/integrations/jira/intelligence${q ? `?${q}` : ""}`);
+};
+
+// ========= QMetry (read-only discovery, QMETRY-01A) =========
+export const getQMetryStatus            = ()          => apiGet("/integrations/qmetry/status");
+export const listQMetryProjects         = ()          => apiGet("/integrations/qmetry/projects");
+export const listQMetryTestCases        = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.project_key) qs.set("project_key", params.project_key);
+  if (params.max_results != null) qs.set("max_results", String(params.max_results));
+  const q = qs.toString();
+  return apiGet(`/integrations/qmetry/test-cases${q ? `?${q}` : ""}`);
+};
+export const listQMetryTestCycles       = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.project_key) qs.set("project_key", params.project_key);
+  if (params.max_results != null) qs.set("max_results", String(params.max_results));
+  const q = qs.toString();
+  return apiGet(`/integrations/qmetry/test-cycles${q ? `?${q}` : ""}`);
+};
+export const listQMetryTestSuites       = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.project_key) qs.set("project_key", params.project_key);
+  if (params.max_results != null) qs.set("max_results", String(params.max_results));
+  const q = qs.toString();
+  return apiGet(`/integrations/qmetry/test-suites${q ? `?${q}` : ""}`);
+};
+export const listQMetryTestRuns         = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.project_key) qs.set("project_key", params.project_key);
+  if (params.max_results != null) qs.set("max_results", String(params.max_results));
+  const q = qs.toString();
+  return apiGet(`/integrations/qmetry/test-runs${q ? `?${q}` : ""}`);
 };
 
 // ========= Projects (multi-project catalog scope) =========
