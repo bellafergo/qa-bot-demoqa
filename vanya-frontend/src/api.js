@@ -745,6 +745,33 @@ export const getQMetryCoverage          = (params = {}) => {
   const q = qs.toString();
   return apiGet(`/integrations/qmetry/coverage${q ? `?${q}` : ""}`);
 };
+
+// ========= ServiceNow (read-only discovery, SNOW-01A) =========
+export const getServiceNowStatus        = () => apiGet("/integrations/servicenow/status");
+export const listServiceNowIncidents    = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.limit != null) qs.set("limit", String(params.limit));
+  const q = qs.toString();
+  return apiGet(`/integrations/servicenow/incidents${q ? `?${q}` : ""}`);
+};
+export const listServiceNowChanges      = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.limit != null) qs.set("limit", String(params.limit));
+  const q = qs.toString();
+  return apiGet(`/integrations/servicenow/changes${q ? `?${q}` : ""}`);
+};
+export const listServiceNowServices     = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.limit != null) qs.set("limit", String(params.limit));
+  const q = qs.toString();
+  return apiGet(`/integrations/servicenow/services${q ? `?${q}` : ""}`);
+};
+export const listServiceNowCMDB         = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.limit != null) qs.set("limit", String(params.limit));
+  const q = qs.toString();
+  return apiGet(`/integrations/servicenow/cmdb${q ? `?${q}` : ""}`);
+};
 export const getQMetryRecommendations   = (params = {}) => {
   const qs = new URLSearchParams();
   if (params.project_id) qs.set("project_id", params.project_id);
