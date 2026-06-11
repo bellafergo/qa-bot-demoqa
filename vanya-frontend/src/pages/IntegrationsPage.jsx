@@ -23,15 +23,18 @@ import {
   selectProjectAzureDevOpsTarget,
   getJiraStatus,
   getQMetryStatus,
+  getServiceNowStatus,
 } from "../api";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
 import JiraIntegrationPanel from "../components/integrations/JiraIntegrationPanel.jsx";
 import QMetryIntegrationPanel from "../components/integrations/QMetryIntegrationPanel.jsx";
+import ServiceNowIntegrationPanel from "../components/integrations/ServiceNowIntegrationPanel.jsx";
 import { deriveJiraHeaderState } from "../utils/jiraViewUtils.js";
 import { deriveQMetryHeaderState } from "../utils/qmetryViewUtils.js";
+import { deriveServiceNowHeaderState } from "../utils/servicenowViewUtils.js";
 
-const CONNECTOR_DISPLAY_ORDER = ["github", "azure_devops", "jira", "qmetry"];
+const CONNECTOR_DISPLAY_ORDER = ["github", "azure_devops", "jira", "qmetry", "servicenow"];
 
 function sortConnectors(connectors) {
   return [...connectors].sort((a, b) => {
@@ -67,6 +70,7 @@ const CONNECTOR_ICONS = {
   azure_devops: "⬡",
   slack:        "✦",
   qmetry:       "⊞",
+  servicenow:   "⬢",
 };
 
 function HealthBadge({ health, labelOverride }) {
@@ -110,7 +114,7 @@ function deriveAzureHeaderState(status) {
 }
 
 /** Align KPI counts with SCM card badges (project OAuth), not legacy registry flags. */
-function effectiveConnectorStatus(summary, ghStatus, azStatus, jiraStatus, qmetryStatus) {
+function effectiveConnectorStatus(summary, ghStatus, azStatus, jiraStatus, qmetryStatus, servicenowStatus) {
   if (summary.connector_id === "github") {
     const st = deriveGitHubHeaderState(ghStatus);
     return { enabled: st.enabled, health: st.health };
@@ -125,6 +129,10 @@ function effectiveConnectorStatus(summary, ghStatus, azStatus, jiraStatus, qmetr
   }
   if (summary.connector_id === "qmetry") {
     const st = deriveQMetryHeaderState(qmetryStatus);
+    return { enabled: Boolean(summary.enabled) || st.enabled, health: st.health };
+  }
+  if (summary.connector_id === "servicenow") {
+    const st = deriveServiceNowHeaderState(servicenowStatus);
     return { enabled: Boolean(summary.enabled) || st.enabled, health: st.health };
   }
   return { enabled: Boolean(summary.enabled), health: summary.health || "unknown" };
@@ -186,6 +194,11 @@ const CONFIG_FIELDS = {
     { key: "project_key",label: "Project Key",  placeholder: "QA",                          type: "text" },
     { key: "api_key",    label: "API Key",       placeholder: "QMetry API key",              type: "password", secret: true },
   ],
+  servicenow: [
+    { key: "base_url",   label: "Instance URL", placeholder: "https://yourinstance.service-now.com", type: "text" },
+    { key: "workspace",  label: "Username",     placeholder: "integration.user",                    type: "text" },
+    { key: "token",      label: "Password",     placeholder: "ServiceNow password",                 type: "password", secret: true },
+  ],
 };
 
 function ConfigForm({ connectorId, currentConfig, onSaved }) {
@@ -206,6 +219,7 @@ function ConfigForm({ connectorId, currentConfig, onSaved }) {
     const payload = {};
     fields.forEach(f => { if (values[f.key]) payload[f.key] = values[f.key]; });
     if (connectorId === "slack") payload.auth_type = "token";
+    if (connectorId === "servicenow") payload.auth_type = "basic";
     return payload;
   };
 
@@ -1059,13 +1073,14 @@ function GitHubAppPanel({ onStatusChange }) {
 
 // ── Connector card ────────────────────────────────────────────────────────────
 
-function ConnectorCard({ summary, onAction, jiraStatus, onJiraStatusChange, qmetryStatus, onQMetryStatusChange }) {
+function ConnectorCard({ summary, onAction, jiraStatus, onJiraStatusChange, qmetryStatus, onQMetryStatusChange, servicenowStatus, onServiceNowStatusChange }) {
   const { t, lang } = useLang();
   const { currentProject } = useProject();
   const isGitHub = summary.connector_id === "github";
   const isAzureDevOps = summary.connector_id === "azure_devops";
   const isJira = summary.connector_id === "jira";
   const isQmetry = summary.connector_id === "qmetry";
+  const isServiceNow = summary.connector_id === "servicenow";
   const isScmPanel = isGitHub || isAzureDevOps;
   const [expanded,  setExpanded]  = useState(false);
   const [detail,    setDetail]    = useState(null);
@@ -1077,6 +1092,7 @@ function ConnectorCard({ summary, onAction, jiraStatus, onJiraStatusChange, qmet
   const [azStatus,  setAzStatus]  = useState(null);
   const [jiraRefreshToken, setJiraRefreshToken] = useState(0);
   const [qmetryRefreshToken, setQmetryRefreshToken] = useState(0);
+  const [servicenowRefreshToken, setServicenowRefreshToken] = useState(0);
 
   const loadGitHubHeaderStatus = useCallback(async () => {
     if (!isGitHub || !currentProject?.id) {
@@ -1159,6 +1175,7 @@ function ConnectorCard({ summary, onAction, jiraStatus, onJiraStatusChange, qmet
   const azHeader = isAzureDevOps ? deriveAzureHeaderState(azStatus) : null;
   const jiraHeader = isJira ? deriveJiraHeaderState(jiraStatus) : null;
   const qmetryHeader = isQmetry ? deriveQMetryHeaderState(qmetryStatus) : null;
+  const servicenowHeader = isServiceNow ? deriveServiceNowHeaderState(servicenowStatus) : null;
   const scmHeader = ghHeader || azHeader;
   const health = isScmPanel
     ? scmHeader.health
@@ -1166,12 +1183,16 @@ function ConnectorCard({ summary, onAction, jiraStatus, onJiraStatusChange, qmet
       ? jiraHeader.health
       : (isQmetry && qmetryHeader
         ? qmetryHeader.health
-        : ((detail && detail.health) || summary.health)));
+        : (isServiceNow && servicenowHeader
+          ? servicenowHeader.health
+          : ((detail && detail.health) || summary.health))));
   const healthLabel = isScmPanel && scmHeader
     ? t(scmHeader.labelKey)
     : (isJira && jiraHeader
       ? t(jiraHeader.labelKey)
-      : (isQmetry && qmetryHeader ? t(qmetryHeader.labelKey) : undefined));
+      : (isQmetry && qmetryHeader
+        ? t(qmetryHeader.labelKey)
+        : (isServiceNow && servicenowHeader ? t(servicenowHeader.labelKey) : undefined)));
   const enabled = isScmPanel ? Boolean(scmHeader?.enabled) : summary.enabled;
 
   return (
@@ -1334,6 +1355,27 @@ function ConnectorCard({ summary, onAction, jiraStatus, onJiraStatusChange, qmet
               />
               <QMetryIntegrationPanel refreshToken={qmetryRefreshToken} />
             </>
+          ) : summary.connector_id === "servicenow" ? (
+            <>
+              <ConfigForm
+                connectorId={summary.connector_id}
+                currentConfig={config}
+                onSaved={async () => {
+                  try {
+                    const st = await getIntegration(summary.connector_id);
+                    setDetail(st);
+                    setConfig(st.config_summary || null);
+                  } catch { /* best-effort */ }
+                  try {
+                    const snst = await getServiceNowStatus();
+                    if (onServiceNowStatusChange) onServiceNowStatusChange(snst);
+                  } catch { /* best-effort */ }
+                  setServicenowRefreshToken((n) => n + 1);
+                  if (onAction) await onAction(summary.connector_id, "config");
+                }}
+              />
+              <ServiceNowIntegrationPanel refreshToken={servicenowRefreshToken} />
+            </>
           ) : (
             <ConfigForm
               connectorId={summary.connector_id}
@@ -1366,6 +1408,7 @@ export default function IntegrationsPage() {
   const [azStatus,   setAzStatus]   = useState(null);
   const [jiraStatus, setJiraStatus] = useState(null);
   const [qmetryStatus, setQmetryStatus] = useState(null);
+  const [servicenowStatus, setServicenowStatus] = useState(null);
 
   const loadJiraHeaderStatus = useCallback(async () => {
     try {
@@ -1382,6 +1425,15 @@ export default function IntegrationsPage() {
       setQmetryStatus(st);
     } catch {
       setQmetryStatus(null);
+    }
+  }, []);
+
+  const loadServiceNowHeaderStatus = useCallback(async () => {
+    try {
+      const st = await getServiceNowStatus();
+      setServicenowStatus(st);
+    } catch {
+      setServicenowStatus(null);
     }
   }, []);
 
@@ -1406,6 +1458,10 @@ export default function IntegrationsPage() {
   useEffect(() => {
     loadQMetryHeaderStatus();
   }, [loadQMetryHeaderStatus]);
+
+  useEffect(() => {
+    loadServiceNowHeaderStatus();
+  }, [loadServiceNowHeaderStatus]);
 
   useEffect(() => {
     const pid = currentProject?.id;
@@ -1443,10 +1499,13 @@ export default function IntegrationsPage() {
     if (connectorId === "qmetry" && (type === "toggle" || type === "health" || type === "config")) {
       await loadQMetryHeaderStatus();
     }
-  }, [load, loadJiraHeaderStatus, loadQMetryHeaderStatus]);
+    if (connectorId === "servicenow" && (type === "toggle" || type === "health" || type === "config")) {
+      await loadServiceNowHeaderStatus();
+    }
+  }, [load, loadJiraHeaderStatus, loadQMetryHeaderStatus, loadServiceNowHeaderStatus]);
 
-  const enabledCount = connectors.filter((c) => effectiveConnectorStatus(c, ghStatus, azStatus, jiraStatus, qmetryStatus).enabled).length;
-  const healthyCount = connectors.filter((c) => effectiveConnectorStatus(c, ghStatus, azStatus, jiraStatus, qmetryStatus).health === "ok").length;
+  const enabledCount = connectors.filter((c) => effectiveConnectorStatus(c, ghStatus, azStatus, jiraStatus, qmetryStatus, servicenowStatus).enabled).length;
+  const healthyCount = connectors.filter((c) => effectiveConnectorStatus(c, ghStatus, azStatus, jiraStatus, qmetryStatus, servicenowStatus).health === "ok").length;
 
   const kpiItems = [
     { labelKey: "integrations.kpi.connectors", value: connectors.length },
@@ -1508,6 +1567,8 @@ export default function IntegrationsPage() {
           onJiraStatusChange={setJiraStatus}
           qmetryStatus={qmetryStatus}
           onQMetryStatusChange={setQmetryStatus}
+          servicenowStatus={servicenowStatus}
+          onServiceNowStatusChange={setServicenowStatus}
         />
       ))}
     </div>
