@@ -38,7 +38,7 @@ class ServiceNowConnector(BaseConnector):
         if status.connected:
             return "ok", f"ServiceNow connected at {status.instance_url}"
         if config.base_url:
-            return "unreachable", "ServiceNow configured but connection could not be validated"
+            return "degraded", "ServiceNow configured but connection could not be validated"
         return "unconfigured", msg
 
     def get_status(self, config: ConnectorConfig) -> ConnectorStatus:
@@ -51,10 +51,10 @@ class ServiceNowConnector(BaseConnector):
             last_check_at=datetime.now(timezone.utc),
             last_check_message=msg,
             config_summary={
-                "instance_url": config.base_url,
-                "username": config.workspace,
+                "base_url":      config.base_url,
+                "workspace":     config.workspace,
                 "token_present": config.token_present,
-                "auth_type": config.auth_type,
+                "auth_type":     config.auth_type,
             },
         )
 

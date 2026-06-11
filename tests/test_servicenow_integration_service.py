@@ -89,7 +89,6 @@ class TestConnectionValidation:
 
         assert status.connected is True
         assert status.instance_url == "https://acme.service-now.com"
-        assert status.username == "integration.user"
         assert status.incident_count == 42
         assert status.change_count == 7
         assert status.service_count == 5
@@ -106,7 +105,41 @@ class TestConnectionValidation:
 
         assert status.connected is False
         assert status.instance_url == "https://acme.service-now.com"
-        assert status.username == "integration.user"
+
+
+class TestConnectorHealth:
+    def test_health_check_degraded_when_validation_fails(self, integration_svc):
+        from connectors.servicenow_connector import ServiceNowConnector
+
+        _enable_servicenow(integration_svc)
+        cfg = integration_svc.get_config("servicenow")
+        with patch.object(svc, "integration_service", integration_svc), patch(
+            "services.servicenow_integration_service.validate_connection",
+            side_effect=ServiceNowAPIError("invalid", status_code=401, code="invalid_credentials"),
+        ):
+            health, _msg = ServiceNowConnector().health_check(cfg)
+        assert health == "degraded"
+
+    def test_config_summary_uses_framework_keys(self, integration_svc):
+        from connectors.servicenow_connector import ServiceNowConnector
+
+        _enable_servicenow(integration_svc)
+        cfg = integration_svc.get_config("servicenow")
+        with patch.object(svc, "integration_service", integration_svc), patch(
+            "services.servicenow_integration_service.validate_connection",
+            return_value={"result": []},
+        ), patch(
+            "services.servicenow_integration_service.count_table",
+            side_effect=[0, 0, 0, 0],
+        ):
+            summary = ServiceNowConnector().get_status(cfg).config_summary
+
+        assert summary == {
+            "base_url": "https://acme.service-now.com",
+            "workspace": "integration.user",
+            "token_present": True,
+            "auth_type": "basic",
+        }
 
 
 class TestDiscovery:

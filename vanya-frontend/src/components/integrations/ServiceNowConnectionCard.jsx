@@ -28,10 +28,6 @@ export default function ServiceNowConnectionCard({ vm }) {
               <span style={{ color: "var(--text-3)" }}>{vm.instanceUrlLabel}</span>
               <span style={{ fontFamily: "monospace", fontSize: 12 }}>{vm.instanceUrl}</span>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-              <span style={{ color: "var(--text-3)" }}>{vm.usernameLabel}</span>
-              <span style={{ fontSize: 12 }}>{vm.username}</span>
-            </div>
             {vm.lastSync ? (
               <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
                 <span style={{ color: "var(--text-3)" }}>{vm.lastSyncLabel}</span>

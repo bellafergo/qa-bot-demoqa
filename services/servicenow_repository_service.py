@@ -147,11 +147,3 @@ def list_table(
     payload = res.json() if res.content else {}
     rows = payload.get("result") if isinstance(payload, dict) else []
     return rows if isinstance(rows, list) else []
-
-
-def _field_value(raw: Any) -> str:
-    if raw is None:
-        return ""
-    if isinstance(raw, dict):
-        return str(raw.get("display_value") or raw.get("value") or "").strip()
-    return str(raw).strip()
