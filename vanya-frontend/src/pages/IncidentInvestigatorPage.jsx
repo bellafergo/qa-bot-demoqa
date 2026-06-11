@@ -60,8 +60,10 @@ import EarlyDegradationReportView from "../components/incident/EarlyDegradationR
 import MultiEnvironmentIntelligenceView from "../components/incident/MultiEnvironmentIntelligenceView.jsx";
 import ReleaseReadinessView from "../components/release-readiness/ReleaseReadinessView.jsx";
 import JiraIssueIntelligenceView from "../components/incident/JiraIssueIntelligenceView.jsx";
+import CoverageIntelligenceView from "../components/coverage-intelligence/CoverageIntelligenceView.jsx";
 import { buildReleaseReadinessViewModel } from "../utils/releaseReadinessViewUtils.js";
 import { buildJiraIssueIntelligenceViewModel } from "../utils/jiraIssueIntelligenceViewUtils.js";
+import { buildCoverageIntelligenceViewModel } from "../utils/qmetryCoverageViewUtils.js";
 
 function fmtTs(iso) {
   if (!iso) return "—";
@@ -165,6 +167,7 @@ function QaInvestigationReport({ report, t }) {
   const recommendedActionsVm = buildRecommendedActionsViewModel(report, t);
   const releaseReadinessVm = buildReleaseReadinessViewModel(report, t);
   const jiraIssueIntelligenceVm = buildJiraIssueIntelligenceViewModel(report, t);
+  const coverageIntelligenceVm = buildCoverageIntelligenceViewModel(report, t);
   const approvalWorkflowVm = buildApprovalWorkflowViewModel(report, t);
   const es = report.evidence_strength;
   const temporal = report.temporal_correlation;
@@ -1101,6 +1104,18 @@ function QaInvestigationReport({ report, t }) {
             {jiraIssueIntelligenceVm.title}
           </div>
           <JiraIssueIntelligenceView vm={jiraIssueIntelligenceVm} />
+        </div>
+      ) : null}
+
+      {coverageIntelligenceVm.show ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {coverageIntelligenceVm.title}
+          </div>
+          <CoverageIntelligenceView vm={coverageIntelligenceVm} />
+          <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+            {coverageIntelligenceVm.readOnlyNote}
+          </p>
         </div>
       ) : null}
 

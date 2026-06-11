@@ -13,6 +13,7 @@ import {
   getProjectValueDashboard,
   getProjectExecutiveImpact,
   getProjectBusinessRisk,
+  getQMetryCoverage,
   getDashboardRecentRuns,
   getDashboardRecentJobs,
   getFailureIntel,
@@ -42,6 +43,8 @@ import ExecutiveImpactView from "../components/executive-impact/ExecutiveImpactV
 import { buildExecutiveImpactViewModel } from "../utils/executiveImpactViewUtils.js";
 import BusinessRiskView from "../components/business-risk/BusinessRiskView.jsx";
 import { buildBusinessRiskViewModel } from "../utils/businessRiskViewUtils.js";
+import CoverageIntelligenceView from "../components/coverage-intelligence/CoverageIntelligenceView.jsx";
+import { buildCoverageOverviewViewModel } from "../utils/qmetryCoverageViewUtils.js";
 import { buildReportDeliveryViewModel } from "../utils/reportDeliveryViewUtils.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -972,6 +975,7 @@ export default function DashboardPage() {
   const [valueDashboard, setValueDashboard] = useState(null);
   const [executiveImpact, setExecutiveImpact] = useState(null);
   const [businessRisk, setBusinessRisk] = useState(null);
+  const [coverageOverview, setCoverageOverview] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1054,11 +1058,15 @@ export default function DashboardPage() {
       getProjectBusinessRisk(pid)
         .then((data) => setBusinessRisk(data))
         .catch(() => setBusinessRisk(null));
+      getQMetryCoverage({ project_id: pid })
+        .then((data) => setCoverageOverview(data))
+        .catch(() => setCoverageOverview(null));
     } else {
       setHasKnowledge(null);
       setValueDashboard(null);
       setExecutiveImpact(null);
       setBusinessRisk(null);
+      setCoverageOverview(null);
     }
 
     getFailureIntel(pid)
@@ -1122,6 +1130,11 @@ export default function DashboardPage() {
   const businessRiskVm = useMemo(
     () => buildBusinessRiskViewModel(businessRisk, t),
     [businessRisk, t],
+  );
+
+  const coverageOverviewVm = useMemo(
+    () => buildCoverageOverviewViewModel(coverageOverview, t),
+    [coverageOverview, t],
   );
 
   const reportDeliveryVm = useMemo(
@@ -1424,6 +1437,18 @@ export default function DashboardPage() {
             <BusinessRiskView vm={businessRiskVm} />
             <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
               {businessRiskVm.readOnlyNote}
+            </p>
+          </div>
+        ) : null}
+
+        {projectId && coverageOverviewVm.show ? (
+          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
+              {coverageOverviewVm.title}
+            </div>
+            <CoverageIntelligenceView vm={coverageOverviewVm} />
+            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+              {coverageOverviewVm.readOnlyNote}
             </p>
           </div>
         ) : null}
