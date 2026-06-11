@@ -353,6 +353,11 @@ export function getProjectExecutiveImpact(projectId) {
   return apiGet(`/projects/${encodeURIComponent(pid)}/executive-impact`);
 }
 
+export function getProjectOutcomes(projectId) {
+  const pid = String(projectId || "").trim();
+  return apiGet(`/projects/${encodeURIComponent(pid)}/outcomes`);
+}
+
 export function getProjectBusinessRisk(projectId) {
   const pid = String(projectId || "").trim();
   return apiGet(`/projects/${encodeURIComponent(pid)}/business-risk`);

@@ -12,6 +12,7 @@ import {
   getProjectEarlyDegradation,
   getProjectValueDashboard,
   getProjectExecutiveImpact,
+  getProjectOutcomes,
   getProjectBusinessRisk,
   getQMetryCoverage,
   getQMetryRecommendations,
@@ -42,6 +43,8 @@ import ValueDashboardView from "../components/value-dashboard/ValueDashboardView
 import { buildValueDashboardViewModel } from "../utils/valueDashboardViewUtils.js";
 import ExecutiveImpactView from "../components/executive-impact/ExecutiveImpactView.jsx";
 import { buildExecutiveImpactViewModel } from "../utils/executiveImpactViewUtils.js";
+import OutcomeTrackingView from "../components/outcome-tracking/OutcomeTrackingView.jsx";
+import { buildOutcomeTrackingViewModel } from "../utils/outcomeTrackingViewUtils.js";
 import BusinessRiskView from "../components/business-risk/BusinessRiskView.jsx";
 import { buildBusinessRiskViewModel } from "../utils/businessRiskViewUtils.js";
 import CoverageIntelligenceView from "../components/coverage-intelligence/CoverageIntelligenceView.jsx";
@@ -977,6 +980,7 @@ export default function DashboardPage() {
   const [earlyDegradation, setEarlyDegradation] = useState(null);
   const [valueDashboard, setValueDashboard] = useState(null);
   const [executiveImpact, setExecutiveImpact] = useState(null);
+  const [outcomeTracking, setOutcomeTracking] = useState(null);
   const [businessRisk, setBusinessRisk] = useState(null);
   const [coverageOverview, setCoverageOverview] = useState(null);
   const [recommendedTests, setRecommendedTests] = useState(null);
@@ -996,6 +1000,7 @@ export default function DashboardPage() {
     setEarlyDegradation(null);
     setValueDashboard(null);
     setExecutiveImpact(null);
+    setOutcomeTracking(null);
     setBusinessRisk(null);
 
     const pid = projectId;
@@ -1059,6 +1064,9 @@ export default function DashboardPage() {
       getProjectExecutiveImpact(pid)
         .then((data) => setExecutiveImpact(data))
         .catch(() => setExecutiveImpact(null));
+      getProjectOutcomes(pid)
+        .then((data) => setOutcomeTracking(data))
+        .catch(() => setOutcomeTracking(null));
       getProjectBusinessRisk(pid)
         .then((data) => setBusinessRisk(data))
         .catch(() => setBusinessRisk(null));
@@ -1072,6 +1080,7 @@ export default function DashboardPage() {
       setHasKnowledge(null);
       setValueDashboard(null);
       setExecutiveImpact(null);
+      setOutcomeTracking(null);
       setBusinessRisk(null);
       setCoverageOverview(null);
       setRecommendedTests(null);
@@ -1133,6 +1142,11 @@ export default function DashboardPage() {
   const executiveImpactVm = useMemo(
     () => buildExecutiveImpactViewModel(executiveImpact, t),
     [executiveImpact, t],
+  );
+
+  const outcomeTrackingVm = useMemo(
+    () => buildOutcomeTrackingViewModel(outcomeTracking, t),
+    [outcomeTracking, t],
   );
 
   const businessRiskVm = useMemo(
@@ -1438,6 +1452,18 @@ export default function DashboardPage() {
             <ExecutiveImpactView vm={executiveImpactVm} />
             <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
               {executiveImpactVm.readOnlyNote}
+            </p>
+          </div>
+        ) : null}
+
+        {projectId && outcomeTrackingVm.show ? (
+          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
+              {outcomeTrackingVm.title}
+            </div>
+            <OutcomeTrackingView vm={outcomeTrackingVm} />
+            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+              {outcomeTrackingVm.readOnlyNote}
             </p>
           </div>
         ) : null}

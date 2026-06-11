@@ -658,6 +658,16 @@ export const translations = {
     "executive_impact.direction.degrading": "Degrading",
     "executive_impact.direction.unknown": "Unknown",
 
+    "outcome_tracking.title": "Outcomes",
+    "outcome_tracking.empty": "No measurable outcomes available.",
+    "outcome_tracking.read_only_note": "Read-only outcome metrics from historical platform data — no automation or execution.",
+    "outcome_tracking.executive_summary": "Executive Summary",
+    "outcome_tracking.blockers_identified": "Blockers Identified",
+    "outcome_tracking.releases_blocked": "Releases Blocked",
+    "outcome_tracking.recommendations_generated": "Recommendations Generated",
+    "outcome_tracking.incidents_investigated": "Incidents Investigated",
+    "outcome_tracking.reports_delivered": "Reports Delivered",
+
     "business_risk_overview.title": "Business Risk Overview",
     "business_risk_overview.empty": "No business risks identified from current intelligence.",
     "business_risk_overview.insufficient_intelligence": "Insufficient intelligence available to assess business risk.",
@@ -3443,6 +3453,16 @@ export const translations = {
     "executive_impact.direction.stable": "Estable",
     "executive_impact.direction.degrading": "Degradando",
     "executive_impact.direction.unknown": "Desconocido",
+
+    "outcome_tracking.title": "Resultados",
+    "outcome_tracking.empty": "No hay resultados medibles disponibles.",
+    "outcome_tracking.read_only_note": "Métricas de resultados de solo lectura desde datos históricos de la plataforma — sin automatización ni ejecución.",
+    "outcome_tracking.executive_summary": "Resumen Ejecutivo",
+    "outcome_tracking.blockers_identified": "Bloqueadores Identificados",
+    "outcome_tracking.releases_blocked": "Releases Bloqueados",
+    "outcome_tracking.recommendations_generated": "Recomendaciones Generadas",
+    "outcome_tracking.incidents_investigated": "Incidentes Investigados",
+    "outcome_tracking.reports_delivered": "Reportes Entregados",
 
     "business_risk_overview.title": "Resumen de Riesgo de Negocio",
     "business_risk_overview.empty": "No se identificaron riesgos de negocio en la inteligencia actual.",

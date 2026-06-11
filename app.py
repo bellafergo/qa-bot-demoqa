@@ -75,6 +75,7 @@ from api.routes.incident_project_routes import router as incident_project_router
 from api.routes.release_readiness_routes import router as release_readiness_router
 from api.routes.value_dashboard_routes import router as value_dashboard_router
 from api.routes.executive_impact_routes import router as executive_impact_router
+from api.routes.outcome_tracking_routes import router as outcome_tracking_router
 from api.routes.business_risk_estimation_routes import router as business_risk_estimation_router
 from api.routes.report_delivery_routes import router as report_delivery_router
 from api.routes.security_routes import router as security_router
@@ -509,6 +510,7 @@ app.include_router(incident_project_router)   # POST /projects/{id}/incidents/in
 app.include_router(release_readiness_router)   # GET /projects/{id}/release-readiness
 app.include_router(value_dashboard_router)     # GET /projects/{id}/value-dashboard
 app.include_router(executive_impact_router)    # GET /projects/{id}/executive-impact
+app.include_router(outcome_tracking_router)    # GET /projects/{id}/outcomes
 app.include_router(business_risk_estimation_router)  # GET /projects/{id}/business-risk
 app.include_router(report_delivery_router)     # POST /projects/{id}/reports/preview|send
 app.include_router(security_router)            # GET /security/readiness, /security/providers
