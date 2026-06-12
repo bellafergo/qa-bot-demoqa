@@ -372,6 +372,10 @@ export function getSecurityReadiness() {
   return apiGet("/security/readiness");
 }
 
+export function getPlatformObservability() {
+  return apiGet("/platform/observability");
+}
+
 export function getSecurityProviders(enabledOnly = true) {
   const q = enabledOnly ? "?enabled_only=true" : "?enabled_only=false";
   return apiGet(`/security/providers${q}`);
