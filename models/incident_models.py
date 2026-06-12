@@ -675,6 +675,7 @@ class ProjectIncidentInvestigationReport(BaseModel):
     early_degradation: Optional[EarlyDegradationReport] = None
     release_readiness: Optional["ReleaseReadinessView"] = None
     jira_issue_intelligence: Optional["JiraIssueIntelligenceReport"] = None
+    servicenow_intelligence: Optional["ServiceNowIntelligenceReport"] = None
     coverage_intelligence: Optional["CoverageIntelligenceReport"] = None
     qmetry_recommendation_report: Optional["QMetryRecommendationReport"] = None
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
@@ -740,6 +741,7 @@ class ProjectIncidentInvestigationListResponse(BaseModel):
 
 def _resolve_forward_refs() -> None:
     from models.jira_issue_intelligence_models import JiraIssueIntelligenceReport
+    from models.servicenow_intelligence_models import ServiceNowIntelligenceReport
     from models.qmetry_coverage_models import CoverageIntelligenceReport
     from models.qmetry_recommendation_models import QMetryRecommendationReport
     from models.release_readiness_models import ReleaseReadinessView
@@ -753,6 +755,7 @@ def _resolve_forward_refs() -> None:
         "EnterpriseDependencyMap": EnterpriseDependencyMap,
         "ExecutiveQualityReport": ExecutiveQualityReport,
         "JiraIssueIntelligenceReport": JiraIssueIntelligenceReport,
+        "ServiceNowIntelligenceReport": ServiceNowIntelligenceReport,
         "CoverageIntelligenceReport": CoverageIntelligenceReport,
         "QMetryRecommendationReport": QMetryRecommendationReport,
         "MultiEnvironmentReport": MultiEnvironmentReport,

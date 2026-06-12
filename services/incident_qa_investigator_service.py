@@ -1130,6 +1130,42 @@ def investigate_project_incident(
         from services.qmetry_coverage_intelligence_service import build_coverage_intelligence_report
 
         business_risk = build_business_risk_report(project_id=pid)
+    except Exception as e:
+        logger.debug("incident_qa: business risk failed project_id=%s: %s", pid, e)
+
+    try:
+        from services.servicenow_intelligence_service import (
+            build_servicenow_intelligence_report,
+            enrich_executive_quality_top_risks_with_servicenow,
+        )
+
+        report.servicenow_intelligence = build_servicenow_intelligence_report(
+            project_id=pid,
+            incident_report=report,
+            release_readiness=report.release_readiness,
+            business_risk_report=business_risk,
+            jira_intel=report.jira_issue_intelligence,
+        )
+        enrich_executive_quality_top_risks_with_servicenow(
+            report.executive_quality_report,
+            report.servicenow_intelligence,
+        )
+    except Exception as e:
+        logger.debug("incident_qa: servicenow intelligence failed project_id=%s: %s", pid, e)
+
+    try:
+        from services.release_readiness_service import build_release_readiness_view
+
+        report.release_readiness = build_release_readiness_view(
+            project_id=pid,
+            incident_report=report,
+        )
+    except Exception as e:
+        logger.debug("incident_qa: release readiness refresh after servicenow failed project_id=%s: %s", pid, e)
+
+    try:
+        from services.qmetry_coverage_intelligence_service import build_coverage_intelligence_report
+
         report.coverage_intelligence = build_coverage_intelligence_report(
             project_id=pid,
             incident_report=report,

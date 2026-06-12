@@ -7,7 +7,8 @@ Route semantics (do not conflate with generic connector routes):
   GET /integrations/servicenow/incidents   — incident discovery (read-only)
   GET /integrations/servicenow/changes    — change request discovery (read-only)
   GET /integrations/servicenow/services    — business service discovery (read-only)
-  GET /integrations/servicenow/cmdb        — CMDB CI discovery (read-only)
+  GET /integrations/servicenow/cmdb          — CMDB CI discovery (read-only)
+  GET /integrations/servicenow/intelligence    — operational correlation report (read-only)
 
 List endpoints return up to `limit` rows; response `total` is the number of items
 in that response (page size), not the global ServiceNow table count. Use
@@ -27,8 +28,11 @@ from __future__ import annotations
 
 import logging
 
+from typing import Optional
+
 from fastapi import APIRouter, Query
 
+from models.servicenow_intelligence_models import ServiceNowIntelligenceReport
 from models.servicenow_models import (
     ServiceNowCMDBResponse,
     ServiceNowChangesResponse,
@@ -43,6 +47,7 @@ from services.servicenow_integration_service import (
     list_services,
     validate_servicenow_connection,
 )
+from services.servicenow_intelligence_service import build_servicenow_intelligence_report
 
 logger = logging.getLogger("vanya.servicenow_integration_routes")
 
@@ -85,3 +90,11 @@ def get_servicenow_cmdb(
 ):
     """List ServiceNow CMDB configuration items (read-only). `total` is items returned, not global count."""
     return list_cmdb_items(limit=limit)
+
+
+@router.get("/intelligence", response_model=ServiceNowIntelligenceReport)
+def get_servicenow_intelligence(
+    project_id: Optional[str] = Query(None, description="Project id for incident intelligence context"),
+):
+    """Correlate ServiceNow operational data with existing Vanya intelligence (read-only)."""
+    return build_servicenow_intelligence_report(project_id=project_id)

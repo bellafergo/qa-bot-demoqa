@@ -60,10 +60,12 @@ import EarlyDegradationReportView from "../components/incident/EarlyDegradationR
 import MultiEnvironmentIntelligenceView from "../components/incident/MultiEnvironmentIntelligenceView.jsx";
 import ReleaseReadinessView from "../components/release-readiness/ReleaseReadinessView.jsx";
 import JiraIssueIntelligenceView from "../components/incident/JiraIssueIntelligenceView.jsx";
+import ServiceNowIntelligenceView from "../components/servicenow-intelligence/ServiceNowIntelligenceView.jsx";
 import CoverageIntelligenceView from "../components/coverage-intelligence/CoverageIntelligenceView.jsx";
 import QMetryRecommendationView from "../components/qmetry-recommendations/QMetryRecommendationView.jsx";
 import { buildReleaseReadinessViewModel } from "../utils/releaseReadinessViewUtils.js";
 import { buildJiraIssueIntelligenceViewModel } from "../utils/jiraIssueIntelligenceViewUtils.js";
+import { buildServiceNowIntelligenceViewModel } from "../utils/servicenowIntelligenceViewUtils.js";
 import { buildCoverageIntelligenceViewModel } from "../utils/qmetryCoverageViewUtils.js";
 import { buildRecommendationCorrelationViewModel } from "../utils/qmetryRecommendationViewUtils.js";
 
@@ -169,6 +171,7 @@ function QaInvestigationReport({ report, t }) {
   const recommendedActionsVm = buildRecommendedActionsViewModel(report, t);
   const releaseReadinessVm = buildReleaseReadinessViewModel(report, t);
   const jiraIssueIntelligenceVm = buildJiraIssueIntelligenceViewModel(report, t);
+  const servicenowIntelligenceVm = buildServiceNowIntelligenceViewModel(report, t);
   const coverageIntelligenceVm = buildCoverageIntelligenceViewModel(report, t);
   const recommendationCorrelationVm = buildRecommendationCorrelationViewModel(report, t);
   const approvalWorkflowVm = buildApprovalWorkflowViewModel(report, t);
@@ -1107,6 +1110,15 @@ function QaInvestigationReport({ report, t }) {
             {jiraIssueIntelligenceVm.title}
           </div>
           <JiraIssueIntelligenceView vm={jiraIssueIntelligenceVm} />
+        </div>
+      ) : null}
+
+      {servicenowIntelligenceVm.show ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {servicenowIntelligenceVm.title}
+          </div>
+          <ServiceNowIntelligenceView vm={servicenowIntelligenceVm} />
         </div>
       ) : null}
 

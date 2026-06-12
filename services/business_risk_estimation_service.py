@@ -63,6 +63,7 @@ def _has_intelligence(report: Optional[ProjectIncidentInvestigationReport]) -> b
         report.early_degradation,
         report.executive_quality_report,
         report.jira_issue_intelligence,
+        report.servicenow_intelligence,
         report.decision_center,
     )
     return any(item is not None for item in checks)
@@ -91,6 +92,19 @@ def _collect_evidence_by_capability(
         for blocker in intel.top_blockers or []:
             cap = map_text_to_capability(blocker.related_module or "") or map_text_to_capability(blocker.summary or "")
             bump(cap or "Platform Operations", "jira_blockers")
+
+    # ServiceNow operational correlations
+    sn_intel = report.servicenow_intelligence
+    if sn_intel is not None and sn_intel.connected:
+        for group in (
+            sn_intel.incident_correlations,
+            sn_intel.change_correlations,
+            sn_intel.service_correlations,
+            sn_intel.cmdb_correlations,
+        ):
+            for corr in group or []:
+                if corr.capability:
+                    bump(corr.capability, "servicenow_operational")
 
     # Broken journeys
     djv = report.data_journey_validation
@@ -168,6 +182,7 @@ _EVIDENCE_LABELS = {
     "deployment_risk": "elevated deployment risk",
     "critical_dependencies": "critical dependency map signals",
     "decision_insights": "decision center concerns",
+    "servicenow_operational": "ServiceNow operational correlations",
 }
 
 
