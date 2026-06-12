@@ -5,6 +5,15 @@ import { useLang } from "../i18n/LangContext.jsx";
 import { useProject } from "../context/ProjectContext.jsx";
 import { apiErrorMessage } from "../api.js";
 import { isValidProjectSlug, suggestProjectIdFromName } from "../lib/projectSlug.js";
+import {
+  ENVIRONMENT_TYPES,
+  buildEnvironmentsPayload,
+  buildProjectSettingsPayload,
+  newEnvironmentRow,
+  readEnvironmentsFromProject,
+  suggestDefaultEnvironments,
+  validateEnvironmentRows,
+} from "../lib/projectEnvironmentUtils.js";
 
 const PRESET_COLORS = [
   "#6366f1",
@@ -72,6 +81,7 @@ export default function ProjectModal({ open, mode, project, onClose }) {
   const [varEmail, setVarEmail] = useState("");
   const [varPassword, setVarPassword] = useState("");
   const [varHintEmail, setVarHintEmail] = useState("");
+  const [environments, setEnvironments] = useState([]);
   const [submitErr, setSubmitErr] = useState("");
   const [saving, setSaving] = useState(false);
   const slugEditedRef = useRef(false);
@@ -96,6 +106,12 @@ export default function ProjectModal({ open, mode, project, onClose }) {
       setVarEmail("");
       setVarHintEmail(variablePresentLabel(project, "EMAIL"));
       setVarPassword("");
+      const storedEnvs = readEnvironmentsFromProject(project);
+      setEnvironments(
+        storedEnvs.length
+          ? storedEnvs
+          : suggestDefaultEnvironments(project.base_url, []),
+      );
       slugEditedRef.current = true;
     } else {
       setName("");
@@ -112,6 +128,7 @@ export default function ProjectModal({ open, mode, project, onClose }) {
       setVarEmail("");
       setVarHintEmail("");
       setVarPassword("");
+      setEnvironments([]);
     }
   }, [open, mode, project]);
 
@@ -129,7 +146,7 @@ export default function ProjectModal({ open, mode, project, onClose }) {
   const title =
     mode === "create" ? t("projects.modal_create_title") : t("projects.modal_edit_title");
 
-  function buildOptionalSettings() {
+  function buildOptionalSettings(includeEnvironments = false) {
     const login_profile = {};
     if (loginUrl.trim()) login_profile.login_url = loginUrl.trim();
     if (emailSel.trim()) login_profile.email_selector = emailSel.trim();
@@ -142,11 +159,26 @@ export default function ProjectModal({ open, mode, project, onClose }) {
     if (varEmail.trim()) variables.EMAIL = varEmail.trim();
     if (varPassword.trim()) variables.PASSWORD = varPassword.trim();
 
-    const settings = {};
-    if (Object.keys(login_profile).length) settings.login_profile = login_profile;
-    if (Object.keys(variables).length) settings.variables = variables;
+    return buildProjectSettingsPayload({
+      loginProfile: Object.keys(login_profile).length ? login_profile : null,
+      variables: Object.keys(variables).length ? variables : null,
+      environments,
+      includeEnvironments,
+    });
+  }
 
-    return settings;
+  function addEnvironment() {
+    setEnvironments((rows) => [...rows, newEnvironmentRow()]);
+  }
+
+  function removeEnvironment(rowId) {
+    setEnvironments((rows) => rows.filter((row) => row.id !== rowId));
+  }
+
+  function updateEnvironment(rowId, field, value) {
+    setEnvironments((rows) =>
+      rows.map((row) => (row.id === rowId ? { ...row, [field]: value } : row)),
+    );
   }
 
   async function handleSubmit(e) {
@@ -162,7 +194,12 @@ export default function ProjectModal({ open, mode, project, onClose }) {
       setSubmitErr(t("projects.err_slug_invalid"));
       return;
     }
-    const optSettings = buildOptionalSettings();
+    if (validateEnvironmentRows(environments).length > 0) {
+      setSubmitErr(t("projects.env_err_required"));
+      return;
+    }
+    const includeEnvironments = mode === "edit" || buildEnvironmentsPayload(environments).length > 0;
+    const optSettings = buildOptionalSettings(includeEnvironments);
     setSaving(true);
     try {
       if (mode === "create") {
@@ -271,6 +308,86 @@ export default function ProjectModal({ open, mode, project, onClose }) {
               autoComplete="off"
             />
           </label>
+
+          <fieldset
+            style={{
+              border: "1px solid var(--border)",
+              borderRadius: "var(--r-sm)",
+              padding: "12px 14px",
+              marginTop: 16,
+              marginBottom: 8,
+            }}
+          >
+            <legend style={{ fontSize: 13, fontWeight: 600, padding: "0 6px" }}>
+              {t("projects.env_section")}
+            </legend>
+            <p className="project-modal-hint" style={{ marginBottom: 12 }}>
+              {t("projects.env_section_hint")}
+            </p>
+            {environments.length === 0 ? (
+              <p className="project-modal-hint" style={{ marginBottom: 12 }}>
+                {t("projects.env_empty_hint")}
+              </p>
+            ) : null}
+            {environments.map((row) => (
+              <div
+                key={row.id}
+                style={{
+                  display: "grid",
+                  gap: 10,
+                  marginBottom: 12,
+                  paddingBottom: 12,
+                  borderBottom: environments.length > 1 ? "1px solid var(--border)" : "none",
+                }}
+              >
+                <label className="project-modal-label">
+                  {t("projects.env_name")}
+                  <input
+                    className="input"
+                    value={row.name}
+                    onChange={(e) => updateEnvironment(row.id, "name", e.target.value)}
+                    autoComplete="off"
+                  />
+                </label>
+                <label className="project-modal-label">
+                  {t("projects.env_type")}
+                  <select
+                    className="input"
+                    value={row.type}
+                    onChange={(e) => updateEnvironment(row.id, "type", e.target.value)}
+                  >
+                    {ENVIRONMENT_TYPES.map((envType) => (
+                      <option key={envType} value={envType}>
+                        {t(`projects.env_type_${envType.toLowerCase()}`)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="project-modal-label">
+                  {t("projects.env_url")}
+                  <input
+                    className="input"
+                    value={row.url}
+                    onChange={(e) => updateEnvironment(row.id, "url", e.target.value)}
+                    placeholder="https://"
+                    autoComplete="off"
+                  />
+                </label>
+                <div>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => removeEnvironment(row.id)}
+                  >
+                    {t("projects.env_remove")}
+                  </button>
+                </div>
+              </div>
+            ))}
+            <button type="button" className="btn btn-secondary btn-sm" onClick={addEnvironment}>
+              {t("projects.env_add")}
+            </button>
+          </fieldset>
 
           <fieldset
             style={{
