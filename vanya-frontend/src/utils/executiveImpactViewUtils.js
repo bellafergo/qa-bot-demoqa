@@ -4,6 +4,7 @@ export const EXECUTIVE_IMPACT_I18N_KEYS = {
   title: "executive_impact.title",
   empty: "executive_impact.empty",
   insufficientHistory: "executive_impact.insufficient_history",
+  loadError: "executive_impact.load_error",
   readOnlyNote: "executive_impact.read_only_note",
   quality: "executive_impact.quality",
   risk: "executive_impact.risk",
@@ -87,9 +88,9 @@ export function isExecutiveImpactEmpty(report) {
   return false;
 }
 
-export function buildExecutiveImpactViewModel(report, t) {
-  const show = hasExecutiveImpactSection(report);
-  const empty = isExecutiveImpactEmpty(report);
+export function buildExecutiveImpactViewModel(report, t, { loadError = "" } = {}) {
+  const show = Boolean(loadError) || report != null;
+  const empty = !loadError && isExecutiveImpactEmpty(report);
 
   const map = (metric) => mapImpactMetric(metric, t);
 
@@ -102,7 +103,6 @@ export function buildExecutiveImpactViewModel(report, t) {
   const riskMetrics = [
     map(report?.blocked_release_trend),
     map(report?.critical_risk_trend),
-    map(report?.jira_blocker_trend),
   ].filter(Boolean);
 
   const operationsMetrics = [
@@ -114,12 +114,20 @@ export function buildExecutiveImpactViewModel(report, t) {
   const topImprovements = (report?.top_improvements || []).map(map).filter(Boolean);
   const topConcerns = (report?.top_concerns || []).map(map).filter(Boolean);
 
+  let emptyMessage = t(EXECUTIVE_IMPACT_I18N_KEYS.empty);
+  if (loadError) {
+    emptyMessage = loadError;
+  } else if (!report) {
+    emptyMessage = t(EXECUTIVE_IMPACT_I18N_KEYS.loadError);
+  } else if (!report.has_sufficient_history) {
+    emptyMessage = t(EXECUTIVE_IMPACT_I18N_KEYS.insufficientHistory);
+  }
+
   return {
     show,
     empty,
-    emptyMessage: empty
-      ? t(EXECUTIVE_IMPACT_I18N_KEYS.insufficientHistory)
-      : t(EXECUTIVE_IMPACT_I18N_KEYS.empty),
+    loadError: Boolean(loadError),
+    emptyMessage,
     title: t(EXECUTIVE_IMPACT_I18N_KEYS.title),
     readOnlyNote: t(EXECUTIVE_IMPACT_I18N_KEYS.readOnlyNote),
     qualityLabel: t(EXECUTIVE_IMPACT_I18N_KEYS.quality),

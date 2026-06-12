@@ -60,7 +60,7 @@ def test_rbac_readiness_report():
     assert report.permission_count >= 9
     assert report.default_roles_ready is True
     assert report.enforcement_enabled is False
-    assert report.readiness_score == 50
+    assert report.readiness_score == 75
 
 
 def test_is_rbac_configured():

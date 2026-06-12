@@ -6,7 +6,7 @@ Roles, permissions, and readiness metadata only. No enforcement.
 """
 from __future__ import annotations
 
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -45,6 +45,14 @@ class RBACReadinessReport(BaseModel):
 class RolesResponse(BaseModel):
     roles: List[Role] = Field(default_factory=list)
     total: int = Field(default=0, ge=0)
+
+
+class UserSecurityContext(BaseModel):
+    user_id: str
+    email: Optional[str] = None
+    role_name: str
+    permissions: List[str] = Field(default_factory=list)
+    enforcement_enabled: bool = False
 
 
 class PermissionsResponse(BaseModel):

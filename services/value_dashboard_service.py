@@ -32,13 +32,9 @@ def _load_incident_reports(project_id: str) -> List[ProjectIncidentInvestigation
     if not pid:
         return []
 
-    rows = incident_report_repo.list_reports(project_id=pid, limit=_REPORT_LIMIT)
+    rows = incident_report_repo.list_full_reports(project_id=pid, limit=_REPORT_LIMIT)
     reports: List[ProjectIncidentInvestigationReport] = []
-    for row in rows:
-        report_id = str(row.get("id") or "").strip()
-        if not report_id:
-            continue
-        full = incident_report_repo.get(report_id)
+    for full in rows:
         if not isinstance(full, dict):
             continue
         try:
@@ -47,7 +43,7 @@ def _load_incident_reports(project_id: str) -> List[ProjectIncidentInvestigation
             logger.debug(
                 "value_dashboard: skip invalid report project_id=%s report_id=%s: %s",
                 pid,
-                report_id,
+                full.get("id"),
                 exc,
             )
     return reports

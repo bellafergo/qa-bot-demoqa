@@ -16,6 +16,8 @@ import html
 from core.settings import settings
 from core.auth_middleware import VanyaAuthMiddleware
 from core.rate_limit_middleware import RateLimitMiddleware
+from core.rbac_middleware import RbacEnforcementMiddleware
+from core.performance_middleware import PerformanceMiddleware
 from core.vanya_auth import (
     auth_enforcement_enabled,
     docs_allowed_in_this_deployment,
@@ -81,6 +83,7 @@ from api.routes.report_delivery_routes import router as report_delivery_router
 from api.routes.security_routes import router as security_router
 from api.routes.audit_routes import router as audit_router
 from api.routes.platform_observability_routes import router as platform_observability_router
+from api.routes.performance_routes import router as performance_router
 from api.routes.project_routes import router as project_router
 from api.routes.project_knowledge_routes import router as project_knowledge_router
 
@@ -160,9 +163,10 @@ cors_origins = _normalize_origins(settings.CORS_ORIGINS)
 cors_origin_regex = settings.CORS_ORIGIN_REGEX or None
 
 # Starlette: last add_middleware = outermost (runs first on the request). Request path must be:
-#   CORS → VanyaAuth (sets request.state) → RateLimit (uses state for per-user buckets) → routes
-# so that 401/403 from auth still pass back through CORS for browser Access-Control-Allow-Origin.
-# Add order (inner → outer): RateLimit, VanyaAuth, CORS.
+#   CORS → VanyaAuth → RateLimit → RBAC → Performance → request_id → routes
+# Add order (inner → outer): Performance, RBAC, RateLimit, VanyaAuth, CORS.
+app.add_middleware(PerformanceMiddleware)
+app.add_middleware(RbacEnforcementMiddleware)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(VanyaAuthMiddleware)
 app.add_middleware(
@@ -517,4 +521,5 @@ app.include_router(report_delivery_router)     # POST /projects/{id}/reports/pre
 app.include_router(security_router)            # GET /security/readiness, /security/providers
 app.include_router(audit_router)               # GET /audit/events, /audit/summary
 app.include_router(platform_observability_router)  # GET /platform/observability
+app.include_router(performance_router)  # GET /platform/performance/slow-endpoints
 app.include_router(project_knowledge_router)    # GET|POST /projects/{id}/knowledge
