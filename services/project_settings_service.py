@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 def parse_settings_json(raw: Optional[str]) -> Dict[str, Any]:
@@ -54,6 +54,66 @@ def is_sensitive_variable_key(key: str) -> bool:
             "CREDENTIAL",
         )
     )
+
+
+
+def _normalize_environment_row(item: Any) -> Optional[Dict[str, str]]:
+    if not isinstance(item, dict):
+        return None
+    name = str(item.get("name") or "").strip()
+    env_type = str(item.get("type") or "").strip().upper()
+    if not name or not env_type:
+        return None
+    if env_type == "PRODUCTION":
+        env_type = "PRODUCTION"
+    row: Dict[str, str] = {"name": name, "type": env_type}
+    url = str(item.get("url") or item.get("url_label") or "").strip()
+    if url:
+        row["url"] = url
+    return row
+
+
+def _mask_environments_for_api(envs_in: Any) -> List[Dict[str, str]]:
+    if not isinstance(envs_in, list):
+        return []
+    out: List[Dict[str, str]] = []
+    for item in envs_in:
+        row = _normalize_environment_row(item)
+        if row:
+            out.append(row)
+    return out
+
+
+def project_environments_metadata(project: Any) -> Optional[Dict[str, Any]]:
+    """
+    Build metadata for environment intelligence from project settings.
+    Prefers settings.environments, then settings.metadata.environments,
+    then legacy project.metadata.environments.
+    """
+    settings = getattr(project, "settings", None) or {}
+    if not isinstance(settings, dict) and isinstance(project, dict):
+        settings = project.get("settings") or {}
+    if not isinstance(settings, dict):
+        settings = {}
+
+    envs = settings.get("environments")
+    metadata = settings.get("metadata") if isinstance(settings.get("metadata"), dict) else {}
+    meta_envs = metadata.get("environments")
+    candidates = envs if isinstance(envs, list) else meta_envs if isinstance(meta_envs, list) else []
+    normalized = _mask_environments_for_api(candidates)
+    if normalized:
+        return {"environments": normalized}
+
+    legacy = None
+    if hasattr(project, "metadata"):
+        legacy = getattr(project, "metadata", None)
+    elif isinstance(project, dict):
+        legacy = project.get("metadata")
+    if isinstance(legacy, dict):
+        legacy_envs = legacy.get("environments")
+        if isinstance(legacy_envs, list) and legacy_envs:
+            return {"environments": _mask_environments_for_api(legacy_envs)}
+    return None
 
 
 def _preview_non_secret(value: str, max_len: int = 48) -> str:
@@ -150,6 +210,8 @@ def mask_settings_for_api(settings: Optional[Dict[str, Any]]) -> Optional[Dict[s
         if rt is not None and str(rt).strip():
             az_out["refresh_token"] = {"sensitive": True, "present": True}
 
+    env_out = _mask_environments_for_api(settings.get("environments"))
+
     out: Dict[str, Any] = {
         "login_profile": lp_out,
         "variables": vars_out,
@@ -159,6 +221,8 @@ def mask_settings_for_api(settings: Optional[Dict[str, Any]]) -> Optional[Dict[s
         out["github"] = gh_out
     if az_out:
         out["azure_devops"] = az_out
+    if env_out:
+        out["environments"] = env_out
     return out
 
 
@@ -215,5 +279,17 @@ def merge_settings(existing: Optional[Dict[str, Any]], patch: Optional[Dict[str,
                 else:
                     old_a[key] = v
             out["azure_devops"] = old_a
+
+    if "environments" in patch:
+        new_envs = patch["environments"]
+        if new_envs is None:
+            out.pop("environments", None)
+        elif isinstance(new_envs, list):
+            normalized: List[Dict[str, str]] = []
+            for item in new_envs:
+                row = _normalize_environment_row(item)
+                if row:
+                    normalized.append(row)
+            out["environments"] = normalized
 
     return out

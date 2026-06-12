@@ -12,11 +12,13 @@ from services.onboarding_service import build_onboarding_checklist
 
 
 def _project(**settings):
+    base = dict(settings)
+    base_url = base.pop("base_url", None)
     return SimpleNamespace(
         id="demo",
         name="Demo",
-        base_url=None,
-        settings=settings,
+        base_url=base_url,
+        settings=base,
     )
 
 
@@ -125,6 +127,115 @@ def test_tests_imported(
     checklist = build_onboarding_checklist("demo")
     tests_step = next(s for s in checklist.steps if s.step_id == "import_tests")
     assert tests_step.status == "COMPLETED"
+
+
+@patch("services.onboarding_service._incident_intelligence_flags")
+@patch("services.onboarding_service._knowledge_has_apis", return_value=False)
+@patch("services.db.database_connector_repository.database_connector_repo")
+@patch("services.db.local_agent_repository.local_agent_repo")
+@patch("services.db.browser_inspection_watch_repository.browser_inspection_watch_repo")
+@patch("services.db.catalog_repository.catalog_repo")
+@patch("services.db.project_repository.project_repo")
+def test_environments_base_url_only_in_progress_40(
+    mock_project_repo,
+    mock_catalog_repo,
+    mock_watch_repo,
+    mock_agent_repo,
+    mock_db_repo,
+    _mock_knowledge,
+    mock_intel_flags,
+):
+    mock_project_repo.get_project.return_value = _project(
+        base_url="https://zuperio-talent-os.vercel.app",
+    )
+    mock_catalog_repo.list_test_cases.return_value = []
+    mock_catalog_repo.count_by_status_for_project.return_value = {"active": 0}
+    mock_watch_repo.list_watches.return_value = []
+    mock_agent_repo.list_agents.return_value = []
+    mock_intel_flags.return_value = {
+        "has_executive_report": False,
+        "has_contract_intelligence": False,
+        "has_quality_health": False,
+    }
+
+    checklist = build_onboarding_checklist("demo")
+    env_step = next(s for s in checklist.steps if s.step_id == "configure_environments")
+    assert env_step.status == "IN_PROGRESS"
+    assert env_step.completion_percentage == 40
+
+
+@patch("services.onboarding_service._incident_intelligence_flags")
+@patch("services.onboarding_service._knowledge_has_apis", return_value=False)
+@patch("services.db.database_connector_repository.database_connector_repo")
+@patch("services.db.local_agent_repository.local_agent_repo")
+@patch("services.db.browser_inspection_watch_repository.browser_inspection_watch_repo")
+@patch("services.db.catalog_repository.catalog_repo")
+@patch("services.db.project_repository.project_repo")
+def test_environments_one_env_in_progress_50(
+    mock_project_repo,
+    mock_catalog_repo,
+    mock_watch_repo,
+    mock_agent_repo,
+    mock_db_repo,
+    _mock_knowledge,
+    mock_intel_flags,
+):
+    mock_project_repo.get_project.return_value = _project(
+        base_url="https://example.com",
+        environments=[{"name": "QA", "type": "QA"}],
+    )
+    mock_catalog_repo.list_test_cases.return_value = []
+    mock_catalog_repo.count_by_status_for_project.return_value = {"active": 0}
+    mock_watch_repo.list_watches.return_value = []
+    mock_agent_repo.list_agents.return_value = []
+    mock_intel_flags.return_value = {
+        "has_executive_report": False,
+        "has_contract_intelligence": False,
+        "has_quality_health": False,
+    }
+
+    checklist = build_onboarding_checklist("demo")
+    env_step = next(s for s in checklist.steps if s.step_id == "configure_environments")
+    assert env_step.status == "IN_PROGRESS"
+    assert env_step.completion_percentage == 50
+
+
+@patch("services.onboarding_service._incident_intelligence_flags")
+@patch("services.onboarding_service._knowledge_has_apis", return_value=False)
+@patch("services.db.database_connector_repository.database_connector_repo")
+@patch("services.db.local_agent_repository.local_agent_repo")
+@patch("services.db.browser_inspection_watch_repository.browser_inspection_watch_repo")
+@patch("services.db.catalog_repository.catalog_repo")
+@patch("services.db.project_repository.project_repo")
+def test_environments_two_envs_completed(
+    mock_project_repo,
+    mock_catalog_repo,
+    mock_watch_repo,
+    mock_agent_repo,
+    mock_db_repo,
+    _mock_knowledge,
+    mock_intel_flags,
+):
+    mock_project_repo.get_project.return_value = _project(
+        environments=[
+            {"name": "QA", "type": "QA", "url": "https://qa.example.com"},
+            {"name": "Staging", "type": "STAGING"},
+        ],
+    )
+    mock_catalog_repo.list_test_cases.return_value = []
+    mock_catalog_repo.count_by_status_for_project.return_value = {"active": 0}
+    mock_watch_repo.list_watches.return_value = []
+    mock_agent_repo.list_agents.return_value = []
+    mock_intel_flags.return_value = {
+        "has_executive_report": False,
+        "has_contract_intelligence": False,
+        "has_quality_health": False,
+    }
+
+    checklist = build_onboarding_checklist("demo")
+    env_step = next(s for s in checklist.steps if s.step_id == "configure_environments")
+    assert env_step.status == "COMPLETED"
+    assert env_step.completion_percentage == 100
 
 
 @patch("services.onboarding_service._incident_intelligence_flags")
