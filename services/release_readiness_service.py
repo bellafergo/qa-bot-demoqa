@@ -16,6 +16,7 @@ from models.release_readiness_models import ReleaseReadinessView
 from models.scheduled_report_models import ExecutiveReportPreview
 from services.integration_dispatcher import integration_dispatcher
 from services.jira_issue_intelligence_service import jira_executive_risk_lines
+from services.servicenow_intelligence_service import servicenow_executive_risk_lines
 
 logger = logging.getLogger("vanya.release_readiness")
 
@@ -125,6 +126,11 @@ def _derive_summary(view: ReleaseReadinessView) -> str:
         note = "Open Jira blockers detected."
         if note not in base:
             return f"{base} {note}".strip() if base else note
+    sn_intel = view.servicenow_intelligence
+    if sn_intel is not None and sn_intel.connected and sn_intel.top_operational_risks:
+        note = "ServiceNow operational correlations detected."
+        if note not in base:
+            return f"{base} {note}".strip() if base else note
     return base
 
 
@@ -195,6 +201,14 @@ def top_risks_from_view(view: ReleaseReadinessView, *, limit: int = 5) -> List[s
     if jira_lines:
         merged = list(jira_lines)
         for line in risks:
+            if line not in merged:
+                merged.append(line)
+        risks = merged
+
+    sn_lines = servicenow_executive_risk_lines(view.servicenow_intelligence)
+    if sn_lines:
+        merged = list(risks)
+        for line in sn_lines:
             if line not in merged:
                 merged.append(line)
         risks = merged
@@ -376,6 +390,7 @@ def build_release_readiness_view(
         executive_quality_report=source.executive_quality_report if source else None,
         decision_center=source.decision_center if source else None,
         jira_issue_intelligence=source.jira_issue_intelligence if source else None,
+        servicenow_intelligence=source.servicenow_intelligence if source else None,
         github=github,
         azure_devops=azure_devops,
         integration_readiness=integration_dispatcher.readiness(),

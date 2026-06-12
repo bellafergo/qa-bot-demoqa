@@ -84,11 +84,10 @@ def _resolve_http_config() -> Optional[ServiceNowHttpConfig]:
     )
 
 
-def _empty_status(*, instance_url: Optional[str] = None, username: Optional[str] = None) -> ServiceNowConnectionStatus:
+def _empty_status(*, instance_url: Optional[str] = None) -> ServiceNowConnectionStatus:
     return ServiceNowConnectionStatus(
         connected=False,
         instance_url=instance_url,
-        username=username,
         last_sync=_LAST_SYNC,
     )
 
@@ -107,7 +106,7 @@ def validate_servicenow_connection() -> ServiceNowConnectionStatus:
     if http is None:
         try:
             cfg = integration_service.get_config("servicenow")
-            return _empty_status(instance_url=cfg.base_url, username=cfg.workspace)
+            return _empty_status(instance_url=cfg.base_url)
         except KeyError:
             return _empty_status()
 
@@ -121,7 +120,6 @@ def validate_servicenow_connection() -> ServiceNowConnectionStatus:
         return ServiceNowConnectionStatus(
             connected=True,
             instance_url=http.instance_url,
-            username=http.username,
             incident_count=incident_count,
             change_count=change_count,
             service_count=service_count,
@@ -130,13 +128,14 @@ def validate_servicenow_connection() -> ServiceNowConnectionStatus:
         )
     except ServiceNowAPIError as exc:
         logger.info("servicenow validation failed: %s", exc.code)
-        return _empty_status(instance_url=http.instance_url, username=http.username)
+        return _empty_status(instance_url=http.instance_url)
     except Exception as exc:
         logger.debug("servicenow validation error: %s", exc)
-        return _empty_status(instance_url=http.instance_url, username=http.username)
+        return _empty_status(instance_url=http.instance_url)
 
 
 def list_incidents(*, limit: int = 50) -> ServiceNowIncidentsResponse:
+    """Return up to limit incidents; response total is len(incidents), not global table count."""
     http = _resolve_http_config()
     if http is None:
         return ServiceNowIncidentsResponse()
@@ -165,6 +164,7 @@ def list_incidents(*, limit: int = 50) -> ServiceNowIncidentsResponse:
 
 
 def list_changes(*, limit: int = 50) -> ServiceNowChangesResponse:
+    """Return up to limit changes; response total is len(changes), not global table count."""
     http = _resolve_http_config()
     if http is None:
         return ServiceNowChangesResponse()
@@ -193,6 +193,7 @@ def list_changes(*, limit: int = 50) -> ServiceNowChangesResponse:
 
 
 def list_services(*, limit: int = 50) -> ServiceNowServicesResponse:
+    """Return up to limit services; response total is len(services), not global table count."""
     http = _resolve_http_config()
     if http is None:
         return ServiceNowServicesResponse()
@@ -218,6 +219,7 @@ def list_services(*, limit: int = 50) -> ServiceNowServicesResponse:
 
 
 def list_cmdb_items(*, limit: int = 50) -> ServiceNowCMDBResponse:
+    """Return up to limit CMDB items; response total is len(items), not global table count."""
     http = _resolve_http_config()
     if http is None:
         return ServiceNowCMDBResponse()

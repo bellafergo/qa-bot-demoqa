@@ -15,7 +15,6 @@ const t = (key) => key;
 const sampleStatus = {
   connected: true,
   instance_url: "https://acme.service-now.com",
-  username: "integration.user",
   incident_count: 42,
   change_count: 7,
   service_count: 5,
@@ -36,7 +35,7 @@ describe("servicenowViewUtils", () => {
     expect(vm.counts[0].value).toBe("42");
     expect(vm.showEmptyConnection).toBe(false);
     expect(vm.instanceUrl).toBe("https://acme.service-now.com");
-    expect(vm.username).toBe("integration.user");
+    expect(vm).not.toHaveProperty("username");
   });
 
   it("shows empty connection state", () => {

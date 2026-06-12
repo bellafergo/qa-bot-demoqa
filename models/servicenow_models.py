@@ -9,9 +9,9 @@ from pydantic import BaseModel, Field
 
 
 class ServiceNowConnectionStatus(BaseModel):
+    """Discovery aggregate — no credentials; username is not exposed (parity with Jira/QMetry)."""
     connected: bool = False
     instance_url: Optional[str] = None
-    username: Optional[str] = None
     incident_count: int = 0
     change_count: int = 0
     service_count: int = 0
@@ -50,20 +50,24 @@ class ServiceNowCI(BaseModel):
 
 
 class ServiceNowIncidentsResponse(BaseModel):
+    """List payload — total is the number of items returned in this response (page size), not the global table count."""
     incidents: List[ServiceNowIncident] = Field(default_factory=list)
     total: int = 0
 
 
 class ServiceNowChangesResponse(BaseModel):
+    """List payload — total is the number of items returned in this response (page size), not the global table count."""
     changes: List[ServiceNowChange] = Field(default_factory=list)
     total: int = 0
 
 
 class ServiceNowServicesResponse(BaseModel):
+    """List payload — total is the number of items returned in this response (page size), not the global table count."""
     services: List[ServiceNowService] = Field(default_factory=list)
     total: int = 0
 
 
 class ServiceNowCMDBResponse(BaseModel):
+    """List payload — total is the number of items returned in this response (page size), not the global table count."""
     items: List[ServiceNowCI] = Field(default_factory=list)
     total: int = 0

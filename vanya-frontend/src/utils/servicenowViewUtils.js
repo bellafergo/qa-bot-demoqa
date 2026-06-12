@@ -7,7 +7,6 @@ export const SERVICENOW_I18N_KEYS = {
   connected: "integrations.servicenow.connected",
   disconnected: "integrations.servicenow.disconnected",
   instanceUrl: "integrations.servicenow.instance_url",
-  username: "integrations.servicenow.username",
   lastSync: "integrations.servicenow.last_sync",
   incidents: "integrations.servicenow.incidents",
   changes: "integrations.servicenow.changes",
@@ -52,8 +51,6 @@ export function buildConnectionCardViewModel(status, t) {
     connectedBadgeClass: connectionBadgeClass(connected),
     instanceUrlLabel: t(SERVICENOW_I18N_KEYS.instanceUrl),
     instanceUrl: status?.instance_url || "—",
-    usernameLabel: t(SERVICENOW_I18N_KEYS.username),
-    username: status?.username || "—",
     lastSyncLabel: t(SERVICENOW_I18N_KEYS.lastSync),
     lastSync: status?.last_sync || null,
     counts: [

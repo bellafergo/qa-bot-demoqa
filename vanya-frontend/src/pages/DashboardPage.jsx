@@ -15,6 +15,7 @@ import {
   getProjectBusinessRisk,
   getQMetryCoverage,
   getQMetryRecommendations,
+  getServiceNowIntelligence,
   getDashboardRecentRuns,
   getDashboardRecentJobs,
   getFailureIntel,
@@ -48,6 +49,8 @@ import CoverageIntelligenceView from "../components/coverage-intelligence/Covera
 import QMetryRecommendationView from "../components/qmetry-recommendations/QMetryRecommendationView.jsx";
 import { buildCoverageOverviewViewModel } from "../utils/qmetryCoverageViewUtils.js";
 import { buildRecommendedTestsOverviewViewModel } from "../utils/qmetryRecommendationViewUtils.js";
+import ServiceNowIntelligenceView from "../components/servicenow-intelligence/ServiceNowIntelligenceView.jsx";
+import { buildServiceNowIntelligenceOverviewViewModel } from "../utils/servicenowIntelligenceViewUtils.js";
 import { buildReportDeliveryViewModel } from "../utils/reportDeliveryViewUtils.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -978,6 +981,7 @@ export default function DashboardPage() {
   const [valueDashboard, setValueDashboard] = useState(null);
   const [executiveImpact, setExecutiveImpact] = useState(null);
   const [businessRisk, setBusinessRisk] = useState(null);
+  const [servicenowIntelligence, setServicenowIntelligence] = useState(null);
   const [coverageOverview, setCoverageOverview] = useState(null);
   const [recommendedTests, setRecommendedTests] = useState(null);
 
@@ -997,6 +1001,7 @@ export default function DashboardPage() {
     setValueDashboard(null);
     setExecutiveImpact(null);
     setBusinessRisk(null);
+    setServicenowIntelligence(null);
 
     const pid = projectId;
     const summaryParams = pid ? { project_id: pid } : {};
@@ -1062,6 +1067,9 @@ export default function DashboardPage() {
       getProjectBusinessRisk(pid)
         .then((data) => setBusinessRisk(data))
         .catch(() => setBusinessRisk(null));
+      getServiceNowIntelligence({ project_id: pid })
+        .then((data) => setServicenowIntelligence(data))
+        .catch(() => setServicenowIntelligence(null));
       getQMetryCoverage({ project_id: pid })
         .then((data) => setCoverageOverview(data))
         .catch(() => setCoverageOverview(null));
@@ -1138,6 +1146,11 @@ export default function DashboardPage() {
   const businessRiskVm = useMemo(
     () => buildBusinessRiskViewModel(businessRisk, t),
     [businessRisk, t],
+  );
+
+  const servicenowIntelligenceVm = useMemo(
+    () => buildServiceNowIntelligenceOverviewViewModel(servicenowIntelligence, t),
+    [servicenowIntelligence, t],
   );
 
   const coverageOverviewVm = useMemo(
@@ -1451,6 +1464,15 @@ export default function DashboardPage() {
             <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
               {businessRiskVm.readOnlyNote}
             </p>
+          </div>
+        ) : null}
+
+        {projectId && servicenowIntelligenceVm.show ? (
+          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
+              {servicenowIntelligenceVm.title}
+            </div>
+            <ServiceNowIntelligenceView vm={servicenowIntelligenceVm} />
           </div>
         ) : null}
 
