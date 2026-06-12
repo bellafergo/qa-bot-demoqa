@@ -60,6 +60,7 @@ export function RbacProvider({ children }) {
     () => ({
       loading,
       roleName: context?.role_name || null,
+      email: context?.email || null,
       permissions: context?.permissions || [],
       enforcementEnabled: Boolean(context?.enforcement_enabled),
       hasPermission,
@@ -81,6 +82,7 @@ export function useRbac() {
     return {
       loading: false,
       roleName: null,
+      email: null,
       permissions: [],
       enforcementEnabled: false,
       hasPermission: () => true,

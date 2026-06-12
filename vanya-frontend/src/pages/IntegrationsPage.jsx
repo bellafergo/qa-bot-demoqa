@@ -27,6 +27,8 @@ import {
 } from "../api";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
+import { useRbac } from "../auth/RbacContext.jsx";
+import { hasPermission } from "../utils/permissionViewUtils.js";
 import JiraIntegrationPanel from "../components/integrations/JiraIntegrationPanel.jsx";
 import QMetryIntegrationPanel from "../components/integrations/QMetryIntegrationPanel.jsx";
 import ServiceNowIntegrationPanel from "../components/integrations/ServiceNowIntegrationPanel.jsx";
@@ -203,6 +205,8 @@ const CONFIG_FIELDS = {
 
 function ConfigForm({ connectorId, currentConfig, onSaved }) {
   const { t } = useLang();
+  const { permissions, enforcementEnabled } = useRbac();
+  const canManageIntegrations = !enforcementEnabled || hasPermission(permissions, "MANAGE_INTEGRATIONS");
   const fields = CONFIG_FIELDS[connectorId] || [];
   const [values, setValues] = useState(() => {
     const init = {};
@@ -301,24 +305,30 @@ function ConfigForm({ connectorId, currentConfig, onSaved }) {
         <div style={{ marginTop: 8, fontSize: 12, color: "var(--green, #22c55e)" }}>{t("integrations.config.saved")}</div>
       )}
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
-        <button
-          className="btn btn-primary btn-sm"
-          onClick={handleSave}
-          disabled={saving}
-        >
-          {saving ? t("integrations.config.saving") : t("integrations.config.save")}
-        </button>
-        {connectorId === "slack" && (
+      {canManageIntegrations ? (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
           <button
-            className="btn btn-secondary btn-sm"
-            onClick={handleSaveAndEnable}
+            className="btn btn-primary btn-sm"
+            onClick={handleSave}
             disabled={saving}
           >
-            {saving ? t("integrations.config.saving") : t("integrations.config.save_enable")}
+            {saving ? t("integrations.config.saving") : t("integrations.config.save")}
           </button>
-        )}
-      </div>
+          {connectorId === "slack" && (
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={handleSaveAndEnable}
+              disabled={saving}
+            >
+              {saving ? t("integrations.config.saving") : t("integrations.config.save_enable")}
+            </button>
+          )}
+        </div>
+      ) : (
+        <p style={{ marginTop: 10, fontSize: 12, color: "var(--text-3)", marginBottom: 0 }}>
+          {t("permissions.denied")}
+        </p>
+      )}
     </div>
   );
 }
@@ -465,6 +475,8 @@ function GitHubDisconnectDialog({ open, busy, onConfirm, onCancel }) {
 function AzureDevOpsPanel({ onStatusChange }) {
   const { t } = useLang();
   const { currentProject } = useProject();
+  const { permissions, enforcementEnabled } = useRbac();
+  const canManageIntegrations = !enforcementEnabled || hasPermission(permissions, "MANAGE_INTEGRATIONS");
   const projectId = currentProject?.id || "";
 
   const [status, setStatus] = useState(null);
@@ -682,6 +694,7 @@ function AzureDevOpsPanel({ onStatusChange }) {
           ) : null}
 
           {!status?.enabled ? (
+            canManageIntegrations ? (
             <div>
               <button
                 type="button"
@@ -693,9 +706,12 @@ function AzureDevOpsPanel({ onStatusChange }) {
               </button>
               <p style={{ fontSize: 11, color: "var(--text-3)", marginTop: 8 }}>{t("integrations.azure.oauth_hint")}</p>
             </div>
+            ) : (
+              <p style={{ fontSize: 12, color: "var(--text-3)", margin: 0 }}>{t("permissions.denied")}</p>
+            )
           ) : null}
 
-          {showTargetPicker ? (
+          {showTargetPicker && canManageIntegrations ? (
             <div style={{ marginTop: 12 }}>
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>{t("az.select_target")}</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 420 }}>
@@ -724,7 +740,7 @@ function AzureDevOpsPanel({ onStatusChange }) {
             </div>
           ) : null}
 
-          {status?.connected ? (
+          {status?.connected && canManageIntegrations ? (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
               <button type="button" className="btn btn-secondary btn-sm" onClick={handleVerify} disabled={verifying}>
                 {verifying ? t("common.working") : t("integrations.azure.verify")}
@@ -736,7 +752,7 @@ function AzureDevOpsPanel({ onStatusChange }) {
                 {t("integrations.azure.disconnect")}
               </button>
             </div>
-          ) : status?.enabled ? (
+          ) : status?.enabled && canManageIntegrations ? (
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
               <button type="button" className="btn btn-sm" style={{ color: "var(--red)" }} onClick={() => setDisconnectOpen(true)}>
                 {t("integrations.azure.disconnect")}
@@ -761,6 +777,8 @@ function AzureDevOpsPanel({ onStatusChange }) {
 function GitHubAppPanel({ onStatusChange }) {
   const { t } = useLang();
   const { currentProject } = useProject();
+  const { permissions, enforcementEnabled } = useRbac();
+  const canManageIntegrations = !enforcementEnabled || hasPermission(permissions, "MANAGE_INTEGRATIONS");
   const projectId = currentProject?.id || "";
 
   const [status, setStatus] = useState(null);
@@ -998,6 +1016,7 @@ function GitHubAppPanel({ onStatusChange }) {
           ) : null}
 
           {!status?.installation_id ? (
+            canManageIntegrations ? (
             <div>
               <button
                 type="button"
@@ -1009,9 +1028,12 @@ function GitHubAppPanel({ onStatusChange }) {
               </button>
               <p style={{ fontSize: 11, color: "var(--text-3)", marginTop: 8 }}>{t("integrations.github.install_hint")}</p>
             </div>
+            ) : (
+              <p style={{ fontSize: 12, color: "var(--text-3)", margin: 0 }}>{t("permissions.denied")}</p>
+            )
           ) : null}
 
-          {showRepoPicker ? (
+          {showRepoPicker && canManageIntegrations ? (
             <div style={{ marginTop: 12 }}>
               <p style={{ fontSize: 12, color: "var(--text-2)", marginBottom: 8 }}>
                 {t("integrations.github.select_repo_prompt")}
@@ -1053,7 +1075,7 @@ function GitHubAppPanel({ onStatusChange }) {
             </div>
           ) : null}
 
-          {showActionsMenu ? (
+          {showActionsMenu && canManageIntegrations ? (
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
               <ActionsMenu items={menuItems} disabled={disconnecting || connecting} />
             </div>
@@ -1076,6 +1098,8 @@ function GitHubAppPanel({ onStatusChange }) {
 function ConnectorCard({ summary, onAction, jiraStatus, onJiraStatusChange, qmetryStatus, onQMetryStatusChange, servicenowStatus, onServiceNowStatusChange }) {
   const { t, lang } = useLang();
   const { currentProject } = useProject();
+  const { permissions, enforcementEnabled } = useRbac();
+  const canManageIntegrations = !enforcementEnabled || hasPermission(permissions, "MANAGE_INTEGRATIONS");
   const isGitHub = summary.connector_id === "github";
   const isAzureDevOps = summary.connector_id === "azure_devops";
   const isJira = summary.connector_id === "jira";
@@ -1228,7 +1252,7 @@ function ConnectorCard({ summary, onAction, jiraStatus, onJiraStatusChange, qmet
 
         {/* Actions */}
         <div style={{ display: "flex", gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-          {summary.connector_id !== "github" && summary.connector_id !== "azure_devops" && (
+          {canManageIntegrations && summary.connector_id !== "github" && summary.connector_id !== "azure_devops" && (
             <>
               <button
                 className="btn btn-secondary btn-sm"

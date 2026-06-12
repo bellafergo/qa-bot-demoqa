@@ -85,3 +85,16 @@ def test_access_denied_audit_event_type_allowed():
     from models.audit_models import AuditEventType
 
     assert "ACCESS_DENIED" in AuditEventType.__args__
+
+
+def test_security_me_permissions_alias_matches_me(monkeypatch):
+    monkeypatch.setenv("VANYA_AUTH_ENABLED", "0")
+    from fastapi.testclient import TestClient
+    import app as app_module
+
+    client = TestClient(app_module.app)
+    me = client.get("/security/me")
+    alias = client.get("/security/me/permissions")
+    assert me.status_code == 200
+    assert alias.status_code == 200
+    assert me.json() == alias.json()
