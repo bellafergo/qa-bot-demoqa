@@ -943,12 +943,11 @@ def investigate_project_incident(
     project_metadata = None
     try:
         from services.db.project_repository import project_repo
+        from services.project_settings_service import project_environments_metadata
 
         project = project_repo.get_project(pid)
-        if project and hasattr(project, "metadata"):
-            project_metadata = getattr(project, "metadata", None)
-        elif project and isinstance(project, dict):
-            project_metadata = project.get("metadata")
+        if project is not None:
+            project_metadata = project_environments_metadata(project)
     except Exception:
         project_metadata = None
 
