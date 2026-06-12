@@ -92,6 +92,12 @@ def get_security_me(request: Request):
     )
 
 
+@router.get("/me/permissions", response_model=UserSecurityContext)
+def get_security_me_permissions(request: Request):
+    """Alias for GET /security/me (SEC-01F compatibility)."""
+    return get_security_me(request)
+
+
 @router.get("/sso/providers", response_model=SSOProvidersResponse)
 def get_sso_providers():
     """Return configured enterprise SSO providers (SEC-01D)."""

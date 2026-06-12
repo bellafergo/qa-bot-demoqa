@@ -44,8 +44,14 @@ describe("rbacViewUtils", () => {
     expect(vm.permissionsCount).toBe(9);
     expect(vm.enforcementText).toBe(RBAC_I18N_KEYS.enforcementDisabled);
     expect(vm.readinessScore).toBe(50);
+    expect(vm.readOnlyNote).toBe(RBAC_I18N_KEYS.readOnlyNote);
     expect(vm.roles).toHaveLength(2);
     expect(vm.permissions).toHaveLength(1);
+  });
+
+  it("uses updated enforcement-active read only note", () => {
+    const vm = buildRbacViewModel({ rbac, roles, permissions, t: (key) => key });
+    expect(vm.readOnlyNote).toBe("rbac.read_only_note");
   });
 
   it("handles empty roles", () => {
