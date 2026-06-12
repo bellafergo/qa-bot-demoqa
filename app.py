@@ -80,6 +80,7 @@ from api.routes.business_risk_estimation_routes import router as business_risk_e
 from api.routes.report_delivery_routes import router as report_delivery_router
 from api.routes.security_routes import router as security_router
 from api.routes.audit_routes import router as audit_router
+from api.routes.platform_observability_routes import router as platform_observability_router
 from api.routes.project_routes import router as project_router
 from api.routes.project_knowledge_routes import router as project_knowledge_router
 
@@ -515,4 +516,5 @@ app.include_router(business_risk_estimation_router)  # GET /projects/{id}/busine
 app.include_router(report_delivery_router)     # POST /projects/{id}/reports/preview|send
 app.include_router(security_router)            # GET /security/readiness, /security/providers
 app.include_router(audit_router)               # GET /audit/events, /audit/summary
+app.include_router(platform_observability_router)  # GET /platform/observability
 app.include_router(project_knowledge_router)    # GET|POST /projects/{id}/knowledge

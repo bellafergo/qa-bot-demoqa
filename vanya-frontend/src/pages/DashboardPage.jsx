@@ -13,6 +13,7 @@ import {
   getProjectValueDashboard,
   getProjectExecutiveImpact,
   getProjectBusinessRisk,
+  getPlatformObservability,
   getQMetryCoverage,
   getQMetryRecommendations,
   getServiceNowIntelligence,
@@ -52,6 +53,8 @@ import { buildRecommendedTestsOverviewViewModel } from "../utils/qmetryRecommend
 import ServiceNowIntelligenceView from "../components/servicenow-intelligence/ServiceNowIntelligenceView.jsx";
 import { buildServiceNowIntelligenceOverviewViewModel } from "../utils/servicenowIntelligenceViewUtils.js";
 import { buildReportDeliveryViewModel } from "../utils/reportDeliveryViewUtils.js";
+import PlatformObservabilityView from "../components/platform-observability/PlatformObservabilityView.jsx";
+import { buildPlatformObservabilityViewModel } from "../utils/platformObservabilityViewUtils.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -981,6 +984,7 @@ export default function DashboardPage() {
   const [valueDashboard, setValueDashboard] = useState(null);
   const [executiveImpact, setExecutiveImpact] = useState(null);
   const [businessRisk, setBusinessRisk] = useState(null);
+  const [platformObservability, setPlatformObservability] = useState(null);
   const [servicenowIntelligence, setServicenowIntelligence] = useState(null);
   const [coverageOverview, setCoverageOverview] = useState(null);
   const [recommendedTests, setRecommendedTests] = useState(null);
@@ -1001,6 +1005,7 @@ export default function DashboardPage() {
     setValueDashboard(null);
     setExecutiveImpact(null);
     setBusinessRisk(null);
+    setPlatformObservability(null);
     setServicenowIntelligence(null);
 
     const pid = projectId;
@@ -1044,6 +1049,10 @@ export default function DashboardPage() {
     }
 
     setLoading(false);
+
+    getPlatformObservability()
+      .then((data) => setPlatformObservability(data))
+      .catch(() => setPlatformObservability(null));
 
     if (pid) {
       getProjectKnowledge(pid)
@@ -1136,6 +1145,11 @@ export default function DashboardPage() {
   const valueDashboardVm = useMemo(
     () => buildValueDashboardViewModel(valueDashboard, t),
     [valueDashboard, t],
+  );
+
+  const platformObservabilityVm = useMemo(
+    () => buildPlatformObservabilityViewModel(platformObservability, t),
+    [platformObservability, t],
   );
 
   const executiveImpactVm = useMemo(
@@ -1439,6 +1453,18 @@ export default function DashboardPage() {
             <ValueDashboardView vm={valueDashboardVm} />
             <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
               {valueDashboardVm.labels?.readOnlyNote}
+            </p>
+          </div>
+        ) : null}
+
+        {platformObservabilityVm.show ? (
+          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
+              {platformObservabilityVm.title}
+            </div>
+            <PlatformObservabilityView vm={platformObservabilityVm} />
+            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+              {platformObservabilityVm.readOnlyNote}
             </p>
           </div>
         ) : null}
