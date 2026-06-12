@@ -3,6 +3,7 @@ import React from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/LangContext";
 import { useAuth } from "../auth/AuthContext.jsx";
+import { useRbac } from "../auth/RbacContext.jsx";
 import ProjectSwitcher from "./ProjectSwitcher";
 import { SidebarBrand } from "../ui";
 
@@ -10,36 +11,36 @@ const NAV_SECTIONS_DEF = [
   {
     labelKey: "nav.operation",
     items: [
-      { to: "/dashboard", icon: "⊞", labelKey: "nav.dashboard" },
-      { to: "/catalog",   icon: "☰", labelKey: "nav.catalog"   },
-      { to: "/runs",      icon: "◈", labelKey: "nav.runs"      },
-      { to: "/batch",     icon: "▶", labelKey: "nav.batch"     },
-      { to: "/evidence",  icon: "⊟", labelKey: "nav.evidence"  },
+      { to: "/dashboard", icon: "⊞", labelKey: "nav.dashboard", permission: "VIEW_DASHBOARD" },
+      { to: "/catalog",   icon: "☰", labelKey: "nav.catalog", permission: "VIEW_DASHBOARD" },
+      { to: "/runs",      icon: "◈", labelKey: "nav.runs", permission: "VIEW_DASHBOARD" },
+      { to: "/batch",     icon: "▶", labelKey: "nav.batch", permission: "VIEW_DASHBOARD" },
+      { to: "/evidence",  icon: "⊟", labelKey: "nav.evidence", permission: "VIEW_DASHBOARD" },
     ],
   },
   {
     labelKey: "nav.intelligence",
     items: [
-      { to: "/insights", icon: "◐", labelKey: "nav.insights" },
-      { to: "/incidents", icon: "⚡", labelKey: "nav.incidents" },
-      { to: "/pr-analysis", icon: "⎇", labelKey: "nav.pr_analysis" },
-      { to: "/knowledge", icon: "◫", labelKey: "nav.knowledge" },
+      { to: "/insights", icon: "◐", labelKey: "nav.insights", permission: "VIEW_DASHBOARD" },
+      { to: "/incidents", icon: "⚡", labelKey: "nav.incidents", permission: "VIEW_INCIDENTS" },
+      { to: "/pr-analysis", icon: "⎇", labelKey: "nav.pr_analysis", permission: "VIEW_DASHBOARD" },
+      { to: "/knowledge", icon: "◫", labelKey: "nav.knowledge", permission: "VIEW_DASHBOARD" },
     ],
   },
   {
     labelKey: "nav.automation",
     items: [
-      { to: "/browser-watch", icon: "◎", labelKey: "nav.browser_watch" },
-      { to: "/local-agents", icon: "⎔", labelKey: "nav.local_agents" },
+      { to: "/browser-watch", icon: "◎", labelKey: "nav.browser_watch", permission: "VIEW_DASHBOARD" },
+      { to: "/local-agents", icon: "⎔", labelKey: "nav.local_agents", permission: "VIEW_DASHBOARD" },
     ],
   },
   {
     labelKey: "nav.platform",
     items: [
-      { to: "/projects",     icon: "▤", labelKey: "nav.projects"     },
-      { to: "/integrations", icon: "◇", labelKey: "nav.integrations" },
-      { to: "/documents",    icon: "⊟", labelKey: "nav.documents"    },
-      { to: "/settings",     icon: "⊛", labelKey: "nav.settings"     },
+      { to: "/projects",     icon: "▤", labelKey: "nav.projects", permission: "VIEW_DASHBOARD" },
+      { to: "/integrations", icon: "◇", labelKey: "nav.integrations", permission: "VIEW_DASHBOARD" },
+      { to: "/documents",    icon: "⊟", labelKey: "nav.documents", permission: "VIEW_DASHBOARD" },
+      { to: "/settings",     icon: "⊛", labelKey: "nav.settings", permission: "VIEW_DASHBOARD" },
     ],
   },
 ];
@@ -63,7 +64,13 @@ function NavItem({ to, icon, label }) {
 export default function NavSidebar() {
   const { lang, setLang, t } = useLang();
   const { signOut, user } = useAuth();
+  const { hasPermission } = useRbac();
   const navigate = useNavigate();
+
+  const visibleSections = NAV_SECTIONS_DEF.map((section) => ({
+    ...section,
+    items: section.items.filter((item) => hasPermission(item.permission)),
+  })).filter((section) => section.items.length > 0);
 
   return (
     <nav style={{
@@ -103,7 +110,7 @@ export default function NavSidebar() {
 
       {/* Sections */}
       <div style={{ flex: 1, padding: "10px 10px", overflow: "auto" }}>
-        {NAV_SECTIONS_DEF.map(section => (
+        {visibleSections.map(section => (
           <div key={section.labelKey} style={{ marginBottom: 14 }}>
             <div className="nav-sidebar-section-label">
               {t(section.labelKey)}

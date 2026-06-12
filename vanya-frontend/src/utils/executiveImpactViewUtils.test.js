@@ -123,7 +123,7 @@ describe("executiveImpactViewUtils", () => {
     expect(vm.empty).toBe(false);
     expect(vm.title).toBe(EXECUTIVE_IMPACT_I18N_KEYS.title);
     expect(vm.qualityMetrics).toHaveLength(3);
-    expect(vm.riskMetrics).toHaveLength(3);
+    expect(vm.riskMetrics).toHaveLength(2);
     expect(vm.operationsMetrics).toHaveLength(3);
     expect(vm.topImprovements).toHaveLength(1);
     expect(vm.topImprovements[0].directionIndicator).toBe("↑");
@@ -210,5 +210,13 @@ describe("executiveImpactViewUtils", () => {
     }, t);
     expect(vm.empty).toBe(true);
     expect(vm.emptyMessage).toBe(EXECUTIVE_IMPACT_I18N_KEYS.insufficientHistory);
+  });
+
+  it("shows load error instead of insufficient history when fetch fails", () => {
+    const vm = buildExecutiveImpactViewModel(null, t, { loadError: "Network error" });
+    expect(vm.show).toBe(true);
+    expect(vm.loadError).toBe(true);
+    expect(vm.empty).toBe(false);
+    expect(vm.emptyMessage).toBe("Network error");
   });
 });

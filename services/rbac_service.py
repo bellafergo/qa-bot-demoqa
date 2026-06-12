@@ -1,15 +1,19 @@
 # services/rbac_service.py
 """
-Enterprise SEC-01B — Role-based access control foundation (read-only).
+Enterprise SEC-01B — Role-based access control.
 
-Defines default roles, permissions, and resolution helpers.
-No authorization enforcement or access denial.
+Defines default roles, permissions, resolution helpers, and enforcement readiness.
 """
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
+from core.rbac_enforcement import (
+    permissions_for_role,
+    rbac_enforcement_enabled,
+    resolve_role_name,
+)
 from models.rbac_models import (
     Permission,
     RBACReadinessReport,
@@ -18,6 +22,7 @@ from models.rbac_models import (
     RolesResponse,
     PermissionsResponse,
     UserRole,
+    UserSecurityContext,
 )
 
 logger = logging.getLogger("vanya.rbac")
@@ -97,13 +102,45 @@ def get_role_permissions(role_name: str) -> RolePermission:
     return RolePermission(role_name=key or _DEFAULT_ROLE, permissions=perms)
 
 
-def resolve_user_role(*, user_id: Optional[str] = None) -> UserRole:
-    """
-    Resolve role for a user. Foundation sprint: unassigned users default to VIEWER.
-    No persistent role assignments yet.
-    """
+def resolve_user_role(
+    *,
+    user_id: Optional[str] = None,
+    email: Optional[str] = None,
+    auth_kind: Optional[str] = None,
+    claims: Optional[Dict[str, Any]] = None,
+) -> UserRole:
+    """Resolve role for a user from JWT claims and optional env assignments."""
     uid = str(user_id or "").strip() or "anonymous"
-    return UserRole(user_id=uid, role_name=_DEFAULT_ROLE)
+    role_name = resolve_role_name(
+        user_id=uid,
+        email=email,
+        auth_kind=auth_kind,
+        claims=claims,
+    )
+    return UserRole(user_id=uid, role_name=role_name)
+
+
+def build_user_security_context(
+    *,
+    user_id: Optional[str] = None,
+    email: Optional[str] = None,
+    auth_kind: Optional[str] = None,
+    claims: Optional[Dict[str, Any]] = None,
+) -> UserSecurityContext:
+    role = resolve_user_role(
+        user_id=user_id,
+        email=email,
+        auth_kind=auth_kind,
+        claims=claims,
+    )
+    perms = sorted(permissions_for_role(role.role_name))
+    return UserSecurityContext(
+        user_id=role.user_id,
+        email=email,
+        role_name=role.role_name,
+        permissions=perms,
+        enforcement_enabled=rbac_enforcement_enabled(),
+    )
 
 
 def is_rbac_configured() -> bool:
@@ -116,12 +153,14 @@ def build_rbac_readiness_report() -> RBACReadinessReport:
     roles = list_roles()
     permissions = list_permissions()
     default_roles_ready = len(roles) >= 5 and len(permissions) >= 9
-    enforcement_enabled = False
-    readiness_score = 50 if default_roles_ready else 0
+    enforcement_enabled = rbac_enforcement_enabled()
+    readiness_score = 100 if default_roles_ready and enforcement_enabled else (
+        75 if default_roles_ready else 0
+    )
 
     summary = (
         f"RBAC foundation defines {len(roles)} roles and {len(permissions)} permissions. "
-        f"Enforcement is {'enabled' if enforcement_enabled else 'disabled'}. "
+        f"Enforcement is {'enabled (auth on)' if enforcement_enabled else 'disabled'}. "
         f"Readiness score {readiness_score}%."
     )
 

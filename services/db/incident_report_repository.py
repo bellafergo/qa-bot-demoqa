@@ -160,6 +160,39 @@ class IncidentReportRepository:
                 })
             return out
 
+    def _list_full_sqlite(self, *, project_id: str, limit: int) -> List[Dict[str, Any]]:
+        pid = (project_id or "").strip().lower()
+        if not pid:
+            return []
+        limit = max(1, min(int(limit), 200))
+        with get_session() as session:
+            rows = (
+                session.query(IncidentReportRow)
+                .filter(IncidentReportRow.project_id == pid)
+                .order_by(desc(IncidentReportRow.created_at))
+                .limit(limit)
+                .all()
+            )
+            out: List[Dict[str, Any]] = []
+            for row in rows:
+                try:
+                    data = json.loads(row.report_json or "{}")
+                except Exception:
+                    logger.warning("incident_report: corrupt payload for %s", row.id)
+                    continue
+                data.setdefault("id", row.id)
+                data.setdefault("project_id", row.project_id)
+                data.setdefault("description", row.description)
+                data.setdefault("severity", row.severity)
+                data.setdefault("summary", row.summary)
+                data.setdefault("created_at", row.created_at)
+                try:
+                    data.setdefault("confidence", float(row.confidence or 0))
+                except (TypeError, ValueError):
+                    data.setdefault("confidence", 0.0)
+                out.append(data)
+            return out
+
     def get(self, report_id: str) -> Optional[Dict[str, Any]]:
         rid = (report_id or "").strip()
         if not rid:
@@ -207,6 +240,36 @@ class IncidentReportRepository:
                 )
         except Exception as e:
             logger.debug("incident_report: supabase list fallback project_id=%s: %s", pid, e)
+        return sqlite_rows
+
+    def list_full_reports(
+        self,
+        *,
+        project_id: str,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """Bulk-load full incident report documents for a project (no N+1)."""
+        pid = (project_id or "").strip().lower()
+        if not pid:
+            return []
+        limit = max(1, min(int(limit), 200))
+        sqlite_rows = self._list_full_sqlite(project_id=pid, limit=limit)
+        try:
+            from services.incident_report_supabase import (
+                list_incident_reports_full_supabase,
+                supabase_incident_reports_enabled,
+            )
+            from services.report_history_merge import merge_sqlite_supabase_records
+
+            if supabase_incident_reports_enabled():
+                supa_rows = list_incident_reports_full_supabase(pid, limit=limit)
+                return merge_sqlite_supabase_records(
+                    supabase_rows=supa_rows,
+                    sqlite_rows=sqlite_rows,
+                    limit=limit,
+                )
+        except Exception as e:
+            logger.debug("incident_report: supabase list_full fallback project_id=%s: %s", pid, e)
         return sqlite_rows
 
     def get_for_project(self, project_id: str, report_id: str) -> Optional[Dict[str, Any]]:

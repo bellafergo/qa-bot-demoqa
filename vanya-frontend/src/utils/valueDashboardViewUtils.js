@@ -76,7 +76,7 @@ export function isValueDashboardEmpty(dashboard) {
   return !(hasActivity || hasRisk || hasQuality || hasOperational || hasTop);
 }
 
-export function buildValueDashboardViewModel(dashboard, t) {
+export function buildValueDashboardViewModel(dashboard, t, { hideJiraBlockers = true } = {}) {
   const show = hasValueDashboardSection(dashboard);
   const empty = isValueDashboardEmpty(dashboard);
 
@@ -124,12 +124,14 @@ export function buildValueDashboardViewModel(dashboard, t) {
       dashboard?.critical_risks_identified ?? 0,
       t(VALUE_DASHBOARD_I18N_KEYS.criticalRisksIdentified),
     ),
-    buildMetric(
-      "jira_blockers_detected",
-      t(VALUE_DASHBOARD_I18N_KEYS.jiraBlockersDetected),
-      dashboard?.jira_blockers_detected ?? 0,
-      t(VALUE_DASHBOARD_I18N_KEYS.jiraBlockersDetected),
-    ),
+    ...(hideJiraBlockers ? [] : [
+      buildMetric(
+        "jira_blockers_detected",
+        t(VALUE_DASHBOARD_I18N_KEYS.jiraBlockersDetected),
+        dashboard?.jira_blockers_detected ?? 0,
+        t(VALUE_DASHBOARD_I18N_KEYS.jiraBlockersDetected),
+      ),
+    ]),
     buildMetric(
       "degradation_events_detected",
       t(VALUE_DASHBOARD_I18N_KEYS.degradationEventsDetected),
@@ -213,6 +215,7 @@ export function buildValueDashboardViewModel(dashboard, t) {
     qualityMetrics,
     operationalMetrics,
     topMetrics,
+    qualityTrend: String(dashboard?.quality_trend || "UNKNOWN").toUpperCase(),
     generated_at: dashboard?.generated_at || null,
   };
 }

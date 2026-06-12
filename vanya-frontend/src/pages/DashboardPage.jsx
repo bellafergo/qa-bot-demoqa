@@ -55,6 +55,16 @@ import { buildServiceNowIntelligenceOverviewViewModel } from "../utils/serviceno
 import { buildReportDeliveryViewModel } from "../utils/reportDeliveryViewUtils.js";
 import PlatformObservabilityView from "../components/platform-observability/PlatformObservabilityView.jsx";
 import { buildPlatformObservabilityViewModel } from "../utils/platformObservabilityViewUtils.js";
+import DashboardSectionState from "../components/dashboard/DashboardSectionState.jsx";
+import ExecutiveBriefCard from "../components/dashboard/ExecutiveBriefCard.jsx";
+import ColdProjectGuidance from "../components/dashboard/ColdProjectGuidance.jsx";
+import {
+  buildDashboardSectionState,
+  buildColdProjectGuidanceViewModel,
+  DASHBOARD_SECTION_CTA,
+  isColdProject,
+} from "../utils/dashboardSectionStateUtils.js";
+import { buildExecutiveBriefViewModel } from "../utils/executiveBriefViewUtils.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -683,54 +693,6 @@ function FailureDistributionChart({ fi, loading, t }) {
   );
 }
 
-// ── Visual widget: Failure Intelligence mini panel ──────────────────────────
-function FailureIntelMiniPanel({ fi, t }) {
-  const top = fi?.top_failure_categories;
-  const notes = typeof fi?.notes === "string" ? fi.notes.trim() : "";
-
-  const topEntries = top && typeof top === "object"
-    ? Object.entries(top)
-        .filter(([_, v]) => v != null)
-        .sort((a, b) => Number(b[1]) - Number(a[1]))
-        .slice(0, 5)
-    : [];
-
-  const hasAny = topEntries.length > 0 || !!notes;
-  if (!hasAny) return null;
-
-  return (
-    <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
-      {topEntries.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: notes ? 10 : 0 }}>
-          <div style={{
-            fontSize: 11,
-            fontWeight: 500,
-            textTransform: "uppercase",
-            letterSpacing: "0.08em",
-            color: "var(--text-3)",
-            marginBottom: 4,
-          }}>
-            {t("dash.analytics.top_failures")}
-          </div>
-          {topEntries.map(([cat, count]) => (
-            <div key={cat} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12, color: "var(--text-2)" }}>
-              <span style={{ fontWeight: 500 }}>{cat}</span>
-              <span style={{ color: "var(--text-3)", whiteSpace: "nowrap", fontFamily: "monospace" }}>{count}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {!!notes && (
-        <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.6 }}>
-          <div style={{ fontWeight: 500, color: "var(--text-4)", marginBottom: 6 }}>{t("fi.col.notes")}</div>
-          <div style={{ whiteSpace: "pre-wrap" }}>{notes}</div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Visual widget: Risk Summary ───────────────────────────────────────────────
 
 function RiskSummaryCard({ summary, fi, loading, sectionError, t }) {
@@ -988,6 +950,25 @@ export default function DashboardPage() {
   const [servicenowIntelligence, setServicenowIntelligence] = useState(null);
   const [coverageOverview, setCoverageOverview] = useState(null);
   const [recommendedTests, setRecommendedTests] = useState(null);
+  const [intelErrors, setIntelErrors] = useState({});
+  const [intelLoading, setIntelLoading] = useState({});
+
+  const trackIntel = useCallback(async (key, fetcher, setter) => {
+    setIntelLoading((prev) => ({ ...prev, [key]: true }));
+    setIntelErrors((prev) => ({ ...prev, [key]: "" }));
+    try {
+      const data = await fetcher();
+      setter(data);
+    } catch (e) {
+      setter(null);
+      setIntelErrors((prev) => ({
+        ...prev,
+        [key]: apiErrorMessage(e) || t("dash.load_error"),
+      }));
+    } finally {
+      setIntelLoading((prev) => ({ ...prev, [key]: false }));
+    }
+  }, [t]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1007,6 +988,10 @@ export default function DashboardPage() {
     setBusinessRisk(null);
     setPlatformObservability(null);
     setServicenowIntelligence(null);
+    setCoverageOverview(null);
+    setRecommendedTests(null);
+    setIntelErrors({});
+    setIntelLoading({});
 
     const pid = projectId;
     const summaryParams = pid ? { project_id: pid } : {};
@@ -1050,9 +1035,7 @@ export default function DashboardPage() {
 
     setLoading(false);
 
-    getPlatformObservability()
-      .then((data) => setPlatformObservability(data))
-      .catch(() => setPlatformObservability(null));
+    trackIntel("platformObservability", getPlatformObservability, setPlatformObservability);
 
     if (pid) {
       getProjectKnowledge(pid)
@@ -1061,30 +1044,22 @@ export default function DashboardPage() {
           if (e?.status === 404) setHasKnowledge(false);
           else setHasKnowledge(null);
         });
-      getProjectQualityTrends(pid)
-        .then((data) => setQualityTrends(data))
-        .catch(() => setQualityTrends(null));
-      getProjectEarlyDegradation(pid)
-        .then((data) => setEarlyDegradation(data))
-        .catch(() => setEarlyDegradation(null));
-      getProjectValueDashboard(pid)
-        .then((data) => setValueDashboard(data))
-        .catch(() => setValueDashboard(null));
-      getProjectExecutiveImpact(pid)
-        .then((data) => setExecutiveImpact(data))
-        .catch(() => setExecutiveImpact(null));
-      getProjectBusinessRisk(pid)
-        .then((data) => setBusinessRisk(data))
-        .catch(() => setBusinessRisk(null));
-      getServiceNowIntelligence({ project_id: pid })
-        .then((data) => setServicenowIntelligence(data))
-        .catch(() => setServicenowIntelligence(null));
-      getQMetryCoverage({ project_id: pid })
-        .then((data) => setCoverageOverview(data))
-        .catch(() => setCoverageOverview(null));
-      getQMetryRecommendations({ project_id: pid })
-        .then((data) => setRecommendedTests(data))
-        .catch(() => setRecommendedTests(null));
+      trackIntel("qualityTrends", () => getProjectQualityTrends(pid), setQualityTrends);
+      trackIntel("earlyDegradation", () => getProjectEarlyDegradation(pid), setEarlyDegradation);
+      trackIntel("valueDashboard", () => getProjectValueDashboard(pid), setValueDashboard);
+      trackIntel("executiveImpact", () => getProjectExecutiveImpact(pid), setExecutiveImpact);
+      trackIntel("businessRisk", () => getProjectBusinessRisk(pid), setBusinessRisk);
+      trackIntel(
+        "servicenowIntelligence",
+        () => getServiceNowIntelligence({ project_id: pid }),
+        setServicenowIntelligence,
+      );
+      trackIntel("coverageOverview", () => getQMetryCoverage({ project_id: pid }), setCoverageOverview);
+      trackIntel(
+        "recommendedTests",
+        () => getQMetryRecommendations({ project_id: pid }),
+        setRecommendedTests,
+      );
     } else {
       setHasKnowledge(null);
       setValueDashboard(null);
@@ -1113,7 +1088,7 @@ export default function DashboardPage() {
         setAnalyticsError(apiErrorMessage(e) || t("dash.load_error"));
       })
       .finally(() => setAnalyticsLoading(false));
-  }, [projectId, t]);
+  }, [projectId, t, trackIntel]);
 
   useEffect(() => {
     load();
@@ -1153,8 +1128,10 @@ export default function DashboardPage() {
   );
 
   const executiveImpactVm = useMemo(
-    () => buildExecutiveImpactViewModel(executiveImpact, t),
-    [executiveImpact, t],
+    () => buildExecutiveImpactViewModel(executiveImpact, t, {
+      loadError: intelErrors.executiveImpact || "",
+    }),
+    [executiveImpact, intelErrors.executiveImpact, t],
   );
 
   const businessRiskVm = useMemo(
@@ -1190,6 +1167,130 @@ export default function DashboardPage() {
   const earlyDegradationVm = useMemo(
     () => buildEarlyDegradationViewModelFromApi(earlyDegradation, t, { quality_trends: qualityTrends }),
     [earlyDegradation, qualityTrends, t],
+  );
+
+  const coldProjectGuidanceVm = useMemo(
+    () => buildColdProjectGuidanceViewModel(
+      projectId && isColdProject({
+        releaseReadiness: s,
+        valueDashboard,
+        businessRisk,
+        executiveImpact,
+      }),
+      t,
+    ),
+    [projectId, s, valueDashboard, businessRisk, executiveImpact, t],
+  );
+
+  const executiveBriefVm = useMemo(
+    () => buildExecutiveBriefViewModel({
+      releaseReadinessVm,
+      businessRiskVm,
+      executiveImpactVm,
+      valueDashboardVm,
+      platformObservabilityVm,
+      onboardingVm,
+      t,
+    }),
+    [
+      releaseReadinessVm,
+      businessRiskVm,
+      executiveImpactVm,
+      valueDashboardVm,
+      platformObservabilityVm,
+      onboardingVm,
+      t,
+    ],
+  );
+
+  const executiveImpactSection = useMemo(
+    () => buildDashboardSectionState({
+      data: executiveImpact,
+      loadError: intelErrors.executiveImpact,
+      loading: intelLoading.executiveImpact,
+      empty: executiveImpactVm.empty,
+      emptyMessage: executiveImpactVm.emptyMessage,
+      emptyCta: DASHBOARD_SECTION_CTA.incidents,
+      t,
+    }),
+    [executiveImpact, intelErrors.executiveImpact, intelLoading.executiveImpact, executiveImpactVm, t],
+  );
+
+  const valueDashboardSection = useMemo(
+    () => buildDashboardSectionState({
+      data: valueDashboard,
+      loadError: intelErrors.valueDashboard,
+      loading: intelLoading.valueDashboard,
+      empty: valueDashboardVm.empty,
+      emptyMessage: valueDashboardVm.emptyMessage,
+      emptyCta: DASHBOARD_SECTION_CTA.incidents,
+      t,
+    }),
+    [valueDashboard, intelErrors.valueDashboard, intelLoading.valueDashboard, valueDashboardVm, t],
+  );
+
+  const businessRiskSection = useMemo(
+    () => buildDashboardSectionState({
+      data: businessRisk,
+      loadError: intelErrors.businessRisk,
+      loading: intelLoading.businessRisk,
+      empty: businessRiskVm.empty,
+      emptyMessage: businessRiskVm.emptyMessage,
+      emptyCta: DASHBOARD_SECTION_CTA.incidents,
+      t,
+    }),
+    [businessRisk, intelErrors.businessRisk, intelLoading.businessRisk, businessRiskVm, t],
+  );
+
+  const platformObservabilitySection = useMemo(
+    () => buildDashboardSectionState({
+      data: platformObservability,
+      loadError: intelErrors.platformObservability,
+      loading: intelLoading.platformObservability,
+      empty: platformObservabilityVm.empty,
+      emptyMessage: platformObservabilityVm.emptyMessage,
+      emptyCta: DASHBOARD_SECTION_CTA.settings,
+      t,
+    }),
+    [
+      platformObservability,
+      intelErrors.platformObservability,
+      intelLoading.platformObservability,
+      platformObservabilityVm,
+      t,
+    ],
+  );
+
+  const coverageOverviewSection = useMemo(
+    () => buildDashboardSectionState({
+      data: coverageOverview,
+      loadError: intelErrors.coverageOverview,
+      loading: intelLoading.coverageOverview,
+      empty: coverageOverviewVm.empty,
+      emptyMessage: coverageOverviewVm.emptyMessage,
+      emptyCta: DASHBOARD_SECTION_CTA.integrations,
+      t,
+    }),
+    [coverageOverview, intelErrors.coverageOverview, intelLoading.coverageOverview, coverageOverviewVm, t],
+  );
+
+  const servicenowSection = useMemo(
+    () => buildDashboardSectionState({
+      data: servicenowIntelligence,
+      loadError: intelErrors.servicenowIntelligence,
+      loading: intelLoading.servicenowIntelligence,
+      empty: servicenowIntelligenceVm.empty,
+      emptyMessage: servicenowIntelligenceVm.emptyMessage,
+      emptyCta: DASHBOARD_SECTION_CTA.integrations,
+      t,
+    }),
+    [
+      servicenowIntelligence,
+      intelErrors.servicenowIntelligence,
+      intelLoading.servicenowIntelligence,
+      servicenowIntelligenceVm,
+      t,
+    ],
   );
 
   const filteredRecentRuns = useMemo(
@@ -1409,6 +1510,24 @@ export default function DashboardPage() {
           onInitialized={() => load()}
         />
 
+        {projectId && coldProjectGuidanceVm.show ? (
+          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
+            <ColdProjectGuidance vm={coldProjectGuidanceVm} />
+          </div>
+        ) : null}
+
+        {projectId && executiveBriefVm.show ? (
+          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
+              {executiveBriefVm.title}
+            </div>
+            <ExecutiveBriefCard vm={executiveBriefVm} />
+            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+              {executiveBriefVm.readOnlyNote}
+            </p>
+          </div>
+        ) : null}
+
         {projectId && qualityTrendVm.show && !qualityTrendVm.empty ? (
           <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
@@ -1445,69 +1564,84 @@ export default function DashboardPage() {
           </div>
         ) : null}
 
-        {projectId && valueDashboardVm.show ? (
+        {projectId && valueDashboardSection.show ? (
           <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
               {valueDashboardVm.title}
             </div>
-            <ValueDashboardView vm={valueDashboardVm} />
+            <DashboardSectionState state={valueDashboardSection} onRetry={load}>
+              <ValueDashboardView vm={valueDashboardVm} />
+            </DashboardSectionState>
             <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
               {valueDashboardVm.labels?.readOnlyNote}
             </p>
           </div>
         ) : null}
 
-        {platformObservabilityVm.show ? (
+        {platformObservabilitySection.show ? (
           <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
               {platformObservabilityVm.title}
             </div>
-            <PlatformObservabilityView vm={platformObservabilityVm} />
+            <DashboardSectionState state={platformObservabilitySection} onRetry={load}>
+              <PlatformObservabilityView vm={platformObservabilityVm} />
+            </DashboardSectionState>
             <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
               {platformObservabilityVm.readOnlyNote}
             </p>
           </div>
         ) : null}
 
-        {projectId && executiveImpactVm.show ? (
+        {projectId && executiveImpactSection.show ? (
           <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
               {executiveImpactVm.title}
             </div>
-            <ExecutiveImpactView vm={executiveImpactVm} />
+            <DashboardSectionState state={executiveImpactSection} onRetry={load}>
+              <ExecutiveImpactView vm={executiveImpactVm} />
+            </DashboardSectionState>
             <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
               {executiveImpactVm.readOnlyNote}
             </p>
           </div>
         ) : null}
 
-        {projectId && businessRiskVm.show ? (
+        {projectId && businessRiskSection.show ? (
           <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
               {businessRiskVm.title}
             </div>
-            <BusinessRiskView vm={businessRiskVm} />
+            <DashboardSectionState state={businessRiskSection} onRetry={load}>
+              <BusinessRiskView vm={businessRiskVm} />
+            </DashboardSectionState>
             <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
               {businessRiskVm.readOnlyNote}
             </p>
           </div>
         ) : null}
 
-        {projectId && servicenowIntelligenceVm.show ? (
+        {projectId && servicenowSection.show ? (
           <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
               {servicenowIntelligenceVm.title}
             </div>
-            <ServiceNowIntelligenceView vm={servicenowIntelligenceVm} />
+            <DashboardSectionState state={servicenowSection} onRetry={load}>
+              <ServiceNowIntelligenceView vm={servicenowIntelligenceVm} />
+            </DashboardSectionState>
+            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+              {servicenowIntelligenceVm.readOnlyNote}
+            </p>
           </div>
         ) : null}
 
-        {projectId && coverageOverviewVm.show ? (
+        {projectId && coverageOverviewSection.show ? (
           <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
               {coverageOverviewVm.title}
             </div>
-            <CoverageIntelligenceView vm={coverageOverviewVm} />
+            <DashboardSectionState state={coverageOverviewSection} onRetry={load}>
+              <CoverageIntelligenceView vm={coverageOverviewVm} />
+            </DashboardSectionState>
             <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
               {coverageOverviewVm.readOnlyNote}
             </p>
@@ -1632,7 +1766,7 @@ export default function DashboardPage() {
           <WidgetCard title={t("dash.trends.title")} subtitle={`${t("dash.trends.subtitle")} · ${recentRuns.length}`}>
             <PassRateTrendChart runs={recentRuns} loading={loading} t={t} />
           </WidgetCard>
-          <WidgetCard title={t("dash.coverage.title")}>
+          <WidgetCard title={t("dash.coverage.title")} subtitle={t("dash.coverage.catalog_subtitle")}>
             <CoverageDonutChart summary={summary} loading={loading} t={t} />
           </WidgetCard>
         </div>
@@ -1641,7 +1775,6 @@ export default function DashboardPage() {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 28 }}>
           <WidgetCard title={t("dash.failures.title")} subtitle={t("dash.failures.subtitle")}>
             <FailureDistributionChart fi={fi} loading={fiLoading} t={t} />
-            <FailureIntelMiniPanel fi={fi} t={t} />
           </WidgetCard>
           <WidgetCard title={t("dash.risk.title")} subtitle={t("dash.risk.subtitle")}>
             <RiskSummaryCard

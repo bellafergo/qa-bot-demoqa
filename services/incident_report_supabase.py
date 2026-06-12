@@ -120,6 +120,41 @@ def list_incident_reports_supabase(
         return []
 
 
+def list_incident_reports_full_supabase(
+    project_id: str,
+    *,
+    limit: int = 50,
+) -> List[Dict[str, Any]]:
+    """List full incident report documents for a project (includes report_json)."""
+    pid = (project_id or "").strip().lower()
+    if not pid or not supabase_incident_reports_enabled():
+        return []
+    limit = max(1, min(int(limit), 200))
+    try:
+        sb = _get_supabase()
+        if sb is None:
+            return []
+        res = (
+            sb.table(_TABLE)
+            .select("id,project_id,description,severity,summary,confidence,created_at,report_json")
+            .eq("project_id", pid)
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        rows = getattr(res, "data", None) or []
+        out: List[Dict[str, Any]] = []
+        for row in rows:
+            if isinstance(row, dict):
+                doc = _row_to_full_document(row)
+                if doc:
+                    out.append(doc)
+        return out
+    except Exception:
+        logger.exception("incident_report_supabase: list full failed project_id=%r", pid)
+        return []
+
+
 def fetch_incident_report_full_supabase(report_id: str) -> Optional[Dict[str, Any]]:
     """Full report document (report_json merged with index columns)."""
     rid = (report_id or "").strip()

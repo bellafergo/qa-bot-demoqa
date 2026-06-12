@@ -16,7 +16,7 @@ from models.auth_models import (
     SSOProvidersResponse,
     SSOValidationResult,
 )
-from models.rbac_models import PermissionsResponse, RBACReadinessReport, RolesResponse
+from models.rbac_models import PermissionsResponse, RBACReadinessReport, RolesResponse, UserSecurityContext
 from services.auth_identity_service import (
     auth_context_from_state,
     build_identity_providers_response,
@@ -26,6 +26,7 @@ from services.rbac_service import (
     build_permissions_response,
     build_rbac_readiness_report,
     build_roles_response,
+    build_user_security_context,
 )
 from services.sso_service import build_login_url, list_sso_provider_configs, validate_provider_config
 
@@ -77,6 +78,18 @@ def get_security_roles():
 def get_security_permissions():
     """Return RBAC permission catalog."""
     return build_permissions_response()
+
+
+@router.get("/me", response_model=UserSecurityContext)
+def get_security_me(request: Request):
+    """Return the authenticated user's resolved role and permissions."""
+    ctx = auth_context_from_state(request.state)
+    return build_user_security_context(
+        user_id=ctx.get("user_id"),
+        email=ctx.get("email"),
+        auth_kind=ctx.get("auth_kind"),
+        claims=getattr(request.state, "auth_claims", None),
+    )
 
 
 @router.get("/sso/providers", response_model=SSOProvidersResponse)
