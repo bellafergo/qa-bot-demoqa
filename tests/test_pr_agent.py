@@ -74,6 +74,18 @@ def _pr_agent_settings(monkeypatch):
         SimpleNamespace(
             GITHUB_WEBHOOK_SECRET=WEBHOOK_SECRET,
             PR_AGENT_EXECUTE_RUNS=False,
+            ENV="dev",
+        ),
+    )
+
+
+def _settings_no_secret(monkeypatch, env: str):
+    monkeypatch.setattr(
+        "services.pr_agent.settings",
+        SimpleNamespace(
+            GITHUB_WEBHOOK_SECRET="",
+            PR_AGENT_EXECUTE_RUNS=False,
+            ENV=env,
         ),
     )
 
@@ -91,6 +103,26 @@ class TestVerifyGithubSignature:
         body = b'{"action":"opened"}'
         assert verify_github_signature(body, "") is False
         assert verify_github_signature(body, "not-sha256=abc") is False
+
+    def test_empty_secret_production_returns_false(self, monkeypatch):
+        _settings_no_secret(monkeypatch, "production")
+        body = b'{"action":"opened"}'
+        assert verify_github_signature(body, "") is False
+
+    def test_empty_secret_prod_returns_false(self, monkeypatch):
+        _settings_no_secret(monkeypatch, "prod")
+        body = b'{"action":"opened"}'
+        assert verify_github_signature(body, "sha256=anything") is False
+
+    def test_empty_secret_dev_returns_true(self, monkeypatch):
+        _settings_no_secret(monkeypatch, "dev")
+        body = b'{"action":"opened"}'
+        assert verify_github_signature(body, "") is True
+
+    def test_empty_secret_test_returns_true(self, monkeypatch):
+        _settings_no_secret(monkeypatch, "test")
+        body = b'{"action":"opened"}'
+        assert verify_github_signature(body, "bad-signature") is True
 
 
 class TestParseGithubPullRequestEvent:
@@ -121,6 +153,11 @@ class TestParseGithubPullRequestEvent:
 
 
 class TestSelectSuites:
+    _DB_TAGS = frozenset({"database", "db", "migration", "high_risk"})
+
+    def _assert_database_suite(self, sel):
+        assert any(tag in self._DB_TAGS for tag in sel.tags), sel.tags
+
     def test_auth_login_files_select_login_suite(self):
         sel = select_suites([{"filename": "src/auth/login.py"}])
         assert "login" in sel.tags
@@ -135,10 +172,18 @@ class TestSelectSuites:
         assert sel.tags
         assert isinstance(sel.reason, str)
 
-    def test_sql_schema_files_get_default_smoke(self):
-        """select_suites has no dedicated DB/schema rule; falls back to smoke minimum."""
-        sel = select_suites([{"filename": "db/migrations/001_schema.sql"}])
-        assert "smoke" in sel.tags
+    @pytest.mark.parametrize(
+        "filename",
+        [
+            "db/migrations/001_create_users.sql",
+            "schema/auth.sql",
+            "alembic/versions/123_update.py",
+            "src/db/schema.py",
+        ],
+    )
+    def test_sql_schema_files_select_database_suite(self, filename):
+        sel = select_suites([{"filename": filename}])
+        self._assert_database_suite(sel)
 
 
 class TestFormatPrQaAnalysisComment:

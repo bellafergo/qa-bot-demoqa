@@ -55,7 +55,16 @@ def verify_github_signature(raw_body: bytes, signature_header: str) -> bool:
     """
     secret = (settings.GITHUB_WEBHOOK_SECRET or "").strip()
     if not secret:
-        logger.warning("GITHUB_WEBHOOK_SECRET missing; signature verification skipped")
+        env = (getattr(settings, "ENV", None) or "dev").strip().lower()
+        if env in ("prod", "production"):
+            logger.error(
+                "GITHUB_WEBHOOK_SECRET missing in production; rejecting webhook signature",
+            )
+            return False
+        logger.warning(
+            "GITHUB_WEBHOOK_SECRET missing; signature verification skipped (env=%s)",
+            env,
+        )
         return True
 
     if not signature_header or not signature_header.startswith("sha256="):
@@ -250,6 +259,17 @@ def select_suites(changed_files: List[Dict[str, Any]]) -> SuiteSelection:
     # API changes
     if any(x in files_l for x in ["api/", "routes/", "controllers", "graphql", "openapi", "swagger"]):
         add("api_smoke", "Cambios en API/rutas")
+
+    # Database / schema / migrations (high-risk data changes)
+    for path in files:
+        p = path.lower().replace("\\", "/")
+        if (
+            p.endswith(".sql")
+            or any(x in p for x in ("migrations/", "schema/", "alembic/"))
+            or "/schema." in p
+        ):
+            add("database", "Cambios en schema/migraciones SQL")
+            break
 
     # Default minimum
     if not tags:
