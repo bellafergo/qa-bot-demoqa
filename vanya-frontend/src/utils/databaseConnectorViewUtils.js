@@ -1,7 +1,33 @@
 /** View helpers for secure database connectors (INT-03B). */
 
+/** Default sample database connection for self-service onboarding. */
+export const SAMPLE_DATABASE_CONNECTION_DEFAULTS = {
+  name: "Sample Validation Database",
+  database_type: "postgresql",
+  host_label: "sample-host",
+  database_name: "sample_db",
+};
+
+/** Pick agent for sample connection: selected → first with db cap → first project agent. */
+export function resolveTargetAgentId(agents, selectedAgentId) {
+  const list = Array.isArray(agents) ? agents : [];
+  if (selectedAgentId && list.some((a) => a.agent_id === selectedAgentId)) {
+    return selectedAgentId;
+  }
+  const withDbCap = list.find((a) =>
+    (a.capabilities || []).some((c) => String(c).toLowerCase() === "database_validation"),
+  );
+  return (withDbCap || list[0])?.agent_id || null;
+}
+
 export const DATABASE_CONNECTOR_I18N_KEYS = {
   connectionsTitle: "localAgents.database.connections_title",
+  connectionsEmptyTitle: "localAgents.database.connections_empty_title",
+  connectionsEmptyDesc: "localAgents.database.connections_empty_desc",
+  createSampleConnection: "localAgents.database.create_sample_connection",
+  toastConnectionCreated: "localAgents.database.toast.connection_created",
+  toastConnectionExists: "localAgents.database.toast.connection_exists",
+  toastNoAgent: "localAgents.database.toast.no_agent",
   executionsTitle: "localAgents.database.executions_title",
   executeValidation: "incident.qa.database_validation_execute",
   validationResult: "incident.qa.database_validation_result",
@@ -60,6 +86,9 @@ export function buildDatabaseConnectionsViewModel(connections, t, formatTimestam
   return {
     title: t(DATABASE_CONNECTOR_I18N_KEYS.connectionsTitle),
     empty: !connections?.length,
+    emptyTitle: t(DATABASE_CONNECTOR_I18N_KEYS.connectionsEmptyTitle),
+    emptyDesc: t(DATABASE_CONNECTOR_I18N_KEYS.connectionsEmptyDesc),
+    createSampleConnectionLabel: t(DATABASE_CONNECTOR_I18N_KEYS.createSampleConnection),
     connections: (connections || []).map((conn) => ({
       ...conn,
       statusBadgeClass: connectionStatusBadgeClass(conn.status),

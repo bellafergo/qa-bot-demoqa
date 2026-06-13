@@ -86,6 +86,62 @@ def test_connector_registration():
     assert conn.connection_id == build_connection_id(reg.agent_id, "Payments DB")
     assert conn.database_type == "postgresql"
     assert conn.status in ("CONNECTED", "UNKNOWN")
+    assert conn.already_exists is False
+
+
+def test_register_connection_idempotent():
+    reg = _register_agent("conn-idem-proj", "Idem-Agent")
+    first = _register_connection(reg.agent_id, name="Sample Validation Database")
+    second = _register_connection(reg.agent_id, name="Sample Validation Database")
+    assert first.connection_id == second.connection_id
+    assert first.already_exists is False
+    assert second.already_exists is True
+
+
+@patch("services.onboarding_service._incident_intelligence_flags")
+@patch("services.onboarding_service._knowledge_has_apis", return_value=False)
+@patch("services.db.browser_inspection_watch_repository.browser_inspection_watch_repo")
+@patch("services.db.catalog_repository.catalog_repo")
+@patch("services.db.project_repository.project_repo")
+def test_onboarding_database_validation_completed_after_connection_registration(
+    mock_project_repo,
+    mock_catalog_repo,
+    mock_watch_repo,
+    _mock_knowledge,
+    mock_intel_flags,
+):
+    from types import SimpleNamespace
+
+    from services.onboarding_service import build_onboarding_checklist
+
+    project_id = "onb-db-conn-proj"
+    mock_project_repo.get_project.return_value = SimpleNamespace(
+        id=project_id,
+        settings={},
+        base_url=None,
+    )
+    mock_catalog_repo.list_test_cases.return_value = []
+    mock_catalog_repo.count_by_status_for_project.return_value = {"active": 0}
+    mock_watch_repo.list_watches.return_value = []
+    mock_intel_flags.return_value = {
+        "has_executive_report": False,
+        "has_contract_intelligence": False,
+        "has_quality_health": False,
+    }
+
+    reg = _register_agent(project_id, "Onb-Agent")
+    before = build_onboarding_checklist(project_id)
+    db_before = next(s for s in before.steps if s.step_id == "configure_database_validation")
+    assert db_before.status == "IN_PROGRESS"
+    assert db_before.completion_percentage == 40
+
+    conn = _register_connection(reg.agent_id, name="Sample Validation Database")
+    assert conn.connection_id
+
+    after = build_onboarding_checklist(project_id)
+    db_after = next(s for s in after.steps if s.step_id == "configure_database_validation")
+    assert db_after.status == "COMPLETED"
+    assert db_after.completion_percentage == 100
 
 
 def test_connector_status_offline_when_agent_stale():

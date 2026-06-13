@@ -63,7 +63,12 @@ def _connection_status_for_agent(agent_row: Optional[Dict[str, Any]]) -> str:
     return "UNKNOWN"
 
 
-def _row_to_connection(row: Dict[str, Any], agent_row: Optional[Dict[str, Any]] = None) -> DatabaseConnection:
+def _row_to_connection(
+    row: Dict[str, Any],
+    agent_row: Optional[Dict[str, Any]] = None,
+    *,
+    already_exists: bool = False,
+) -> DatabaseConnection:
     status = _connection_status_for_agent(agent_row) if agent_row else str(row.get("status") or "UNKNOWN")
     return DatabaseConnection(
         connection_id=row["connection_id"],
@@ -74,6 +79,7 @@ def _row_to_connection(row: Dict[str, Any], agent_row: Optional[Dict[str, Any]] 
         database_name=row["database_name"],
         status=status,  # type: ignore[arg-type]
         created_at=row.get("created_at") or "",
+        already_exists=already_exists,
     )
 
 
@@ -160,8 +166,9 @@ def register_connection(body: DatabaseConnectionRegistrationRequest, request: Re
         raise HTTPException(status_code=400, detail="unsupported database_type")
 
     connection_id = build_connection_id(body.agent_id, body.name)
-    if database_connector_repo.get_connection(connection_id):
-        raise HTTPException(status_code=409, detail="database connection already registered")
+    existing = database_connector_repo.get_connection(connection_id)
+    if existing:
+        return _row_to_connection(existing, agent, already_exists=True)
 
     status = _connection_status_for_agent(agent)
     database_connector_repo.insert_connection(
@@ -174,7 +181,7 @@ def register_connection(body: DatabaseConnectionRegistrationRequest, request: Re
         status=status,
     )
     row = database_connector_repo.get_connection(connection_id)
-    return _row_to_connection(row or {}, agent)
+    return _row_to_connection(row or {}, agent, already_exists=False)
 
 
 def list_connections(*, agent_id: Optional[str], limit: int, request: Request) -> List[DatabaseConnection]:

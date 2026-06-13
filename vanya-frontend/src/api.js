@@ -911,6 +911,15 @@ export function disableLocalAgent(agentId) {
   });
 }
 
+/** POST /local-agents/database-connections/register — self-service database connector onboarding. */
+export function registerDatabaseConnection(body) {
+  return apiFetchJson("/local-agents/database-connections/register", {
+    method: "POST",
+    headers: { ...localAgentAdminHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 /** GET /local-agents/database-connections — INT-03B secure connectors. */
 export function listDatabaseConnections(params = {}) {
   const q = new URLSearchParams();

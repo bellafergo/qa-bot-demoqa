@@ -9,6 +9,8 @@ import {
   listDatabaseConnections,
   listDatabaseValidationExecutions,
   registerFoundationLocalAgent,
+  registerDatabaseConnection,
+  getProjectOnboarding,
   apiErrorMessage,
 } from "../api";
 import { useLang } from "../i18n/LangContext";
@@ -24,6 +26,8 @@ import {
   buildDatabaseConnectionsViewModel,
   buildDatabaseExecutionsViewModel,
   DATABASE_CONNECTOR_I18N_KEYS,
+  resolveTargetAgentId,
+  SAMPLE_DATABASE_CONNECTION_DEFAULTS,
 } from "../utils/databaseConnectorViewUtils.js";
 import { buildInternalApiConnectorViewModel } from "../utils/internalApiConnectorViewUtils.js";
 import InternalApiConnectorView from "../components/local-agents/InternalApiConnectorView.jsx";
@@ -88,6 +92,7 @@ export default function LocalAgentsPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [busyId, setBusyId] = useState(null);
   const [creatingFoundation, setCreatingFoundation] = useState(false);
+  const [creatingSampleConnection, setCreatingSampleConnection] = useState(false);
   const [confirmDisable, setConfirmDisable] = useState(null);
 
   const projectName = useCallback(
@@ -116,7 +121,11 @@ export default function LocalAgentsPage() {
         ]);
         setAgents(Array.isArray(data) ? data : []);
         setFoundationReport(report && typeof report === "object" ? report : null);
-        setDbConnections(Array.isArray(connections) ? connections : []);
+        const agentIds = new Set((Array.isArray(data) ? data : []).map((a) => a.agent_id));
+        const scopedConnections = (Array.isArray(connections) ? connections : []).filter((c) =>
+          agentIds.has(c.agent_id),
+        );
+        setDbConnections(scopedConnections);
         setDbExecutions(Array.isArray(executions) ? executions : []);
         setInternalApiReport(report?.internal_api_connectors || null);
         setEnterpriseSystemReport(report?.enterprise_systems || null);
@@ -208,6 +217,34 @@ export default function LocalAgentsPage() {
       showToast(apiErrorMessage(e), "error");
     } finally {
       setCreatingFoundation(false);
+    }
+  };
+
+  const onCreateSampleConnection = async () => {
+    const agentId = resolveTargetAgentId(agents, selectedId);
+    if (!agentId) {
+      showToast(t(DATABASE_CONNECTOR_I18N_KEYS.toastNoAgent), "error");
+      return;
+    }
+    setCreatingSampleConnection(true);
+    try {
+      const result = await registerDatabaseConnection({
+        agent_id: agentId,
+        ...SAMPLE_DATABASE_CONNECTION_DEFAULTS,
+      });
+      const toastKey = result?.already_exists
+        ? DATABASE_CONNECTOR_I18N_KEYS.toastConnectionExists
+        : DATABASE_CONNECTOR_I18N_KEYS.toastConnectionCreated;
+      showToast(t(toastKey), result?.already_exists ? "warning" : "success");
+      const pid = currentProject?.id ? String(currentProject.id).trim() : "";
+      await Promise.all([
+        loadAgents({ silent: true }),
+        pid ? getProjectOnboarding(pid).catch(() => null) : Promise.resolve(),
+      ]);
+    } catch (e) {
+      showToast(apiErrorMessage(e), "error");
+    } finally {
+      setCreatingSampleConnection(false);
     }
   };
 
@@ -548,38 +585,69 @@ export default function LocalAgentsPage() {
       </div>
 
       <div style={{ marginTop: 28 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", marginBottom: 10 }}>
-          {connectionsVm.title}
-        </div>
         {connectionsVm.empty ? (
-          <div style={{ fontSize: 13, color: "var(--text-3)", fontStyle: "italic" }}>—</div>
-        ) : (
-          <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 8, marginBottom: 20 }}>
-            <table className="data-table" style={{ margin: 0, minWidth: 720 }}>
-              <thead>
-                <tr>
-                  <th>{t(DATABASE_CONNECTOR_I18N_KEYS.name)}</th>
-                  <th>{t(DATABASE_CONNECTOR_I18N_KEYS.type)}</th>
-                  <th>{t(DATABASE_CONNECTOR_I18N_KEYS.agent)}</th>
-                  <th>{t(DATABASE_CONNECTOR_I18N_KEYS.status)}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {connectionsVm.connections.map((conn) => (
-                  <tr key={conn.connection_id}>
-                    <td style={{ fontSize: 12 }}>{conn.name}</td>
-                    <td style={{ fontSize: 12 }}>{conn.database_type}</td>
-                    <td style={{ fontSize: 11, wordBreak: "break-all" }}>{conn.agent_id}</td>
-                    <td>
-                      <span className={`badge ${conn.statusBadgeClass}`} style={{ fontSize: 10 }}>
-                        {conn.statusLabel}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="card" style={{ padding: 24, marginBottom: 20 }}>
+            <div style={{ fontSize: 15, fontWeight: 600 }}>{connectionsVm.emptyTitle}</div>
+            <div
+              style={{
+                fontSize: 13,
+                color: "var(--text-2)",
+                marginTop: 8,
+                maxWidth: 480,
+                lineHeight: 1.55,
+              }}
+            >
+              {connectionsVm.emptyDesc}
+            </div>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              style={{ marginTop: 16 }}
+              disabled={creatingSampleConnection || !resolveTargetAgentId(agents, selectedId)}
+              onClick={onCreateSampleConnection}
+            >
+              {creatingSampleConnection
+                ? t("localAgents.loading")
+                : connectionsVm.createSampleConnectionLabel}
+            </button>
+            {!resolveTargetAgentId(agents, selectedId) ? (
+              <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 10 }}>
+                {t(DATABASE_CONNECTOR_I18N_KEYS.toastNoAgent)}
+              </div>
+            ) : null}
           </div>
+        ) : (
+          <>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", marginBottom: 10 }}>
+              {connectionsVm.title}
+            </div>
+            <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 8, marginBottom: 20 }}>
+              <table className="data-table" style={{ margin: 0, minWidth: 720 }}>
+                <thead>
+                  <tr>
+                    <th>{t(DATABASE_CONNECTOR_I18N_KEYS.name)}</th>
+                    <th>{t(DATABASE_CONNECTOR_I18N_KEYS.type)}</th>
+                    <th>{t(DATABASE_CONNECTOR_I18N_KEYS.agent)}</th>
+                    <th>{t(DATABASE_CONNECTOR_I18N_KEYS.status)}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {connectionsVm.connections.map((conn) => (
+                    <tr key={conn.connection_id}>
+                      <td style={{ fontSize: 12 }}>{conn.name}</td>
+                      <td style={{ fontSize: 12 }}>{conn.database_type}</td>
+                      <td style={{ fontSize: 11, wordBreak: "break-all" }}>{conn.agent_id}</td>
+                      <td>
+                        <span className={`badge ${conn.statusBadgeClass}`} style={{ fontSize: 10 }}>
+                          {conn.statusLabel}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
 
         <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", marginBottom: 10 }}>

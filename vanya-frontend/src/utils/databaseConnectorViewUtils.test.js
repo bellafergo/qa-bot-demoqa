@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   DATABASE_CONNECTOR_I18N_KEYS,
+  SAMPLE_DATABASE_CONNECTION_DEFAULTS,
+  resolveTargetAgentId,
   buildDatabaseConnectionsViewModel,
   buildDatabaseExecutionsViewModel,
   buildExecuteValidationPreviewPayload,
@@ -82,7 +84,34 @@ describe("databaseConnectorViewUtils", () => {
 
   it("exposes translation keys", () => {
     expect(DATABASE_CONNECTOR_I18N_KEYS.connectionsTitle).toBe("localAgents.database.connections_title");
+    expect(DATABASE_CONNECTOR_I18N_KEYS.createSampleConnection).toBe("localAgents.database.create_sample_connection");
     expect(DATABASE_CONNECTOR_I18N_KEYS.executeValidation).toBe("incident.qa.database_validation_execute");
     expect(DATABASE_CONNECTOR_I18N_KEYS.blocked).toBe("localAgents.database.blocked");
+  });
+
+  it("exposes empty state with create sample connection action", () => {
+    const vm = buildDatabaseConnectionsViewModel([], t);
+    expect(vm.empty).toBe(true);
+    expect(vm.emptyTitle).toBe("localAgents.database.connections_empty_title");
+    expect(vm.emptyDesc).toBe("localAgents.database.connections_empty_desc");
+    expect(vm.createSampleConnectionLabel).toBe("localAgents.database.create_sample_connection");
+  });
+
+  it("defines sample connection defaults", () => {
+    expect(SAMPLE_DATABASE_CONNECTION_DEFAULTS.name).toBe("Sample Validation Database");
+    expect(SAMPLE_DATABASE_CONNECTION_DEFAULTS.database_type).toBe("postgresql");
+    expect(SAMPLE_DATABASE_CONNECTION_DEFAULTS.host_label).toBe("sample-host");
+    expect(SAMPLE_DATABASE_CONNECTION_DEFAULTS.database_name).toBe("sample_db");
+  });
+
+  it("resolveTargetAgentId prefers selected then db-capable agent", () => {
+    const agents = [
+      { agent_id: "a1", capabilities: ["contract_validation"] },
+      { agent_id: "a2", capabilities: ["database_validation"] },
+    ];
+    expect(resolveTargetAgentId(agents, "a1")).toBe("a1");
+    expect(resolveTargetAgentId(agents, null)).toBe("a2");
+    expect(resolveTargetAgentId(agents, "missing")).toBe("a2");
+    expect(resolveTargetAgentId([], null)).toBeNull();
   });
 });

@@ -21,6 +21,7 @@ class DatabaseConnection(BaseModel):
     database_name: str
     status: ConnectionStatus = "UNKNOWN"
     created_at: str
+    already_exists: bool = False
 
 
 class DatabaseConnectionRegistrationRequest(BaseModel):
