@@ -441,6 +441,54 @@ def test_incident_persistence_and_history(
 @patch("services.incident_qa_investigator_service.gather_regressions", return_value=[])
 @patch("services.incident_qa_investigator_service.gather_failure_clusters", return_value=[])
 @patch("services.incident_qa_investigator_service.gather_failed_runs")
+@patch("services.incident_qa_investigator_service.gather_related_pr_analysis", return_value=[])
+@patch("services.db.project_repository.project_repo.get_project", return_value=_mock_project())
+def test_incident_save_serializes_qmetry_datetime_fields(
+    _gp, _pra, _runs, _clusters, _regs, _know, _prs, _bw, client: TestClient,
+):
+    """Regression: QMetry coverage/recommendation reports use datetime generated_at."""
+    from models.incident_models import RelatedRunSummary
+
+    _runs.return_value = [
+        RelatedRunSummary(
+            run_id="run-pay-1",
+            test_id="PAY-001",
+            test_name="Payments test",
+            status="failed",
+            started_at="2026-06-09T10:00:00+00:00",
+            module="payments",
+            error_summary="payment failed",
+        ),
+    ]
+    resp = client.post(
+        "/projects/demo/incidents/investigate",
+        json={"description": "Payments failing after deploy", "module": "payments"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    incident_id = body["id"]
+    assert incident_id
+
+    ephemeral = "Report could not be persisted — results are ephemeral for this request."
+    assert ephemeral not in (body.get("data_gaps") or [])
+
+    history = client.get("/projects/demo/incidents/history")
+    assert history.status_code == 200
+    assert any(x["id"] == incident_id for x in history.json()["items"])
+
+    full = client.get(f"/projects/demo/incidents/{incident_id}").json()
+    for key in ("coverage_intelligence", "qmetry_recommendation_report"):
+        section = full.get(key)
+        if section and section.get("generated_at") is not None:
+            assert isinstance(section["generated_at"], str)
+
+
+@patch("services.incident_qa_investigator_service.gather_browser_watch_events", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_open_prs", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_knowledge_context", return_value=None)
+@patch("services.incident_qa_investigator_service.gather_regressions", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failure_clusters", return_value=[])
+@patch("services.incident_qa_investigator_service.gather_failed_runs")
 @patch("services.db.project_repository.project_repo.get_project", return_value=_mock_project())
 def test_incident_pr_analysis_correlation(
     _gp, mock_runs, _clusters, _regs, _know, _prs, _bw, client: TestClient,
