@@ -1,5 +1,11 @@
 /** View helpers for Executive Quality Report (ENT-02A). */
 
+import {
+  buildInsightTraceViewModel,
+  groupIncidentRisks,
+  parseInsightText,
+} from "./incidentEvidenceTraceabilityViewUtils.js";
+
 export const EXECUTIVE_QUALITY_REPORT_I18N_KEYS = {
   title: "incident.qa.executive_quality_report",
   empty: "incident.qa.executive_quality_report_empty",
@@ -77,6 +83,15 @@ export function buildExecutiveQualityReportViewModel(report, t) {
     recommendedTestsLabel: t(EXECUTIVE_QUALITY_REPORT_I18N_KEYS.recommendedTests),
     qualityTrendLabel: t(EXECUTIVE_QUALITY_REPORT_I18N_KEYS.qualityTrend),
     readOnlyNote: t(EXECUTIVE_QUALITY_REPORT_I18N_KEYS.readOnlyNote),
+    riskGrouping: groupIncidentRisks(report, t),
+    tracedTopRisks: (eqr?.top_risks || []).map((risk) => {
+      const parsed = parseInsightText(risk);
+      return {
+        title: risk,
+        severity: parsed.severity,
+        trace: buildInsightTraceViewModel(report, risk, t),
+      };
+    }),
     report: eqr
       ? {
           ...eqr,

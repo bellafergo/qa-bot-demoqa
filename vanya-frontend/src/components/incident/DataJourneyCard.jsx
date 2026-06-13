@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from "react";
 import JourneyStageCard from "./JourneyStageCard.jsx";
 import DataJourneyPreviewModal from "./DataJourneyPreviewModal.jsx";
+import IncidentInsightTracePanel from "../incidents/IncidentInsightTracePanel.jsx";
 
 export default function DataJourneyCard({ journey, labels }) {
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -69,6 +70,7 @@ export default function DataJourneyCard({ journey, labels }) {
           ) : null}
         </div>
       ) : null}
+      {journey.showTrace ? <IncidentInsightTracePanel trace={journey.trace} /> : null}
       <button type="button" className="btn btn-secondary btn-sm" onClick={openPreview}>
         {labels.previewLabel}
       </button>

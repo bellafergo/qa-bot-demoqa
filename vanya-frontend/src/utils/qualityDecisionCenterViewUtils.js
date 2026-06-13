@@ -1,5 +1,10 @@
 /** View helpers for Quality Decision Center (II-05C). */
 
+import {
+  buildInsightTraceViewModel,
+  isCriticalOrHighInsight,
+} from "./incidentEvidenceTraceabilityViewUtils.js";
+
 export const DECISION_CENTER_I18N_KEYS = {
   title: "incident.qa.decision_center",
   empty: "incident.qa.decision_center_empty",
@@ -88,6 +93,15 @@ export function buildDecisionCenterViewModel(report, t) {
           statusLabel: t(getOverallStatusLabelKey(center.overall_status)),
           statusBadgeClass: getOverallStatusBadgeClass(center.overall_status),
           confidenceText: formatDecisionCenterConfidence(center.confidence),
+          insightText: `Decision Center status is ${String(center.overall_status || "GREEN").toUpperCase()}`,
+          trace: buildInsightTraceViewModel(
+            report,
+            `Decision Center status is ${String(center.overall_status || "GREEN").toUpperCase()}`,
+            t,
+          ),
+          showTrace: isCriticalOrHighInsight(
+            `Decision Center status is ${String(center.overall_status || "GREEN").toUpperCase()}`,
+          ),
           takeaways: (center.key_takeaways || []).map((insight) => ({
             ...insight,
             drilldownItem: buildDecisionCenterDrilldownItem(insight),

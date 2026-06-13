@@ -1,5 +1,11 @@
 /** View helpers for Data Journey Validation (INT-01B). */
 
+import {
+  buildInsightTextForJourney,
+  buildInsightTraceViewModel,
+  isCriticalOrHighInsight,
+} from "./incidentEvidenceTraceabilityViewUtils.js";
+
 export const DATA_JOURNEY_VALIDATION_I18N_KEYS = {
   title: "incident.qa.data_journey_validation",
   empty: "incident.qa.data_journey_validation_empty",
@@ -204,6 +210,15 @@ export function buildDataJourneyValidationViewModel(report, t) {
       confidenceText: formatJourneyConfidence(result?.confidence),
       completedText: result ? `${result.completed_stages}/${result.total_stages}` : "—",
       stages,
+      insightText: buildInsightTextForJourney({ ...journey, status: result?.status || "UNKNOWN" }),
+      trace: buildInsightTraceViewModel(
+        report,
+        buildInsightTextForJourney({ ...journey, status: result?.status || "UNKNOWN" }),
+        t,
+      ),
+      showTrace: isCriticalOrHighInsight(
+        buildInsightTextForJourney({ ...journey, status: result?.status || "UNKNOWN" }),
+      ),
       previewPayload: result
         ? buildJourneyPreviewPayload(journey, result, stages, t)
         : null,

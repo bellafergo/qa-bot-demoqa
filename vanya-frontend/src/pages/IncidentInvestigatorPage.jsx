@@ -64,6 +64,7 @@ import JiraIssueIntelligenceView from "../components/incident/JiraIssueIntellige
 import ServiceNowIntelligenceView from "../components/servicenow-intelligence/ServiceNowIntelligenceView.jsx";
 import CoverageIntelligenceView from "../components/coverage-intelligence/CoverageIntelligenceView.jsx";
 import QMetryRecommendationView from "../components/qmetry-recommendations/QMetryRecommendationView.jsx";
+import IncidentInsightTracePanel from "../components/incidents/IncidentInsightTracePanel.jsx";
 import { buildReleaseReadinessViewModel } from "../utils/releaseReadinessViewUtils.js";
 import { buildJiraIssueIntelligenceViewModel } from "../utils/jiraIssueIntelligenceViewUtils.js";
 import { buildServiceNowIntelligenceViewModel } from "../utils/servicenowIntelligenceViewUtils.js";
@@ -898,6 +899,9 @@ function QaInvestigationReport({ report, t }) {
               <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.55, marginBottom: 14 }}>
                 {decisionCenterVm.center.executive_summary}
               </div>
+              {decisionCenterVm.center.showTrace ? (
+                <IncidentInsightTracePanel trace={decisionCenterVm.center.trace} />
+              ) : null}
               {(decisionCenterVm.center.top_impacted_area || decisionCenterVm.center.top_hypothesis) ? (
                 <div style={{ display: "grid", gap: 10, marginBottom: 14 }}>
                   {decisionCenterVm.center.top_impacted_area ? (
@@ -1056,6 +1060,9 @@ function QaInvestigationReport({ report, t }) {
               <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.55, marginBottom: 14 }}>
                 {deploymentRiskVm.assessment.summary}
               </div>
+              {deploymentRiskVm.assessment.showTrace ? (
+                <IncidentInsightTracePanel trace={deploymentRiskVm.assessment.trace} />
+              ) : null}
               <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
                 {deploymentRiskVm.factorsLabel}
               </div>

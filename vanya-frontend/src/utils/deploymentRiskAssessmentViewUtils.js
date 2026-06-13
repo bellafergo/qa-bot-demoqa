@@ -1,5 +1,11 @@
 /** View helpers for Deployment Risk Assessment (II-05A). */
 
+import {
+  buildInsightTextForDeployment,
+  buildInsightTraceViewModel,
+  isCriticalOrHighInsight,
+} from "./incidentEvidenceTraceabilityViewUtils.js";
+
 export const DEPLOYMENT_RISK_I18N_KEYS = {
   title: "incident.qa.deployment_risk",
   riskScore: "incident.qa.deployment_risk_score",
@@ -82,6 +88,9 @@ export function buildDeploymentRiskViewModel(report, t) {
           riskLevelLabel: t(getDeploymentRiskLevelLabelKey(assessment.risk_level)),
           riskLevelBadgeClass: getDeploymentRiskLevelBadgeClass(assessment.risk_level),
           confidenceText: formatDeploymentRiskConfidence(assessment.confidence),
+          insightText: buildInsightTextForDeployment(assessment),
+          trace: buildInsightTraceViewModel(report, buildInsightTextForDeployment(assessment), t),
+          showTrace: isCriticalOrHighInsight(buildInsightTextForDeployment(assessment)),
           factors: (assessment.contributing_factors || []).map((factor) => ({
             ...factor,
             weightText: formatFactorWeight(factor.weight),

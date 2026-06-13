@@ -2,6 +2,7 @@ import React from "react";
 import ExecutiveQualityScoreCard from "./ExecutiveQualityScoreCard.jsx";
 import ExecutiveRiskCard from "./ExecutiveRiskCard.jsx";
 import ExecutiveRecommendationCard from "./ExecutiveRecommendationCard.jsx";
+import IncidentRiskGrouping from "../incidents/IncidentRiskGrouping.jsx";
 
 export default function ExecutiveQualityReportView({ vm }) {
   if (!vm?.report) return null;
@@ -43,14 +44,21 @@ export default function ExecutiveQualityReportView({ vm }) {
           </span>
         ) : null}
       </div>
-      {report.top_risks?.length ? (
+      {vm.riskGrouping?.hasItems ? (
+        <IncidentRiskGrouping vm={vm.riskGrouping} />
+      ) : report.top_risks?.length ? (
         <div style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 6 }}>
             {vm.topRisksLabel}
           </div>
           <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
-            {report.top_risks.map((risk) => (
-              <ExecutiveRiskCard key={risk} risk={risk} />
+            {(vm.tracedTopRisks || report.top_risks).map((item) => (
+              <ExecutiveRiskCard
+                key={item.title || item}
+                risk={item.title || item}
+                trace={item.trace}
+                severity={item.severity}
+              />
             ))}
           </ul>
         </div>

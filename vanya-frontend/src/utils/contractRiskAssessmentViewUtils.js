@@ -1,5 +1,11 @@
 /** View helpers for Contract Risk Assessment (INT-02B). */
 
+import {
+  buildInsightTextForContract,
+  buildInsightTraceViewModel,
+  isCriticalOrHighInsight,
+} from "./incidentEvidenceTraceabilityViewUtils.js";
+
 export const CONTRACT_RISK_ASSESSMENT_I18N_KEYS = {
   title: "incident.qa.contract_risk_assessment",
   empty: "incident.qa.contract_risk_assessment_empty",
@@ -160,6 +166,9 @@ export function buildContractRiskAssessmentViewModel(report, t) {
       changes,
       riskBadgeClass: riskLevelBadgeClass(assessment.overall_risk_level),
       confidenceText: formatRiskConfidence(assessment.confidence),
+      insightText: buildInsightTextForContract({ ...assessment, contract }),
+      trace: buildInsightTraceViewModel(report, buildInsightTextForContract({ ...assessment, contract }), t),
+      showTrace: isCriticalOrHighInsight(buildInsightTextForContract({ ...assessment, contract })),
       contractDrilldown: buildContractDrilldownItem(contract),
       journeyDrilldowns: (assessment.affected_journeys || []).map((name) => buildJourneyDrilldownItem(name, report)),
       moduleDrilldowns: (assessment.affected_modules || []).map((name) => buildImpactDrilldownItem(name)),

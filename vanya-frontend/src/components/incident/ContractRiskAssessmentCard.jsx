@@ -2,6 +2,7 @@ import React, { useCallback, useState } from "react";
 import EvidenceCorrelationDrilldownCell from "./EvidenceCorrelationDrilldownCell.jsx";
 import ContractRiskFactorCard from "./ContractRiskFactorCard.jsx";
 import ContractRiskPreviewModal from "./ContractRiskPreviewModal.jsx";
+import IncidentInsightTracePanel from "../incidents/IncidentInsightTracePanel.jsx";
 
 export default function ContractRiskAssessmentCard({ assessment, labels }) {
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -115,6 +116,7 @@ export default function ContractRiskAssessmentCard({ assessment, labels }) {
           </ul>
         </div>
       ) : null}
+      {assessment.showTrace ? <IncidentInsightTracePanel trace={assessment.trace} /> : null}
       <button type="button" className="btn btn-secondary btn-sm" onClick={openPreview}>
         {labels.previewLabel}
       </button>

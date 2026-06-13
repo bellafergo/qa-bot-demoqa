@@ -1,6 +1,15 @@
 import React from "react";
+import IncidentInsightTracePanel from "../incidents/IncidentInsightTracePanel.jsx";
 
-export default function ExecutiveRiskCard({ risk }) {
+function severityBadgeClass(severity) {
+  const key = String(severity || "").toUpperCase();
+  if (["CRITICAL", "BROKEN", "RED", "HIGH"].includes(key)) return "badge badge-red";
+  if (["WARNING", "ORANGE", "YELLOW", "DEGRADED", "MEDIUM"].includes(key)) return "badge badge-orange";
+  if (["ONLINE", "GREEN", "LOW", "HEALTHY"].includes(key)) return "badge badge-green";
+  return "badge badge-gray";
+}
+
+export default function ExecutiveRiskCard({ risk, trace, severity }) {
   return (
     <li
       style={{
@@ -14,7 +23,15 @@ export default function ExecutiveRiskCard({ risk }) {
         lineHeight: 1.5,
       }}
     >
-      {risk}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start", justifyContent: "space-between" }}>
+        <span style={{ color: "var(--text-1)", fontWeight: 600 }}>{risk}</span>
+        {severity ? (
+          <span className={severityBadgeClass(severity)} style={{ fontSize: 10, flexShrink: 0 }}>
+            {severity}
+          </span>
+        ) : null}
+      </div>
+      {trace ? <IncidentInsightTracePanel trace={trace} /> : null}
     </li>
   );
 }
