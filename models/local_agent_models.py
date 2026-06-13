@@ -345,6 +345,7 @@ class LocalAgentFoundationRegistrationResponse(BaseModel):
     version: str
     capabilities: List[LocalAgentCapability]
     registered_at: str = Field(default_factory=_utc_now_iso)
+    already_exists: bool = False
 
 
 class LocalAgentFoundationHeartbeat(BaseModel):

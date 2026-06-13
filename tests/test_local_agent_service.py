@@ -59,15 +59,15 @@ def test_agent_registration():
     assert row["metadata"]["environment"] == "production"
 
 
-def test_duplicate_registration():
-    from fastapi import HTTPException
+def test_duplicate_registration_returns_existing():
     from models.local_agent_models import LocalAgentFoundationRegistrationRequest
 
     body = LocalAgentFoundationRegistrationRequest(**_register_body(project_id="dup-proj", name="Dup-Agent"))
-    register_foundation_agent(body, _Req())
-    with pytest.raises(HTTPException) as exc:
-        register_foundation_agent(body, _Req())
-    assert exc.value.status_code == 409
+    first = register_foundation_agent(body, _Req())
+    assert first.already_exists is False
+    second = register_foundation_agent(body, _Req())
+    assert second.already_exists is True
+    assert second.agent_id == first.agent_id
 
 
 def test_heartbeat_update():
@@ -209,6 +209,17 @@ def test_foundation_register_endpoint(client: TestClient):
     assert data["agent_id"].startswith("agent:")
     assert data["agent_token"].startswith("agent_")
     assert "agent_token" in data
+    assert data.get("already_exists") is False
+
+
+def test_foundation_register_idempotent_endpoint(client: TestClient):
+    payload = _register_body(project_id="api-idem", name="Idem-Agent")
+    first = client.post("/local-agents/foundation/register", json=payload)
+    second = client.post("/local-agents/foundation/register", json=payload)
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert second.json().get("already_exists") is True
+    assert second.json()["agent_id"] == first.json()["agent_id"]
 
 
 def test_foundation_report_endpoint(client: TestClient):

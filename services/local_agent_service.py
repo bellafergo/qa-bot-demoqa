@@ -441,14 +441,39 @@ def list_foundation_capabilities() -> List[AgentCapability]:
     return list(FOUNDATION_CAPABILITY_CATALOG)
 
 
+def _foundation_registration_response(
+    row: Dict[str, Any],
+    *,
+    agent_id: str,
+    already_exists: bool = False,
+) -> LocalAgentFoundationRegistrationResponse:
+    meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    caps = normalize_capabilities(list(row.get("capabilities") or []))
+    raw_token = build_deterministic_agent_token(agent_id)
+    fingerprint = str(row.get("token_fingerprint") or hash_agent_token(raw_token)[1])
+    return LocalAgentFoundationRegistrationResponse(
+        agent_id=agent_id,
+        agent_token=raw_token,
+        token_fingerprint=fingerprint,
+        project_id=str(row.get("project_id") or "").strip(),
+        name=str(row.get("name") or "").strip(),
+        environment=str(meta.get("environment") or "production"),
+        version=str(row.get("version") or "1.0.0"),
+        capabilities=caps,
+        registered_at=str(row.get("created_at") or datetime.now(timezone.utc).isoformat()),
+        already_exists=already_exists,
+    )
+
+
 def register_foundation_agent(
     body: LocalAgentFoundationRegistrationRequest,
     request: Request,
 ) -> LocalAgentFoundationRegistrationResponse:
     require_local_agent_admin(request)
     agent_id = build_deterministic_agent_id(body.project_id, body.name)
-    if local_agent_repo.get_agent(agent_id):
-        raise HTTPException(status_code=409, detail="agent already registered for this project and name")
+    existing = local_agent_repo.get_agent(agent_id)
+    if existing:
+        return _foundation_registration_response(existing, agent_id=agent_id, already_exists=True)
     duplicate = local_agent_repo.get_agent_by_project_and_name(body.project_id, body.name)
     if duplicate and duplicate.get("agent_id") != agent_id:
         raise HTTPException(status_code=409, detail="agent name already registered for this project")
@@ -479,17 +504,7 @@ def register_foundation_agent(
         token_fingerprint=fingerprint,
     )
     row = local_agent_repo.get_agent(agent_id) or {}
-    return LocalAgentFoundationRegistrationResponse(
-        agent_id=agent_id,
-        agent_token=raw_token,
-        token_fingerprint=fingerprint,
-        project_id=body.project_id.strip(),
-        name=body.name.strip(),
-        environment=str(meta.get("environment") or "production"),
-        version=body.version,
-        capabilities=caps,
-        registered_at=str(row.get("created_at") or datetime.now(timezone.utc).isoformat()),
-    )
+    return _foundation_registration_response(row, agent_id=agent_id, already_exists=False)
 
 
 def _apply_foundation_heartbeat(

@@ -1013,6 +1013,15 @@ export function executeDatabaseValidation(body) {
   });
 }
 
+/** POST /local-agents/foundation/register — self-service Foundation Agent onboarding. */
+export function registerFoundationLocalAgent(body) {
+  return apiFetchJson("/local-agents/foundation/register", {
+    method: "POST",
+    headers: { ...localAgentAdminHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 /** GET /local-agents/foundation/report — INT-03A foundation inventory report. */
 export function getLocalAgentFoundationReport(params = {}) {
   const q = new URLSearchParams();

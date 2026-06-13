@@ -1,6 +1,18 @@
 /** View helpers for Local Agents Foundation (INT-03A). */
 
+/** Default Foundation Agent registration payload for self-service onboarding. */
+export const FOUNDATION_AGENT_DEFAULTS = {
+  name: "Foundation Agent",
+  environment: "production",
+  version: "1.0.0",
+  capabilities: ["database_validation", "contract_validation"],
+};
+
 export const LOCAL_AGENTS_I18N_KEYS = {
+  createFoundationAgent: "localAgents.create_foundation_agent",
+  toastFoundationCreated: "localAgents.toast.foundation_created",
+  toastFoundationExists: "localAgents.toast.foundation_exists",
+  toastNoProject: "localAgents.toast.no_project",
   title: "localAgents.title",
   capabilities: "localAgents.foundation.capabilities",
   inventory: "localAgents.foundation.inventory",

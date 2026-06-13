@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   LOCAL_AGENTS_I18N_KEYS,
+  FOUNDATION_AGENT_DEFAULTS,
   buildLocalAgentsViewModel,
   formatCapabilityLabel,
   formatCapabilityList,
@@ -75,9 +76,18 @@ describe("localAgentsViewUtils", () => {
 
   it("exposes translation keys", () => {
     expect(LOCAL_AGENTS_I18N_KEYS.title).toBe("localAgents.title");
+    expect(LOCAL_AGENTS_I18N_KEYS.createFoundationAgent).toBe("localAgents.create_foundation_agent");
     expect(LOCAL_AGENTS_I18N_KEYS.capabilities).toBe("localAgents.foundation.capabilities");
     expect(LOCAL_AGENTS_I18N_KEYS.inventory).toBe("localAgents.foundation.inventory");
     expect(LOCAL_AGENTS_I18N_KEYS.lastHeartbeat).toBe("localAgents.foundation.last_heartbeat");
     expect(LOCAL_AGENTS_I18N_KEYS.online).toBe("localAgents.foundation.online");
+  });
+
+  it("defines foundation agent self-service defaults", () => {
+    expect(FOUNDATION_AGENT_DEFAULTS.name).toBe("Foundation Agent");
+    expect(FOUNDATION_AGENT_DEFAULTS.capabilities).toEqual([
+      "database_validation",
+      "contract_validation",
+    ]);
   });
 });

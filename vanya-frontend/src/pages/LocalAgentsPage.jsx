@@ -8,13 +8,18 @@ import {
   getLocalAgentFoundationReport,
   listDatabaseConnections,
   listDatabaseValidationExecutions,
+  registerFoundationLocalAgent,
   apiErrorMessage,
 } from "../api";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
 import { useToast } from "../context/ToastContext.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
-import { buildLocalAgentsViewModel } from "../utils/localAgentsViewUtils.js";
+import {
+  buildLocalAgentsViewModel,
+  FOUNDATION_AGENT_DEFAULTS,
+  LOCAL_AGENTS_I18N_KEYS,
+} from "../utils/localAgentsViewUtils.js";
 import {
   buildDatabaseConnectionsViewModel,
   buildDatabaseExecutionsViewModel,
@@ -82,6 +87,7 @@ export default function LocalAgentsPage() {
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [busyId, setBusyId] = useState(null);
+  const [creatingFoundation, setCreatingFoundation] = useState(false);
   const [confirmDisable, setConfirmDisable] = useState(null);
 
   const projectName = useCallback(
@@ -174,6 +180,34 @@ export default function LocalAgentsPage() {
       showToast(apiErrorMessage(e), "error");
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const onCreateFoundationAgent = async () => {
+    const pid = currentProject?.id ? String(currentProject.id).trim() : "";
+    if (!pid) {
+      showToast(t(LOCAL_AGENTS_I18N_KEYS.toastNoProject), "error");
+      return;
+    }
+    setCreatingFoundation(true);
+    try {
+      const result = await registerFoundationLocalAgent({
+        project_id: pid,
+        name: FOUNDATION_AGENT_DEFAULTS.name,
+        environment: FOUNDATION_AGENT_DEFAULTS.environment,
+        version: FOUNDATION_AGENT_DEFAULTS.version,
+        capabilities: FOUNDATION_AGENT_DEFAULTS.capabilities,
+      });
+      const toastKey = result?.already_exists
+        ? LOCAL_AGENTS_I18N_KEYS.toastFoundationExists
+        : LOCAL_AGENTS_I18N_KEYS.toastFoundationCreated;
+      showToast(t(toastKey), result?.already_exists ? "warning" : "success");
+      await loadAgents({ silent: true });
+      if (result?.agent_id) setSelectedId(result.agent_id);
+    } catch (e) {
+      showToast(apiErrorMessage(e), "error");
+    } finally {
+      setCreatingFoundation(false);
     }
   };
 
@@ -283,10 +317,20 @@ export default function LocalAgentsPage() {
               <div style={{ fontSize: 13, color: "var(--text-2)", marginTop: 8, maxWidth: 420, margin: "8px auto 0", lineHeight: 1.55 }}>
                 {t("localAgents.empty_desc")}
               </div>
-              <button type="button" className="btn btn-primary btn-sm" style={{ marginTop: 18 }} disabled title={t("localAgents.register_hint")}>
-                {t("localAgents.register_cta")}
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                style={{ marginTop: 18 }}
+                disabled={creatingFoundation || !currentProject?.id}
+                onClick={onCreateFoundationAgent}
+              >
+                {creatingFoundation ? t("localAgents.loading") : t(LOCAL_AGENTS_I18N_KEYS.createFoundationAgent)}
               </button>
-              <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 10 }}>{t("localAgents.register_hint")}</div>
+              {!currentProject?.id ? (
+                <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 10 }}>
+                  {t(LOCAL_AGENTS_I18N_KEYS.toastNoProject)}
+                </div>
+              ) : null}
             </div>
           )}
           {!loading && !error && agents.length > 0 && (
