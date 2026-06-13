@@ -123,12 +123,12 @@ def _agents_state(project_id: str) -> Tuple[str, int, str]:
     from services.db.local_agent_repository import local_agent_repo
 
     agents = local_agent_repo.list_agents(project_id=project_id, limit=10) or []
-    if agents:
-        online = sum(1 for a in agents if str(a.get("status") or "").lower() in ("online", "connected", "active"))
-        if online > 0:
-            return "COMPLETED", 100, f"{len(agents)} agent(s) registered ({online} online)."
-        return "IN_PROGRESS", 60, f"{len(agents)} agent(s) registered — bring an agent online."
-    return "NOT_STARTED", 0, "Register a local agent from Local Agents."
+    if not agents:
+        return "NOT_STARTED", 0, "Register a local agent from Local Agents."
+    online = sum(1 for a in agents if str(a.get("status") or "").lower() in ("online", "connected", "active"))
+    if online > 0:
+        return "COMPLETED", 100, f"{len(agents)} agent(s) registered ({online} online)."
+    return "COMPLETED", 100, f"{len(agents)} agent(s) registered."
 
 
 def _database_validation_state(project_id: str) -> Tuple[str, int, str]:

@@ -28,6 +28,7 @@ import { buildHistoricalLearningViewModel } from "../utils/historicalLearningVie
 import { buildApprovalWorkflowViewModel } from "../utils/approvalWorkflowViewUtils.js";
 import { buildDatabaseValidationViewModel } from "../utils/databaseValidationViewUtils.js";
 import { buildApiContractIntelligenceViewModel } from "../utils/apiContractIntelligenceViewUtils.js";
+import { normalizeProjectIncidentHistory } from "../utils/incidentHistoryViewUtils.js";
 import { buildContractRiskAssessmentViewModel } from "../utils/contractRiskAssessmentViewUtils.js";
 import { buildDataJourneyValidationViewModel } from "../utils/dataJourneyValidationViewUtils.js";
 import { buildEnterpriseDependencyMapViewModel } from "../utils/enterpriseDependencyMapViewUtils.js";
@@ -1780,7 +1781,7 @@ export default function IncidentInvestigatorPage() {
     setQaHistoryError("");
     try {
       const data = await listProjectIncidentHistory(projectId, { limit: 30 });
-      setQaHistory(Array.isArray(data?.items) ? data.items : []);
+      setQaHistory(normalizeProjectIncidentHistory(data));
     } catch (e) {
       setQaHistory([]);
       setQaHistoryError(apiErrorMessage(e) || t("incident.qa.history.error"));
@@ -1988,17 +1989,17 @@ export default function IncidentInvestigatorPage() {
       {projectId ? (
         <div style={{ marginTop: 32 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div className="section-title" style={{ margin: 0 }}>{t("incident.qa.history")}</div>
+            <div className="section-title" style={{ margin: 0 }}>{t("incident.history.title")}</div>
             <button type="button" className="btn btn-ghost btn-sm" onClick={loadQaHistory} disabled={qaHistoryLoading}>
               {t("dash.refresh")}
             </button>
           </div>
           {qaHistoryLoading ? (
-            <div style={{ fontSize: 13, color: "var(--text-3)", padding: "16px 0" }}>{t("incident.qa.history.loading")}</div>
+            <div style={{ fontSize: 13, color: "var(--text-3)", padding: "16px 0" }}>{t("incident.history.loading")}</div>
           ) : qaHistoryError ? (
             <div className="alert alert-error" style={{ fontSize: 13 }}>{qaHistoryError}</div>
           ) : qaHistory.length === 0 ? (
-            <div style={{ fontSize: 13, color: "var(--text-3)", padding: "16px 0" }}>{t("incident.qa.history.empty")}</div>
+            <div style={{ fontSize: 13, color: "var(--text-3)", padding: "16px 0" }}>{t("incident.history.empty")}</div>
           ) : (
             <div className="card" style={{ overflow: "hidden" }}>
               <table className="data-table">
@@ -2030,18 +2031,18 @@ export default function IncidentInvestigatorPage() {
 
       <div style={{ marginTop: 32 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <div className="section-title" style={{ margin: 0 }}>{t("incident.history.title")}</div>
+          <div className="section-title" style={{ margin: 0 }}>{t("incident.qa.browser_history")}</div>
           <button type="button" className="btn btn-ghost btn-sm" onClick={loadBrowserHistory} disabled={historyLoading}>
             {t("dash.refresh")}
           </button>
         </div>
 
         {historyLoading ? (
-          <div style={{ fontSize: 13, color: "var(--text-3)", padding: "16px 0" }}>{t("incident.history.loading")}</div>
+          <div style={{ fontSize: 13, color: "var(--text-3)", padding: "16px 0" }}>{t("incident.qa.browser_history.loading")}</div>
         ) : historyError ? (
           <div className="alert alert-error" style={{ fontSize: 13 }}>{historyError}</div>
         ) : history.length === 0 ? (
-          <div style={{ fontSize: 13, color: "var(--text-3)", padding: "16px 0" }}>{t("incident.history.empty")}</div>
+          <div style={{ fontSize: 13, color: "var(--text-3)", padding: "16px 0" }}>{t("incident.qa.browser_history.empty")}</div>
         ) : (
           <div className="card" style={{ overflow: "hidden" }}>
             <table className="data-table">
