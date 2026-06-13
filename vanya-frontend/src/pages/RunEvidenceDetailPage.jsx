@@ -6,7 +6,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { apiGet, apiErrorMessage, ApiHttpError } from "../api";
-import { EvidenceLookupResultView } from "./RunsPage.jsx";
+import EvidenceLookupResultView from "../components/runs/EvidenceLookupResultView.jsx";
 import { useLang } from "../i18n/LangContext";
 
 export default function RunEvidenceDetailPage() {
