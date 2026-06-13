@@ -153,10 +153,8 @@ class TestParseGithubPullRequestEvent:
 
 
 class TestSelectSuites:
-    _DB_TAGS = frozenset({"database", "db", "migration", "high_risk"})
-
-    def _assert_database_suite(self, sel):
-        assert any(tag in self._DB_TAGS for tag in sel.tags), sel.tags
+    # Canonical DB domain in pr_analysis_service._DOMAIN_KEYWORDS is "database"
+    # (not database_smoke, db, or high_risk). select_suites uses the same tag.
 
     def test_auth_login_files_select_login_suite(self):
         sel = select_suites([{"filename": "src/auth/login.py"}])
@@ -175,15 +173,16 @@ class TestSelectSuites:
     @pytest.mark.parametrize(
         "filename",
         [
+            "users.sql",
             "db/migrations/001_create_users.sql",
             "schema/auth.sql",
             "alembic/versions/123_update.py",
-            "src/db/schema.py",
+            "prisma/schema.prisma",
         ],
     )
     def test_sql_schema_files_select_database_suite(self, filename):
         sel = select_suites([{"filename": filename}])
-        self._assert_database_suite(sel)
+        assert "database" in sel.tags
 
 
 class TestFormatPrQaAnalysisComment:
