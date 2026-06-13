@@ -73,6 +73,13 @@ import {
   isColdProject,
 } from "../utils/dashboardSectionStateUtils.js";
 import { buildExecutiveBriefViewModel } from "../utils/executiveBriefViewUtils.js";
+import CapabilityStateCard from "../components/capability-state/CapabilityStateCard.jsx";
+import {
+  resolveHistoryCapabilityState,
+  CAPABILITY_STATE_I18N_KEYS,
+  DEFAULT_MIN_RUNS_FOR_TRENDS,
+  DEFAULT_MIN_RUNS_FOR_FAILURE_INTEL,
+} from "../utils/capabilityStateViewUtils.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -435,10 +442,14 @@ function PassRateTrendChart({ runs, loading, t }) {
       );
     }
     return (
-      <div style={{ textAlign: "center", padding: "24px 0" }}>
-        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-3)" }}>{t("dash.trends.no_data")}</div>
-        <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 4 }}>{t("dash.trends.no_data_sub")}</div>
-      </div>
+      <CapabilityStateCard
+        state={resolveHistoryCapabilityState({
+          runCount: data.length,
+          minRuns: DEFAULT_MIN_RUNS_FOR_TRENDS,
+          title: t(CAPABILITY_STATE_I18N_KEYS.trendsTitle),
+          t,
+        })}
+      />
     );
   }
 
@@ -575,9 +586,14 @@ function CoverageDonutChart({ summary, loading, t }) {
 
   if (!loading && total === 0) {
     return (
-      <div style={{ textAlign: "center", padding: "24px 0", fontSize: 12, color: "var(--text-3)" }}>
-        {t("dash.coverage.no_data")}
-      </div>
+      <CapabilityStateCard
+        state={resolveHistoryCapabilityState({
+          runCount: 0,
+          minRuns: 1,
+          title: t(CAPABILITY_STATE_I18N_KEYS.coverageDistributionTitle),
+          t,
+        })}
+      />
     );
   }
 
@@ -648,10 +664,14 @@ function CoverageDonutChart({ summary, loading, t }) {
 function FailureDistributionChart({ fi, loading, t }) {
   if (!fi && !loading) {
     return (
-      <div style={{ textAlign: "center", padding: "20px 0" }}>
-        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-3)" }}>{t("dash.failures.no_data")}</div>
-        <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 4 }}>{t("dash.failures.no_data_sub")}</div>
-      </div>
+      <CapabilityStateCard
+        state={resolveHistoryCapabilityState({
+          runCount: 0,
+          minRuns: DEFAULT_MIN_RUNS_FOR_FAILURE_INTEL,
+          title: t(CAPABILITY_STATE_I18N_KEYS.failuresTitle),
+          t,
+        })}
+      />
     );
   }
 
@@ -720,9 +740,14 @@ function RiskSummaryCard({ summary, fi, loading, sectionError, t }) {
   }
   if (!summary) {
     return (
-      <div style={{ padding: "12px 0", fontSize: 12, color: "var(--text-3)" }}>
-        {t("dash.risk.no_data")}
-      </div>
+      <CapabilityStateCard
+        state={resolveHistoryCapabilityState({
+          runCount: 0,
+          minRuns: DEFAULT_MIN_RUNS_FOR_TRENDS,
+          title: t(CAPABILITY_STATE_I18N_KEYS.riskAssessmentTitle),
+          t,
+        })}
+      />
     );
   }
 
@@ -1277,7 +1302,7 @@ export default function DashboardPage() {
       loadError: intelErrors.executiveImpact,
       loading: intelLoading.executiveImpact,
       empty: executiveImpactVm.empty,
-      emptyMessage: executiveImpactVm.emptyMessage,
+      capabilityState: executiveImpactVm.capabilityState,
       emptyCta: DASHBOARD_SECTION_CTA.incidents,
       t,
     }),
@@ -1303,7 +1328,7 @@ export default function DashboardPage() {
       loadError: intelErrors.businessRisk,
       loading: intelLoading.businessRisk,
       empty: businessRiskVm.empty,
-      emptyMessage: businessRiskVm.emptyMessage,
+      capabilityState: businessRiskVm.capabilityState,
       emptyCta: DASHBOARD_SECTION_CTA.incidents,
       t,
     }),
@@ -1335,7 +1360,7 @@ export default function DashboardPage() {
       loadError: intelErrors.coverageOverview,
       loading: intelLoading.coverageOverview,
       empty: coverageOverviewVm.empty,
-      emptyMessage: coverageOverviewVm.emptyMessage,
+      capabilityState: coverageOverviewVm.capabilityState,
       emptyCta: DASHBOARD_SECTION_CTA.integrations,
       t,
     }),
@@ -1348,7 +1373,7 @@ export default function DashboardPage() {
       loadError: intelErrors.servicenowIntelligence,
       loading: intelLoading.servicenowIntelligence,
       empty: servicenowIntelligenceVm.empty,
-      emptyMessage: servicenowIntelligenceVm.emptyMessage,
+      capabilityState: servicenowIntelligenceVm.capabilityState,
       emptyCta: DASHBOARD_SECTION_CTA.integrations,
       t,
     }),

@@ -37,6 +37,20 @@ describe("dashboardSectionStateUtils", () => {
     expect(state.emptyCta).toEqual({ path: "/integrations", label: "dash.section.cta.integrations" });
   });
 
+  it("builds capability-gated state", () => {
+    const state = buildDashboardSectionState({
+      data: { connected: false },
+      loadError: "",
+      loading: false,
+      empty: true,
+      capabilityState: { state: "INTEGRATION_REQUIRED", icon: "🔒", title: "Coverage", description: "desc", cta: { path: "/integrations", label: "Connect" } },
+      t,
+    });
+    expect(state.show).toBe(true);
+    expect(state.empty).toBe(false);
+    expect(state.capabilityState.state).toBe("INTEGRATION_REQUIRED");
+  });
+
   it("detects cold project and builds guidance", () => {
     expect(isColdProject({
       releaseReadiness: { release_readiness: null },

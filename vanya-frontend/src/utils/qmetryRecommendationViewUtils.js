@@ -1,5 +1,10 @@
 /** View helpers for QMetry Test Recommendation Correlation (QMETRY-01C). */
 
+import {
+  attachCapabilityPresentation,
+  resolveQMetryCapabilityState,
+} from "./capabilityStateViewUtils.js";
+
 export const QMETRY_RECOMMENDATION_I18N_KEYS = {
   title: "qmetry_recommendations.title",
   incidentTitle: "incident.qa.test_recommendation_correlation",
@@ -84,20 +89,16 @@ function buildRecommendationViewModelCore(rec, t, { titleKey }) {
   const highTests = groups.flatMap((g) => g.tests.filter((test) => test.priority === "HIGH"));
   const mediumTests = groups.flatMap((g) => g.tests.filter((test) => test.priority === "MEDIUM"));
 
-  let emptyMessage = null;
-  if (!connected) {
-    emptyMessage = t(QMETRY_RECOMMENDATION_I18N_KEYS.emptyConnection);
-  } else if (rec?.data_gaps?.some((gap) => /coverage intelligence/i.test(gap))) {
-    emptyMessage = t(QMETRY_RECOMMENDATION_I18N_KEYS.emptyCoverage);
-  } else if ((rec?.total_recommendations ?? 0) === 0) {
-    emptyMessage = t(QMETRY_RECOMMENDATION_I18N_KEYS.emptyRecommendations);
-  }
+  const capabilityState = resolveQMetryCapabilityState({
+    connected,
+    totalRecommendations: rec?.total_recommendations ?? 0,
+    title: t(titleKey),
+    t,
+  });
 
-  return {
+  const baseVm = {
     title: t(titleKey),
     show: true,
-    empty: Boolean(emptyMessage),
-    emptyMessage,
     connected,
     totalRecommendations: formatCount(rec?.total_recommendations),
     totalRecommendationsLabel: t(QMETRY_RECOMMENDATION_I18N_KEYS.totalRecommendations),
@@ -113,6 +114,8 @@ function buildRecommendationViewModelCore(rec, t, { titleKey }) {
     mediumTests,
     readOnlyNote: t(QMETRY_RECOMMENDATION_I18N_KEYS.readOnlyNote),
   };
+
+  return attachCapabilityPresentation(baseVm, capabilityState);
 }
 
 export function buildRecommendationCorrelationViewModel(report, t) {
@@ -126,14 +129,19 @@ export function buildRecommendationCorrelationViewModel(report, t) {
 
 export function buildRecommendedTestsOverviewViewModel(recommendations, t) {
   if (recommendations == null) {
-    return { show: false, empty: true, emptyMessage: t(QMETRY_RECOMMENDATION_I18N_KEYS.emptyConnection) };
+    return attachCapabilityPresentation(
+      { show: true },
+      resolveQMetryCapabilityState({
+        connected: false,
+        title: t(QMETRY_RECOMMENDATION_I18N_KEYS.title),
+        t,
+      }),
+    );
   }
-  const vm = buildRecommendationViewModelCore(recommendations, t, {
-    titleKey: QMETRY_RECOMMENDATION_I18N_KEYS.title,
-  });
   return {
-    ...vm,
+    ...buildRecommendationViewModelCore(recommendations, t, {
+      titleKey: QMETRY_RECOMMENDATION_I18N_KEYS.title,
+    }),
     show: true,
-    empty: vm.empty,
   };
 }

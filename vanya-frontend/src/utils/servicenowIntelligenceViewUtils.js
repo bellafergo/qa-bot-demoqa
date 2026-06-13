@@ -1,5 +1,10 @@
 /** View helpers for ServiceNow Intelligence (SNOW-01B). */
 
+import {
+  attachCapabilityPresentation,
+  resolveServiceNowCapabilityState,
+} from "./capabilityStateViewUtils.js";
+
 export const SERVICENOW_INTELLIGENCE_I18N_KEYS = {
   title: "servicenow_intelligence.title",
   dashboardTitle: "servicenow_intelligence.dashboard_title",
@@ -82,17 +87,17 @@ function buildIntelligenceViewModelCore(intel, t, { titleKey }) {
     .map((c) => buildCorrelationCardViewModel(c, t))
     .filter(Boolean);
 
-  let emptyMessage = null;
-  if (!connected) emptyMessage = t(SERVICENOW_INTELLIGENCE_I18N_KEYS.emptyConnection);
-  else if (incidents.length + changes.length + services.length + cmdb.length === 0) {
-    emptyMessage = t(SERVICENOW_INTELLIGENCE_I18N_KEYS.emptyCorrelations);
-  }
+  const correlationCount = incidents.length + changes.length + services.length + cmdb.length;
+  const capabilityState = resolveServiceNowCapabilityState({
+    connected,
+    correlationCount,
+    title: t(titleKey),
+    t,
+  });
 
-  return {
+  const baseVm = {
     title: t(titleKey),
     show: true,
-    empty: Boolean(emptyMessage),
-    emptyMessage,
     connected,
     executiveSummary: intel?.executive_summary || "",
     executiveSummaryLabel: t(SERVICENOW_INTELLIGENCE_I18N_KEYS.executiveSummary),
@@ -113,6 +118,8 @@ function buildIntelligenceViewModelCore(intel, t, { titleKey }) {
     showServices: connected && services.length > 0,
     showCmdb: connected && cmdb.length > 0,
   };
+
+  return attachCapabilityPresentation(baseVm, capabilityState);
 }
 
 export function buildServiceNowIntelligenceViewModel(report, t) {
@@ -126,14 +133,19 @@ export function buildServiceNowIntelligenceViewModel(report, t) {
 
 export function buildServiceNowIntelligenceOverviewViewModel(intel, t) {
   if (!hasStandaloneServiceNowIntelligence(intel)) {
-    return { show: false, empty: true, emptyMessage: t(SERVICENOW_INTELLIGENCE_I18N_KEYS.emptyConnection) };
+    return attachCapabilityPresentation(
+      { show: true },
+      resolveServiceNowCapabilityState({
+        connected: false,
+        title: t(SERVICENOW_INTELLIGENCE_I18N_KEYS.dashboardTitle),
+        t,
+      }),
+    );
   }
-  const vm = buildIntelligenceViewModelCore(intel, t, {
-    titleKey: SERVICENOW_INTELLIGENCE_I18N_KEYS.dashboardTitle,
-  });
   return {
-    ...vm,
+    ...buildIntelligenceViewModelCore(intel, t, {
+      titleKey: SERVICENOW_INTELLIGENCE_I18N_KEYS.dashboardTitle,
+    }),
     show: true,
-    empty: isStandaloneServiceNowIntelligenceEmpty(intel),
   };
 }

@@ -50,15 +50,25 @@ describe("qmetryCoverageViewUtils", () => {
   it("shows empty connection state", () => {
     const vm = buildCoverageOverviewViewModel({ connected: false }, t);
     expect(vm.empty).toBe(true);
-    expect(vm.emptyMessage).toBe(QMETRY_COVERAGE_I18N_KEYS.emptyConnection);
+    expect(vm.showContent).toBe(false);
+    expect(vm.capabilityState.state).toBe("INTEGRATION_REQUIRED");
   });
 
-  it("shows empty matches state", () => {
+  it("shows available state when connected with test cases but no matches", () => {
     const vm = buildCoverageOverviewViewModel(
       { connected: true, total_test_cases: 3, total_matches: 0 },
       t,
     );
-    expect(vm.emptyMessage).toBe(QMETRY_COVERAGE_I18N_KEYS.emptyMatches);
+    expect(vm.showContent).toBe(true);
+    expect(vm.capabilityState.state).toBe("AVAILABLE");
+  });
+
+  it("shows insufficient history when connected without test data", () => {
+    const vm = buildCoverageOverviewViewModel(
+      { connected: true, total_test_cases: 0, total_matches: 0 },
+      t,
+    );
+    expect(vm.capabilityState.state).toBe("INSUFFICIENT_HISTORY");
   });
 
   it("renders dashboard overview", () => {

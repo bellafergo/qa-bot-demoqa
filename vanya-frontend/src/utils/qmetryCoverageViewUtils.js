@@ -1,5 +1,10 @@
 /** View helpers for QMetry Coverage Intelligence (QMETRY-01B). */
 
+import {
+  attachCapabilityPresentation,
+  resolveQMetryCapabilityState,
+} from "./capabilityStateViewUtils.js";
+
 export const QMETRY_COVERAGE_I18N_KEYS = {
   title: "coverage_intelligence.title",
   incidentTitle: "incident.qa.coverage_intelligence",
@@ -110,16 +115,17 @@ function buildCoverageViewModelCore(cov, t, { titleKey }) {
   const criticalGaps = gaps.filter((g) => g.severity === "CRITICAL");
   const mediumGaps = gaps.filter((g) => g.severity === "MEDIUM");
 
-  let emptyMessage = null;
-  if (!connected) emptyMessage = t(QMETRY_COVERAGE_I18N_KEYS.emptyConnection);
-  else if ((cov?.total_test_cases ?? 0) === 0) emptyMessage = t(QMETRY_COVERAGE_I18N_KEYS.emptyTestCases);
-  else if ((cov?.total_matches ?? 0) === 0) emptyMessage = t(QMETRY_COVERAGE_I18N_KEYS.emptyMatches);
+  const capabilityState = resolveQMetryCapabilityState({
+    connected,
+    totalTestCases: cov?.total_test_cases ?? 0,
+    totalMatches: cov?.total_matches ?? 0,
+    title: t(titleKey),
+    t,
+  });
 
-  return {
+  const baseVm = {
     title: t(titleKey),
     show: true,
-    empty: Boolean(emptyMessage),
-    emptyMessage,
     connected,
     summaryLabel: t(QMETRY_COVERAGE_I18N_KEYS.summary),
     totalTestsLabel: t(QMETRY_COVERAGE_I18N_KEYS.totalTests),
@@ -138,6 +144,8 @@ function buildCoverageViewModelCore(cov, t, { titleKey }) {
     mediumGaps,
     readOnlyNote: t(QMETRY_COVERAGE_I18N_KEYS.readOnlyNote),
   };
+
+  return attachCapabilityPresentation(baseVm, capabilityState);
 }
 
 export function buildCoverageIntelligenceViewModel(report, t) {
@@ -150,12 +158,17 @@ export function buildCoverageIntelligenceViewModel(report, t) {
 
 export function buildCoverageOverviewViewModel(coverage, t) {
   if (!hasStandaloneCoverage(coverage)) {
-    return { show: false, empty: true, emptyMessage: t(QMETRY_COVERAGE_I18N_KEYS.emptyConnection) };
+    return attachCapabilityPresentation(
+      { show: true },
+      resolveQMetryCapabilityState({
+        connected: false,
+        title: t(QMETRY_COVERAGE_I18N_KEYS.title),
+        t,
+      }),
+    );
   }
-  const vm = buildCoverageViewModelCore(coverage, t, { titleKey: QMETRY_COVERAGE_I18N_KEYS.title });
   return {
-    ...vm,
+    ...buildCoverageViewModelCore(coverage, t, { titleKey: QMETRY_COVERAGE_I18N_KEYS.title }),
     show: true,
-    empty: isStandaloneCoverageEmpty(coverage),
   };
 }

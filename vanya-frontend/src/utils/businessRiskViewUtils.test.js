@@ -72,7 +72,7 @@ describe("businessRiskViewUtils", () => {
     expect(vm.signals[0].capability).toBe("Revenue Collection");
   });
 
-  it("renders insufficient intelligence empty state", () => {
+  it("renders insufficient intelligence capability state", () => {
     const vm = buildBusinessRiskViewModel({
       generated_at: "2026-06-10T08:00:00+00:00",
       has_intelligence: false,
@@ -83,6 +83,6 @@ describe("businessRiskViewUtils", () => {
       top_capabilities_at_risk: [],
     }, t);
     expect(vm.empty).toBe(true);
-    expect(vm.emptyMessage).toBe(BUSINESS_RISK_I18N_KEYS.insufficientIntelligence);
+    expect(vm.capabilityState.state).toBe("INSUFFICIENT_HISTORY");
   });
 });

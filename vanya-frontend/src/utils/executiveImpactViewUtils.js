@@ -1,5 +1,11 @@
 /** View helpers for Executive Impact Metrics (ROI-01B). */
 
+import {
+  attachCapabilityPresentation,
+  buildInsufficientHistoryState,
+  CAPABILITY_STATE_I18N_KEYS,
+} from "./capabilityStateViewUtils.js";
+
 export const EXECUTIVE_IMPACT_I18N_KEYS = {
   title: "executive_impact.title",
   empty: "executive_impact.empty",
@@ -90,7 +96,6 @@ export function isExecutiveImpactEmpty(report) {
 
 export function buildExecutiveImpactViewModel(report, t, { loadError = "" } = {}) {
   const show = Boolean(loadError) || report != null;
-  const empty = !loadError && isExecutiveImpactEmpty(report);
 
   const map = (metric) => mapImpactMetric(metric, t);
 
@@ -114,20 +119,19 @@ export function buildExecutiveImpactViewModel(report, t, { loadError = "" } = {}
   const topImprovements = (report?.top_improvements || []).map(map).filter(Boolean);
   const topConcerns = (report?.top_concerns || []).map(map).filter(Boolean);
 
-  let emptyMessage = t(EXECUTIVE_IMPACT_I18N_KEYS.empty);
-  if (loadError) {
-    emptyMessage = loadError;
-  } else if (!report) {
-    emptyMessage = t(EXECUTIVE_IMPACT_I18N_KEYS.loadError);
-  } else if (!report.has_sufficient_history) {
-    emptyMessage = t(EXECUTIVE_IMPACT_I18N_KEYS.insufficientHistory);
+  let capabilityState = { state: "AVAILABLE" };
+  if (!loadError && report && !report.has_sufficient_history) {
+    capabilityState = buildInsufficientHistoryState({
+      capabilityTitle: t(CAPABILITY_STATE_I18N_KEYS.executiveImpactTitle),
+      minRuns: 2,
+      currentRuns: 0,
+      t,
+    });
   }
 
-  return {
+  return attachCapabilityPresentation({
     show,
-    empty,
     loadError: Boolean(loadError),
-    emptyMessage,
     title: t(EXECUTIVE_IMPACT_I18N_KEYS.title),
     readOnlyNote: t(EXECUTIVE_IMPACT_I18N_KEYS.readOnlyNote),
     qualityLabel: t(EXECUTIVE_IMPACT_I18N_KEYS.quality),
@@ -144,5 +148,5 @@ export function buildExecutiveImpactViewModel(report, t, { loadError = "" } = {}
     topConcerns,
     hasSufficientHistory: Boolean(report?.has_sufficient_history),
     generated_at: report?.generated_at || null,
-  };
+  }, capabilityState);
 }

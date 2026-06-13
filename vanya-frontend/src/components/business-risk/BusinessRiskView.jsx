@@ -1,16 +1,13 @@
 import React from "react";
 import BusinessRiskCard from "./BusinessRiskCard.jsx";
 import BusinessRiskSignalCard from "./BusinessRiskSignalCard.jsx";
+import CapabilityStateCard from "../capability-state/CapabilityStateCard.jsx";
 
 export default function BusinessRiskView({ vm }) {
   if (!vm?.show) return null;
 
-  if (vm.empty) {
-    return (
-      <p style={{ fontSize: 13, color: "var(--text-3)", margin: 0, lineHeight: 1.5 }}>
-        {vm.emptyMessage}
-      </p>
-    );
+  if (!vm.showContent && vm.capabilityState) {
+    return <CapabilityStateCard state={vm.capabilityState} />;
   }
 
   return (

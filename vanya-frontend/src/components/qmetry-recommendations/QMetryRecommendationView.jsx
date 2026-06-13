@@ -1,6 +1,7 @@
 import React from "react";
 import RecommendationGroupCard from "./RecommendationGroupCard.jsx";
 import RecommendedTestCard from "./RecommendedTestCard.jsx";
+import CapabilityStateCard from "../capability-state/CapabilityStateCard.jsx";
 
 function PrioritySection({ label, tests }) {
   if (!tests?.length) return null;
@@ -21,12 +22,8 @@ function PrioritySection({ label, tests }) {
 export default function QMetryRecommendationView({ vm }) {
   if (!vm?.show) return null;
 
-  if (vm.empty) {
-    return (
-      <p style={{ fontSize: 13, color: "var(--text-3)", margin: 0, lineHeight: 1.5 }}>
-        {vm.emptyMessage}
-      </p>
-    );
+  if (!vm.showContent && vm.capabilityState) {
+    return <CapabilityStateCard state={vm.capabilityState} />;
   }
 
   return (

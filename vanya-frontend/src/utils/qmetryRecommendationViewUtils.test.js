@@ -83,7 +83,7 @@ describe("qmetryRecommendationViewUtils", () => {
   it("shows empty connection state", () => {
     const vm = buildRecommendedTestsOverviewViewModel({ connected: false }, t);
     expect(vm.empty).toBe(true);
-    expect(vm.emptyMessage).toBe(QMETRY_RECOMMENDATION_I18N_KEYS.emptyConnection);
+    expect(vm.capabilityState.state).toBe("INTEGRATION_REQUIRED");
   });
 
   it("shows empty recommendations state", () => {
@@ -91,10 +91,10 @@ describe("qmetryRecommendationViewUtils", () => {
       { connected: true, total_recommendations: 0, recommendation_groups: [] },
       t,
     );
-    expect(vm.emptyMessage).toBe(QMETRY_RECOMMENDATION_I18N_KEYS.emptyRecommendations);
+    expect(vm.capabilityState.state).toBe("INSUFFICIENT_HISTORY");
   });
 
-  it("shows empty coverage intelligence state", () => {
+  it("shows insufficient history when connected without recommendations", () => {
     const vm = buildRecommendedTestsOverviewViewModel(
       {
         connected: true,
@@ -103,6 +103,6 @@ describe("qmetryRecommendationViewUtils", () => {
       },
       t,
     );
-    expect(vm.emptyMessage).toBe(QMETRY_RECOMMENDATION_I18N_KEYS.emptyCoverage);
+    expect(vm.capabilityState.state).toBe("INSUFFICIENT_HISTORY");
   });
 });

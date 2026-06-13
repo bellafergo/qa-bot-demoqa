@@ -1,8 +1,9 @@
 import React from "react";
 import { Link } from "react-router-dom";
+import CapabilityStateCard from "../capability-state/CapabilityStateCard.jsx";
 
 /**
- * Consistent empty, error, and loading states for dashboard intelligence sections.
+ * Consistent empty, error, loading, and capability-gated states for dashboard sections.
  */
 export default function DashboardSectionState({ state, onRetry, children }) {
   if (!state) return children ?? null;
@@ -31,6 +32,10 @@ export default function DashboardSectionState({ state, onRetry, children }) {
         ) : null}
       </div>
     );
+  }
+
+  if (state.capabilityState) {
+    return <CapabilityStateCard state={state.capabilityState} />;
   }
 
   if (state.empty) {

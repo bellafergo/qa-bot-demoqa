@@ -209,7 +209,7 @@ describe("executiveImpactViewUtils", () => {
       top_concerns: [],
     }, t);
     expect(vm.empty).toBe(true);
-    expect(vm.emptyMessage).toBe(EXECUTIVE_IMPACT_I18N_KEYS.insufficientHistory);
+    expect(vm.capabilityState.state).toBe("INSUFFICIENT_HISTORY");
   });
 
   it("shows load error instead of insufficient history when fetch fails", () => {
@@ -217,6 +217,6 @@ describe("executiveImpactViewUtils", () => {
     expect(vm.show).toBe(true);
     expect(vm.loadError).toBe(true);
     expect(vm.empty).toBe(false);
-    expect(vm.emptyMessage).toBe("Network error");
+    expect(vm.capabilityState.state).toBe("AVAILABLE");
   });
 });

@@ -55,11 +55,11 @@ describe("servicenowIntelligenceViewUtils", () => {
     expect(vm.empty).toBe(true);
   });
 
-  it("shows empty correlations message", () => {
+  it("shows empty correlations as insufficient history", () => {
     const vm = buildServiceNowIntelligenceOverviewViewModel(
       { connected: true, incident_correlations: [], change_correlations: [], service_correlations: [], cmdb_correlations: [] },
       t,
     );
-    expect(vm.emptyMessage).toBe(SERVICENOW_INTELLIGENCE_I18N_KEYS.emptyCorrelations);
+    expect(vm.capabilityState.state).toBe("INSUFFICIENT_HISTORY");
   });
 });

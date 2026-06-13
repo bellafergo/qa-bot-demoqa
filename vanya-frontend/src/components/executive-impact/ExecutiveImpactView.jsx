@@ -1,5 +1,6 @@
 import React from "react";
 import ImpactMetricCard from "./ImpactMetricCard.jsx";
+import CapabilityStateCard from "../capability-state/CapabilityStateCard.jsx";
 
 function MetricGrid({ title, metrics }) {
   if (!metrics?.length) return null;
@@ -50,12 +51,8 @@ function HighlightList({ title, items, emptyMessage }) {
 export default function ExecutiveImpactView({ vm }) {
   if (!vm?.show) return null;
 
-  if (vm.empty) {
-    return (
-      <p style={{ fontSize: 13, color: "var(--text-3)", margin: 0, lineHeight: 1.5 }}>
-        {vm.emptyMessage}
-      </p>
-    );
+  if (!vm.showContent && vm.capabilityState) {
+    return <CapabilityStateCard state={vm.capabilityState} />;
   }
 
   return (

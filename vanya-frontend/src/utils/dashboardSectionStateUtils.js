@@ -27,18 +27,21 @@ export function buildDashboardSectionState({
   empty = false,
   emptyMessage = "",
   emptyCta = null,
+  capabilityState = null,
   t,
 }) {
   const hasError = Boolean(loadError);
   const isLoading = Boolean(loading) && !hasError && data == null;
-  const isEmpty = !hasError && !isLoading && empty;
+  const isGated = Boolean(capabilityState && capabilityState.state !== "AVAILABLE");
+  const isEmpty = !hasError && !isLoading && !isGated && empty;
 
   return {
-    show: hasError || isLoading || data != null || isEmpty,
+    show: hasError || isLoading || data != null || isEmpty || isGated,
     loading: isLoading,
     error: hasError ? loadError : "",
     empty: isEmpty,
     emptyMessage: isEmpty ? emptyMessage : "",
+    capabilityState: isGated ? capabilityState : null,
     emptyCta: isEmpty && emptyCta
       ? {
           path: emptyCta.path,

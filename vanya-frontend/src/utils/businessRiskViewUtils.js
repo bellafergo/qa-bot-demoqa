@@ -1,5 +1,11 @@
 /** View helpers for Business Risk Estimation (ROI-01C). */
 
+import {
+  attachCapabilityPresentation,
+  buildInsufficientHistoryState,
+  CAPABILITY_STATE_I18N_KEYS,
+} from "./capabilityStateViewUtils.js";
+
 export const BUSINESS_RISK_I18N_KEYS = {
   title: "business_risk_overview.title",
   empty: "business_risk_overview.empty",
@@ -76,19 +82,22 @@ export function isBusinessRiskEmpty(report) {
 
 export function buildBusinessRiskViewModel(report, t) {
   const show = hasBusinessRiskSection(report);
-  const empty = isBusinessRiskEmpty(report);
 
   const businessRisks = (report?.business_risks || []).map((r) => mapBusinessRisk(r, t)).filter(Boolean);
   const signals = (report?.signals || []).map(mapBusinessRiskSignal).filter(Boolean);
 
-  return {
+  let capabilityState = { state: "AVAILABLE" };
+  if (report?.has_intelligence === false) {
+    capabilityState = buildInsufficientHistoryState({
+      capabilityTitle: t(CAPABILITY_STATE_I18N_KEYS.businessRiskTitle),
+      minRuns: 2,
+      currentRuns: 0,
+      t,
+    });
+  }
+
+  return attachCapabilityPresentation({
     show,
-    empty,
-    emptyMessage: empty
-      ? (report?.has_intelligence === false
-        ? t(BUSINESS_RISK_I18N_KEYS.insufficientIntelligence)
-        : t(BUSINESS_RISK_I18N_KEYS.empty))
-      : t(BUSINESS_RISK_I18N_KEYS.empty),
     title: t(BUSINESS_RISK_I18N_KEYS.title),
     readOnlyNote: t(BUSINESS_RISK_I18N_KEYS.readOnlyNote),
     overallRiskLabel: t(BUSINESS_RISK_I18N_KEYS.overallRisk),
@@ -102,5 +111,5 @@ export function buildBusinessRiskViewModel(report, t) {
     businessRisks,
     signals,
     generated_at: report?.generated_at || null,
-  };
+  }, capabilityState);
 }

@@ -1,5 +1,6 @@
 import React from "react";
 import ServiceNowCorrelationCard from "./ServiceNowCorrelationCard.jsx";
+import CapabilityStateCard from "../capability-state/CapabilityStateCard.jsx";
 
 function CorrelationSection({ label, items }) {
   if (!items?.length) return null;
@@ -18,6 +19,17 @@ function CorrelationSection({ label, items }) {
 export default function ServiceNowIntelligenceView({ vm }) {
   if (!vm?.show) return null;
 
+  if (!vm.showContent && vm.capabilityState) {
+    return (
+      <div>
+        <CapabilityStateCard state={vm.capabilityState} />
+        <p style={{ margin: "12px 0 0", fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, fontStyle: "italic" }}>
+          {vm.readOnlyNote}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
@@ -27,10 +39,7 @@ export default function ServiceNowIntelligenceView({ vm }) {
         border: "1px solid var(--border, rgba(255,255,255,0.08))",
       }}
     >
-      {vm.empty ? (
-        <p style={{ margin: 0, fontSize: 13, color: "var(--text-2)", lineHeight: 1.6 }}>{vm.emptyMessage}</p>
-      ) : (
-        <>
+      <>
           {vm.executiveSummary ? (
             <p style={{ margin: "0 0 14px", fontSize: 13, color: "var(--text-2)", lineHeight: 1.6 }}>
               <span style={{ fontWeight: 600, color: "var(--text-3)" }}>{vm.executiveSummaryLabel}: </span>
@@ -55,8 +64,7 @@ export default function ServiceNowIntelligenceView({ vm }) {
           <CorrelationSection label={vm.changesLabel} items={vm.changes} />
           <CorrelationSection label={vm.servicesLabel} items={vm.services} />
           <CorrelationSection label={vm.cmdbLabel} items={vm.cmdb} />
-        </>
-      )}
+      </>
       <p style={{ margin: "12px 0 0", fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, fontStyle: "italic" }}>
         {vm.readOnlyNote}
       </p>
