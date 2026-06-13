@@ -316,6 +316,73 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_pr_analysis_reports_natural_key
   ON public.pr_analysis_reports (project_id, pr_id, provider);
 
 -- =============================================================================
+-- PART 3 — Onboarding configuration entities (SQLite mirror for Render durability)
+-- =============================================================================
+-- Dual-written from services/*_supabase.py; reads merge SQLite + Supabase.
+-- Run in Supabase SQL Editor after deploy so onboarding survives SQLite wipe.
+
+CREATE TABLE IF NOT EXISTS public.local_agents (
+  agent_id           TEXT PRIMARY KEY,
+  project_id         TEXT,
+  name               TEXT NOT NULL,
+  status             TEXT NOT NULL DEFAULT 'offline',
+  capabilities_json  TEXT NOT NULL DEFAULT '[]',
+  version            TEXT,
+  last_seen_at       TEXT,
+  created_at         TEXT NOT NULL,
+  updated_at         TEXT NOT NULL,
+  enabled            INTEGER NOT NULL DEFAULT 1,
+  agent_meta_json    TEXT,
+  token_hash         TEXT NOT NULL,
+  token_fingerprint  TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_local_agents_project_id ON public.local_agents (project_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_local_agents_token_hash ON public.local_agents (token_hash);
+
+CREATE TABLE IF NOT EXISTS public.browser_inspection_watches (
+  watch_id                      TEXT PRIMARY KEY,
+  url                           TEXT NOT NULL,
+  project_id                    TEXT,
+  interval_minutes              INTEGER NOT NULL DEFAULT 60,
+  change_threshold              TEXT NOT NULL DEFAULT 'medium',
+  enabled                       INTEGER NOT NULL DEFAULT 1,
+  execution_mode                TEXT NOT NULL DEFAULT 'cloud',
+  local_agent_id                TEXT,
+  compare_mode                  TEXT NOT NULL DEFAULT 'last',
+  baseline_inspection_id        TEXT,
+  baseline_set_at               TEXT,
+  baseline_updated_by           TEXT,
+  last_status                   TEXT,
+  last_effective_change_level   TEXT,
+  last_visual_change_level      TEXT,
+  last_alert_at                 TEXT,
+  last_run_error                TEXT,
+  created_at                    TEXT NOT NULL,
+  updated_at                    TEXT NOT NULL,
+  last_run_at                   TEXT,
+  last_inspection_id            TEXT,
+  last_diff_id                  TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_browser_inspection_watches_project_id
+  ON public.browser_inspection_watches (project_id);
+
+CREATE TABLE IF NOT EXISTS public.database_connections (
+  connection_id   TEXT PRIMARY KEY,
+  agent_id        TEXT NOT NULL,
+  name            TEXT NOT NULL,
+  database_type   TEXT NOT NULL,
+  host_label      TEXT NOT NULL,
+  database_name   TEXT NOT NULL,
+  status          TEXT NOT NULL DEFAULT 'UNKNOWN',
+  created_at      TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_database_connections_agent_id
+  ON public.database_connections (agent_id);
+
+-- =============================================================================
 -- PostgREST: exponer tablas al API (schema public ya está en API por defecto)
 -- =============================================================================
 -- Si alguna tabla no aparece en el cliente, en Supabase: Database → Tables

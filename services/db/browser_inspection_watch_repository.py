@@ -83,6 +83,20 @@ class BrowserInspectionWatchEventRow(Base):
 
 
 class BrowserInspectionWatchRepository:
+    def _mirror_watch(self, watch: Optional[Dict[str, Any]]) -> None:
+        if not watch:
+            return
+        try:
+            from services.browser_inspection_watch_supabase import persist_browser_inspection_watch_supabase
+
+            persist_browser_inspection_watch_supabase(watch)
+        except Exception as e:
+            logger.warning(
+                "browser_inspection_watch: supabase mirror failed watch_id=%s: %s",
+                watch.get("watch_id"),
+                e,
+            )
+
     def create_watch(
         self,
         *,
@@ -124,9 +138,10 @@ class BrowserInspectionWatchRepository:
         with get_session() as s:
             s.add(row)
         logger.debug("browser_inspection_watch: created %s", wid)
+        self._mirror_watch(self._row_watch_to_dict(row))
         return wid
 
-    def list_watches(self, *, project_id: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
+    def _list_watches_sqlite(self, *, project_id: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
         limit = max(1, min(int(limit or 100), 500))
         with get_session() as s:
             q = (
@@ -144,13 +159,60 @@ class BrowserInspectionWatchRepository:
             out.append(d)
         return out
 
+    def list_watches(self, *, project_id: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
+        limit = max(1, min(int(limit or 100), 500))
+        sqlite_rows = self._list_watches_sqlite(project_id=project_id, limit=limit)
+        try:
+            from services.browser_inspection_watch_supabase import (
+                list_browser_inspection_watches_supabase,
+                supabase_onboarding_config_enabled,
+            )
+            from services.report_history_merge import merge_sqlite_supabase_records
+
+            if supabase_onboarding_config_enabled():
+                supa_rows = list_browser_inspection_watches_supabase(
+                    project_id=project_id,
+                    limit=limit,
+                )
+                return merge_sqlite_supabase_records(
+                    supabase_rows=supa_rows,
+                    sqlite_rows=sqlite_rows,
+                    limit=limit,
+                    id_key="watch_id",
+                    sort_key="updated_at",
+                )
+        except Exception as e:
+            logger.debug(
+                "browser_inspection_watch: supabase list fallback project_id=%s: %s",
+                project_id,
+                e,
+            )
+        return sqlite_rows
+
     def get_watch(self, watch_id: str) -> Optional[Dict[str, Any]]:
         wid = (watch_id or "").strip()
         if not wid:
             return None
         with get_session() as s:
             row = s.query(BrowserInspectionWatchRow).filter_by(watch_id=wid).first()
-            return self._row_watch_to_dict(row) if row else None
+            sqlite_doc = self._row_watch_to_dict(row) if row else None
+        try:
+            from services.browser_inspection_watch_supabase import (
+                fetch_browser_inspection_watch_supabase,
+                supabase_onboarding_config_enabled,
+            )
+            from services.report_history_merge import pick_newer_record
+
+            if supabase_onboarding_config_enabled():
+                supa_doc = fetch_browser_inspection_watch_supabase(wid)
+                return pick_newer_record(
+                    sqlite_row=sqlite_doc,
+                    supabase_row=supa_doc,
+                    sort_key="updated_at",
+                )
+        except Exception as e:
+            logger.debug("browser_inspection_watch: supabase get compare failed watch_id=%s: %s", wid, e)
+        return sqlite_doc
 
     def update_watch(self, watch_id: str, **fields: Any) -> bool:
         wid = (watch_id or "").strip()
@@ -201,6 +263,7 @@ class BrowserInspectionWatchRepository:
             if "last_diff_id" in fields:
                 row.last_diff_id = fields["last_diff_id"]
             row.updated_at = _utc_iso()
+        self._mirror_watch(self.get_watch(wid))
         return True
 
     def insert_event(

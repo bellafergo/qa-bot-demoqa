@@ -86,6 +86,20 @@ def _execution_to_dict(row: DatabaseValidationExecutionRow) -> Dict[str, Any]:
 
 
 class DatabaseConnectorRepository:
+    def _mirror_connection(self, connection: Optional[Dict[str, Any]]) -> None:
+        if not connection:
+            return
+        try:
+            from services.database_connector_supabase import persist_database_connection_supabase
+
+            persist_database_connection_supabase(connection)
+        except Exception as e:
+            logger.warning(
+                "database_connector: supabase mirror failed connection_id=%s: %s",
+                connection.get("connection_id"),
+                e,
+            )
+
     def insert_connection(self, **fields: Any) -> None:
         row = DatabaseConnectionRow(
             connection_id=fields["connection_id"],
@@ -99,6 +113,7 @@ class DatabaseConnectorRepository:
         )
         with get_session() as s:
             s.add(row)
+        self._mirror_connection(_connection_to_dict(row))
 
     def get_connection(self, connection_id: str) -> Optional[Dict[str, Any]]:
         cid = (connection_id or "").strip()
@@ -106,15 +121,59 @@ class DatabaseConnectorRepository:
             return None
         with get_session() as s:
             row = s.query(DatabaseConnectionRow).filter_by(connection_id=cid).first()
-            return _connection_to_dict(row) if row else None
+            sqlite_doc = _connection_to_dict(row) if row else None
+        try:
+            from services.database_connector_supabase import (
+                fetch_database_connection_supabase,
+                supabase_onboarding_config_enabled,
+            )
+            from services.report_history_merge import pick_newer_record
 
-    def list_connections(self, *, agent_id: Optional[str] = None, limit: int = 200) -> List[Dict[str, Any]]:
+            if supabase_onboarding_config_enabled():
+                supa_doc = fetch_database_connection_supabase(cid)
+                return pick_newer_record(
+                    sqlite_row=sqlite_doc,
+                    supabase_row=supa_doc,
+                    sort_key="created_at",
+                )
+        except Exception as e:
+            logger.debug(
+                "database_connector: supabase get compare failed connection_id=%s: %s",
+                cid,
+                e,
+            )
+        return sqlite_doc
+
+    def _list_connections_sqlite(self, *, agent_id: Optional[str] = None, limit: int = 200) -> List[Dict[str, Any]]:
         lim = max(1, min(int(limit), 500))
         with get_session() as s:
             q = s.query(DatabaseConnectionRow).order_by(DatabaseConnectionRow.created_at.desc())
             if agent_id and str(agent_id).strip():
                 q = q.filter(DatabaseConnectionRow.agent_id == str(agent_id).strip())
             return [_connection_to_dict(r) for r in q.limit(lim).all()]
+
+    def list_connections(self, *, agent_id: Optional[str] = None, limit: int = 200) -> List[Dict[str, Any]]:
+        lim = max(1, min(int(limit), 500))
+        sqlite_rows = self._list_connections_sqlite(agent_id=agent_id, limit=lim)
+        try:
+            from services.database_connector_supabase import (
+                list_database_connections_supabase,
+                supabase_onboarding_config_enabled,
+            )
+            from services.report_history_merge import merge_sqlite_supabase_records
+
+            if supabase_onboarding_config_enabled():
+                supa_rows = list_database_connections_supabase(agent_id=agent_id, limit=lim)
+                return merge_sqlite_supabase_records(
+                    supabase_rows=supa_rows,
+                    sqlite_rows=sqlite_rows,
+                    limit=lim,
+                    id_key="connection_id",
+                    sort_key="created_at",
+                )
+        except Exception as e:
+            logger.debug("database_connector: supabase list fallback agent_id=%s: %s", agent_id, e)
+        return sqlite_rows
 
     def update_connection_status(self, connection_id: str, status: str) -> bool:
         cid = (connection_id or "").strip()
@@ -125,7 +184,8 @@ class DatabaseConnectorRepository:
             if not row:
                 return False
             row.status = status
-            return True
+        self._mirror_connection(self.get_connection(cid))
+        return True
 
     def insert_execution(self, **fields: Any) -> None:
         row = DatabaseValidationExecutionRow(
