@@ -278,6 +278,43 @@ def test_local_agent_configured(
 @patch("services.db.browser_inspection_watch_repository.browser_inspection_watch_repo")
 @patch("services.db.catalog_repository.catalog_repo")
 @patch("services.db.project_repository.project_repo")
+def test_local_agent_completed_when_offline(
+    mock_project_repo,
+    mock_catalog_repo,
+    mock_watch_repo,
+    mock_agent_repo,
+    mock_db_repo,
+    _mock_knowledge,
+    mock_intel_flags,
+):
+    """Registration completes onboarding; operational online status is separate (Local Agents UI)."""
+    mock_project_repo.get_project.return_value = _project()
+    mock_catalog_repo.list_test_cases.return_value = []
+    mock_catalog_repo.count_by_status_for_project.return_value = {"active": 0}
+    mock_watch_repo.list_watches.return_value = []
+    mock_agent_repo.list_agents.return_value = [{"agent_id": "agent-1", "status": "offline"}]
+    mock_db_repo.list_connections.return_value = []
+    mock_intel_flags.return_value = {
+        "has_executive_report": False,
+        "has_contract_intelligence": False,
+        "has_quality_health": False,
+    }
+
+    checklist = build_onboarding_checklist("demo")
+    agent_step = next(s for s in checklist.steps if s.step_id == "configure_local_agent")
+    assert agent_step.status == "COMPLETED"
+    assert agent_step.completion_percentage == 100
+    assert "registered" in agent_step.recommended_next_action.lower()
+    assert "bring an agent online" not in agent_step.recommended_next_action.lower()
+
+
+@patch("services.onboarding_service._incident_intelligence_flags")
+@patch("services.onboarding_service._knowledge_has_apis", return_value=False)
+@patch("services.db.database_connector_repository.database_connector_repo")
+@patch("services.db.local_agent_repository.local_agent_repo")
+@patch("services.db.browser_inspection_watch_repository.browser_inspection_watch_repo")
+@patch("services.db.catalog_repository.catalog_repo")
+@patch("services.db.project_repository.project_repo")
 def test_database_connector_configured(
     mock_project_repo,
     mock_catalog_repo,
