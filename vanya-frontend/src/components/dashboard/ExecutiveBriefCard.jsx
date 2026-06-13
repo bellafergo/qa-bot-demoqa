@@ -1,11 +1,11 @@
 import React from "react";
 import { Link } from "react-router-dom";
 
-export default function ExecutiveBriefCard({ vm }) {
+export default function ExecutiveBriefCard({ vm, compact = false }) {
   if (!vm?.show) return null;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: compact ? 12 : 16 }}>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
         <div
           style={{
@@ -55,20 +55,22 @@ export default function ExecutiveBriefCard({ vm }) {
         </div>
       </div>
 
-      <div>
-        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
-          {vm.topRisksLabel}
+      {!compact ? (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {vm.topRisksLabel}
+          </div>
+          {vm.topRisks?.length ? (
+            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "var(--text-2)", lineHeight: 1.5 }}>
+              {vm.topRisks.map((risk) => (
+                <li key={risk}>{risk}</li>
+              ))}
+            </ul>
+          ) : (
+            <p style={{ fontSize: 13, color: "var(--text-3)", margin: 0 }}>{vm.noRisksMessage}</p>
+          )}
         </div>
-        {vm.topRisks?.length ? (
-          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "var(--text-2)", lineHeight: 1.5 }}>
-            {vm.topRisks.map((risk) => (
-              <li key={risk}>{risk}</li>
-            ))}
-          </ul>
-        ) : (
-          <p style={{ fontSize: 13, color: "var(--text-3)", margin: 0 }}>{vm.noRisksMessage}</p>
-        )}
-      </div>
+      ) : null}
     </div>
   );
 }

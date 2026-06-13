@@ -61,8 +61,49 @@ function resolveRecommendedAction({
   releaseReadinessVm,
   onboardingVm,
   businessRiskVm,
+  hasKnowledge,
+  totalRuns,
+  fi,
+  passRateValid,
+  passRateNum,
   t,
 }) {
+  if (onboardingVm?.isComplete) {
+    const { riskLevel } = computeOperationalRisk({
+      fi,
+      releaseReadinessVm,
+      businessRiskVm,
+      passRateValid,
+      passRateNum,
+      totalRuns,
+    });
+    const criticalRisk =
+      String(businessRiskVm?.overallBusinessRisk || "").toUpperCase() === "CRITICAL"
+      || riskLevel === "elevated";
+    if (criticalRisk) {
+      return {
+        label: t("command_center.action.investigate_risk"),
+        path: "/incidents",
+      };
+    }
+    if (hasKnowledge === false) {
+      return {
+        label: t("command_center.action.build_memory"),
+        path: "/knowledge",
+      };
+    }
+    if ((totalRuns ?? 0) === 0) {
+      return {
+        label: t("command_center.action.run_smoke_tests"),
+        path: "/batch",
+      };
+    }
+    return {
+      label: t(EXECUTIVE_BRIEF_I18N_KEYS.actionMonitor),
+      path: "/dashboard",
+    };
+  }
+
   const incompleteStep = (onboardingVm?.checklist?.steps || []).find(
     (step) => step.status !== "COMPLETED" && step.navigation,
   );
@@ -92,6 +133,18 @@ function resolveRecommendedAction({
   };
 }
 
+function computeOperationalRisk({ fi, businessRiskVm, passRateValid, passRateNum, totalRuns }) {
+  const riskLevel =
+    (fi?.recurrent_regressions_count ?? 0) > 0
+      ? "elevated"
+      : passRateValid && passRateNum < 70
+        ? "watch"
+        : (totalRuns ?? 0) === 0
+          ? "unknown"
+          : "stable";
+  return { riskLevel };
+}
+
 export function buildExecutiveBriefViewModel({
   releaseReadinessVm,
   businessRiskVm,
@@ -99,18 +152,37 @@ export function buildExecutiveBriefViewModel({
   valueDashboardVm,
   platformObservabilityVm,
   onboardingVm,
+  hasKnowledge,
+  totalRuns,
+  fi,
+  passRateValid,
+  passRateNum,
   t,
 }) {
   const hasRelease = releaseReadinessVm?.show && !releaseReadinessVm?.empty;
   const topRisks = collectTopRisks({ businessRiskVm, platformObservabilityVm, releaseReadinessVm });
   const trend = resolveTrend(executiveImpactVm, valueDashboardVm);
-  const action = resolveRecommendedAction({ releaseReadinessVm, onboardingVm, businessRiskVm, t });
+  const action = resolveRecommendedAction({
+    releaseReadinessVm,
+    onboardingVm,
+    businessRiskVm,
+    hasKnowledge,
+    totalRuns,
+    fi,
+    passRateValid,
+    passRateNum,
+    t,
+  });
 
   const show = Boolean(releaseReadinessVm || businessRiskVm || executiveImpactVm || valueDashboardVm);
+  const operationalMode = Boolean(onboardingVm?.isComplete);
 
   return {
     show,
-    title: t(EXECUTIVE_BRIEF_I18N_KEYS.title),
+    operationalMode,
+    title: operationalMode
+      ? t("command_center.executive_summary")
+      : t(EXECUTIVE_BRIEF_I18N_KEYS.title),
     readOnlyNote: t(EXECUTIVE_BRIEF_I18N_KEYS.readOnlyNote),
     releaseStatusLabel: t(EXECUTIVE_BRIEF_I18N_KEYS.releaseStatus),
     releaseStatus: hasRelease

@@ -42,6 +42,7 @@ describe("executiveBriefViewUtils", () => {
       valueDashboardVm: {},
       platformObservabilityVm: {},
       onboardingVm: {
+        isComplete: false,
         checklist: {
           steps: [{
             status: "PENDING",
@@ -53,5 +54,26 @@ describe("executiveBriefViewUtils", () => {
     });
 
     expect(vm.action).toEqual({ label: "Connect Jira", path: "/integrations" });
+  });
+
+  it("uses operational actions when onboarding is complete", () => {
+    const vm = buildExecutiveBriefViewModel({
+      releaseReadinessVm: { show: true, empty: false, overallStatusText: "READY" },
+      businessRiskVm: {},
+      executiveImpactVm: {},
+      valueDashboardVm: {},
+      platformObservabilityVm: {},
+      onboardingVm: { isComplete: true, checklist: { steps: [] } },
+      hasKnowledge: false,
+      totalRuns: 0,
+      fi: {},
+      passRateValid: false,
+      passRateNum: null,
+      t,
+    });
+
+    expect(vm.operationalMode).toBe(true);
+    expect(vm.title).toBe("command_center.executive_summary");
+    expect(vm.action.path).toBe("/knowledge");
   });
 });

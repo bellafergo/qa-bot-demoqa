@@ -31,6 +31,14 @@ import { useProject } from "../context/ProjectContext.jsx";
 import ProjectHealthStrip from "../components/ProjectHealthStrip.jsx";
 import OnboardingDashboardSection from "../components/onboarding/OnboardingDashboardSection.jsx";
 import { buildOnboardingViewModel } from "../utils/onboardingViewUtils.js";
+import DashboardCommandHeader from "../components/dashboard/DashboardCommandHeader.jsx";
+import CommandCenterView from "../components/dashboard/CommandCenterView.jsx";
+import NextRecommendedActionCard from "../components/dashboard/NextRecommendedActionCard.jsx";
+import {
+  buildCommandCenterHeaderViewModel,
+  buildCommandCenterViewModel,
+  buildNextRecommendedActionViewModel,
+} from "../utils/commandCenterViewUtils.js";
 import { buildQualityTrendViewModelFromApi } from "../utils/qualityTrendViewUtils.js";
 import QualityTrendReportView from "../components/incident/QualityTrendReportView.jsx";
 import { buildScheduledReportViewModel } from "../utils/scheduledReportViewUtils.js";
@@ -1190,6 +1198,11 @@ export default function DashboardPage() {
       valueDashboardVm,
       platformObservabilityVm,
       onboardingVm,
+      hasKnowledge,
+      totalRuns: s.total_runs ?? 0,
+      fi,
+      passRateValid,
+      passRateNum,
       t,
     }),
     [
@@ -1199,8 +1212,63 @@ export default function DashboardPage() {
       valueDashboardVm,
       platformObservabilityVm,
       onboardingVm,
+      hasKnowledge,
+      s.total_runs,
+      fi,
+      passRateValid,
+      passRateNum,
       t,
     ],
+  );
+
+  const isOperationalDashboard = Boolean(projectId && onboardingVm.isComplete);
+
+  const commandCenterHeaderVm = useMemo(
+    () => (isOperationalDashboard
+      ? buildCommandCenterHeaderViewModel({
+          project: currentProject,
+          onboardingChecklist: s.onboarding ?? null,
+          summary: s,
+          fi,
+          passRateValid,
+          passRateNum,
+          lastRefresh,
+          t,
+          formatTimestamp: fmtDate,
+        })
+      : null),
+    [isOperationalDashboard, currentProject, s, fi, passRateValid, passRateNum, lastRefresh, t],
+  );
+
+  const commandCenterVm = useMemo(
+    () => (isOperationalDashboard
+      ? buildCommandCenterViewModel({
+          summary: s,
+          fi,
+          hasKnowledge,
+          passRateValid,
+          passRateNum,
+          loading,
+          t,
+        })
+      : null),
+    [isOperationalDashboard, s, fi, hasKnowledge, passRateValid, passRateNum, loading, t],
+  );
+
+  const nextRecommendedActionVm = useMemo(
+    () => (isOperationalDashboard
+      ? buildNextRecommendedActionViewModel({
+          hasKnowledge,
+          summary: s,
+          fi,
+          passRateValid,
+          passRateNum,
+          businessRiskVm,
+          loading,
+          t,
+        })
+      : null),
+    [isOperationalDashboard, hasKnowledge, s, fi, passRateValid, passRateNum, businessRiskVm, loading, t],
   );
 
   const executiveImpactSection = useMemo(
@@ -1484,39 +1552,63 @@ export default function DashboardPage() {
       <SystemStatusRibbon ribbon={systemRibbon} />
 
       <div style={{ padding: "24px 40px 0" }}>
-        {projectId ? <OnboardingDashboardSection vm={onboardingVm} projectName={currentProject?.name} /> : null}
+        {isOperationalDashboard ? (
+          <>
+            <DashboardCommandHeader vm={commandCenterHeaderVm} />
+            <CommandCenterView vm={commandCenterVm} />
+            <OnboardingDashboardSection vm={onboardingVm} projectName={currentProject?.name} />
+            <NextRecommendedActionCard vm={nextRecommendedActionVm} />
+            {executiveBriefVm.show ? (
+              <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
+                  {executiveBriefVm.title}
+                </div>
+                <ExecutiveBriefCard vm={executiveBriefVm} compact={executiveBriefVm.operationalMode} />
+                {!executiveBriefVm.operationalMode ? (
+                  <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+                    {executiveBriefVm.readOnlyNote}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <>
+            {projectId ? <OnboardingDashboardSection vm={onboardingVm} projectName={currentProject?.name} /> : null}
 
-        <ProjectHealthStrip
-          t={t}
-          projectId={projectId}
-          projectName={currentProject?.name}
-          summary={s}
-          fi={fi}
-          hasKnowledge={hasKnowledge}
-          loading={loading}
-          passRateValid={passRateValid}
-          passRateNum={passRateNum}
-          lastRefresh={lastRefresh}
-          onInitialized={() => load()}
-        />
+            <ProjectHealthStrip
+              t={t}
+              projectId={projectId}
+              projectName={currentProject?.name}
+              summary={s}
+              fi={fi}
+              hasKnowledge={hasKnowledge}
+              loading={loading}
+              passRateValid={passRateValid}
+              passRateNum={passRateNum}
+              lastRefresh={lastRefresh}
+              onInitialized={() => load()}
+            />
 
-        {projectId && coldProjectGuidanceVm.show ? (
-          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
-            <ColdProjectGuidance vm={coldProjectGuidanceVm} />
-          </div>
-        ) : null}
+            {projectId && coldProjectGuidanceVm.show ? (
+              <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
+                <ColdProjectGuidance vm={coldProjectGuidanceVm} />
+              </div>
+            ) : null}
 
-        {projectId && executiveBriefVm.show ? (
-          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
-              {executiveBriefVm.title}
-            </div>
-            <ExecutiveBriefCard vm={executiveBriefVm} />
-            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
-              {executiveBriefVm.readOnlyNote}
-            </p>
-          </div>
-        ) : null}
+            {projectId && executiveBriefVm.show ? (
+              <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
+                  {executiveBriefVm.title}
+                </div>
+                <ExecutiveBriefCard vm={executiveBriefVm} />
+                <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+                  {executiveBriefVm.readOnlyNote}
+                </p>
+              </div>
+            ) : null}
+          </>
+        )}
 
         {projectId && qualityTrendVm.show && !qualityTrendVm.empty ? (
           <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
