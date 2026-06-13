@@ -77,6 +77,42 @@ describe("qualityHealthScoreViewUtils", () => {
     expect(vm.empty).toBe(false);
     expect(vm.title).toBe(QUALITY_HEALTH_SCORE_I18N_KEYS.title);
     expect(vm.report.overall_score).toBe(82);
+    expect(vm.report.showTrace).toBe(false);
+  });
+
+  it("attaches explainability trace for low quality health scores", () => {
+    const vm = buildQualityHealthScoreViewModel({
+      quality_health: {
+        overall_score: 8,
+        overall_status: "HIGH_RISK",
+        confidence: 0.73,
+        trend: "DEGRADING",
+        summary: "Quality health is critically low.",
+        scores: [
+          {
+            score_id: "quality_health:project:overall",
+            scope_type: "project",
+            scope_name: "Project",
+            score: 8,
+            status: "HIGH_RISK",
+            contributing_factors: [
+              {
+                factor_id: "factor:auth",
+                title: "Broken Authentication Journey",
+                description: "Failed validations",
+                impact: 30,
+                severity: "CRITICAL",
+                related_entity_type: "journey",
+                related_entity_id: "journey:auth",
+              },
+            ],
+          },
+        ],
+      },
+    }, t);
+    expect(vm.report.showTrace).toBe(true);
+    expect(vm.report.trace.show).toBe(true);
+    expect(vm.report.trace.whyExplanation.bullets[0]).toContain("Authentication");
   });
 
   it("renders empty state message", () => {

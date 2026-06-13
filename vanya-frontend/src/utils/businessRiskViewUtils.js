@@ -5,6 +5,13 @@ import {
   buildInsufficientHistoryState,
   CAPABILITY_STATE_I18N_KEYS,
 } from "./capabilityStateViewUtils.js";
+import {
+  buildBusinessRiskTraceViewModel,
+  BUSINESS_RISK_EXPLAINABILITY_I18N_KEYS,
+  shouldShowBusinessRiskTrace,
+} from "./businessRiskExplainabilityViewUtils.js";
+
+export { BUSINESS_RISK_EXPLAINABILITY_I18N_KEYS };
 
 export const BUSINESS_RISK_I18N_KEYS = {
   title: "business_risk_overview.title",
@@ -48,15 +55,20 @@ export function severityBadgeClass(severity) {
   return SEVERITY_BADGE[String(severity || "LOW").toUpperCase()] || "badge badge-gray";
 }
 
-export function mapBusinessRisk(risk, t) {
+export function mapBusinessRisk(risk, signals, t) {
   if (!risk) return null;
   const confidence = String(risk.confidence || "LOW").toUpperCase();
+  const trace = buildBusinessRiskTraceViewModel(risk, signals, t);
   return {
     ...risk,
     severity: String(risk.severity || "LOW").toUpperCase(),
     severityBadgeClass: severityBadgeClass(risk.severity),
     confidenceLabel: `${t(BUSINESS_RISK_I18N_KEYS.confidence)}: ${t(CONFIDENCE_LABEL_KEY[confidence] || CONFIDENCE_LABEL_KEY.LOW)}`,
     confidenceBadgeClass: CONFIDENCE_BADGE[confidence] || CONFIDENCE_BADGE.LOW,
+    trace,
+    showTrace: shouldShowBusinessRiskTrace(risk, signals),
+    traceToggleShowLabel: t(BUSINESS_RISK_EXPLAINABILITY_I18N_KEYS.toggleShow),
+    traceToggleHideLabel: t(BUSINESS_RISK_EXPLAINABILITY_I18N_KEYS.toggleHide),
   };
 }
 
@@ -83,9 +95,10 @@ export function isBusinessRiskEmpty(report) {
 export function buildBusinessRiskViewModel(report, t) {
   const show = hasBusinessRiskSection(report);
 
-  const businessRisks = (report?.business_risks || []).map((r) => mapBusinessRisk(r, t)).filter(Boolean);
   const signals = (report?.signals || []).map(mapBusinessRiskSignal).filter(Boolean);
-
+  const businessRisks = (report?.business_risks || [])
+    .map((r) => mapBusinessRisk(r, signals, t))
+    .filter(Boolean);
   let capabilityState = { state: "AVAILABLE" };
   if (report?.has_intelligence === false) {
     capabilityState = buildInsufficientHistoryState({

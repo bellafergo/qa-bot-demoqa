@@ -1,5 +1,13 @@
 /** View helpers for Quality Health Score (OBS-01A). */
 
+import {
+  buildQualityHealthTraceViewModel,
+  QUALITY_HEALTH_EXPLAINABILITY_I18N_KEYS,
+  shouldShowQualityHealthTrace,
+} from "./qualityHealthExplainabilityViewUtils.js";
+
+export { QUALITY_HEALTH_EXPLAINABILITY_I18N_KEYS };
+
 export const QUALITY_HEALTH_SCORE_I18N_KEYS = {
   title: "incident.qa.quality_health_score",
   empty: "incident.qa.quality_health_score_empty",
@@ -149,6 +157,10 @@ export function buildQualityHealthScoreViewModel(report, t) {
           moduleScores: scores.filter((s) => s.scope_type === "module"),
           journeyScores: scores.filter((s) => s.scope_type === "journey"),
           contractScores: scores.filter((s) => s.scope_type === "contract"),
+          trace: buildQualityHealthTraceViewModel(qh, t),
+          showTrace: shouldShowQualityHealthTrace(qh),
+          traceToggleShowLabel: t(QUALITY_HEALTH_EXPLAINABILITY_I18N_KEYS.whyTitle),
+          traceToggleHideLabel: t(QUALITY_HEALTH_EXPLAINABILITY_I18N_KEYS.toggleHide),
         }
       : null,
   };

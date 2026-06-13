@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useState } from "react";
 import QualityHealthScoreCard from "./QualityHealthScoreCard.jsx";
+import ExplainabilityTracePanel from "../explainability/ExplainabilityTracePanel.jsx";
 
 function ScoreGroup({ title, scores, labels, compact = true }) {
   if (!scores?.length) return null;
@@ -18,6 +19,7 @@ function ScoreGroup({ title, scores, labels, compact = true }) {
 export default function QualityHealthReportView({ vm }) {
   if (!vm?.report) return null;
   const report = vm.report;
+  const [traceOpen, setTraceOpen] = useState(false);
 
   const labels = {
     trendLabel: vm.trendLabel,
@@ -59,6 +61,33 @@ export default function QualityHealthReportView({ vm }) {
       {report.summary ? (
         <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.55, marginBottom: 14 }}>
           {report.summary}
+        </div>
+      ) : null}
+
+      {report.showTrace ? (
+        <div style={{ marginBottom: 16 }}>
+          <button
+            type="button"
+            onClick={() => setTraceOpen((open) => !open)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              background: "none",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              fontSize: 11,
+              fontWeight: 600,
+              color: "var(--text-3)",
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+            }}
+          >
+            <span>{traceOpen ? "▾" : "▸"}</span>
+            <span>{traceOpen ? report.traceToggleHideLabel : report.traceToggleShowLabel}</span>
+          </button>
+          {traceOpen ? <ExplainabilityTracePanel trace={report.trace} /> : null}
         </div>
       ) : null}
 

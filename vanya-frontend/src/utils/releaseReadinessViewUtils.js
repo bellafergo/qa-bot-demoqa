@@ -5,6 +5,13 @@ import { buildJiraIssueIntelligenceViewModel } from "./jiraIssueIntelligenceView
 import { buildMultiEnvironmentIntelligenceViewModel } from "./environmentIntelligenceViewUtils.js";
 import { buildQualityHealthScoreViewModel } from "./qualityHealthScoreViewUtils.js";
 import { riskLevelBadgeClass } from "./scheduledReportViewUtils.js";
+import {
+  buildReleaseReadinessTraceViewModel,
+  RELEASE_READINESS_EXPLAINABILITY_I18N_KEYS,
+  shouldShowReleaseReadinessTrace,
+} from "./releaseReadinessExplainabilityViewUtils.js";
+
+export { RELEASE_READINESS_EXPLAINABILITY_I18N_KEYS };
 
 export const RELEASE_READINESS_I18N_KEYS = {
   title: "release_readiness.title",
@@ -124,12 +131,13 @@ export function buildReleaseReadinessViewModel(payload, t) {
   const deploymentRisk = view?.deployment_risk_assessment ?? null;
   const overallStatus = String(view?.overall_status || "UNKNOWN").toUpperCase();
 
-  return {
+  const baseVm = {
     show: view != null,
     empty,
     emptyMessage: t(RELEASE_READINESS_I18N_KEYS.empty),
     title: t(RELEASE_READINESS_I18N_KEYS.title),
     readOnlyNote: t(RELEASE_READINESS_I18N_KEYS.readOnlyNote),
+    overallStatus,
     overallStatusLabel: t(RELEASE_READINESS_I18N_KEYS.overallStatus),
     overallStatusText: t(overallStatusLabelKey(overallStatus)),
     overallStatusBadgeClass: overallStatusBadgeClass(overallStatus),
@@ -165,5 +173,15 @@ export function buildReleaseReadinessViewModel(payload, t) {
     compactJiraBlockers,
     generated_at: view?.generated_at || null,
     source_incident_report_id: view?.source_incident_report_id || null,
+  };
+
+  const trace = buildReleaseReadinessTraceViewModel(baseVm, view, t);
+
+  return {
+    ...baseVm,
+    trace,
+    showTrace: shouldShowReleaseReadinessTrace(baseVm),
+    traceToggleShowLabel: t(RELEASE_READINESS_EXPLAINABILITY_I18N_KEYS.whyTitle),
+    traceToggleHideLabel: t(RELEASE_READINESS_EXPLAINABILITY_I18N_KEYS.toggleHide),
   };
 }

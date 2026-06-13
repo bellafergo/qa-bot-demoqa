@@ -1,6 +1,8 @@
-import React from "react";
+import React, { useState } from "react";
+import ExplainabilityTracePanel from "../explainability/ExplainabilityTracePanel.jsx";
 
 export default function BusinessRiskCard({ risk }) {
+  const [traceOpen, setTraceOpen] = useState(false);
   if (!risk) return null;
 
   return (
@@ -20,12 +22,32 @@ export default function BusinessRiskCard({ risk }) {
       <p style={{ fontSize: 13, color: "var(--text-2)", margin: "0 0 8px", lineHeight: 1.5 }}>
         {risk.summary}
       </p>
-      {risk.evidence?.length ? (
-        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: "var(--text-3)", lineHeight: 1.5 }}>
-          {risk.evidence.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
+      {risk.showTrace ? (
+        <>
+          <button
+            type="button"
+            onClick={() => setTraceOpen((open) => !open)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              background: "none",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              fontSize: 11,
+              fontWeight: 600,
+              color: "var(--text-3)",
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+              marginBottom: traceOpen ? 0 : 4,
+            }}
+          >
+            <span>{traceOpen ? "▾" : "▸"}</span>
+            <span>{traceOpen ? risk.traceToggleHideLabel : risk.traceToggleShowLabel}</span>
+          </button>
+          {traceOpen ? <ExplainabilityTracePanel trace={risk.trace} /> : null}
+        </>
       ) : null}
     </div>
   );

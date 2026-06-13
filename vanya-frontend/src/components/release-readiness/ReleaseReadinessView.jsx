@@ -1,7 +1,9 @@
-import React from "react";
+import React, { useState } from "react";
 import MultiEnvironmentIntelligenceView from "../incident/MultiEnvironmentIntelligenceView.jsx";
+import ExplainabilityTracePanel from "../explainability/ExplainabilityTracePanel.jsx";
 
 export default function ReleaseReadinessView({ vm }) {
+  const [traceOpen, setTraceOpen] = useState(false);
   if (!vm?.show) return null;
 
   if (vm.empty) {
@@ -29,6 +31,33 @@ export default function ReleaseReadinessView({ vm }) {
           <p style={{ fontSize: 13, color: "var(--text-2)", margin: 0, lineHeight: 1.5 }}>
             {vm.summary}
           </p>
+        </div>
+      ) : null}
+
+      {vm.showTrace ? (
+        <div>
+          <button
+            type="button"
+            onClick={() => setTraceOpen((open) => !open)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              background: "none",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              fontSize: 11,
+              fontWeight: 600,
+              color: "var(--text-3)",
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+            }}
+          >
+            <span>{traceOpen ? "▾" : "▸"}</span>
+            <span>{traceOpen ? vm.traceToggleHideLabel : vm.traceToggleShowLabel}</span>
+          </button>
+          {traceOpen ? <ExplainabilityTracePanel trace={vm.trace} /> : null}
         </div>
       ) : null}
 

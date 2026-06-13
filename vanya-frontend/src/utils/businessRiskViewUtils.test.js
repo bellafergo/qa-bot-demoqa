@@ -68,6 +68,8 @@ describe("businessRiskViewUtils", () => {
     expect(vm.topCapabilities).toHaveLength(2);
     expect(vm.businessRisks).toHaveLength(2);
     expect(vm.businessRisks[0].severityBadgeClass).toContain("badge-orange");
+    expect(vm.businessRisks[0].showTrace).toBe(true);
+    expect(vm.businessRisks[0].trace.show).toBe(true);
     expect(vm.signals).toHaveLength(1);
     expect(vm.signals[0].capability).toBe("Revenue Collection");
   });

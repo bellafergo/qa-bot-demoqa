@@ -82,6 +82,8 @@ describe("releaseReadinessViewUtils", () => {
     expect(vm.deploymentRisk.risk_level).toBe("high");
     expect(vm.decisionCenterVm.empty).toBe(false);
     expect(vm.qualityHealthVm.empty).toBe(false);
+    expect(vm.showTrace).toBe(true);
+    expect(vm.overallStatus).toBe("CAUTION");
   });
 
   it("builds compact Jira blocker slice when blockers exist", () => {
