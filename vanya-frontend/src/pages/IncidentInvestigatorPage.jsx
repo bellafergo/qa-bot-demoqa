@@ -70,6 +70,12 @@ import { buildJiraIssueIntelligenceViewModel } from "../utils/jiraIssueIntellige
 import { buildServiceNowIntelligenceViewModel } from "../utils/servicenowIntelligenceViewUtils.js";
 import { buildCoverageIntelligenceViewModel } from "../utils/qmetryCoverageViewUtils.js";
 import { buildRecommendationCorrelationViewModel } from "../utils/qmetryRecommendationViewUtils.js";
+import CapabilityStateCard from "../components/capability-state/CapabilityStateCard.jsx";
+import {
+  buildQMetryIntegrationGroupState,
+  isCapabilityGated,
+  shouldConsolidateQMetryIntegration,
+} from "../utils/capabilityStateViewUtils.js";
 
 function fmtTs(iso) {
   if (!iso) return "—";
@@ -179,6 +185,13 @@ function QaInvestigationReport({ report, t }) {
   const approvalWorkflowVm = buildApprovalWorkflowViewModel(report, t);
   const es = report.evidence_strength;
   const temporal = report.temporal_correlation;
+  const qmetryIntegrationConsolidated = shouldConsolidateQMetryIntegration(
+    coverageIntelligenceVm,
+    recommendationCorrelationVm,
+  );
+  const qmetryGroupState = qmetryIntegrationConsolidated
+    ? buildQMetryIntegrationGroupState(t)
+    : null;
   return (
     <div className="card" style={{ padding: "20px 24px", marginTop: 20 }}>
       {vm.showLegacyBanner ? (
@@ -1114,43 +1127,64 @@ function QaInvestigationReport({ report, t }) {
 
       {jiraIssueIntelligenceVm.show ? (
         <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
-            {jiraIssueIntelligenceVm.title}
-          </div>
+          {!isCapabilityGated(jiraIssueIntelligenceVm) ? (
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+              {jiraIssueIntelligenceVm.title}
+            </div>
+          ) : null}
           <JiraIssueIntelligenceView vm={jiraIssueIntelligenceVm} />
         </div>
       ) : null}
 
       {servicenowIntelligenceVm.show ? (
         <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
-            {servicenowIntelligenceVm.title}
-          </div>
+          {!isCapabilityGated(servicenowIntelligenceVm) ? (
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+              {servicenowIntelligenceVm.title}
+            </div>
+          ) : null}
           <ServiceNowIntelligenceView vm={servicenowIntelligenceVm} />
         </div>
       ) : null}
 
-      {coverageIntelligenceVm.show ? (
+      {qmetryIntegrationConsolidated ? (
         <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
-            {coverageIntelligenceVm.title}
-          </div>
-          <CoverageIntelligenceView vm={coverageIntelligenceVm} />
+          <CapabilityStateCard state={qmetryGroupState} />
           <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
             {coverageIntelligenceVm.readOnlyNote}
           </p>
         </div>
       ) : null}
 
-      {recommendationCorrelationVm.show ? (
+      {!qmetryIntegrationConsolidated && coverageIntelligenceVm.show ? (
         <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
-            {recommendationCorrelationVm.title}
-          </div>
+          {!isCapabilityGated(coverageIntelligenceVm) ? (
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+              {coverageIntelligenceVm.title}
+            </div>
+          ) : null}
+          <CoverageIntelligenceView vm={coverageIntelligenceVm} />
+          {!isCapabilityGated(coverageIntelligenceVm) ? (
+            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+              {coverageIntelligenceVm.readOnlyNote}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {!qmetryIntegrationConsolidated && recommendationCorrelationVm.show ? (
+        <div style={{ marginBottom: 16 }}>
+          {!isCapabilityGated(recommendationCorrelationVm) ? (
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+              {recommendationCorrelationVm.title}
+            </div>
+          ) : null}
           <QMetryRecommendationView vm={recommendationCorrelationVm} />
-          <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
-            {recommendationCorrelationVm.readOnlyNote}
-          </p>
+          {!isCapabilityGated(recommendationCorrelationVm) ? (
+            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+              {recommendationCorrelationVm.readOnlyNote}
+            </p>
+          ) : null}
         </div>
       ) : null}
 

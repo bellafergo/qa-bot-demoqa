@@ -12,6 +12,9 @@ import {
   resolveJiraCapabilityState,
   resolveQMetryCapabilityState,
   resolveServiceNowCapabilityState,
+  buildQMetryIntegrationGroupState,
+  isCapabilityGated,
+  shouldConsolidateQMetryIntegration,
 } from "./capabilityStateViewUtils.js";
 
 const t = (key, vars) => {
@@ -99,11 +102,19 @@ describe("capabilityStateViewUtils", () => {
   it("resolves Jira integration required when disconnected", () => {
     const state = resolveJiraCapabilityState({ connected: false, t });
     expect(state.state).toBe(CAPABILITY_STATE.INTEGRATION_REQUIRED);
+    expect(state.benefits).toHaveLength(4);
   });
 
-  it("resolves Jira insufficient history when connected without issues", () => {
-    const state = resolveJiraCapabilityState({ connected: true, issueCount: 0, t });
+  it("resolves Jira insufficient history when connected without correlations", () => {
+    const state = resolveJiraCapabilityState({
+      connected: true,
+      totalIssues: 2,
+      correlatedIssues: 0,
+      t,
+    });
     expect(state.state).toBe(CAPABILITY_STATE.INSUFFICIENT_HISTORY);
+    expect(state.cta.path).toBe("/runs");
+    expect(state.description).toBe(CAPABILITY_STATE_I18N_KEYS.jiraInsufficientHistoryDesc);
   });
 
   it("resolves history capability insufficient below minimum runs", () => {
@@ -149,5 +160,32 @@ describe("capabilityStateViewUtils", () => {
     const available = attachCapabilityPresentation({ title: "Y" }, { state: CAPABILITY_STATE.AVAILABLE });
     expect(available.empty).toBe(false);
     expect(available.showContent).toBe(true);
+  });
+
+  it("builds consolidated QMetry integration group state", () => {
+    const state = buildQMetryIntegrationGroupState(t);
+    expect(state.state).toBe(CAPABILITY_STATE.INTEGRATION_REQUIRED);
+    expect(state.title).toBe(CAPABILITY_STATE_I18N_KEYS.qmetryGroupTitle);
+    expect(state.benefits).toHaveLength(4);
+    expect(state.description).toBeNull();
+    expect(state.benefitsLabel).toBe(CAPABILITY_STATE_I18N_KEYS.qmetryGroupUnlocks);
+  });
+
+  it("detects QMetry consolidation and gated sections", () => {
+    const gatedVm = {
+      show: true,
+      showContent: false,
+      capabilityState: { state: CAPABILITY_STATE.INTEGRATION_REQUIRED },
+    };
+    const availableVm = {
+      show: true,
+      showContent: true,
+      capabilityState: { state: CAPABILITY_STATE.AVAILABLE },
+    };
+
+    expect(shouldConsolidateQMetryIntegration(gatedVm, gatedVm)).toBe(true);
+    expect(shouldConsolidateQMetryIntegration(gatedVm, availableVm)).toBe(false);
+    expect(isCapabilityGated(gatedVm)).toBe(true);
+    expect(isCapabilityGated(availableVm)).toBe(false);
   });
 });

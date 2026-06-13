@@ -1,5 +1,10 @@
 /** View helpers for Jira Issue Intelligence (JIRA-01B). */
 
+import {
+  attachCapabilityPresentation,
+  resolveJiraCapabilityState,
+} from "./capabilityStateViewUtils.js";
+
 export const JIRA_ISSUE_INTELLIGENCE_I18N_KEYS = {
   title: "incident.qa.jira_issue_intelligence",
   correlatedIssues: "incident.qa.jira_correlated_issues",
@@ -61,16 +66,17 @@ export function buildJiraIssueIntelligenceViewModel(report, t) {
     .map((c) => buildCorrelationCardViewModel(c, t))
     .filter(Boolean);
 
-  let emptyMessage = null;
-  if (!connected) emptyMessage = t(JIRA_ISSUE_INTELLIGENCE_I18N_KEYS.emptyConnection);
-  else if ((intel?.total_issues || 0) === 0) emptyMessage = t(JIRA_ISSUE_INTELLIGENCE_I18N_KEYS.emptyIssues);
-  else if ((intel?.correlated_issues || 0) === 0) emptyMessage = t(JIRA_ISSUE_INTELLIGENCE_I18N_KEYS.emptyCorrelations);
+  const capabilityState = resolveJiraCapabilityState({
+    connected,
+    totalIssues: intel?.total_issues ?? 0,
+    correlatedIssues: intel?.correlated_issues ?? 0,
+    title: t(JIRA_ISSUE_INTELLIGENCE_I18N_KEYS.title),
+    t,
+  });
 
-  return {
+  return attachCapabilityPresentation({
     show,
     title: t(JIRA_ISSUE_INTELLIGENCE_I18N_KEYS.title),
-    empty: isJiraIssueIntelligenceEmpty(report),
-    emptyMessage,
     summary: intel?.summary || "",
     summaryLabel: t(JIRA_ISSUE_INTELLIGENCE_I18N_KEYS.summary),
     readOnlyNote: t(JIRA_ISSUE_INTELLIGENCE_I18N_KEYS.readOnlyNote),
@@ -86,5 +92,5 @@ export function buildJiraIssueIntelligenceViewModel(report, t) {
     topBlockers,
     showCorrelations: connected && correlations.length > 0,
     showTopBlockers: connected && topBlockers.length > 0,
-  };
+  }, capabilityState);
 }

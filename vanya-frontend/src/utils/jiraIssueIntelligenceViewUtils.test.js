@@ -81,10 +81,11 @@ describe("jiraIssueIntelligenceViewUtils", () => {
       { jira_issue_intelligence: { connected: false, total_issues: 0, correlated_issues: 0 } },
       t,
     );
-    expect(vm.emptyMessage).toBe(JIRA_ISSUE_INTELLIGENCE_I18N_KEYS.emptyConnection);
+    expect(vm.capabilityState.state).toBe("INTEGRATION_REQUIRED");
+    expect(vm.showContent).toBe(false);
   });
 
-  it("shows empty correlations state", () => {
+  it("shows insufficient history when connected without correlations", () => {
     const vm = buildJiraIssueIntelligenceViewModel(
       {
         jira_issue_intelligence: {
@@ -99,6 +100,7 @@ describe("jiraIssueIntelligenceViewUtils", () => {
       },
       t,
     );
-    expect(vm.emptyMessage).toBe(JIRA_ISSUE_INTELLIGENCE_I18N_KEYS.emptyCorrelations);
+    expect(vm.capabilityState.state).toBe("INSUFFICIENT_HISTORY");
+    expect(vm.capabilityState.cta.path).toBe("/runs");
   });
 });

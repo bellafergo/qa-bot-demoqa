@@ -32,6 +32,11 @@ export const CAPABILITY_STATE_I18N_KEYS = {
   jiraBenefit1: "capability_state.jira.benefit_1",
   jiraBenefit2: "capability_state.jira.benefit_2",
   jiraBenefit3: "capability_state.jira.benefit_3",
+  jiraBenefit4: "capability_state.jira.benefit_4",
+  jiraInsufficientHistoryDesc: "capability_state.jira.insufficient_history_desc",
+  jiraGoToRunsCta: "capability_state.jira.go_to_runs_cta",
+  qmetryGroupTitle: "capability_state.qmetry.group_title",
+  qmetryGroupUnlocks: "capability_state.qmetry.group_unlocks",
   trendsTitle: "capability_state.trends.title",
   failuresTitle: "capability_state.failures.title",
   coverageDistributionTitle: "capability_state.coverage_distribution.title",
@@ -117,7 +122,55 @@ export function jiraBenefits(t) {
     t(CAPABILITY_STATE_I18N_KEYS.jiraBenefit1),
     t(CAPABILITY_STATE_I18N_KEYS.jiraBenefit2),
     t(CAPABILITY_STATE_I18N_KEYS.jiraBenefit3),
+    t(CAPABILITY_STATE_I18N_KEYS.jiraBenefit4),
   ];
+}
+
+export function isCapabilityGated(vm) {
+  return Boolean(vm?.capabilityState && !vm.showContent);
+}
+
+export function shouldConsolidateQMetryIntegration(coverageVm, recommendationVm) {
+  return Boolean(
+    coverageVm?.show
+    && recommendationVm?.show
+    && coverageVm.capabilityState?.state === CAPABILITY_STATE.INTEGRATION_REQUIRED
+    && recommendationVm.capabilityState?.state === CAPABILITY_STATE.INTEGRATION_REQUIRED,
+  );
+}
+
+export function buildQMetryIntegrationGroupState(t) {
+  const integrationName = t(CAPABILITY_STATE_I18N_KEYS.qmetryIntegration);
+  return {
+    state: CAPABILITY_STATE.INTEGRATION_REQUIRED,
+    icon: "🔒",
+    title: t(CAPABILITY_STATE_I18N_KEYS.qmetryGroupTitle),
+    description: null,
+    benefitsLabel: t(CAPABILITY_STATE_I18N_KEYS.qmetryGroupUnlocks),
+    benefits: qmetryBenefits(t),
+    statusLabel: null,
+    statusValue: null,
+    cta: {
+      path: INTEGRATION_CTA.path,
+      label: t(INTEGRATION_CTA.labelKey, { integration: integrationName }),
+    },
+  };
+}
+
+export function buildJiraInsufficientHistoryState({ capabilityTitle, t }) {
+  return {
+    state: CAPABILITY_STATE.INSUFFICIENT_HISTORY,
+    icon: "⏳",
+    title: capabilityTitle,
+    description: t(CAPABILITY_STATE_I18N_KEYS.jiraInsufficientHistoryDesc),
+    benefits: [],
+    statusLabel: null,
+    statusValue: null,
+    cta: {
+      path: RUNS_CTA.path,
+      label: t(CAPABILITY_STATE_I18N_KEYS.jiraGoToRunsCta),
+    },
+  };
 }
 
 export function resolveQMetryCapabilityState({
@@ -180,7 +233,13 @@ export function resolveServiceNowCapabilityState({ connected, correlationCount =
   return { state: CAPABILITY_STATE.AVAILABLE };
 }
 
-export function resolveJiraCapabilityState({ connected, issueCount = 0, title, t }) {
+export function resolveJiraCapabilityState({
+  connected,
+  totalIssues = 0,
+  correlatedIssues = 0,
+  title,
+  t,
+}) {
   const capabilityTitle = title || t(CAPABILITY_STATE_I18N_KEYS.jiraTitle);
   const integrationName = t(CAPABILITY_STATE_I18N_KEYS.jiraIntegration);
 
@@ -193,14 +252,8 @@ export function resolveJiraCapabilityState({ connected, issueCount = 0, title, t
     });
   }
 
-  if (issueCount === 0) {
-    return buildInsufficientHistoryState({
-      capabilityTitle,
-      minRuns: 1,
-      currentRuns: 0,
-      cta: INTEGRATION_CTA,
-      t,
-    });
+  if (totalIssues === 0 || correlatedIssues === 0) {
+    return buildJiraInsufficientHistoryState({ capabilityTitle, t });
   }
 
   return { state: CAPABILITY_STATE.AVAILABLE };

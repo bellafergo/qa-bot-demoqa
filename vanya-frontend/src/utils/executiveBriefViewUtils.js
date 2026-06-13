@@ -7,6 +7,8 @@ export const EXECUTIVE_BRIEF_I18N_KEYS = {
   trendDirection: "executive_brief.trend_direction",
   recommendedAction: "executive_brief.recommended_action",
   empty: "executive_brief.empty",
+  integrationRequired: "executive_brief.integration_required",
+  insufficientHistory: "executive_brief.insufficient_history",
   readOnlyNote: "executive_brief.read_only_note",
   noRisks: "executive_brief.no_risks",
   actionInvestigate: "executive_brief.action.investigate",
@@ -28,6 +30,77 @@ const TREND_BADGE = {
   DEGRADING: "badge badge-red",
   UNKNOWN: "badge badge-gray",
 };
+
+function findIncompleteIntegrationStep(onboardingVm) {
+  return (onboardingVm?.checklist?.steps || []).find(
+    (step) => step.status !== "COMPLETED"
+      && step.navigation?.path === "/integrations",
+  );
+}
+
+function resolveBriefReleaseStatus({
+  hasRelease,
+  releaseReadinessVm,
+  onboardingVm,
+  totalRuns,
+  t,
+}) {
+  if (hasRelease) {
+    return {
+      text: releaseReadinessVm.overallStatusText,
+      badgeClass: releaseReadinessVm.overallStatusBadgeClass,
+    };
+  }
+
+  if (findIncompleteIntegrationStep(onboardingVm)) {
+    return {
+      text: t(EXECUTIVE_BRIEF_I18N_KEYS.integrationRequired),
+      badgeClass: "badge badge-orange",
+    };
+  }
+
+  if ((totalRuns ?? 0) === 0 || releaseReadinessVm?.empty) {
+    return {
+      text: t(EXECUTIVE_BRIEF_I18N_KEYS.insufficientHistory),
+      badgeClass: "badge badge-gray",
+    };
+  }
+
+  return {
+    text: t(EXECUTIVE_BRIEF_I18N_KEYS.insufficientHistory),
+    badgeClass: "badge badge-gray",
+  };
+}
+
+function resolveBriefTrend({
+  trend,
+  totalRuns,
+  executiveImpactVm,
+  t,
+}) {
+  if (trend !== "UNKNOWN") {
+    return {
+      text: t(TREND_LABEL_KEY[trend] || TREND_LABEL_KEY.UNKNOWN),
+      badgeClass: TREND_BADGE[trend] || TREND_BADGE.UNKNOWN,
+    };
+  }
+
+  if (
+    (totalRuns ?? 0) === 0
+    || executiveImpactVm?.capabilityState?.state === "INSUFFICIENT_HISTORY"
+    || executiveImpactVm?.hasSufficientHistory === false
+  ) {
+    return {
+      text: t(EXECUTIVE_BRIEF_I18N_KEYS.insufficientHistory),
+      badgeClass: "badge badge-gray",
+    };
+  }
+
+  return {
+    text: t(EXECUTIVE_BRIEF_I18N_KEYS.insufficientHistory),
+    badgeClass: "badge badge-gray",
+  };
+}
 
 function collectTopRisks({ businessRiskVm, platformObservabilityVm, releaseReadinessVm }) {
   const risks = [];
@@ -162,6 +235,19 @@ export function buildExecutiveBriefViewModel({
   const hasRelease = releaseReadinessVm?.show && !releaseReadinessVm?.empty;
   const topRisks = collectTopRisks({ businessRiskVm, platformObservabilityVm, releaseReadinessVm });
   const trend = resolveTrend(executiveImpactVm, valueDashboardVm);
+  const releaseStatus = resolveBriefReleaseStatus({
+    hasRelease,
+    releaseReadinessVm,
+    onboardingVm,
+    totalRuns,
+    t,
+  });
+  const trendDisplay = resolveBriefTrend({
+    trend,
+    totalRuns,
+    executiveImpactVm,
+    t,
+  });
   const action = resolveRecommendedAction({
     releaseReadinessVm,
     onboardingVm,
@@ -185,18 +271,14 @@ export function buildExecutiveBriefViewModel({
       : t(EXECUTIVE_BRIEF_I18N_KEYS.title),
     readOnlyNote: t(EXECUTIVE_BRIEF_I18N_KEYS.readOnlyNote),
     releaseStatusLabel: t(EXECUTIVE_BRIEF_I18N_KEYS.releaseStatus),
-    releaseStatus: hasRelease
-      ? releaseReadinessVm.overallStatusText
-      : t(EXECUTIVE_BRIEF_I18N_KEYS.empty),
-    releaseStatusBadgeClass: hasRelease
-      ? releaseReadinessVm.overallStatusBadgeClass
-      : "badge badge-gray",
+    releaseStatus: releaseStatus.text,
+    releaseStatusBadgeClass: releaseStatus.badgeClass,
     topRisksLabel: t(EXECUTIVE_BRIEF_I18N_KEYS.topRisks),
     topRisks,
     noRisksMessage: t(EXECUTIVE_BRIEF_I18N_KEYS.noRisks),
     trendLabel: t(EXECUTIVE_BRIEF_I18N_KEYS.trendDirection),
-    trendDirection: t(TREND_LABEL_KEY[trend] || TREND_LABEL_KEY.UNKNOWN),
-    trendBadgeClass: TREND_BADGE[trend] || TREND_BADGE.UNKNOWN,
+    trendDirection: trendDisplay.text,
+    trendBadgeClass: trendDisplay.badgeClass,
     actionLabel: t(EXECUTIVE_BRIEF_I18N_KEYS.recommendedAction),
     action,
   };

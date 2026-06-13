@@ -27,14 +27,16 @@ export default function CapabilityStateCard({ state }) {
           <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)", marginBottom: 6 }}>
             {state.title}
           </div>
-          <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.55, marginBottom: state.benefits?.length ? 12 : 10 }}>
-            {state.description}
-          </div>
+          {state.description ? (
+            <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.55, marginBottom: state.benefits?.length ? 12 : 10 }}>
+              {state.description}
+            </div>
+          ) : null}
 
           {state.benefits?.length ? (
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
-                {t(CAPABILITY_STATE_I18N_KEYS.integrationBenefits)}
+                {state.benefitsLabel || t(CAPABILITY_STATE_I18N_KEYS.integrationBenefits)}
               </div>
               <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "var(--text-2)", lineHeight: 1.5 }}>
                 {state.benefits.map((benefit) => (

@@ -76,4 +76,49 @@ describe("executiveBriefViewUtils", () => {
     expect(vm.title).toBe("command_center.executive_summary");
     expect(vm.action.path).toBe("/knowledge");
   });
+
+  it("never shows Unknown for release status or trend on cold projects", () => {
+    const vm = buildExecutiveBriefViewModel({
+      releaseReadinessVm: { show: true, empty: true, overallStatusText: "UNKNOWN" },
+      businessRiskVm: {},
+      executiveImpactVm: { hasSufficientHistory: false },
+      valueDashboardVm: { qualityTrend: "UNKNOWN" },
+      platformObservabilityVm: {},
+      onboardingVm: {
+        isComplete: false,
+        checklist: {
+          steps: [{
+            status: "PENDING",
+            navigation: { label: "Connect Jira", path: "/integrations" },
+          }],
+        },
+      },
+      totalRuns: 0,
+      t,
+    });
+
+    expect(vm.releaseStatus).toBe("executive_brief.integration_required");
+    expect(vm.trendDirection).toBe("executive_brief.insufficient_history");
+    expect(vm.releaseStatus).not.toBe("executive_brief.empty");
+    expect(vm.trendDirection).not.toBe("executive_impact.direction.unknown");
+  });
+
+  it("shows explicit no-risks message when risk list is empty", () => {
+    const vm = buildExecutiveBriefViewModel({
+      releaseReadinessVm: { show: true, empty: false, overallStatusText: "READY", overallStatusBadgeClass: "badge badge-green", data_gaps: [] },
+      businessRiskVm: { businessRisks: [] },
+      executiveImpactVm: { qualityMetrics: [{ direction: "STABLE" }] },
+      valueDashboardVm: { qualityTrend: "STABLE" },
+      platformObservabilityVm: { topPlatformRisks: [] },
+      onboardingVm: { isComplete: true, checklist: { steps: [] } },
+      totalRuns: 5,
+      fi: {},
+      passRateValid: true,
+      passRateNum: 90,
+      t,
+    });
+
+    expect(vm.topRisks).toHaveLength(0);
+    expect(vm.noRisksMessage).toBe("executive_brief.no_risks");
+  });
 });
