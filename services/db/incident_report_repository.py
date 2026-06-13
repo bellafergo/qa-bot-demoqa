@@ -53,7 +53,7 @@ class IncidentReportRepository:
             summary=(summary or "").strip(),
             confidence=str(round(float(confidence), 4)),
             created_at=created_at,
-            report_json=json.dumps(payload, ensure_ascii=False),
+            report_json=json.dumps(payload, ensure_ascii=False, default=str),
         )
         with get_session() as session:
             session.add(row)

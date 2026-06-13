@@ -1196,7 +1196,7 @@ def investigate_project_incident(
             severity=req.severity,
             summary=report.summary,
             confidence=confidence,
-            report=report.model_dump(),
+            report=report.model_dump(mode="json"),
         )
         report.id = report_id
         report.created_at = now
