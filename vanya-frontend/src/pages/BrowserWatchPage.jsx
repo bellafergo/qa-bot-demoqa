@@ -7,53 +7,28 @@
  * Run evidence: /evidence/run/:runId (inspection run id)
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import {
   listBrowserInspectionWatches,
   createBrowserInspectionWatch,
   patchBrowserInspectionWatch,
   postBrowserWatchRunNow,
   postBrowserWatchBaselineUseLatest,
-  getBrowserWatchMetrics,
-  getBrowserWatchEventsPage,
   listLocalAgents,
   apiErrorMessage,
 } from "../api";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
 import { useToast } from "../context/ToastContext.jsx";
-import { shouldClearWatchFieldErrorWhenSwitchingToCloud, effectiveEventRunOrigin } from "../lib/browserWatchUi.js";
+import { shouldClearWatchFieldErrorWhenSwitchingToCloud } from "../lib/browserWatchUi.js";
+import BrowserWatchSummaryHeader from "../components/browser-watch/BrowserWatchSummaryHeader.jsx";
+import BrowserWatchList from "../components/browser-watch/BrowserWatchList.jsx";
+import BrowserWatchDetailPanel from "../components/browser-watch/BrowserWatchDetailPanel.jsx";
+import {
+  BROWSER_WATCH_I18N_KEYS,
+  buildWatchSummaryViewModel,
+} from "../utils/browserWatchViewUtils.js";
 
-function fmtTs(iso) {
-  if (!iso) return "—";
-  try {
-    return new Date(iso).toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return "—";
-  }
-}
-
-function statusBadgeClass(status) {
-  const v = String(status || "").toLowerCase();
-  if (v === "healthy") return "badge-green";
-  if (v === "changed") return "badge-orange";
-  if (v === "failed") return "badge-red";
-  if (v === "disabled") return "badge-gray";
-  return "badge-gray";
-}
-
-function shortRunId(id) {
-  if (id == null || id === "" || id === "_") return "";
-  const s = String(id);
-  return s.length <= 10 ? s : `${s.slice(0, 8)}…`;
-}
-
-/** Heuristic for agent selector warnings (MVP: online <2m, stale <10m). */
 function agentHeartbeatHealth(agent) {
   if (!agent?.enabled || String(agent.status || "").toLowerCase() === "disabled") return "disabled";
   const iso = agent.last_seen_at;
@@ -69,40 +44,6 @@ function execModeBadgeLabel(em, t) {
   const v = String(em || "cloud").toLowerCase();
   if (v === "local_agent") return t("watch.mode.badge_local_agent");
   return t("watch.mode.badge_cloud");
-}
-
-function InspectionRunRef({ id, t, showToast }) {
-  if (!id || id === "_") {
-    return <span style={{ color: "var(--text-3)" }}>—</span>;
-  }
-  const to = `/evidence/run/${encodeURIComponent(id)}`;
-  const short = shortRunId(id);
-  const copy = async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    try {
-      await navigator.clipboard.writeText(String(id));
-      showToast(t("watch.copy_ok"), "success");
-    } catch {
-      showToast(t("watch.copy_fail"), "error");
-    }
-  };
-  return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, flexWrap: "wrap" }} onClick={(e) => e.stopPropagation()}>
-      <Link to={to} style={{ fontFamily: "monospace", fontSize: 11 }} title={String(id)}>
-        {short}
-      </Link>
-      <button
-        type="button"
-        className="btn btn-secondary btn-sm"
-        style={{ padding: "1px 6px", fontSize: 10, minHeight: 22 }}
-        onClick={copy}
-        title={t("watch.copy_id")}
-      >
-        ⧉
-      </button>
-    </span>
-  );
 }
 
 export default function BrowserWatchPage() {
@@ -259,6 +200,8 @@ export default function BrowserWatchPage() {
     [loadWatches],
   );
 
+  const summaryVm = useMemo(() => buildWatchSummaryViewModel(watches, t), [watches, t]);
+
   const openCreateModal = () => {
     setFormMode("create");
     setFormEditWatch(null);
@@ -285,7 +228,7 @@ export default function BrowserWatchPage() {
         t={t}
         showToast={showToast}
         onCreated={async (created) => {
-          showToast(t("watch.toast.create_ok"), "success");
+          showToast(t(BROWSER_WATCH_I18N_KEYS.toastCreated), "success");
           await onWatchCreated(created);
           setFormOpen(false);
           setFormEditWatch(null);
@@ -308,8 +251,8 @@ export default function BrowserWatchPage() {
         }}
       >
         <div>
-          <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0, color: "var(--text-1)" }}>{t("watch.title")}</h1>
-          <p style={{ fontSize: 13, color: "var(--text-3)", margin: "6px 0 0" }}>{t("watch.subtitle")}</p>
+          <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0, color: "var(--text-1)" }}>{t(BROWSER_WATCH_I18N_KEYS.title)}</h1>
+          <p style={{ fontSize: 13, color: "var(--text-3)", margin: "6px 0 0" }}>{t(BROWSER_WATCH_I18N_KEYS.subtitle)}</p>
           <p style={{ fontSize: 12, color: "var(--text-2)", margin: "8px 0 0" }}>
             {currentProject ? t("watch.scope_project", { name: currentProject.name }) : t("watch.scope_all")}
           </p>
@@ -324,8 +267,10 @@ export default function BrowserWatchPage() {
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 20, marginTop: 20, flexWrap: "wrap", alignItems: "stretch" }}>
-        <div style={{ flex: "1 1 520px", minWidth: 280 }}>
+      {!loading && !error && watches.length > 0 ? <BrowserWatchSummaryHeader vm={summaryVm} /> : null}
+
+      <div className="browser-watch-layout" style={{ marginTop: 20 }}>
+        <div className="browser-watch-layout__list">
           {loading && (
             <div style={{ padding: 20, color: "var(--text-3)", fontSize: 13 }}>{t("watch.loading")}</div>
           )}
@@ -335,10 +280,10 @@ export default function BrowserWatchPage() {
             </div>
           )}
           {!loading && !error && watches.length === 0 && (
-            <div className="card" style={{ padding: 24, textAlign: "center" }}>
-              <div style={{ fontSize: 15, fontWeight: 600 }}>{t("watch.empty_title")}</div>
-              <div style={{ fontSize: 13, color: "var(--text-2)", marginTop: 8, lineHeight: 1.6 }}>
-                {t("watch.empty_desc")}
+            <div className="card" style={{ padding: 28, textAlign: "center" }}>
+              <div style={{ fontSize: 15, fontWeight: 600 }}>{t(BROWSER_WATCH_I18N_KEYS.emptyTitle)}</div>
+              <div style={{ fontSize: 13, color: "var(--text-2)", marginTop: 8, lineHeight: 1.6, maxWidth: 420, margin: "8px auto 0" }}>
+                {t(BROWSER_WATCH_I18N_KEYS.emptyDesc)}
               </div>
               <button type="button" className="btn btn-primary btn-sm" style={{ marginTop: 16 }} onClick={openCreateModal}>
                 {t("watch.action.create")}
@@ -346,108 +291,22 @@ export default function BrowserWatchPage() {
             </div>
           )}
           {!loading && !error && watches.length > 0 && (
-            <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 8 }}>
-              <table className="data-table" style={{ margin: 0, minWidth: 980 }}>
-                <thead>
-                  <tr>
-                    <th>{t("watch.col.url")}</th>
-                    <th>{t("watch.col.mode")}</th>
-                    <th>{t("watch.col.agent")}</th>
-                    <th>{t("watch.col.status")}</th>
-                    <th>{t("watch.col.threshold")}</th>
-                    <th>{t("watch.col.compare")}</th>
-                    <th>{t("watch.col.last_insp")}</th>
-                    <th>{t("watch.col.change")}</th>
-                    <th>{t("watch.col.visual")}</th>
-                    <th>{t("watch.col.last_run")}</th>
-                    <th>{t("watch.col.alert")}</th>
-                    <th>{t("watch.col.baseline")}</th>
-                    <th>{t("watch.col.actions")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {watches.map((w) => (
-                    <tr
-                      key={w.watch_id}
-                      onClick={() => setSelectedId(w.watch_id)}
-                      style={{
-                        cursor: "pointer",
-                        background: selectedId === w.watch_id ? "var(--accent-light)" : undefined,
-                      }}
-                    >
-                      <td style={{ maxWidth: 200, wordBreak: "break-all", fontSize: 12 }}>{w.url}</td>
-                      <td style={{ whiteSpace: "nowrap" }}>
-                        <span className="badge badge-gray" style={{ fontSize: 10 }}>
-                          {execModeBadgeLabel(w.execution_mode, t)}
-                        </span>
-                      </td>
-                      <td style={{ fontSize: 11, maxWidth: 120, wordBreak: "break-word" }}>
-                        {String(w.execution_mode || "").toLowerCase() === "local_agent"
-                          ? w.local_agent_name || (w.local_agent_id ? shortRunId(w.local_agent_id) : "—")
-                          : "—"}
-                      </td>
-                      <td>
-                        <span className={`badge ${statusBadgeClass(w.current_status || w.last_status)}`} style={{ fontSize: 10 }}>
-                          {w.current_status || w.last_status || "—"}
-                        </span>
-                      </td>
-                      <td style={{ fontSize: 12 }}>{w.change_threshold}</td>
-                      <td style={{ fontSize: 12 }}>{w.compare_mode}</td>
-                      <td style={{ fontSize: 12 }}>
-                        <InspectionRunRef id={w.last_inspection_id} t={t} showToast={showToast} />
-                      </td>
-                      <td style={{ fontSize: 12 }}>{w.last_change_level ?? w.last_effective_change_level ?? "—"}</td>
-                      <td style={{ fontSize: 12 }}>{w.last_visual_change_level ?? "—"}</td>
-                      <td style={{ fontSize: 12, whiteSpace: "nowrap" }}>{fmtTs(w.last_run_at)}</td>
-                      <td style={{ fontSize: 12, whiteSpace: "nowrap" }}>{fmtTs(w.last_alert_at)}</td>
-                      <td style={{ fontSize: 12 }}>
-                        <InspectionRunRef id={w.baseline_inspection_id} t={t} showToast={showToast} />
-                      </td>
-                      <td onClick={(e) => e.stopPropagation()}>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "stretch" }}>
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            disabled={busy.has(w.watch_id)}
-                            onClick={() => openEditModal(w)}
-                          >
-                            {t("watch.action.edit")}
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-primary btn-sm"
-                            disabled={busy.has(w.watch_id)}
-                            onClick={() => onRunNow(w)}
-                          >
-                            {t("watch.action.run")}
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            disabled={busy.has(w.watch_id)}
-                            onClick={() => onBaseline(w.watch_id)}
-                          >
-                            {t("watch.action.baseline")}
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            disabled={busy.has(w.watch_id)}
-                            onClick={() => onToggleEnabled(w)}
-                          >
-                            {w.enabled ? t("watch.action.disable") : t("watch.action.enable")}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <BrowserWatchList watches={watches} selectedId={selectedId} t={t} onSelect={setSelectedId} />
           )}
         </div>
 
-        <DetailPanel watchId={selectedId} detailVersion={detailVersion} selectedWatch={selectedWatch} t={t} showToast={showToast} />
+        <BrowserWatchDetailPanel
+          watchId={selectedId}
+          detailVersion={detailVersion}
+          selectedWatch={selectedWatch}
+          busy={busy}
+          t={t}
+          showToast={showToast}
+          onRunNow={onRunNow}
+          onEdit={openEditModal}
+          onBaseline={onBaseline}
+          onToggleEnabled={onToggleEnabled}
+        />
       </div>
     </div>
   );
@@ -828,262 +687,6 @@ function WatchFormModal({ open, mode, editWatch, defaultProjectId, onClose, t, s
             {busy ? t("common.working") : submitLabel}
           </button>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function DetailPanel({ watchId, detailVersion, selectedWatch, t, showToast }) {
-  const [metrics, setMetrics] = useState(null);
-  const [mLoading, setMLoading] = useState(false);
-  const [events, setEvents] = useState([]);
-  const [nextCursor, setNextCursor] = useState(null);
-  const [eLoading, setELoading] = useState(false);
-  const [eMoreLoading, setEMoreLoading] = useState(false);
-
-  useEffect(() => {
-    if (!watchId) {
-      setMetrics(null);
-      setEvents([]);
-      setNextCursor(null);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      setMLoading(true);
-      setELoading(true);
-      setEvents([]);
-      setNextCursor(null);
-      try {
-        const [m, evp] = await Promise.all([
-          getBrowserWatchMetrics(watchId),
-          getBrowserWatchEventsPage(watchId, { limit: 25 }),
-        ]);
-        if (cancelled) return;
-        setMetrics(m);
-        setEvents(Array.isArray(evp?.items) ? evp.items : []);
-        setNextCursor(evp?.next_cursor ?? null);
-      } catch (e) {
-        if (!cancelled) {
-          setMetrics(null);
-          setEvents([]);
-          showToast(apiErrorMessage(e), "error");
-        }
-      } finally {
-        if (!cancelled) {
-          setMLoading(false);
-          setELoading(false);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [watchId, detailVersion, showToast]);
-
-  const loadMore = async () => {
-    if (!watchId || !nextCursor) return;
-    setEMoreLoading(true);
-    try {
-      const evp = await getBrowserWatchEventsPage(watchId, { limit: 25, cursor: nextCursor });
-      const more = Array.isArray(evp?.items) ? evp.items : [];
-      setEvents((prev) => [...prev, ...more]);
-      setNextCursor(evp?.next_cursor ?? null);
-    } catch (e) {
-      showToast(apiErrorMessage(e), "error");
-    } finally {
-      setEMoreLoading(false);
-    }
-  };
-
-  if (!watchId) {
-    return (
-      <div
-        style={{
-          flex: "1 1 320px",
-          minWidth: 280,
-          border: "1px dashed var(--border)",
-          borderRadius: 8,
-          padding: 20,
-          color: "var(--text-3)",
-          fontSize: 13,
-        }}
-      >
-        {t("watch.detail.select")}
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ flex: "1 1 360px", minWidth: 280 }}>
-      <div className="card" style={{ padding: 16 }}>
-        <div
-          style={{
-            fontSize: 12,
-            fontWeight: 600,
-            textTransform: "uppercase",
-            letterSpacing: "0.06em",
-            color: "var(--text-3)",
-            marginBottom: 10,
-          }}
-        >
-          {t("watch.detail.execution")}
-        </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 12, fontSize: 13 }}>
-          <span className="badge badge-gray" style={{ fontSize: 10 }}>
-            {execModeBadgeLabel(selectedWatch?.execution_mode, t)}
-          </span>
-          {String(selectedWatch?.execution_mode || "").toLowerCase() === "local_agent" ? (
-            <span style={{ color: "var(--text-2)" }}>
-              {t("watch.detail.local_agent")}: {selectedWatch?.local_agent_name || selectedWatch?.local_agent_id || "—"}
-            </span>
-          ) : (
-            <span style={{ color: "var(--text-3)" }}>{t("watch.ev.origin_cloud")}</span>
-          )}
-        </div>
-        <div
-          style={{
-            fontSize: 12,
-            fontWeight: 600,
-            textTransform: "uppercase",
-            letterSpacing: "0.06em",
-            color: "var(--text-3)",
-            marginBottom: 10,
-          }}
-        >
-          {t("watch.detail.metrics")}
-        </div>
-        {mLoading && <div style={{ fontSize: 13, color: "var(--text-3)" }}>{t("watch.detail.loading_m")}</div>}
-        {!mLoading && metrics && (
-          <dl style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 12px", margin: 0, fontSize: 13 }}>
-            <dt style={{ color: "var(--text-3)" }}>current_status</dt>
-            <dd style={{ margin: 0 }}>{metrics.current_status ?? "—"}</dd>
-            <dt style={{ color: "var(--text-3)" }}>total_runs</dt>
-            <dd style={{ margin: 0 }}>{metrics.total_runs}</dd>
-            <dt style={{ color: "var(--text-3)" }}>total_diffs</dt>
-            <dd style={{ margin: 0 }}>{metrics.total_diffs}</dd>
-            <dt style={{ color: "var(--text-3)" }}>alerts_triggered</dt>
-            <dd style={{ margin: 0 }}>{metrics.alerts_triggered}</dd>
-            <dt style={{ color: "var(--text-3)" }}>last_change_level</dt>
-            <dd style={{ margin: 0 }}>{metrics.last_change_level ?? "—"}</dd>
-            <dt style={{ color: "var(--text-3)" }}>last_visual_change_level</dt>
-            <dd style={{ margin: 0 }}>{metrics.last_visual_change_level ?? "—"}</dd>
-            <dt style={{ color: "var(--text-3)" }}>last_run_at</dt>
-            <dd style={{ margin: 0 }}>{fmtTs(metrics.last_run_at)}</dd>
-            <dt style={{ color: "var(--text-3)" }}>last_alert_at</dt>
-            <dd style={{ margin: 0 }}>{fmtTs(metrics.last_alert_at)}</dd>
-            {selectedWatch?.last_inspection_id ? (
-              <>
-                <dt style={{ color: "var(--text-3)" }}>last_inspection</dt>
-                <dd style={{ margin: 0 }}>
-                  <InspectionRunRef id={selectedWatch.last_inspection_id} t={t} showToast={showToast} />
-                </dd>
-              </>
-            ) : null}
-            {selectedWatch?.baseline_inspection_id ? (
-              <>
-                <dt style={{ color: "var(--text-3)" }}>baseline</dt>
-                <dd style={{ margin: 0 }}>
-                  <InspectionRunRef id={selectedWatch.baseline_inspection_id} t={t} showToast={showToast} />
-                </dd>
-              </>
-            ) : null}
-          </dl>
-        )}
-      </div>
-
-      <div className="card" style={{ padding: 16, marginTop: 12 }}>
-        <div
-          style={{
-            fontSize: 12,
-            fontWeight: 600,
-            textTransform: "uppercase",
-            letterSpacing: "0.06em",
-            color: "var(--text-3)",
-            marginBottom: 10,
-          }}
-        >
-          {t("watch.detail.events")}
-        </div>
-        {eLoading && <div style={{ fontSize: 13, color: "var(--text-3)" }}>{t("watch.detail.loading_e")}</div>}
-        {!eLoading && events.length === 0 && (
-          <div style={{ fontSize: 13, color: "var(--text-2)" }}>{t("watch.detail.no_events")}</div>
-        )}
-        {!eLoading && events.length > 0 && (
-          <ul style={{ listStyle: "none", margin: 0, padding: 0, maxHeight: 360, overflowY: "auto" }}>
-            {events.map((e) => (
-              <li
-                key={e.event_id}
-                style={{
-                  borderBottom: "1px solid var(--border)",
-                  padding: "8px 0",
-                  fontSize: 12,
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                  <span className="badge badge-gray" style={{ fontSize: 10 }}>
-                    {e.event_type}
-                  </span>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                    {(() => {
-                      const ro = effectiveEventRunOrigin(e, selectedWatch);
-                      if (!ro) return null;
-                      const isLocal = ro === "local_agent";
-                      return (
-                        <span
-                          className={`badge ${isLocal ? "badge-orange" : "badge-gray"}`}
-                          style={{ fontSize: 9, letterSpacing: "0.04em" }}
-                          title={`${t("watch.ev.origin")}: ${ro}`}
-                        >
-                          {isLocal ? t("watch.ev.badge_local") : t("watch.ev.badge_cloud")}
-                        </span>
-                      );
-                    })()}
-                    <span style={{ color: "var(--text-3)", whiteSpace: "nowrap" }}>{fmtTs(e.created_at)}</span>
-                  </div>
-                </div>
-                <div style={{ color: "var(--text-2)", marginTop: 4, wordBreak: "break-word" }}>
-                  {(e.summary || "").slice(0, 200)}
-                </div>
-                {e.base_inspection_id || e.target_inspection_id ? (
-                  <div
-                    style={{
-                      marginTop: 6,
-                      display: "flex",
-                      flexWrap: "wrap",
-                      gap: "8px 12px",
-                      alignItems: "center",
-                      fontSize: 11,
-                      color: "var(--text-3)",
-                    }}
-                  >
-                    {e.base_inspection_id ? (
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                        {t("watch.ev.base")}: <InspectionRunRef id={e.base_inspection_id} t={t} showToast={showToast} />
-                      </span>
-                    ) : null}
-                    {e.target_inspection_id ? (
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                        {t("watch.ev.target")}: <InspectionRunRef id={e.target_inspection_id} t={t} showToast={showToast} />
-                      </span>
-                    ) : null}
-                  </div>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        )}
-        {!eLoading && nextCursor ? (
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            style={{ marginTop: 10 }}
-            disabled={eMoreLoading}
-            onClick={loadMore}
-          >
-            {eMoreLoading ? t("common.working") : t("watch.detail.load_more")}
-          </button>
-        ) : null}
       </div>
     </div>
   );

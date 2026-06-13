@@ -1360,3 +1360,33 @@ code {
   margin-top: 4px;
   line-height: 1.35;
 }
+
+/* UX-03 — Browser Monitoring enterprise layout */
+.browser-watch-layout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.browser-watch-layout__list {
+  flex: 1 1 480px;
+  min-width: 0;
+}
+
+.browser-watch-layout__detail {
+  flex: 1 1 360px;
+  min-width: 280px;
+}
+
+@media (max-width: 960px) {
+  .browser-watch-layout {
+    flex-direction: column;
+  }
+
+  .browser-watch-layout__list,
+  .browser-watch-layout__detail {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+  }
+}
