@@ -110,6 +110,20 @@ def _job_to_dict(row: LocalAgentJobRow) -> Dict[str, Any]:
 
 
 class LocalAgentRepository:
+    def _mirror_agent(self, agent: Optional[Dict[str, Any]]) -> None:
+        if not agent:
+            return
+        try:
+            from services.local_agent_supabase import persist_local_agent_supabase
+
+            persist_local_agent_supabase(agent)
+        except Exception as e:
+            logger.warning(
+                "local_agent: supabase mirror failed agent_id=%s: %s",
+                agent.get("agent_id"),
+                e,
+            )
+
     def insert_agent(
         self,
         *,
@@ -140,6 +154,7 @@ class LocalAgentRepository:
         )
         with get_session() as s:
             s.add(row)
+        self._mirror_agent(_agent_to_dict(row))
 
     def get_agent(self, agent_id: str) -> Optional[Dict[str, Any]]:
         aid = (agent_id or "").strip()
@@ -147,7 +162,24 @@ class LocalAgentRepository:
             return None
         with get_session() as s:
             row = s.query(LocalAgentRow).filter_by(agent_id=aid).first()
-            return _agent_to_dict(row) if row else None
+            sqlite_doc = _agent_to_dict(row) if row else None
+        try:
+            from services.local_agent_supabase import (
+                fetch_local_agent_supabase,
+                supabase_onboarding_config_enabled,
+            )
+            from services.report_history_merge import pick_newer_record
+
+            if supabase_onboarding_config_enabled():
+                supa_doc = fetch_local_agent_supabase(aid)
+                return pick_newer_record(
+                    sqlite_row=sqlite_doc,
+                    supabase_row=supa_doc,
+                    sort_key="updated_at",
+                )
+        except Exception as e:
+            logger.debug("local_agent: supabase get compare failed agent_id=%s: %s", aid, e)
+        return sqlite_doc
 
     def get_agent_by_project_and_name(self, project_id: str, name: str) -> Optional[Dict[str, Any]]:
         pid = (project_id or "").strip()
@@ -163,7 +195,25 @@ class LocalAgentRepository:
                 )
                 .first()
             )
-            return _agent_to_dict(row) if row else None
+            sqlite_doc = _agent_to_dict(row) if row else None
+        if sqlite_doc:
+            return sqlite_doc
+        try:
+            from services.local_agent_supabase import (
+                fetch_local_agent_by_project_and_name_supabase,
+                supabase_onboarding_config_enabled,
+            )
+
+            if supabase_onboarding_config_enabled():
+                return fetch_local_agent_by_project_and_name_supabase(pid, nm)
+        except Exception as e:
+            logger.debug(
+                "local_agent: supabase get by project/name failed project_id=%s name=%s: %s",
+                pid,
+                nm,
+                e,
+            )
+        return None
 
     def get_agent_by_token_hash(self, token_hash: str) -> Optional[Dict[str, Any]]:
         th = (token_hash or "").strip().lower()
@@ -171,9 +221,22 @@ class LocalAgentRepository:
             return None
         with get_session() as s:
             row = s.query(LocalAgentRow).filter_by(token_hash=th).first()
-            return _agent_to_dict(row) if row else None
+            sqlite_doc = _agent_to_dict(row) if row else None
+        if sqlite_doc:
+            return sqlite_doc
+        try:
+            from services.local_agent_supabase import (
+                fetch_local_agent_by_token_hash_supabase,
+                supabase_onboarding_config_enabled,
+            )
 
-    def list_agents(self, *, project_id: Optional[str], limit: int) -> List[Dict[str, Any]]:
+            if supabase_onboarding_config_enabled():
+                return fetch_local_agent_by_token_hash_supabase(th)
+        except Exception as e:
+            logger.debug("local_agent: supabase get by token_hash failed: %s", e)
+        return None
+
+    def _list_agents_sqlite(self, *, project_id: Optional[str], limit: int) -> List[Dict[str, Any]]:
         lim = max(1, min(int(limit), 500))
         with get_session() as s:
             q = s.query(LocalAgentRow).order_by(LocalAgentRow.created_at.desc())
@@ -182,10 +245,34 @@ class LocalAgentRepository:
             rows = q.limit(lim).all()
             return [_agent_to_dict(r) for r in rows]
 
+    def list_agents(self, *, project_id: Optional[str], limit: int) -> List[Dict[str, Any]]:
+        lim = max(1, min(int(limit), 500))
+        sqlite_rows = self._list_agents_sqlite(project_id=project_id, limit=lim)
+        try:
+            from services.local_agent_supabase import (
+                list_local_agents_supabase,
+                supabase_onboarding_config_enabled,
+            )
+            from services.report_history_merge import merge_sqlite_supabase_records
+
+            if supabase_onboarding_config_enabled():
+                supa_rows = list_local_agents_supabase(project_id=project_id, limit=lim)
+                return merge_sqlite_supabase_records(
+                    supabase_rows=supa_rows,
+                    sqlite_rows=sqlite_rows,
+                    limit=lim,
+                    id_key="agent_id",
+                    sort_key="updated_at",
+                )
+        except Exception as e:
+            logger.debug("local_agent: supabase list fallback project_id=%s: %s", project_id, e)
+        return sqlite_rows
+
     def update_agent(self, agent_id: str, **fields: Any) -> bool:
         aid = (agent_id or "").strip()
         if not aid:
             return False
+        updated = False
         with get_session() as s:
             row = s.query(LocalAgentRow).filter_by(agent_id=aid).first()
             if not row:
@@ -205,7 +292,10 @@ class LocalAgentRepository:
             if "agent_meta_json" in fields and fields["agent_meta_json"] is not None:
                 row.agent_meta_json = fields["agent_meta_json"]
             row.updated_at = _utc_iso()
-            return True
+            updated = True
+        if updated:
+            self._mirror_agent(self.get_agent(aid))
+        return updated
 
     def insert_job(
         self,
