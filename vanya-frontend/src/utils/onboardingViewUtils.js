@@ -23,7 +23,43 @@ export const ONBOARDING_I18N_KEYS = {
   goToIncidents: "onboarding.action.go_incidents",
   goToProjects: "onboarding.action.go_projects",
   readOnlyNote: "onboarding.read_only_note",
+  operationalTitle: "onboarding.operational.title",
+  operationalSubtitle: "onboarding.operational.subtitle",
+  operationalCompletionDate: "onboarding.operational.completion_date",
+  operationalStepsCompleted: "onboarding.operational.steps_completed",
+  operationalReadiness: "onboarding.operational.readiness",
+  operationalProject: "onboarding.operational.project",
+  viewSetupDetails: "onboarding.operational.view_setup_details",
+  hideSetupDetails: "onboarding.operational.hide_setup_details",
 };
+
+/** True when onboarding checklist is fully complete (frontend-only UX gate). */
+export function isOnboardingComplete(checklist) {
+  if (!checklist) return false;
+  const total = Number(checklist.total_steps) || 0;
+  const completed = Number(checklist.completed_steps) || 0;
+  const pct = Number(checklist.overall_completion) || 0;
+  if (total > 0 && completed >= total) return true;
+  return pct >= 100;
+}
+
+function formatCompletionDate(iso) {
+  if (!iso) return null;
+  try {
+    return new Date(iso).toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  } catch {
+    return null;
+  }
+}
+
+export function resolveOnboardingCompletionDate(checklist) {
+  const raw = checklist?.completion_date || checklist?.completed_at || null;
+  return formatCompletionDate(raw);
+}
 
 const READINESS_LABEL_KEY = {
   NOT_READY: ONBOARDING_I18N_KEYS.readinessNotReady,
@@ -111,14 +147,34 @@ export function buildOnboardingViewModel(checklist, t) {
     };
   });
 
+  const isComplete = isOnboardingComplete(checklist);
+  const completionDateText = resolveOnboardingCompletionDate(checklist);
+
   return {
     show: Boolean(checklist),
+    isComplete,
     title: t(ONBOARDING_I18N_KEYS.title),
     projectReadinessLabel: t(ONBOARDING_I18N_KEYS.projectReadiness),
     completionLabel: t(ONBOARDING_I18N_KEYS.completion),
     nextRecommendedStepLabel: t(ONBOARDING_I18N_KEYS.nextRecommendedStep),
     checklistLabel: t(ONBOARDING_I18N_KEYS.checklist),
     readOnlyNote: t(ONBOARDING_I18N_KEYS.readOnlyNote),
+    operational: isComplete && checklist
+      ? {
+          title: t(ONBOARDING_I18N_KEYS.operationalTitle),
+          subtitle: t(ONBOARDING_I18N_KEYS.operationalSubtitle),
+          completionDateLabel: t(ONBOARDING_I18N_KEYS.operationalCompletionDate),
+          completionDateText: completionDateText || "—",
+          stepsCompletedLabel: t(ONBOARDING_I18N_KEYS.operationalStepsCompleted),
+          stepsCompletedText: `${checklist.completed_steps}/${checklist.total_steps}`,
+          readinessLabel: t(ONBOARDING_I18N_KEYS.operationalReadiness),
+          readinessLevelLabel: t(readinessLabelKey(checklist.readiness_level)),
+          readinessBadgeClass: readinessBadgeClass(checklist.readiness_level),
+          projectLabel: t(ONBOARDING_I18N_KEYS.operationalProject),
+          viewSetupDetailsLabel: t(ONBOARDING_I18N_KEYS.viewSetupDetails),
+          hideSetupDetailsLabel: t(ONBOARDING_I18N_KEYS.hideSetupDetails),
+        }
+      : null,
     checklist: checklist
       ? {
           ...checklist,

@@ -2,8 +2,10 @@ import { describe, it, expect } from "vitest";
 import {
   ONBOARDING_I18N_KEYS,
   buildOnboardingViewModel,
+  isOnboardingComplete,
   navigationForStep,
   readinessBadgeClass,
+  resolveOnboardingCompletionDate,
   stepStatusIcon,
   stepStatusLabelKey,
 } from "./onboardingViewUtils.js";
@@ -80,5 +82,54 @@ describe("onboardingViewUtils", () => {
   it("exposes translation keys", () => {
     expect(ONBOARDING_I18N_KEYS.title).toBe("onboarding.title");
     expect(ONBOARDING_I18N_KEYS.projectReadiness).toBe("onboarding.project_readiness");
+    expect(ONBOARDING_I18N_KEYS.operationalTitle).toBe("onboarding.operational.title");
+    expect(ONBOARDING_I18N_KEYS.viewSetupDetails).toBe("onboarding.operational.view_setup_details");
+  });
+
+  it("detects incomplete onboarding at 80%", () => {
+    expect(isOnboardingComplete({ overall_completion: 80, completed_steps: 6, total_steps: 8 })).toBe(false);
+    const vm = buildOnboardingViewModel(
+      { ...sampleChecklist, overall_completion: 80, completed_steps: 6, total_steps: 8 },
+      t,
+    );
+    expect(vm.isComplete).toBe(false);
+    expect(vm.operational).toBeNull();
+  });
+
+  it("detects complete onboarding at 100%", () => {
+    const complete = {
+      ...sampleChecklist,
+      overall_completion: 100,
+      completed_steps: 8,
+      total_steps: 8,
+      readiness_level: "FULLY_OPERATIONAL",
+    };
+    expect(isOnboardingComplete(complete)).toBe(true);
+    const vm = buildOnboardingViewModel(complete, t);
+    expect(vm.isComplete).toBe(true);
+    expect(vm.operational.title).toBe(ONBOARDING_I18N_KEYS.operationalTitle);
+    expect(vm.operational.stepsCompletedText).toBe("8/8");
+    expect(vm.operational.readinessLevelLabel).toBe(ONBOARDING_I18N_KEYS.readinessFullyOperational);
+  });
+
+  it("detects completion when completed_steps equals total_steps", () => {
+    expect(isOnboardingComplete({ overall_completion: 99, completed_steps: 8, total_steps: 8 })).toBe(true);
+  });
+
+  it("formats completion date when available", () => {
+    const formatted = resolveOnboardingCompletionDate({ completion_date: "2026-06-12T10:00:00Z" });
+    expect(formatted).toBeTruthy();
+    expect(resolveOnboardingCompletionDate({})).toBeNull();
+    const vm = buildOnboardingViewModel(
+      {
+        ...sampleChecklist,
+        overall_completion: 100,
+        completed_steps: 8,
+        total_steps: 8,
+        completion_date: "2026-06-12T10:00:00Z",
+      },
+      t,
+    );
+    expect(vm.operational.completionDateText).not.toBe("—");
   });
 });
