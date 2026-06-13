@@ -30,10 +30,46 @@ export const LOCAL_AGENTS_I18N_KEYS = {
   summary: "localAgents.foundation.summary",
 };
 
+export const LOCAL_AGENTS_ENTERPRISE_I18N_KEYS = {
+  commandCenterTitle: "localAgents.enterprise.command_center",
+  summaryTotalAgents: "localAgents.enterprise.summary.total_agents",
+  summaryOnline: "localAgents.enterprise.summary.online",
+  summaryOffline: "localAgents.enterprise.summary.offline",
+  summaryDbConnections: "localAgents.enterprise.summary.db_connections",
+  summaryCapabilities: "localAgents.enterprise.summary.capabilities",
+  agentsListTitle: "localAgents.enterprise.agents_list",
+  created: "localAgents.enterprise.created",
+  lastSeen: "localAgents.enterprise.last_seen",
+  lastSeenNever: "localAgents.enterprise.last_seen_never",
+  detailSelect: "localAgents.enterprise.detail.select",
+  detailInventorySummary: "localAgents.enterprise.detail.inventory_summary",
+  detailDbConnections: "localAgents.enterprise.detail.db_connections",
+  detailRecentValidations: "localAgents.enterprise.detail.recent_validations",
+  detailSystemsRegistered: "localAgents.enterprise.detail.systems_registered",
+  detailMetadata: "localAgents.enterprise.detail.metadata",
+  detailFoundationAgent: "localAgents.enterprise.detail.foundation_agent",
+  detailInventoryItems: "localAgents.enterprise.detail.inventory_items",
+  detailYes: "localAgents.enterprise.detail.yes",
+  detailNo: "localAgents.enterprise.detail.no",
+  dbSectionTitle: "localAgents.enterprise.db_section_title",
+  dbEmptyDesc: "localAgents.enterprise.db_empty_desc",
+  dbStatusRegistered: "localAgents.enterprise.db.status_registered",
+  dbAgentLabel: "localAgents.enterprise.db.agent_label",
+  dbCreated: "localAgents.enterprise.db.created",
+  capabilitiesOverview: "localAgents.enterprise.capabilities_overview",
+  capabilitiesAgents: "localAgents.enterprise.capabilities_agents",
+  statusOnline: "localAgents.enterprise.status.online",
+  statusOffline: "localAgents.enterprise.status.offline",
+  statusWarning: "localAgents.enterprise.status.warning",
+  statusError: "localAgents.enterprise.status.error",
+};
+
 const STATUS_BADGE = {
   ONLINE: "badge badge-green",
   OFFLINE: "badge badge-gray",
   UNKNOWN: "badge badge-orange",
+  WARNING: "badge badge-orange",
+  ERROR: "badge badge-red",
 };
 
 const CAPABILITY_LABELS = {
@@ -52,6 +88,252 @@ const CAPABILITY_LABELS = {
 export function foundationStatusBadgeClass(status) {
   const key = String(status || "UNKNOWN").toUpperCase();
   return STATUS_BADGE[key] || "badge badge-gray";
+}
+
+/** Heuristic agent runtime status (online <2m, stale <10m). */
+export function getAgentStatus(agent, nowMs = Date.now()) {
+  if (!agent?.enabled || String(agent.status || "").toLowerCase() === "disabled") {
+    return {
+      key: "ERROR",
+      labelKey: LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.statusError,
+      badgeClass: STATUS_BADGE.ERROR,
+      needsAttention: true,
+    };
+  }
+  const iso = agent?.last_seen_at || agent?.last_heartbeat_at;
+  if (!iso) {
+    return {
+      key: "OFFLINE",
+      labelKey: LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.statusOffline,
+      badgeClass: STATUS_BADGE.OFFLINE,
+      needsAttention: true,
+    };
+  }
+  const ms = nowMs - new Date(iso).getTime();
+  if (!Number.isFinite(ms) || ms < 0) {
+    return {
+      key: "OFFLINE",
+      labelKey: LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.statusOffline,
+      badgeClass: STATUS_BADGE.OFFLINE,
+      needsAttention: true,
+    };
+  }
+  const two = 2 * 60 * 1000;
+  const ten = 10 * 60 * 1000;
+  if (ms < two) {
+    return {
+      key: "ONLINE",
+      labelKey: LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.statusOnline,
+      badgeClass: STATUS_BADGE.ONLINE,
+      needsAttention: false,
+    };
+  }
+  if (ms < ten) {
+    return {
+      key: "WARNING",
+      labelKey: LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.statusWarning,
+      badgeClass: STATUS_BADGE.WARNING,
+      needsAttention: true,
+    };
+  }
+  return {
+    key: "OFFLINE",
+    labelKey: LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.statusOffline,
+    badgeClass: STATUS_BADGE.OFFLINE,
+    needsAttention: true,
+  };
+}
+
+export function isFoundationAgent(agent) {
+  const name = String(agent?.name || "").trim().toLowerCase();
+  return name === "foundation agent" || String(agent?.agent_id || "").toLowerCase().includes("foundation");
+}
+
+export function getSummaryMetrics(agents, dbConnections) {
+  const list = Array.isArray(agents) ? agents : [];
+  let online = 0;
+  let offline = 0;
+  for (const agent of list) {
+    const status = getAgentStatus(agent).key;
+    if (status === "ONLINE") online += 1;
+    else offline += 1;
+  }
+  const capabilityCount = list.reduce((sum, a) => sum + (a.capabilities?.length || 0), 0);
+  return {
+    totalAgents: list.length,
+    online,
+    offline,
+    dbConnections: (dbConnections || []).length,
+    capabilities: capabilityCount,
+  };
+}
+
+export function getCapabilitySummary(agents, t) {
+  const counts = new Map();
+  for (const agent of agents || []) {
+    for (const cap of agent.capabilities || []) {
+      const key = String(cap);
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+  }
+  return [...counts.entries()]
+    .map(([capabilityId, agentCount]) => ({
+      capabilityId,
+      label: formatCapabilityLabel(capabilityId, t),
+      agentCount,
+      agentsLabel: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.capabilitiesAgents, { count: agentCount }),
+    }))
+    .sort((a, b) => b.agentCount - a.agentCount || a.label.localeCompare(b.label));
+}
+
+export function sortAgents(agents, nowMs = Date.now()) {
+  const order = { ONLINE: 0, WARNING: 1, OFFLINE: 2, ERROR: 3 };
+  return [...(agents || [])].sort((a, b) => {
+    const aFoundation = isFoundationAgent(a) ? 0 : 1;
+    const bFoundation = isFoundationAgent(b) ? 0 : 1;
+    if (aFoundation !== bFoundation) return aFoundation - bFoundation;
+    const sa = getAgentStatus(a, nowMs).key;
+    const sb = getAgentStatus(b, nowMs).key;
+    return (order[sa] ?? 9) - (order[sb] ?? 9);
+  });
+}
+
+function formatShortDate(iso, t) {
+  if (!iso) return t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.lastSeenNever);
+  try {
+    return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  } catch {
+    return "—";
+  }
+}
+
+export function buildMetadataTags({ detail, foundationRow, t }) {
+  const metadata = detail?.metadata && typeof detail.metadata === "object" ? detail.metadata : {};
+  const inventoryCount =
+    (foundationRow?.inventoryLines?.databases?.length || 0)
+    + (foundationRow?.inventoryLines?.repositories?.length || 0)
+    + (foundationRow?.inventoryLines?.services?.length || 0);
+
+  return [
+    {
+      label: t(LOCAL_AGENTS_I18N_KEYS.environment),
+      value: foundationRow?.environment || metadata.environment || detail?.metadata?.environment || "—",
+    },
+    {
+      label: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.detailFoundationAgent),
+      value: isFoundationAgent(detail) ? t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.detailYes) : t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.detailNo),
+    },
+    {
+      label: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.detailInventoryItems),
+      value: String(inventoryCount),
+    },
+  ];
+}
+
+export function buildAgentListItemViewModel(agent, foundationRow, t, nowMs = Date.now()) {
+  const status = getAgentStatus(agent, nowMs);
+  return {
+    agentId: agent.agent_id,
+    name: agent.name || agent.agent_id,
+    status,
+    statusLabel: t(status.labelKey),
+    environment: foundationRow?.environment || agent.metadata?.environment || agent.environment || "—",
+    capabilityLabels: foundationRow?.capabilityLabels || formatCapabilityList(agent.capabilities, t),
+    createdText: formatShortDate(agent.created_at, t),
+    lastSeenText: agent.last_seen_at ? formatShortDate(agent.last_seen_at, t) : t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.lastSeenNever),
+    isFoundation: isFoundationAgent(agent),
+    needsAttention: status.needsAttention,
+  };
+}
+
+export function buildAgentDetailViewModel({
+  detail,
+  foundationRow,
+  dbConnectionCount,
+  validationCount,
+  systemsCount,
+  t,
+  formatTimestamp,
+}) {
+  const fmt = typeof formatTimestamp === "function" ? formatTimestamp : (v) => v || "—";
+  const status = getAgentStatus(detail || {});
+  return {
+    name: detail?.name || "—",
+    agentId: detail?.agent_id || "",
+    status,
+    statusLabel: t(status.labelKey),
+    environment: foundationRow?.environment || detail?.metadata?.environment || "—",
+    version: foundationRow?.version || detail?.version || "—",
+    lastHeartbeat: foundationRow?.lastHeartbeatText || fmt(detail?.last_seen_at) || t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.lastSeenNever),
+    capabilities: foundationRow?.capabilityLabels || formatCapabilityList(detail?.capabilities, t),
+    inventorySummary: {
+      dbConnections: dbConnectionCount,
+      recentValidations: validationCount,
+      systemsRegistered: systemsCount,
+      dbConnectionsLabel: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.detailDbConnections),
+      recentValidationsLabel: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.detailRecentValidations),
+      systemsRegisteredLabel: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.detailSystemsRegistered),
+    },
+    metadataTags: buildMetadataTags({ detail, foundationRow, t }),
+    metadataTitle: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.detailMetadata),
+    recentJobs: (detail?.recent_jobs || []).slice(0, 5),
+    environmentLabel: t(LOCAL_AGENTS_I18N_KEYS.environment),
+    versionLabel: t(LOCAL_AGENTS_I18N_KEYS.version),
+    lastHeartbeatLabel: t(LOCAL_AGENTS_I18N_KEYS.lastHeartbeat),
+    capabilitiesLabel: t(LOCAL_AGENTS_I18N_KEYS.capabilities),
+    inventorySummaryLabel: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.detailInventorySummary),
+  };
+}
+
+export function buildLocalAgentsConsoleViewModel({
+  agents,
+  dbConnections,
+  foundationReport,
+  t,
+  formatTimestamp,
+  nowMs,
+}) {
+  const sorted = sortAgents(agents, nowMs);
+  const foundationVm = buildLocalAgentsViewModel(
+    foundationReport || { agents: [], inventory: [], summary: "" },
+    t,
+    formatTimestamp,
+  );
+  const foundationById = new Map(foundationVm.agents.map((a) => [a.agent_id, a]));
+
+  return {
+    summary: getSummaryMetrics(agents, dbConnections),
+    summaryLabels: {
+      totalAgents: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.summaryTotalAgents),
+      online: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.summaryOnline),
+      offline: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.summaryOffline),
+      dbConnections: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.summaryDbConnections),
+      capabilities: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.summaryCapabilities),
+    },
+    agentsListTitle: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.agentsListTitle),
+    createdLabel: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.created),
+    lastSeenLabel: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.lastSeen),
+    agents: sorted.map((agent) =>
+      buildAgentListItemViewModel(agent, foundationById.get(agent.agent_id) || null, t, nowMs),
+    ),
+    capabilitySummary: getCapabilitySummary(agents, t),
+    capabilitiesOverviewTitle: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.capabilitiesOverview),
+    foundationById,
+  };
+}
+
+export function buildDatabaseConnectionCardViewModel(connection, agentNameById, t, formatTimestamp) {
+  const fmt = typeof formatTimestamp === "function" ? formatTimestamp : (v) => v || "—";
+  const agentName = agentNameById.get(connection.agent_id) || connection.agent_id;
+  return {
+    connectionId: connection.connection_id,
+    name: connection.name,
+    databaseType: connection.database_type,
+    agentLabel: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.dbAgentLabel, { name: agentName }),
+    statusLabel: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.dbStatusRegistered),
+    createdText: fmt(connection.created_at),
+    createdLabel: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.dbCreated),
+  };
 }
 
 export function formatCapabilityLabel(capabilityId, t) {

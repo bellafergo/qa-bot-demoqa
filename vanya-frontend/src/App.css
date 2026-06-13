@@ -1378,13 +1378,33 @@ code {
   min-width: 280px;
 }
 
+/* UX-04 — Local Agents enterprise console layout */
+.local-agents-layout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.local-agents-layout__list {
+  flex: 1 1 480px;
+  min-width: 0;
+}
+
+.local-agents-layout__detail {
+  flex: 1 1 360px;
+  min-width: 280px;
+}
+
 @media (max-width: 960px) {
-  .browser-watch-layout {
+  .browser-watch-layout,
+  .local-agents-layout {
     flex-direction: column;
   }
 
   .browser-watch-layout__list,
-  .browser-watch-layout__detail {
+  .browser-watch-layout__detail,
+  .local-agents-layout__list,
+  .local-agents-layout__detail {
     flex: 1 1 auto;
     width: 100%;
     min-width: 0;
