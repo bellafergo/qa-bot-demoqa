@@ -21,6 +21,7 @@ from models.dashboard_models import (
     DashboardModuleMetrics,
     RunStatusBreakdown,
     JobStatusBreakdown,
+    ExecutiveRiskBrief,
 )
 from models.test_run import TestRun
 from models.orchestrator_job import OrchestratorJob
@@ -301,6 +302,10 @@ class DashboardService:
             partial   = by_status.get("partial",   0),
             failed    = by_status.get("failed",    0),
         )
+
+    def get_executive_risk_brief(self, project_id: str) -> ExecutiveRiskBrief:
+        from services.executive_risk_brief_service import build_executive_risk_brief
+        return build_executive_risk_brief(project_id)
 
 
 # Module-level singleton

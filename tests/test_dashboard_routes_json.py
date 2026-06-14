@@ -17,6 +17,7 @@ def client() -> TestClient:
 
 DASHBOARD_PATHS = [
     "/dashboard/summary",
+    "/dashboard/executive-risk-brief?project_id=demo",
     "/dashboard/recent-runs?limit=5",
     "/dashboard/recent-jobs?limit=5",
     "/execution/status",

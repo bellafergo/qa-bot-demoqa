@@ -323,6 +323,13 @@ export function getDashboardSummary(params = {}) {
   return apiGet(`/dashboard/summary${qs ? `?${qs}` : ""}`);
 }
 
+/** GET /dashboard/executive-risk-brief?project_id= */
+export function getExecutiveRiskBrief(projectId) {
+  const pid = String(projectId || "").trim();
+  const q = new URLSearchParams({ project_id: pid });
+  return apiGet(`/dashboard/executive-risk-brief?${q}`);
+}
+
 export function getProjectOnboarding(projectId) {
   const pid = String(projectId || "").trim();
   return apiGet(`/projects/${encodeURIComponent(pid)}/onboarding`);

@@ -23,6 +23,7 @@ from models.dashboard_models import (
     DashboardModuleMetrics,
     RunStatusBreakdown,
     JobStatusBreakdown,
+    ExecutiveRiskBrief,
 )
 from models.orchestrator_job import OrchestratorJob
 from models.run_contract import CanonicalRun
@@ -126,3 +127,15 @@ def get_job_status_breakdown(project_id: Optional[str] = Query(None)):
     except Exception as e:
         logger.exception("dashboard: get_job_status_breakdown failed")
         return json_error_response(500, "Dashboard job status breakdown failed", error=str(e))
+
+
+@router.get("/executive-risk-brief", response_model=ExecutiveRiskBrief)
+def get_executive_risk_brief(project_id: str = Query(..., description="Catalog project id")):
+    """Return the top actionable risk brief for the dashboard executive widget."""
+    try:
+        return dashboard_service.get_executive_risk_brief(project_id=project_id)
+    except ValueError as e:
+        return json_error_response(400, str(e), error=str(e))
+    except Exception as e:
+        logger.exception("dashboard: get_executive_risk_brief failed project_id=%s", project_id)
+        return json_error_response(500, "Executive risk brief failed", error=str(e))

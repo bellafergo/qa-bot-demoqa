@@ -4,8 +4,8 @@ Pydantic response models for the QA Dashboard API.
 """
 from __future__ import annotations
 
-from typing import Dict, List, Optional
-from pydantic import BaseModel
+from typing import Dict, List, Literal, Optional
+from pydantic import BaseModel, Field
 
 from models.onboarding_models import OnboardingChecklist
 from models.release_readiness_models import ReleaseReadinessView
@@ -88,3 +88,35 @@ class JobStatusBreakdown(BaseModel):
     completed: int = 0
     partial:   int = 0
     failed:    int = 0
+
+
+RiskEvidenceKind = Literal[
+    "occurrences",
+    "module",
+    "representative_test",
+    "summary",
+]
+
+
+class RiskEvidenceItem(BaseModel):
+    kind: RiskEvidenceKind
+    count: Optional[int] = None
+    module: Optional[str] = None
+    test_case_id: Optional[str] = None
+    text: Optional[str] = None
+
+
+class ExecutiveRiskBrief(BaseModel):
+    """Top actionable risk narrative for the dashboard executive widget."""
+    project_id: str
+    generated_at: str
+    has_risk: bool = False
+    title: str = ""
+    module: str = ""
+    confidence: str = "low"
+    evidence: List[RiskEvidenceItem] = Field(default_factory=list)
+    impact: str = ""
+    recommendation: str = ""
+    cluster_id: str = ""
+    representative_test_case_id: str = ""
+    root_cause_category: str = ""

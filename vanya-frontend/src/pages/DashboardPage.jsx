@@ -50,6 +50,7 @@ import PlatformObservabilityView from "../components/platform-observability/Plat
 import { buildPlatformObservabilityViewModel } from "../utils/platformObservabilityViewUtils.js";
 import DashboardSectionState from "../components/dashboard/DashboardSectionState.jsx";
 import ExecutiveBriefCard from "../components/dashboard/ExecutiveBriefCard.jsx";
+import ExecutiveRiskBriefCard from "../components/dashboard/ExecutiveRiskBriefCard.jsx";
 import ColdProjectGuidance from "../components/dashboard/ColdProjectGuidance.jsx";
 import {
   buildDashboardSectionState,
@@ -58,6 +59,7 @@ import {
   isColdProject,
 } from "../utils/dashboardSectionStateUtils.js";
 import { buildExecutiveBriefViewModel } from "../utils/executiveBriefViewUtils.js";
+import { buildExecutiveRiskBriefViewModel } from "../utils/executiveRiskBriefViewUtils.js";
 import {
   fmtDate,
   fmtMs,
@@ -126,6 +128,7 @@ export default function DashboardPage() {
     servicenowIntelligence,
     coverageOverview,
     recommendedTests,
+    executiveRiskBrief,
     intelErrors,
     intelLoading,
     load,
@@ -248,6 +251,11 @@ export default function DashboardPage() {
       passRateNum,
       t,
     ],
+  );
+
+  const executiveRiskBriefVm = useMemo(
+    () => buildExecutiveRiskBriefViewModel(executiveRiskBrief, t),
+    [executiveRiskBrief, t],
   );
 
   const isOperationalDashboard = Boolean(projectId && onboardingVm.isComplete);
@@ -579,6 +587,17 @@ export default function DashboardPage() {
       </div>
 
       <SystemStatusRibbon ribbon={systemRibbon} />
+
+      {projectId && executiveRiskBriefVm.show ? (
+        <div style={{ padding: "16px 40px 0" }}>
+          <div className="card" style={{ padding: "20px 24px", marginBottom: 0 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 12 }}>
+              {executiveRiskBriefVm.widgetTitle}
+            </div>
+            <ExecutiveRiskBriefCard vm={executiveRiskBriefVm} />
+          </div>
+        </div>
+      ) : null}
 
       <div style={{ padding: "24px 40px 0" }}>
         {isOperationalDashboard ? (

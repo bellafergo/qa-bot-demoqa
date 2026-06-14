@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   getDashboardSummary,
+  getExecutiveRiskBrief,
   getProjectQualityTrends,
   getProjectEarlyDegradation,
   getProjectValueDashboard,
@@ -53,6 +54,7 @@ export function useDashboardData(projectId, t) {
   const [servicenowIntelligence, setServicenowIntelligence] = useState(null);
   const [coverageOverview, setCoverageOverview] = useState(null);
   const [recommendedTests, setRecommendedTests] = useState(null);
+  const [executiveRiskBrief, setExecutiveRiskBrief] = useState(null);
   const [intelErrors, setIntelErrors] = useState({});
   const [intelLoading, setIntelLoading] = useState({});
 
@@ -93,6 +95,7 @@ export function useDashboardData(projectId, t) {
     setServicenowIntelligence(null);
     setCoverageOverview(null);
     setRecommendedTests(null);
+    setExecutiveRiskBrief(null);
     setIntelErrors({});
     setIntelLoading({});
 
@@ -163,6 +166,11 @@ export function useDashboardData(projectId, t) {
         () => getQMetryRecommendations({ project_id: pid }),
         setRecommendedTests,
       );
+      trackIntel(
+        "executiveRiskBrief",
+        () => getExecutiveRiskBrief(pid),
+        setExecutiveRiskBrief,
+      );
     } else {
       setHasKnowledge(null);
       setValueDashboard(null);
@@ -170,6 +178,7 @@ export function useDashboardData(projectId, t) {
       setBusinessRisk(null);
       setCoverageOverview(null);
       setRecommendedTests(null);
+      setExecutiveRiskBrief(null);
     }
 
     getFailureIntel(pid)
@@ -234,6 +243,7 @@ export function useDashboardData(projectId, t) {
     servicenowIntelligence,
     coverageOverview,
     recommendedTests,
+    executiveRiskBrief,
     intelErrors,
     intelLoading,
     load,
