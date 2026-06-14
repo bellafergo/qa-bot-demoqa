@@ -2,8 +2,8 @@
 /**
  * System Memory — per-project App Knowledge Graph (Phase 1).
  */
-import React, { useCallback, useEffect, useState } from "react";
-import { getProjectKnowledge, refreshProjectKnowledge, apiErrorMessage } from "../api";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { getProjectKnowledge, getProjectKnowledgeExplorer, refreshProjectKnowledge, apiErrorMessage } from "../api";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
 import KpiStrip from "../components/KpiStrip.jsx";
@@ -13,6 +13,8 @@ import {
   formatMemoryDepthLabel,
   formatSourcesLabel,
 } from "../utils/knowledgeDepthUtils.js";
+import { buildMemoryExplorerViewModel } from "../utils/memoryExplorerViewUtils.js";
+import MemoryExplorerSection from "../components/knowledge/MemoryExplorerSection.jsx";
 
 function fmtTs(iso) {
   if (!iso) return "—";
@@ -90,6 +92,7 @@ export default function KnowledgePage() {
   const projectId = currentProject?.id;
 
   const [knowledge, setKnowledge] = useState(null);
+  const [explorer, setExplorer] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -97,6 +100,7 @@ export default function KnowledgePage() {
   const load = useCallback(async () => {
     if (!projectId) {
       setKnowledge(null);
+      setExplorer(null);
       setLoading(false);
       setError("");
       return;
@@ -104,14 +108,20 @@ export default function KnowledgePage() {
     setLoading(true);
     setError("");
     try {
-      const data = await getProjectKnowledge(projectId);
+      const [data, explorerData] = await Promise.all([
+        getProjectKnowledge(projectId),
+        getProjectKnowledgeExplorer(projectId).catch(() => null),
+      ]);
       setKnowledge(data);
+      setExplorer(explorerData);
     } catch (e) {
       if (e?.status === 404) {
         setKnowledge(null);
+        setExplorer(null);
         setError("");
       } else {
         setKnowledge(null);
+        setExplorer(null);
         setError(apiErrorMessage(e) || t("knowledge.error"));
       }
     } finally {
@@ -130,12 +140,19 @@ export default function KnowledgePage() {
     try {
       const data = await refreshProjectKnowledge(projectId, mode, { includeRepository });
       setKnowledge(data);
+      const explorerData = await getProjectKnowledgeExplorer(projectId).catch(() => null);
+      setExplorer(explorerData);
     } catch (e) {
       setError(apiErrorMessage(e) || t("knowledge.error"));
     } finally {
       setRefreshing(false);
     }
   };
+
+  const explorerVm = useMemo(
+    () => buildMemoryExplorerViewModel(explorer, t),
+    [explorer, t],
+  );
 
   if (!projectId) {
     return (
@@ -210,6 +227,7 @@ export default function KnowledgePage() {
               </div>
             );
           })()}
+          <MemoryExplorerSection vm={explorerVm} />
           <div className="card" style={{ padding: "16px 20px", marginBottom: 16, display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
             <div>
               <div style={{ fontSize: 11, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("knowledge.risk")}</div>

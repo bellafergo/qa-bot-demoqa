@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Query
 from models.project_knowledge_models import (
     KnowledgeRefreshMode,
     ProjectKnowledge,
+    ProjectKnowledgeExplorer,
     ProjectKnowledgeRefreshRequest,
 )
 from models.pr_analysis_models import ProjectPRAnalysisReport, ProjectPRAnalysisRequest
@@ -71,6 +72,19 @@ def get_knowledge(project_id: str):
     if not row:
         raise HTTPException(status_code=404, detail=f"No knowledge stored for project: {project_id}")
     return row
+
+
+@router.get("/{project_id}/knowledge/explorer", response_model=ProjectKnowledgeExplorer)
+def get_knowledge_explorer(project_id: str):
+    """Navigable module graph: routes, APIs, tests, failure clusters per module."""
+    try:
+        from services.knowledge_explorer_service import get_project_knowledge_explorer
+        return get_project_knowledge_explorer(project_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+    except Exception as exc:
+        logger.exception("GET /projects/%s/knowledge/explorer failed", project_id)
+        raise HTTPException(status_code=500, detail=f"Knowledge explorer failed: {exc}") from exc
 
 
 @router.post("/{project_id}/knowledge/refresh", response_model=ProjectKnowledge)

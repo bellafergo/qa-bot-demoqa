@@ -159,3 +159,56 @@ class ProjectKnowledgeContext(BaseModel):
     risk_level: RiskLevel = "LOW"
     module_risk_hints: List[str] = Field(default_factory=list)
     hints: List[str] = Field(default_factory=list)
+
+
+class ExplorerRouteItem(BaseModel):
+    url: str
+    file_path: str = ""
+    source: str = "unknown"
+    title: str = ""
+
+
+class ExplorerApiItem(BaseModel):
+    method: str = "GET"
+    url: str
+    file_path: str = ""
+    source: str = "unknown"
+
+
+class ExplorerTestItem(BaseModel):
+    test_case_id: str
+    name: str = ""
+    last_run_status: str = ""
+    priority: str = ""
+
+
+class ExplorerFailureClusterItem(BaseModel):
+    cluster_id: str
+    category: str = ""
+    occurrences: int = 0
+    confidence: str = "low"
+    representative_test_case_id: str = ""
+
+
+class ExplorerModuleCounts(BaseModel):
+    routes: int = 0
+    apis: int = 0
+    tests: int = 0
+    failure_clusters: int = 0
+
+
+class ExplorerModuleNode(BaseModel):
+    module: str
+    summary: str = ""
+    routes: List[ExplorerRouteItem] = Field(default_factory=list)
+    apis: List[ExplorerApiItem] = Field(default_factory=list)
+    tests: List[ExplorerTestItem] = Field(default_factory=list)
+    failure_clusters: List[ExplorerFailureClusterItem] = Field(default_factory=list)
+    counts: ExplorerModuleCounts = Field(default_factory=ExplorerModuleCounts)
+
+
+class ProjectKnowledgeExplorer(BaseModel):
+    project_id: str
+    generated_at: str = Field(default_factory=_utc_now_iso)
+    modules: List[ExplorerModuleNode] = Field(default_factory=list)
+    default_expanded_module: str = ""

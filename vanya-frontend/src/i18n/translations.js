@@ -557,6 +557,21 @@ export const translations = {
     "knowledge.repo.not_indexed": "Repository not indexed",
     "knowledge.repo.files_scanned": "{{count}} files scanned",
 
+    "knowledge.explorer.title": "Memory Explorer",
+    "knowledge.explorer.empty": "No module relationships detected yet. Refresh memory or index the repository to populate routes, APIs and tests.",
+    "knowledge.explorer.routes": "Routes",
+    "knowledge.explorer.apis": "APIs",
+    "knowledge.explorer.tests": "Tests",
+    "knowledge.explorer.clusters": "Failure Clusters",
+    "knowledge.explorer.summary": "Summary",
+    "knowledge.explorer.no_routes": "No routes linked to this module.",
+    "knowledge.explorer.no_apis": "No APIs linked to this module.",
+    "knowledge.explorer.no_tests": "No tests linked to this module.",
+    "knowledge.explorer.no_clusters": "No failure clusters linked to this module.",
+    "knowledge.explorer.source": "Source",
+    "knowledge.explorer.confidence": "Confidence",
+    "knowledge.explorer.occurrences": "Occurrences",
+
     // ── Project initialize ───────────────────────────────────────────────────
     "init.title":          "Initialize project",
     "init.subtitle":       "Build system memory, use catalog tests, and queue first smoke runs for {{name}}.",
@@ -3713,6 +3728,21 @@ export const translations = {
     "knowledge.repo.indexed":    "Repositorio indexado",
     "knowledge.repo.not_indexed": "Repositorio no indexado",
     "knowledge.repo.files_scanned": "{{count}} archivos escaneados",
+
+    "knowledge.explorer.title": "Explorador de Memoria",
+    "knowledge.explorer.empty": "Aún no hay relaciones por módulo. Actualiza la memoria o indexa el repositorio para poblar rutas, APIs y tests.",
+    "knowledge.explorer.routes": "Rutas",
+    "knowledge.explorer.apis": "APIs",
+    "knowledge.explorer.tests": "Tests",
+    "knowledge.explorer.clusters": "Clusters de Fallos",
+    "knowledge.explorer.summary": "Resumen",
+    "knowledge.explorer.no_routes": "Sin rutas vinculadas a este módulo.",
+    "knowledge.explorer.no_apis": "Sin APIs vinculadas a este módulo.",
+    "knowledge.explorer.no_tests": "Sin tests vinculados a este módulo.",
+    "knowledge.explorer.no_clusters": "Sin clusters de fallos vinculados a este módulo.",
+    "knowledge.explorer.source": "Fuente",
+    "knowledge.explorer.confidence": "Confianza",
+    "knowledge.explorer.occurrences": "Ocurrencias",
 
     // ── Inicializar proyecto ─────────────────────────────────────────────────
     "init.title":          "Inicializar proyecto",
