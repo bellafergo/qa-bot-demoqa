@@ -1,5 +1,8 @@
 /** Parse GitHub App post-install redirect query params. */
 
+// TODO(github): Auto-discover existing GitHub installations for current user and offer
+// one-click linking without manual installation_id entry.
+
 export function parseGitHubInstallCallback(search) {
   const raw = typeof search === "string" ? search : "";
   const params = new URLSearchParams(raw.startsWith("?") ? raw.slice(1) : raw);
@@ -28,4 +31,15 @@ export function shouldRunGitHubInstallCallback({ installationId, stateProject, p
 export function clearGitHubInstallCallbackParams() {
   if (typeof window === "undefined") return;
   window.history.replaceState({}, "", window.location.pathname);
+}
+
+/** Normalize pasted installation id or GitHub settings URL. */
+export function normalizeGitHubInstallationId(raw) {
+  const text = (raw || "").trim();
+  if (!text) return "";
+  const fromUrl = text.match(/\/installations\/(\d+)/i);
+  if (fromUrl?.[1]) return fromUrl[1];
+  const compact = text.replace(/\s/g, "");
+  if (/^\d+$/.test(compact)) return compact;
+  return "";
 }

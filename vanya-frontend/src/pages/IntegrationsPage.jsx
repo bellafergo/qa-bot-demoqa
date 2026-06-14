@@ -39,6 +39,7 @@ import {
   parseGitHubInstallCallback,
   shouldRunGitHubInstallCallback,
   clearGitHubInstallCallbackParams,
+  normalizeGitHubInstallationId,
 } from "../utils/githubInstallCallbackUtils.js";
 
 const CONNECTOR_DISPLAY_ORDER = ["github", "azure_devops", "jira", "qmetry", "servicenow"];
@@ -798,6 +799,9 @@ function GitHubAppPanel({ onStatusChange }) {
   const [changingRepo, setChangingRepo] = useState(false);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [showManualLink, setShowManualLink] = useState(false);
+  const [manualInstallationId, setManualInstallationId] = useState("");
+  const [linkingManual, setLinkingManual] = useState(false);
 
   const loadRepos = useCallback(async () => {
     if (!projectId) return;
@@ -853,6 +857,32 @@ function GitHubAppPanel({ onStatusChange }) {
       if (url) window.location.href = url;
     } catch (e) {
       setError(e?.message || t("gh.error.install"));
+    }
+  }
+
+  async function handleLinkExistingInstallation() {
+    if (!projectId) return;
+    const installationId = normalizeGitHubInstallationId(manualInstallationId);
+    if (!installationId) {
+      setError(t("integrations.github.installation_id_required"));
+      return;
+    }
+    setLinkingManual(true);
+    setError("");
+    console.info("[vanya.github.manual-link] POST connect-app", { projectId, installationId });
+    try {
+      const connected = await connectProjectGitHubApp(projectId, { installation_id: installationId });
+      console.info("[vanya.github.manual-link] connect-app ok", {
+        installation_id: connected?.installation_id,
+      });
+      await refreshStatus(false);
+      setShowManualLink(false);
+      setManualInstallationId("");
+    } catch (e) {
+      console.error("[vanya.github.manual-link] connect-app failed", e);
+      setError(e?.message || t("gh.error.connect"));
+    } finally {
+      setLinkingManual(false);
     }
   }
 
@@ -943,7 +973,7 @@ function GitHubAppPanel({ onStatusChange }) {
         <p style={{ fontSize: 12, color: "var(--text-3)" }}>{t("integrations.github.need_project")}</p>
       ) : (
         <>
-          {loading || connecting ? (
+          {loading || connecting || linkingManual ? (
             <p style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 12 }}>{t("gh.loading")}</p>
           ) : null}
 
@@ -994,15 +1024,69 @@ function GitHubAppPanel({ onStatusChange }) {
           {!status?.installation_id ? (
             canManageIntegrations ? (
             <div>
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                onClick={handleConnect}
-                disabled={!status?.app_configured || connecting}
-              >
-                {connecting ? t("gh.connecting") : t("gh.connect_github")}
-              </button>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={handleConnect}
+                  disabled={!status?.app_configured || connecting || linkingManual}
+                >
+                  {connecting ? t("gh.connecting") : t("gh.connect_github")}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    setShowManualLink((v) => !v);
+                    setError("");
+                  }}
+                  disabled={!status?.app_configured || connecting || linkingManual}
+                >
+                  {t("integrations.github.link_existing")}
+                </button>
+              </div>
               <p style={{ fontSize: 11, color: "var(--text-3)", marginTop: 8 }}>{t("integrations.github.install_hint")}</p>
+              {showManualLink ? (
+                <div
+                  style={{
+                    marginTop: 12,
+                    padding: 12,
+                    borderRadius: 8,
+                    border: "1px solid var(--border, rgba(255,255,255,0.08))",
+                    background: "var(--bg-3, rgba(255,255,255,0.02))",
+                  }}
+                >
+                  <label
+                    htmlFor="github-manual-installation-id"
+                    style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-2)", marginBottom: 6 }}
+                  >
+                    {t("gh.installation_id")}
+                  </label>
+                  <input
+                    id="github-manual-installation-id"
+                    className="input"
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="138769836"
+                    value={manualInstallationId}
+                    onChange={(e) => setManualInstallationId(e.target.value)}
+                    disabled={linkingManual}
+                    style={{ width: "100%", maxWidth: 360, fontFamily: "ui-monospace, monospace", fontSize: 13 }}
+                  />
+                  <p style={{ fontSize: 11, color: "var(--text-3)", marginTop: 8, lineHeight: 1.5 }}>
+                    {t("integrations.github.installation_id_hint")}
+                  </p>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    onClick={handleLinkExistingInstallation}
+                    disabled={!normalizeGitHubInstallationId(manualInstallationId) || linkingManual}
+                    style={{ marginTop: 8 }}
+                  >
+                    {linkingManual ? t("gh.connecting") : t("gh.link_installation")}
+                  </button>
+                </div>
+              ) : null}
             </div>
             ) : (
               <p style={{ fontSize: 12, color: "var(--text-3)", margin: 0 }}>{t("permissions.denied")}</p>
