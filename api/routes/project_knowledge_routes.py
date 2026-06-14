@@ -12,6 +12,7 @@ from models.project_knowledge_models import (
     ProjectKnowledge,
     ProjectKnowledgeExplorer,
     ProjectKnowledgeRefreshRequest,
+    ProjectKnowledgeWorkflows,
 )
 from models.pr_analysis_models import ProjectPRAnalysisReport, ProjectPRAnalysisRequest
 from models.risk_engine_models import RiskAssessment
@@ -85,6 +86,19 @@ def get_knowledge_explorer(project_id: str):
     except Exception as exc:
         logger.exception("GET /projects/%s/knowledge/explorer failed", project_id)
         raise HTTPException(status_code=500, detail=f"Knowledge explorer failed: {exc}") from exc
+
+
+@router.get("/{project_id}/knowledge/workflows", response_model=ProjectKnowledgeWorkflows)
+def get_knowledge_workflows(project_id: str):
+    """Deterministic business workflow inference from System Memory + failure clusters."""
+    try:
+        from services.business_workflow_service import get_project_knowledge_workflows
+        return get_project_knowledge_workflows(project_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+    except Exception as exc:
+        logger.exception("GET /projects/%s/knowledge/workflows failed", project_id)
+        raise HTTPException(status_code=500, detail=f"Business workflows failed: {exc}") from exc
 
 
 @router.post("/{project_id}/knowledge/refresh", response_model=ProjectKnowledge)

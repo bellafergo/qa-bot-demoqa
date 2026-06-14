@@ -212,3 +212,29 @@ class ProjectKnowledgeExplorer(BaseModel):
     generated_at: str = Field(default_factory=_utc_now_iso)
     modules: List[ExplorerModuleNode] = Field(default_factory=list)
     default_expanded_module: str = ""
+
+
+class BusinessWorkflowCoverage(BaseModel):
+    routes: int = 0
+    apis: int = 0
+    tests: int = 0
+    clusters: int = 0
+
+
+class BusinessWorkflowItem(BaseModel):
+    name: str
+    type: str
+    confidence: str = "low"
+    modules: List[str] = Field(default_factory=list)
+    routes: List[str] = Field(default_factory=list)
+    apis: List[str] = Field(default_factory=list)
+    tests: List[str] = Field(default_factory=list)
+    failure_clusters: List[str] = Field(default_factory=list)
+    coverage: BusinessWorkflowCoverage = Field(default_factory=BusinessWorkflowCoverage)
+    summary: str = ""
+
+
+class ProjectKnowledgeWorkflows(BaseModel):
+    project_id: str
+    generated_at: str = Field(default_factory=_utc_now_iso)
+    workflows: List[BusinessWorkflowItem] = Field(default_factory=list)

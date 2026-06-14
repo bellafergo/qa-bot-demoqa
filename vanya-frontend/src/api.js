@@ -1108,6 +1108,11 @@ export function getProjectKnowledgeExplorer(projectId) {
   return apiGet(`/projects/${encodeURIComponent(projectId)}/knowledge/explorer`);
 }
 
+/** GET /projects/{id}/knowledge/workflows */
+export function getProjectKnowledgeWorkflows(projectId) {
+  return apiGet(`/projects/${encodeURIComponent(projectId)}/knowledge/workflows`);
+}
+
 /** PR Analysis v1 — System Memory + Risk Engine (project-scoped). */
 export function analyzeProjectPR(projectId, body) {
   return apiPost(`/projects/${encodeURIComponent(projectId)}/pr-analysis`, body);
