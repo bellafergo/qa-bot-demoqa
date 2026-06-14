@@ -376,7 +376,14 @@ CREATE TABLE IF NOT EXISTS public.database_connections (
   host_label      TEXT NOT NULL,
   database_name   TEXT NOT NULL,
   status          TEXT NOT NULL DEFAULT 'UNKNOWN',
-  created_at      TEXT NOT NULL
+  created_at      TEXT NOT NULL,
+  asset_scope     TEXT NOT NULL DEFAULT 'customer_external',
+  execution_mode  TEXT NOT NULL DEFAULT 'local_agent',
+  last_probe_at   TEXT,
+  last_probe_status TEXT,
+  last_probe_summary TEXT,
+  is_platform_managed BOOLEAN NOT NULL DEFAULT FALSE,
+  created_by_system BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 CREATE INDEX IF NOT EXISTS idx_database_connections_agent_id

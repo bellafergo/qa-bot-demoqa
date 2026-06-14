@@ -255,3 +255,28 @@ def init_catalog_db() -> None:
             logger.info("db: ensured browser_inspection_watch_events Phase3F indexes")
     except Exception:
         logger.exception("db: migration for browser_inspection_watch_events indexes failed (non-fatal)")
+
+    # ── database_connections — platform asset scope + probe metadata ───────────
+    _db_conn_cols = [
+        ("asset_scope", "ALTER TABLE database_connections ADD COLUMN asset_scope TEXT DEFAULT 'customer_external'"),
+        ("execution_mode", "ALTER TABLE database_connections ADD COLUMN execution_mode TEXT DEFAULT 'local_agent'"),
+        ("last_probe_at", "ALTER TABLE database_connections ADD COLUMN last_probe_at TEXT"),
+        ("last_probe_status", "ALTER TABLE database_connections ADD COLUMN last_probe_status TEXT"),
+        ("last_probe_summary", "ALTER TABLE database_connections ADD COLUMN last_probe_summary TEXT"),
+        ("is_platform_managed", "ALTER TABLE database_connections ADD COLUMN is_platform_managed INTEGER DEFAULT 0"),
+        ("created_by_system", "ALTER TABLE database_connections ADD COLUMN created_by_system INTEGER DEFAULT 0"),
+    ]
+    try:
+        from sqlalchemy import text
+
+        with engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(database_connections)"))
+            existing_cols = {row[1] for row in result.fetchall()}
+            if existing_cols:
+                for col_name, sql in _db_conn_cols:
+                    if col_name not in existing_cols:
+                        conn.execute(text(sql))
+                        logger.info("db: migrated database_connections — added %s", col_name)
+                conn.commit()
+    except Exception:
+        logger.exception("db: migration for database_connections platform fields failed (non-fatal)")

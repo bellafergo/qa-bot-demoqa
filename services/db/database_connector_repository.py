@@ -29,6 +29,13 @@ class DatabaseConnectionRow(Base):
     database_name = Column(String, nullable=False)
     status = Column(String, nullable=False, default="UNKNOWN")
     created_at = Column(String, nullable=False)
+    asset_scope = Column(String, nullable=False, default="customer_external")
+    execution_mode = Column(String, nullable=False, default="local_agent")
+    last_probe_at = Column(String, nullable=True)
+    last_probe_status = Column(String, nullable=True)
+    last_probe_summary = Column(Text, nullable=True)
+    is_platform_managed = Column(Integer, nullable=False, default=0)
+    created_by_system = Column(Integer, nullable=False, default=0)
 
 
 class DatabaseValidationExecutionRow(Base):
@@ -66,6 +73,13 @@ def _connection_to_dict(row: DatabaseConnectionRow) -> Dict[str, Any]:
         "database_name": row.database_name,
         "status": row.status,
         "created_at": row.created_at,
+        "asset_scope": getattr(row, "asset_scope", None) or "customer_external",
+        "execution_mode": getattr(row, "execution_mode", None) or "local_agent",
+        "last_probe_at": getattr(row, "last_probe_at", None),
+        "last_probe_status": getattr(row, "last_probe_status", None),
+        "last_probe_summary": getattr(row, "last_probe_summary", None),
+        "is_platform_managed": bool(getattr(row, "is_platform_managed", 0)),
+        "created_by_system": bool(getattr(row, "created_by_system", 0)),
     }
 
 
@@ -110,6 +124,13 @@ class DatabaseConnectorRepository:
             database_name=fields["database_name"],
             status=fields.get("status") or "UNKNOWN",
             created_at=fields.get("created_at") or _utc_iso(),
+            asset_scope=fields.get("asset_scope") or "customer_external",
+            execution_mode=fields.get("execution_mode") or "local_agent",
+            last_probe_at=fields.get("last_probe_at"),
+            last_probe_status=fields.get("last_probe_status"),
+            last_probe_summary=fields.get("last_probe_summary"),
+            is_platform_managed=1 if fields.get("is_platform_managed") else 0,
+            created_by_system=1 if fields.get("created_by_system") else 0,
         )
         with get_session() as s:
             s.add(row)
@@ -186,6 +207,42 @@ class DatabaseConnectorRepository:
             row.status = status
         self._mirror_connection(self.get_connection(cid))
         return True
+
+    def update_connection_probe(
+        self,
+        connection_id: str,
+        *,
+        status: str,
+        last_probe_at: str,
+        last_probe_status: str,
+        last_probe_summary: str,
+    ) -> bool:
+        cid = (connection_id or "").strip()
+        if not cid:
+            return False
+        with get_session() as s:
+            row = s.query(DatabaseConnectionRow).filter_by(connection_id=cid).first()
+            if not row:
+                return False
+            row.status = status
+            row.last_probe_at = last_probe_at
+            row.last_probe_status = last_probe_status
+            row.last_probe_summary = last_probe_summary[:512]
+        self._mirror_connection(self.get_connection(cid))
+        return True
+
+    def has_successful_execution(self, connection_id: str) -> bool:
+        cid = (connection_id or "").strip()
+        if not cid:
+            return False
+        with get_session() as s:
+            row = (
+                s.query(DatabaseValidationExecutionRow)
+                .filter_by(connection_id=cid, status="SUCCESS")
+                .limit(1)
+                .first()
+            )
+            return row is not None
 
     def insert_execution(self, **fields: Any) -> None:
         row = DatabaseValidationExecutionRow(

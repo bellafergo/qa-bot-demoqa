@@ -28,6 +28,7 @@ from models.local_agent_models import (
     LocalAgentRegistrationResponse,
     LocalAgentReport,
 )
+from models.platform_asset_models import PlatformAssetBootstrapRequest, PlatformAssetBootstrapResponse
 from models.database_connector_models import DatabaseValidationExecuteRequest, DatabaseValidationExecuteResponse
 from services import database_connector_service, local_agent_service
 
@@ -55,6 +56,17 @@ def get_foundation_local_agent_report(
     limit: int = 200,
 ) -> LocalAgentReport:
     return local_agent_service.get_local_agent_report(project_id=project_id, limit=limit, request=request)
+
+
+@admin_router.post("/platform-assets/bootstrap", response_model=PlatformAssetBootstrapResponse)
+def bootstrap_platform_assets_route(
+    body: PlatformAssetBootstrapRequest,
+    request: Request,
+) -> PlatformAssetBootstrapResponse:
+    local_agent_service.require_local_agent_admin(request)
+    from services.platform_asset_bootstrap_service import bootstrap_platform_assets
+
+    return bootstrap_platform_assets(body.project_id)
 
 
 @admin_router.get("/foundation/capabilities", response_model=List[AgentCapability])

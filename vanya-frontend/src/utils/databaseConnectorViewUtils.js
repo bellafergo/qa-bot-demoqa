@@ -1,14 +1,6 @@
 /** View helpers for secure database connectors (INT-03B). */
 
-/** Default sample database connection for self-service onboarding. */
-export const SAMPLE_DATABASE_CONNECTION_DEFAULTS = {
-  name: "Sample Validation Database",
-  database_type: "postgresql",
-  host_label: "sample-host",
-  database_name: "sample_db",
-};
-
-/** Pick agent for sample connection: selected → first with db cap → first project agent. */
+/** Pick agent for customer connection: selected → first with db cap → first project agent. */
 export function resolveTargetAgentId(agents, selectedAgentId) {
   const list = Array.isArray(agents) ? agents : [];
   if (selectedAgentId && list.some((a) => a.agent_id === selectedAgentId)) {
@@ -24,9 +16,9 @@ export const DATABASE_CONNECTOR_I18N_KEYS = {
   connectionsTitle: "localAgents.database.connections_title",
   connectionsEmptyTitle: "localAgents.database.connections_empty_title",
   connectionsEmptyDesc: "localAgents.database.connections_empty_desc",
-  createSampleConnection: "localAgents.database.create_sample_connection",
-  toastConnectionCreated: "localAgents.database.toast.connection_created",
-  toastConnectionExists: "localAgents.database.toast.connection_exists",
+  registerPlatformAssets: "localAgents.database.register_platform_assets",
+  connectCustomerDatabase: "localAgents.database.connect_customer_database",
+  toastPlatformRegistered: "localAgents.database.toast.platform_registered",
   toastNoAgent: "localAgents.database.toast.no_agent",
   executionsTitle: "localAgents.database.executions_title",
   executeValidation: "incident.qa.database_validation_execute",
@@ -34,6 +26,9 @@ export const DATABASE_CONNECTOR_I18N_KEYS = {
   approvalRequired: "incident.qa.database_validation_approval_required",
   connected: "localAgents.database.connected",
   disconnected: "localAgents.database.disconnected",
+  degraded: "localAgents.database.degraded",
+  error: "localAgents.database.error",
+  pendingValidation: "localAgents.database.pending_validation",
   blocked: "localAgents.database.blocked",
   unknown: "localAgents.foundation.unknown",
   name: "localAgents.database.name",
@@ -45,12 +40,20 @@ export const DATABASE_CONNECTOR_I18N_KEYS = {
   resultSummary: "localAgents.database.result_summary",
   simulateApprove: "localAgents.database.simulate_approve",
   readOnlyNote: "localAgents.database.read_only_note",
+  assetScopePlatform: "localAgents.database.asset_scope_platform",
+  assetScopeCustomer: "localAgents.database.asset_scope_customer",
+  executionModePlatform: "localAgents.database.execution_mode_platform",
+  executionModeLocalAgent: "localAgents.database.execution_mode_local_agent",
+  lastProbe: "localAgents.database.last_probe",
 };
 
 const CONNECTION_STATUS_BADGE = {
   CONNECTED: "badge badge-green",
   DISCONNECTED: "badge badge-gray",
   UNKNOWN: "badge badge-orange",
+  DEGRADED: "badge badge-orange",
+  ERROR: "badge badge-red",
+  PENDING_VALIDATION: "badge badge-gray",
 };
 
 const EXECUTION_STATUS_BADGE = {
@@ -72,7 +75,22 @@ export function connectionStatusLabel(status, t) {
   const key = String(status || "UNKNOWN").toUpperCase();
   if (key === "CONNECTED") return t(DATABASE_CONNECTOR_I18N_KEYS.connected);
   if (key === "DISCONNECTED") return t(DATABASE_CONNECTOR_I18N_KEYS.disconnected);
+  if (key === "DEGRADED") return t(DATABASE_CONNECTOR_I18N_KEYS.degraded);
+  if (key === "ERROR") return t(DATABASE_CONNECTOR_I18N_KEYS.error);
+  if (key === "PENDING_VALIDATION") return t(DATABASE_CONNECTOR_I18N_KEYS.pendingValidation);
   return t(DATABASE_CONNECTOR_I18N_KEYS.unknown);
+}
+
+export function assetScopeLabel(scope, t) {
+  return String(scope || "") === "platform_internal"
+    ? t(DATABASE_CONNECTOR_I18N_KEYS.assetScopePlatform)
+    : t(DATABASE_CONNECTOR_I18N_KEYS.assetScopeCustomer);
+}
+
+export function executionModeLabel(mode, t) {
+  return String(mode || "") === "platform_backend"
+    ? t(DATABASE_CONNECTOR_I18N_KEYS.executionModePlatform)
+    : t(DATABASE_CONNECTOR_I18N_KEYS.executionModeLocalAgent);
 }
 
 export function executionStatusLabel(status, t) {
@@ -88,11 +106,15 @@ export function buildDatabaseConnectionsViewModel(connections, t, formatTimestam
     empty: !connections?.length,
     emptyTitle: t(DATABASE_CONNECTOR_I18N_KEYS.connectionsEmptyTitle),
     emptyDesc: t(DATABASE_CONNECTOR_I18N_KEYS.connectionsEmptyDesc),
-    createSampleConnectionLabel: t(DATABASE_CONNECTOR_I18N_KEYS.createSampleConnection),
+    registerPlatformAssetsLabel: t(DATABASE_CONNECTOR_I18N_KEYS.registerPlatformAssets),
+    connectCustomerDatabaseLabel: t(DATABASE_CONNECTOR_I18N_KEYS.connectCustomerDatabase),
     connections: (connections || []).map((conn) => ({
       ...conn,
       statusBadgeClass: connectionStatusBadgeClass(conn.status),
       statusLabel: connectionStatusLabel(conn.status, t),
+      assetScopeLabel: assetScopeLabel(conn.asset_scope, t),
+      executionModeLabel: executionModeLabel(conn.execution_mode, t),
+      lastProbeText: fmt(conn.last_probe_at),
       createdAtText: fmt(conn.created_at),
     })),
   };

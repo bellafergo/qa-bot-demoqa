@@ -132,22 +132,48 @@ def _agents_state(project_id: str) -> Tuple[str, int, str]:
 
 
 def _database_validation_state(project_id: str) -> Tuple[str, int, str]:
+    from services.database_connector_service import is_real_monitored_asset
     from services.db.database_connector_repository import database_connector_repo
     from services.db.local_agent_repository import local_agent_repo
 
     agents = local_agent_repo.list_agents(project_id=project_id, limit=20) or []
-    total_connections = 0
+    real_assets = 0
+    validated_assets = 0
     for agent in agents:
         agent_id = str(agent.get("agent_id") or agent.get("id") or "").strip()
         if not agent_id:
             continue
         connections = database_connector_repo.list_connections(agent_id=agent_id, limit=20) or []
-        total_connections += len(connections)
-    if total_connections > 0:
-        return "COMPLETED", 100, f"{total_connections} database connector(s) configured."
+        for conn in connections:
+            if not is_real_monitored_asset(conn):
+                continue
+            real_assets += 1
+            if database_connector_repo.has_successful_execution(conn["connection_id"]):
+                validated_assets += 1
+
+    if real_assets > 0 and validated_assets > 0:
+        return (
+            "COMPLETED",
+            100,
+            f"{validated_assets} database asset(s) validated ({real_assets} registered).",
+        )
+    if real_assets > 0:
+        return (
+            "IN_PROGRESS",
+            60,
+            f"{real_assets} database asset(s) registered — awaiting successful read-only validation.",
+        )
     if agents:
-        return "IN_PROGRESS", 40, "Agent registered — add a secure database connector."
-    return "NOT_STARTED", 0, "Register an agent, then add database validation connectors."
+        return (
+            "IN_PROGRESS",
+            30,
+            "Register platform assets or connect a customer database through a local agent.",
+        )
+    return (
+        "NOT_STARTED",
+        0,
+        "Register platform assets or a local agent, then add database validation connectors.",
+    )
 
 
 def _incident_intelligence_flags(project_id: str) -> Dict[str, bool]:
@@ -240,6 +266,13 @@ def build_onboarding_checklist(project_id: str) -> OnboardingChecklist:
     project = project_repo.get_project(pid)
     if project is None:
         raise LookupError(f"project not found: {pid}")
+
+    try:
+        from services.platform_asset_bootstrap_service import bootstrap_platform_assets
+
+        bootstrap_platform_assets(pid)
+    except Exception:
+        logger.debug("platform asset bootstrap skipped for project=%s", pid, exc_info=True)
 
     evaluators = {
         "connect_repository": lambda: _repository_state(project),

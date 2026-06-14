@@ -214,6 +214,34 @@ def initialize_project(
             )
         )
 
+    # ── 4. Platform database assets (read-only bootstrap) ────────────────────
+    try:
+        from services.platform_asset_bootstrap_service import bootstrap_platform_assets
+
+        boot = bootstrap_platform_assets(pid)
+        steps.append(
+            ProjectInitStep(
+                step="platform_assets",
+                status="ok",
+                message=f"Platform assets: {len(boot.connections)} connection(s), {boot.probes_succeeded} probe(s) succeeded",
+                details={
+                    "agent_id": boot.agent_id,
+                    "connections": len(boot.connections),
+                    "probes_run": boot.probes_run,
+                    "probes_succeeded": boot.probes_succeeded,
+                },
+            )
+        )
+    except Exception as exc:
+        logger.exception("initialize: platform asset bootstrap failed project=%s", pid)
+        steps.append(
+            ProjectInitStep(
+                step="platform_assets",
+                status="partial",
+                message=str(exc),
+            )
+        )
+
     failed = [s for s in steps if s.status == "failed"]
     ok = len(failed) == 0
     msg = (

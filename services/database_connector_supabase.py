@@ -32,6 +32,13 @@ def _row_to_connection(row: Dict[str, Any]) -> Dict[str, Any]:
         "database_name": str(row.get("database_name") or ""),
         "status": str(row.get("status") or "UNKNOWN"),
         "created_at": str(row.get("created_at") or ""),
+        "asset_scope": str(row.get("asset_scope") or "customer_external"),
+        "execution_mode": str(row.get("execution_mode") or "local_agent"),
+        "last_probe_at": row.get("last_probe_at"),
+        "last_probe_status": row.get("last_probe_status"),
+        "last_probe_summary": row.get("last_probe_summary"),
+        "is_platform_managed": bool(row.get("is_platform_managed")),
+        "created_by_system": bool(row.get("created_by_system")),
     }
 
 
@@ -45,6 +52,13 @@ def _connection_to_supabase_row(connection: Dict[str, Any]) -> Dict[str, Any]:
         "database_name": str(connection.get("database_name") or "").strip(),
         "status": str(connection.get("status") or "UNKNOWN"),
         "created_at": str(connection.get("created_at") or ""),
+        "asset_scope": str(connection.get("asset_scope") or "customer_external"),
+        "execution_mode": str(connection.get("execution_mode") or "local_agent"),
+        "last_probe_at": connection.get("last_probe_at"),
+        "last_probe_status": connection.get("last_probe_status"),
+        "last_probe_summary": connection.get("last_probe_summary"),
+        "is_platform_managed": bool(connection.get("is_platform_managed")),
+        "created_by_system": bool(connection.get("created_by_system")),
     }
 
 

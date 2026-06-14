@@ -9,7 +9,7 @@ import {
   listDatabaseConnections,
   listDatabaseValidationExecutions,
   registerFoundationLocalAgent,
-  registerDatabaseConnection,
+  bootstrapPlatformAssets,
   getProjectOnboarding,
   apiErrorMessage,
 } from "../api";
@@ -34,8 +34,6 @@ import {
   buildDatabaseConnectionsViewModel,
   buildDatabaseExecutionsViewModel,
   DATABASE_CONNECTOR_I18N_KEYS,
-  resolveTargetAgentId,
-  SAMPLE_DATABASE_CONNECTION_DEFAULTS,
 } from "../utils/databaseConnectorViewUtils.js";
 import { buildInternalApiConnectorViewModel } from "../utils/internalApiConnectorViewUtils.js";
 import InternalApiConnectorView from "../components/local-agents/InternalApiConnectorView.jsx";
@@ -73,7 +71,7 @@ export default function LocalAgentsPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [busyId, setBusyId] = useState(null);
   const [creatingFoundation, setCreatingFoundation] = useState(false);
-  const [creatingSampleConnection, setCreatingSampleConnection] = useState(false);
+  const [creatingPlatformAssets, setCreatingPlatformAssets] = useState(false);
   const [confirmDisable, setConfirmDisable] = useState(null);
 
   const loadAgents = useCallback(
@@ -85,6 +83,9 @@ export default function LocalAgentsPage() {
       }
       try {
         const pid = currentProject?.id ? String(currentProject.id).trim() : "";
+        if (pid) {
+          await bootstrapPlatformAssets(pid).catch(() => null);
+        }
         const [data, report, connections, executions] = await Promise.all([
           listLocalAgents({ project_id: pid || undefined, limit: 200 }),
           getLocalAgentFoundationReport({ project_id: pid || undefined, limit: 200 }).catch(() => null),
@@ -192,31 +193,28 @@ export default function LocalAgentsPage() {
     }
   };
 
-  const onCreateSampleConnection = async () => {
-    const agentId = resolveTargetAgentId(agents, selectedId);
-    if (!agentId) {
-      showToast(t(DATABASE_CONNECTOR_I18N_KEYS.toastNoAgent), "error");
+  const onRegisterPlatformAssets = async () => {
+    const pid = currentProject?.id ? String(currentProject.id).trim() : "";
+    if (!pid) {
+      showToast(t(LOCAL_AGENTS_I18N_KEYS.toastNoProject), "error");
       return;
     }
-    setCreatingSampleConnection(true);
+    setCreatingPlatformAssets(true);
     try {
-      const result = await registerDatabaseConnection({
-        agent_id: agentId,
-        ...SAMPLE_DATABASE_CONNECTION_DEFAULTS,
-      });
-      const toastKey = result?.already_exists
-        ? DATABASE_CONNECTOR_I18N_KEYS.toastConnectionExists
-        : DATABASE_CONNECTOR_I18N_KEYS.toastConnectionCreated;
-      showToast(t(toastKey), result?.already_exists ? "warning" : "success");
-      const pid = currentProject?.id ? String(currentProject.id).trim() : "";
+      const result = await bootstrapPlatformAssets(pid);
+      const count = Array.isArray(result?.connections) ? result.connections.length : 0;
+      showToast(
+        t(DATABASE_CONNECTOR_I18N_KEYS.toastPlatformRegistered, { count: String(count) }),
+        count > 0 ? "success" : "warning",
+      );
       await Promise.all([
         loadAgents({ silent: true }),
-        pid ? getProjectOnboarding(pid).catch(() => null) : Promise.resolve(),
+        getProjectOnboarding(pid).catch(() => null),
       ]);
     } catch (e) {
       showToast(apiErrorMessage(e), "error");
     } finally {
-      setCreatingSampleConnection(false);
+      setCreatingPlatformAssets(false);
     }
   };
 
@@ -294,8 +292,6 @@ export default function LocalAgentsPage() {
     () => buildEnterpriseSystemViewModel(enterpriseSystemReport || { connectors: [], modules: [], validations: [] }, t),
     [enterpriseSystemReport, t],
   );
-
-  const targetAgentId = resolveTargetAgentId(agents, selectedId);
 
   return (
     <div style={{ padding: "24px 24px 40px", maxWidth: 1400, margin: "0 auto" }}>
@@ -400,13 +396,14 @@ export default function LocalAgentsPage() {
         title={t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.dbSectionTitle)}
         emptyTitle={t("localAgents.database.connections_empty_title")}
         emptyDesc={t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.dbEmptyDesc)}
-        createLabel={connectionsVm.createSampleConnectionLabel}
+        platformLabel={connectionsVm.registerPlatformAssetsLabel}
         connections={dbConnectionCards}
         empty={connectionsVm.empty}
-        creating={creatingSampleConnection}
-        canCreate={Boolean(targetAgentId)}
-        noAgentHint={t(DATABASE_CONNECTOR_I18N_KEYS.toastNoAgent)}
-        onCreate={onCreateSampleConnection}
+        creating={creatingPlatformAssets}
+        canRegisterPlatform={Boolean(currentProject?.id)}
+        noProjectHint={t(LOCAL_AGENTS_I18N_KEYS.toastNoProject)}
+        onRegisterPlatform={onRegisterPlatformAssets}
+        lastProbeLabel={t(DATABASE_CONNECTOR_I18N_KEYS.lastProbe)}
       />
 
       {!loading && !error && agents.length > 0 ? (

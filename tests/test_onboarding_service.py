@@ -8,7 +8,19 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+import pytest
+
+from models.platform_asset_models import PlatformAssetBootstrapResponse
 from services.onboarding_service import build_onboarding_checklist
+
+
+@pytest.fixture(autouse=True)
+def _noop_platform_bootstrap():
+    with patch(
+        "services.platform_asset_bootstrap_service.bootstrap_platform_assets",
+        return_value=PlatformAssetBootstrapResponse(project_id="demo"),
+    ):
+        yield
 
 
 def _project(**settings):
@@ -329,7 +341,15 @@ def test_database_connector_configured(
     mock_catalog_repo.count_by_status_for_project.return_value = {"active": 0}
     mock_watch_repo.list_watches.return_value = []
     mock_agent_repo.list_agents.return_value = [{"agent_id": "agent-1", "status": "online"}]
-    mock_db_repo.list_connections.return_value = [{"connection_id": "db-1"}]
+    mock_db_repo.list_connections.return_value = [
+        {
+            "connection_id": "db-1",
+            "name": "Payments DB",
+            "host_label": "payments.internal",
+            "database_name": "payments",
+        }
+    ]
+    mock_db_repo.has_successful_execution.return_value = True
     mock_intel_flags.return_value = {
         "has_executive_report": False,
         "has_contract_intelligence": False,
@@ -400,7 +420,15 @@ def test_readiness_level_mapping(
     mock_catalog_repo.count_by_status_for_project.return_value = {"active": 1}
     mock_watch_repo.list_watches.return_value = [{"watch_id": "w1"}]
     mock_agent_repo.list_agents.return_value = [{"agent_id": "agent-1", "status": "online"}]
-    mock_db_repo.list_connections.return_value = [{"connection_id": "db-1"}]
+    mock_db_repo.list_connections.return_value = [
+        {
+            "connection_id": "db-1",
+            "name": "Payments DB",
+            "host_label": "payments.internal",
+            "database_name": "payments",
+        }
+    ]
+    mock_db_repo.has_successful_execution.return_value = True
     mock_intel_flags.return_value = {
         "has_executive_report": True,
         "has_contract_intelligence": True,

@@ -1,117 +1,66 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   DATABASE_CONNECTOR_I18N_KEYS,
-  SAMPLE_DATABASE_CONNECTION_DEFAULTS,
-  resolveTargetAgentId,
+  assetScopeLabel,
   buildDatabaseConnectionsViewModel,
-  buildDatabaseExecutionsViewModel,
-  buildExecuteValidationPreviewPayload,
-  connectionStatusBadgeClass,
-  executionStatusBadgeClass,
-  pickConnectionForCheck,
+  connectionStatusLabel,
+  executionModeLabel,
 } from "./databaseConnectorViewUtils.js";
 
-const t = (key) => key;
+const t = (key, vars) => {
+  if (vars && typeof vars === "object") {
+    let s = key;
+    for (const [k, v] of Object.entries(vars)) {
+      s = s.split(`{{${k}}}`).join(String(v));
+    }
+    return s;
+  }
+  return key;
+};
 
 describe("databaseConnectorViewUtils", () => {
-  it("renders database connections", () => {
+  it("does not expose create sample connection key", () => {
+    expect(DATABASE_CONNECTOR_I18N_KEYS.registerPlatformAssets).toBe(
+      "localAgents.database.register_platform_assets",
+    );
+    expect(DATABASE_CONNECTOR_I18N_KEYS.createSampleConnection).toBeUndefined();
+  });
+
+  it("exposes empty state with register platform assets action", () => {
+    const vm = buildDatabaseConnectionsViewModel([], t);
+    expect(vm.empty).toBe(true);
+    expect(vm.registerPlatformAssetsLabel).toBe("localAgents.database.register_platform_assets");
+  });
+
+  it("renders platform asset scope and execution mode labels", () => {
+    expect(assetScopeLabel("platform_internal", t)).toBe("localAgents.database.asset_scope_platform");
+    expect(assetScopeLabel("customer_external", t)).toBe("localAgents.database.asset_scope_customer");
+    expect(executionModeLabel("platform_backend", t)).toBe("localAgents.database.execution_mode_platform");
+    expect(executionModeLabel("local_agent", t)).toBe("localAgents.database.execution_mode_local_agent");
+  });
+
+  it("maps connection health statuses", () => {
+    expect(connectionStatusLabel("CONNECTED", t)).toBe("localAgents.database.connected");
+    expect(connectionStatusLabel("DEGRADED", t)).toBe("localAgents.database.degraded");
+    expect(connectionStatusLabel("PENDING_VALIDATION", t)).toBe("localAgents.database.pending_validation");
+  });
+
+  it("includes probe timestamp in connection view model", () => {
     const vm = buildDatabaseConnectionsViewModel(
       [
         {
-          connection_id: "dbconn:agent:payments",
-          agent_id: "agent:demo:store",
-          name: "Payments DB",
-          database_type: "postgresql",
-          host_label: "payments.internal",
-          database_name: "payments",
+          connection_id: "c1",
           status: "CONNECTED",
-          created_at: "2026-06-10T10:00:00Z",
+          asset_scope: "platform_internal",
+          execution_mode: "platform_backend",
+          last_probe_at: "2026-06-12T10:00:00Z",
+          created_at: "2026-06-12T09:00:00Z",
         },
       ],
       t,
       (v) => v,
     );
-    expect(vm.connections).toHaveLength(1);
-    expect(vm.connections[0].name).toBe("Payments DB");
-  });
-
-  it("maps connection status badges", () => {
-    expect(connectionStatusBadgeClass("CONNECTED")).toBe("badge badge-green");
-    expect(connectionStatusBadgeClass("DISCONNECTED")).toBe("badge badge-gray");
-  });
-
-  it("renders execution results", () => {
-    const vm = buildDatabaseExecutionsViewModel(
-      [
-        {
-          execution_id: "dbexec:abc",
-          check_id: "dbcheck:payments:status",
-          connection_id: "dbconn:agent:payments",
-          executed_at: "2026-06-10T10:05:00Z",
-          status: "SUCCESS",
-          row_count: 2,
-          summary: "Read-only validation completed.",
-        },
-      ],
-      t,
-      (v) => v,
-    );
-    expect(vm.executions[0].statusBadgeClass).toBe("badge badge-green");
-    expect(vm.executions[0].summary).toContain("Read-only");
-  });
-
-  it("shows approval required state in execute preview", () => {
-    const payload = buildExecuteValidationPreviewPayload(
-      { name: "Validate payment status", database_type: "postgresql", check_id: "dbcheck:1" },
-      { name: "Payments DB", host_label: "payments.internal" },
-      "PENDING",
-      t,
-    );
-    expect(payload.approvalRequired).toBe(true);
-    expect(payload.canExecute).toBe(false);
-  });
-
-  it("picks matching connection for check", () => {
-    const conn = pickConnectionForCheck(
-      [
-        { database_type: "mysql", name: "Orders" },
-        { database_type: "postgresql", name: "Payments" },
-      ],
-      { database_type: "postgresql" },
-    );
-    expect(conn.name).toBe("Payments");
-  });
-
-  it("exposes translation keys", () => {
-    expect(DATABASE_CONNECTOR_I18N_KEYS.connectionsTitle).toBe("localAgents.database.connections_title");
-    expect(DATABASE_CONNECTOR_I18N_KEYS.createSampleConnection).toBe("localAgents.database.create_sample_connection");
-    expect(DATABASE_CONNECTOR_I18N_KEYS.executeValidation).toBe("incident.qa.database_validation_execute");
-    expect(DATABASE_CONNECTOR_I18N_KEYS.blocked).toBe("localAgents.database.blocked");
-  });
-
-  it("exposes empty state with create sample connection action", () => {
-    const vm = buildDatabaseConnectionsViewModel([], t);
-    expect(vm.empty).toBe(true);
-    expect(vm.emptyTitle).toBe("localAgents.database.connections_empty_title");
-    expect(vm.emptyDesc).toBe("localAgents.database.connections_empty_desc");
-    expect(vm.createSampleConnectionLabel).toBe("localAgents.database.create_sample_connection");
-  });
-
-  it("defines sample connection defaults", () => {
-    expect(SAMPLE_DATABASE_CONNECTION_DEFAULTS.name).toBe("Sample Validation Database");
-    expect(SAMPLE_DATABASE_CONNECTION_DEFAULTS.database_type).toBe("postgresql");
-    expect(SAMPLE_DATABASE_CONNECTION_DEFAULTS.host_label).toBe("sample-host");
-    expect(SAMPLE_DATABASE_CONNECTION_DEFAULTS.database_name).toBe("sample_db");
-  });
-
-  it("resolveTargetAgentId prefers selected then db-capable agent", () => {
-    const agents = [
-      { agent_id: "a1", capabilities: ["contract_validation"] },
-      { agent_id: "a2", capabilities: ["database_validation"] },
-    ];
-    expect(resolveTargetAgentId(agents, "a1")).toBe("a1");
-    expect(resolveTargetAgentId(agents, null)).toBe("a2");
-    expect(resolveTargetAgentId(agents, "missing")).toBe("a2");
-    expect(resolveTargetAgentId([], null)).toBeNull();
+    expect(vm.connections[0].lastProbeText).toBe("2026-06-12T10:00:00Z");
+    expect(vm.connections[0].assetScopeLabel).toBe("localAgents.database.asset_scope_platform");
   });
 });

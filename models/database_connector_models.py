@@ -8,7 +8,16 @@ from pydantic import BaseModel, Field
 
 from models.incident_models import DatabaseValidationCheck
 
-ConnectionStatus = Literal["CONNECTED", "DISCONNECTED", "UNKNOWN"]
+ConnectionStatus = Literal[
+    "CONNECTED",
+    "DISCONNECTED",
+    "UNKNOWN",
+    "DEGRADED",
+    "ERROR",
+    "PENDING_VALIDATION",
+]
+AssetScope = Literal["platform_internal", "customer_external"]
+ExecutionMode = Literal["platform_backend", "local_agent"]
 ExecutionStatus = Literal["SUCCESS", "FAILED", "BLOCKED", "REJECTED"]
 
 
@@ -21,15 +30,24 @@ class DatabaseConnection(BaseModel):
     database_name: str
     status: ConnectionStatus = "UNKNOWN"
     created_at: str
+    asset_scope: AssetScope = "customer_external"
+    execution_mode: ExecutionMode = "local_agent"
+    last_probe_at: Optional[str] = None
+    last_probe_status: Optional[str] = None
+    last_probe_summary: Optional[str] = None
+    is_platform_managed: bool = False
+    created_by_system: bool = False
     already_exists: bool = False
 
 
 class DatabaseConnectionRegistrationRequest(BaseModel):
     agent_id: str = Field(..., min_length=1, max_length=256)
     name: str = Field(..., min_length=1, max_length=256)
-    database_type: Literal["postgresql", "mysql", "sqlserver"] = "postgresql"
+    database_type: Literal["postgresql", "mysql", "sqlserver", "sqlite"] = "postgresql"
     host_label: str = Field(..., min_length=1, max_length=256)
     database_name: str = Field(..., min_length=1, max_length=256)
+    asset_scope: AssetScope = "customer_external"
+    execution_mode: ExecutionMode = "local_agent"
 
 
 class DatabaseValidationExecution(BaseModel):

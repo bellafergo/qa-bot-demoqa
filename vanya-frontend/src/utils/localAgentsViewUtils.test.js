@@ -251,23 +251,29 @@ describe("localAgents enterprise view utils", () => {
     expect(item.needsAttention).toBe(true);
   });
 
-  it("builds database connection card view model", () => {
+  it("builds database connection card view model with platform asset metadata", () => {
     const agentNameById = new Map([[foundationAgent.agent_id, foundationAgent.name]]);
     const card = buildDatabaseConnectionCardViewModel(
       {
         connection_id: "conn-1",
         agent_id: foundationAgent.agent_id,
-        name: "Sample Validation Database",
-        database_type: "postgresql",
+        name: "Platform Operational Store (SQLite)",
+        database_type: "sqlite",
+        asset_scope: "platform_internal",
+        execution_mode: "platform_backend",
+        status: "CONNECTED",
+        last_probe_at: "2026-06-12T11:00:00Z",
         created_at: "2026-06-12T10:00:00Z",
       },
       agentNameById,
       t,
       (v) => v,
     );
-    expect(card.name).toBe("Sample Validation Database");
+    expect(card.name).toBe("Platform Operational Store (SQLite)");
     expect(card.agentLabel).toBe("Agent: Foundation Agent");
-    expect(card.statusLabel).toBe(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.dbStatusRegistered);
+    expect(card.assetScopeLabel).toBe("localAgents.database.asset_scope_platform");
+    expect(card.executionModeLabel).toBe("localAgents.database.execution_mode_platform");
+    expect(card.lastProbeText).toBe("2026-06-12T11:00:00Z");
   });
 
   it("handles empty agents and connections in summary metrics", () => {

@@ -325,12 +325,45 @@ export function buildLocalAgentsConsoleViewModel({
 export function buildDatabaseConnectionCardViewModel(connection, agentNameById, t, formatTimestamp) {
   const fmt = typeof formatTimestamp === "function" ? formatTimestamp : (v) => v || "—";
   const agentName = agentNameById.get(connection.agent_id) || connection.agent_id;
+  const status = String(connection.status || "UNKNOWN").toUpperCase();
+  const statusBadgeClass =
+    status === "CONNECTED"
+      ? "badge badge-green"
+      : status === "DEGRADED"
+        ? "badge badge-orange"
+        : status === "ERROR"
+          ? "badge badge-red"
+          : status === "PENDING_VALIDATION"
+            ? "badge badge-gray"
+            : "badge badge-orange";
+  const statusLabel =
+    status === "CONNECTED"
+      ? t("localAgents.database.connected")
+      : status === "DEGRADED"
+        ? t("localAgents.database.degraded")
+        : status === "ERROR"
+          ? t("localAgents.database.error")
+          : status === "PENDING_VALIDATION"
+            ? t("localAgents.database.pending_validation")
+            : t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.dbStatusRegistered);
+  const scope = String(connection.asset_scope || "customer_external");
+  const mode = String(connection.execution_mode || "local_agent");
   return {
     connectionId: connection.connection_id,
     name: connection.name,
     databaseType: connection.database_type,
     agentLabel: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.dbAgentLabel, { name: agentName }),
-    statusLabel: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.dbStatusRegistered),
+    statusLabel,
+    statusBadgeClass,
+    assetScopeLabel:
+      scope === "platform_internal"
+        ? t("localAgents.database.asset_scope_platform")
+        : t("localAgents.database.asset_scope_customer"),
+    executionModeLabel:
+      mode === "platform_backend"
+        ? t("localAgents.database.execution_mode_platform")
+        : t("localAgents.database.execution_mode_local_agent"),
+    lastProbeText: fmt(connection.last_probe_at),
     createdText: fmt(connection.created_at),
     createdLabel: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.dbCreated),
   };

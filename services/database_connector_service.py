@@ -30,7 +30,28 @@ from services.db.database_connector_repository import database_connector_repo
 from services.db.local_agent_repository import local_agent_repo
 from services.local_agent_service import hash_agent_token, require_local_agent_admin, resolve_foundation_status
 
-_SUPPORTED_DB_TYPES = frozenset({"postgresql", "mysql", "sqlserver"})
+_SUPPORTED_DB_TYPES = frozenset({"postgresql", "mysql", "sqlserver", "sqlite"})
+_DEMO_HOSTS = frozenset({"sample-host", "sample_host"})
+_DEMO_DBS = frozenset({"sample_db"})
+_DEMO_NAMES = frozenset({"sample validation database"})
+
+
+def is_demo_connection_row(row: Dict[str, Any]) -> bool:
+    """Detect legacy sample/demo connection metadata that must not count for onboarding."""
+    host = str(row.get("host_label") or "").strip().lower()
+    db = str(row.get("database_name") or "").strip().lower()
+    name = str(row.get("name") or "").strip().lower()
+    if host in _DEMO_HOSTS and db in _DEMO_DBS:
+        return True
+    if name in _DEMO_NAMES:
+        return True
+    return False
+
+
+def is_real_monitored_asset(row: Dict[str, Any]) -> bool:
+    if is_demo_connection_row(row):
+        return False
+    return True
 
 
 def build_connection_id(agent_id: str, name: str) -> str:
@@ -69,7 +90,12 @@ def _row_to_connection(
     *,
     already_exists: bool = False,
 ) -> DatabaseConnection:
-    status = _connection_status_for_agent(agent_row) if agent_row else str(row.get("status") or "UNKNOWN")
+    scope = str(row.get("asset_scope") or "customer_external")
+    mode = str(row.get("execution_mode") or "local_agent")
+    if scope == "platform_internal":
+        status = str(row.get("status") or "PENDING_VALIDATION")
+    else:
+        status = _connection_status_for_agent(agent_row) if agent_row else str(row.get("status") or "UNKNOWN")
     return DatabaseConnection(
         connection_id=row["connection_id"],
         agent_id=row["agent_id"],
@@ -79,6 +105,13 @@ def _row_to_connection(
         database_name=row["database_name"],
         status=status,  # type: ignore[arg-type]
         created_at=row.get("created_at") or "",
+        asset_scope=scope,  # type: ignore[arg-type]
+        execution_mode=mode,  # type: ignore[arg-type]
+        last_probe_at=row.get("last_probe_at"),
+        last_probe_status=row.get("last_probe_status"),
+        last_probe_summary=row.get("last_probe_summary"),
+        is_platform_managed=bool(row.get("is_platform_managed")),
+        created_by_system=bool(row.get("created_by_system")),
         already_exists=already_exists,
     )
 
@@ -155,11 +188,25 @@ def simulate_approval(check_id: str, status: str) -> ApprovalRequest:
 
 def register_connection(body: DatabaseConnectionRegistrationRequest, request: Request) -> DatabaseConnection:
     require_local_agent_admin(request)
+    if is_demo_connection_row(body.model_dump()):
+        raise HTTPException(
+            status_code=400,
+            detail="Demo/sample database connections are not allowed. Register real platform or customer assets.",
+        )
+
     agent = local_agent_repo.get_agent(body.agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="agent not found")
     if "database_validation" not in [str(c).lower() for c in (agent.get("capabilities") or [])]:
         raise HTTPException(status_code=400, detail="agent missing database_validation capability")
+
+    asset_scope = str(body.asset_scope or "customer_external")
+    execution_mode = str(body.execution_mode or "local_agent")
+    if asset_scope == "platform_internal" or execution_mode == "platform_backend":
+        raise HTTPException(
+            status_code=400,
+            detail="Platform-internal assets must be registered via platform asset bootstrap.",
+        )
 
     db_type = body.database_type.strip().lower()
     if db_type not in _SUPPORTED_DB_TYPES:
@@ -179,6 +226,8 @@ def register_connection(body: DatabaseConnectionRegistrationRequest, request: Re
         host_label=body.host_label.strip(),
         database_name=body.database_name.strip(),
         status=status,
+        asset_scope="customer_external",
+        execution_mode="local_agent",
     )
     row = database_connector_repo.get_connection(connection_id)
     return _row_to_connection(row or {}, agent, already_exists=False)
@@ -238,8 +287,9 @@ def execute_validation_check(
     agent_executor: Optional[Any] = None,
 ) -> DatabaseValidationExecution:
     """
-    Validate approval, connector, capability, and query safety; then execute via local agent.
-    Cloud never opens a direct database connection.
+    Validate approval, connector, capability, and query safety; then execute.
+    platform_internal assets use backend read-only probes.
+    customer_external assets require local agent execution (no cloud simulation by default).
     """
     connection = database_connector_repo.get_connection(connection_id)
     if not connection:
@@ -260,6 +310,12 @@ def execute_validation_check(
             summary="Registered local agent not found.",
             status="FAILED",
         )
+
+    asset_scope = str(connection.get("asset_scope") or "customer_external")
+    execution_mode = str(connection.get("execution_mode") or "local_agent")
+
+    if asset_scope == "platform_internal" and execution_mode == "platform_backend":
+        return _execute_platform_internal_validation(check=check, connection=connection, agent=agent)
 
     if check.requires_user_approval:
         approval_status = resolve_approval_status(check.check_id, approval_workflow)
@@ -331,8 +387,16 @@ def execute_validation_check(
         status="queued",
     )
 
-    executor = agent_executor or simulate_agent_readonly_execution
-    row_count, summary = executor(check.query, connection["database_type"], check.name)
+    if agent_executor is None:
+        return _blocked_execution(
+            check=check,
+            connection_id=connection_id,
+            agent_id=connection["agent_id"],
+            summary="Local agent execution required. Validation job queued for agent pickup.",
+            status="BLOCKED",
+        )
+
+    row_count, summary = agent_executor(check.query, connection["database_type"], check.name)
     execution_row = {
         "execution_id": execution_id,
         "check_id": check.check_id,
@@ -348,6 +412,56 @@ def execute_validation_check(
     }
     database_connector_repo.insert_execution(**execution_row)
     local_agent_repo.update_job(execution_id, status="succeeded", completed_at=_utc_now())
+    return _row_to_execution(execution_row)
+
+
+def _execute_platform_internal_validation(
+    *,
+    check: DatabaseValidationCheck,
+    connection: Dict[str, Any],
+    agent: Dict[str, Any],
+) -> DatabaseValidationExecution:
+    from services.platform_internal_probe_service import execute_platform_internal_probe
+
+    safe, reason = validate_query_safety(check.query)
+    if not safe:
+        return _blocked_execution(
+            check=check,
+            connection_id=connection["connection_id"],
+            agent_id=connection["agent_id"],
+            summary=f"Unsafe query blocked: {reason}",
+            status="BLOCKED",
+        )
+
+    execution_id = build_execution_id(check.check_id, connection["connection_id"])
+    row_count, probe_summary, ok = execute_platform_internal_probe(connection)
+    status: ExecutionStatus = "SUCCESS" if ok else "FAILED"
+    summary = _sanitize_summary(probe_summary)
+    conn_status = "CONNECTED" if ok else "DEGRADED"
+    if not ok and row_count == 0:
+        conn_status = "ERROR"
+
+    execution_row = {
+        "execution_id": execution_id,
+        "check_id": check.check_id,
+        "connection_id": connection["connection_id"],
+        "agent_id": connection["agent_id"],
+        "executed_at": _utc_now(),
+        "status": status,
+        "row_count": row_count,
+        "summary": summary,
+        "confidence": _confidence_for_result(row_count, ok),
+        "requires_user_approval": False,
+        "check_json": json.dumps(check.model_dump(), separators=(",", ":")),
+    }
+    database_connector_repo.insert_execution(**execution_row)
+    database_connector_repo.update_connection_probe(
+        connection["connection_id"],
+        status=conn_status,
+        last_probe_at=execution_row["executed_at"],
+        last_probe_status=status,
+        last_probe_summary=summary,
+    )
     return _row_to_execution(execution_row)
 
 

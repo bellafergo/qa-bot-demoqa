@@ -91,30 +91,51 @@ def test_connector_registration():
 
 def test_register_connection_idempotent():
     reg = _register_agent("conn-idem-proj", "Idem-Agent")
-    first = _register_connection(reg.agent_id, name="Sample Validation Database")
-    second = _register_connection(reg.agent_id, name="Sample Validation Database")
+    first = _register_connection(reg.agent_id, name="Payments DB")
+    second = _register_connection(reg.agent_id, name="Payments DB")
     assert first.connection_id == second.connection_id
     assert first.already_exists is False
     assert second.already_exists is True
 
 
+def test_demo_connection_registration_rejected():
+    reg = _register_agent("conn-demo-proj", "Demo-Agent")
+    with pytest.raises(HTTPException) as exc:
+        register_connection(
+            DatabaseConnectionRegistrationRequest(
+                agent_id=reg.agent_id,
+                name="Sample Validation Database",
+                database_type="postgresql",
+                host_label="sample-host",
+                database_name="sample_db",
+            ),
+            _Req(),
+        )
+    assert exc.value.status_code == 400
+
+
+@patch("services.platform_asset_bootstrap_service.bootstrap_platform_assets")
 @patch("services.onboarding_service._incident_intelligence_flags")
 @patch("services.onboarding_service._knowledge_has_apis", return_value=False)
 @patch("services.db.browser_inspection_watch_repository.browser_inspection_watch_repo")
 @patch("services.db.catalog_repository.catalog_repo")
 @patch("services.db.project_repository.project_repo")
-def test_onboarding_database_validation_completed_after_connection_registration(
+def test_onboarding_not_completed_without_successful_probe(
     mock_project_repo,
     mock_catalog_repo,
     mock_watch_repo,
     _mock_knowledge,
     mock_intel_flags,
+    mock_bootstrap,
 ):
     from types import SimpleNamespace
 
+    from models.platform_asset_models import PlatformAssetBootstrapResponse
     from services.onboarding_service import build_onboarding_checklist
 
-    project_id = "onb-db-conn-proj"
+    mock_bootstrap.return_value = PlatformAssetBootstrapResponse(project_id="onb-db-no-probe-proj")
+
+    project_id = "onb-db-no-probe-proj"
     mock_project_repo.get_project.return_value = SimpleNamespace(
         id=project_id,
         settings={},
@@ -130,18 +151,12 @@ def test_onboarding_database_validation_completed_after_connection_registration(
     }
 
     reg = _register_agent(project_id, "Onb-Agent")
-    before = build_onboarding_checklist(project_id)
-    db_before = next(s for s in before.steps if s.step_id == "configure_database_validation")
-    assert db_before.status == "IN_PROGRESS"
-    assert db_before.completion_percentage == 40
+    _register_connection(reg.agent_id, name="Payments DB")
 
-    conn = _register_connection(reg.agent_id, name="Sample Validation Database")
-    assert conn.connection_id
-
-    after = build_onboarding_checklist(project_id)
-    db_after = next(s for s in after.steps if s.step_id == "configure_database_validation")
-    assert db_after.status == "COMPLETED"
-    assert db_after.completion_percentage == 100
+    checklist = build_onboarding_checklist(project_id)
+    db_step = next(s for s in checklist.steps if s.step_id == "configure_database_validation")
+    assert db_step.status == "IN_PROGRESS"
+    assert db_step.completion_percentage in (30, 60)
 
 
 def test_connector_status_offline_when_agent_stale():
@@ -164,10 +179,24 @@ def test_safe_query_execution():
     conn = _register_connection(reg.agent_id)
     check = _sample_check()
     simulate_approval(check.check_id, "APPROVED")
-    result = execute_validation_check(check=check, connection_id=conn.connection_id)
+    result = execute_validation_check(
+        check=check,
+        connection_id=conn.connection_id,
+        agent_executor=simulate_agent_readonly_execution,
+    )
     assert result.status == "SUCCESS"
     assert result.row_count > 0
     assert "password" not in result.summary.lower()
+
+
+def test_customer_external_requires_local_agent_executor():
+    reg = _register_agent("conn-pending-proj", "Pending-Agent")
+    conn = _register_connection(reg.agent_id)
+    check = _sample_check()
+    simulate_approval(check.check_id, "APPROVED")
+    result = execute_validation_check(check=check, connection_id=conn.connection_id)
+    assert result.status == "BLOCKED"
+    assert "local agent" in result.summary.lower()
 
 
 def test_unsafe_query_blocked():
@@ -231,6 +260,7 @@ def test_deterministic_execution_ids():
 
 
 def test_no_direct_db_access():
+    """Customer external assets must not execute in cloud without an explicit test executor."""
     with patch(
         "services.database_connector_service.simulate_agent_readonly_execution",
         return_value=(1, "Agent-mediated read-only result."),
@@ -239,8 +269,10 @@ def test_no_direct_db_access():
         conn = _register_connection(reg.agent_id)
         check = _sample_check()
         simulate_approval(check.check_id, "APPROVED")
-        execute_validation_check(check=check, connection_id=conn.connection_id)
-        mock_agent_exec.assert_called_once()
+        blocked = execute_validation_check(check=check, connection_id=conn.connection_id)
+        assert blocked.status == "BLOCKED"
+        assert "local agent" in blocked.summary.lower()
+        mock_agent_exec.assert_not_called()
 
 
 @pytest.fixture

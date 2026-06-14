@@ -936,6 +936,15 @@ export function registerDatabaseConnection(body) {
   });
 }
 
+/** POST /local-agents/platform-assets/bootstrap — register real platform persistence assets. */
+export function bootstrapPlatformAssets(projectId) {
+  return apiFetchJson("/local-agents/platform-assets/bootstrap", {
+    method: "POST",
+    headers: { ...localAgentAdminHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ project_id: projectId }),
+  });
+}
+
 /** GET /local-agents/database-connections — INT-03B secure connectors. */
 export function listDatabaseConnections(params = {}) {
   const q = new URLSearchParams();
