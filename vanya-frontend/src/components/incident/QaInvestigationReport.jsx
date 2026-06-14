@@ -68,6 +68,12 @@ import CoverageIntelligenceView from "../coverage-intelligence/CoverageIntellige
 import QMetryRecommendationView from "../qmetry-recommendations/QMetryRecommendationView.jsx";
 import IncidentInsightTracePanel from "../incidents/IncidentInsightTracePanel.jsx";
 import CapabilityStateCard from "../capability-state/CapabilityStateCard.jsx";
+import ReportCollapsibleSection from "./ReportCollapsibleSection.jsx";
+import {
+  buildQaInvestigationReportLayoutViewModel,
+  partitionImpactMapNodes,
+  sliceTopItems,
+} from "../../utils/qaInvestigationReportLayoutUtils.js";
 
 export default function QaInvestigationReport({ report, t }) {
   const [dbConnections, setDbConnections] = useState([]);
@@ -121,6 +127,10 @@ export default function QaInvestigationReport({ report, t }) {
   const coverageIntelligenceVm = buildCoverageIntelligenceViewModel(report, t);
   const recommendationCorrelationVm = buildRecommendationCorrelationViewModel(report, t);
   const approvalWorkflowVm = buildApprovalWorkflowViewModel(report, t);
+  const layoutVm = buildQaInvestigationReportLayoutViewModel(report, t);
+  const impactPartition = partitionImpactMapNodes(impactMapVm.nodes);
+  const recommendedActionSlices = sliceTopItems(recommendedActionsVm.actions, 3);
+  const testRecommendationSlices = sliceTopItems(testRecommendationsVm.recommendations, 3);
   const es = report.evidence_strength;
   const temporal = report.temporal_correlation;
   const qmetryIntegrationConsolidated = shouldConsolidateQMetryIntegration(
@@ -157,7 +167,17 @@ export default function QaInvestigationReport({ report, t }) {
         </div>
       </div>
 
-      {executiveQualityReportVm.show ? (
+      {layoutVm.showLowConfidenceWarning ? (
+        <div className="alert alert-warning" style={{ marginBottom: 16, fontSize: 13, lineHeight: 1.55 }}>
+          {layoutVm.lowConfidenceMessage}
+        </div>
+      ) : null}
+
+      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>
+        {layoutVm.executiveOverviewTitle}
+      </div>
+
+      {layoutVm.showNoisySections && executiveQualityReportVm.show ? (
         <div style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
             {executiveQualityReportVm.title}
@@ -182,7 +202,7 @@ export default function QaInvestigationReport({ report, t }) {
         </div>
       ) : null}
 
-      {qualityHealthVm.show ? (
+      {layoutVm.showNoisySections && qualityHealthVm.show ? (
         <div style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
             {qualityHealthVm.title}
@@ -207,6 +227,260 @@ export default function QaInvestigationReport({ report, t }) {
         </div>
       ) : null}
 
+      {layoutVm.showNoisySections && deploymentRiskVm.show ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {deploymentRiskVm.title}
+          </div>
+          {deploymentRiskVm.empty ? (
+            emptyStateText(deploymentRiskVm.emptyMessage)
+          ) : (
+            <div
+              style={{
+                padding: "16px 18px",
+                background: "var(--bg-2)",
+                borderRadius: 8,
+                border: "1px solid var(--border, rgba(255,255,255,0.08))",
+              }}
+            >
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+                <div
+                  style={{
+                    minWidth: 88,
+                    padding: "10px 14px",
+                    borderRadius: 8,
+                    background: "var(--bg-3, rgba(255,255,255,0.04))",
+                    textAlign: "center",
+                  }}
+                >
+                  <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 4 }}>
+                    {deploymentRiskVm.riskScoreLabel}
+                  </div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: "var(--text-1)" }}>
+                    {deploymentRiskVm.assessment.risk_score}
+                    <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-3)" }}> / 100</span>
+                  </div>
+                </div>
+                <span className={deploymentRiskVm.assessment.riskLevelBadgeClass}>
+                  {deploymentRiskVm.riskLevelLabel}: {deploymentRiskVm.assessment.riskLevelLabel}
+                </span>
+                <span className="badge badge-orange">
+                  {deploymentRiskVm.confidenceLabel}: {deploymentRiskVm.assessment.confidenceText}
+                </span>
+              </div>
+              <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.55, marginBottom: 14 }}>
+                {deploymentRiskVm.assessment.summary}
+              </div>
+              {deploymentRiskVm.assessment.showTrace ? (
+                <IncidentInsightTracePanel trace={deploymentRiskVm.assessment.trace} />
+              ) : null}
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {report.summary ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 6 }}>{t("incident.qa.summary")}</div>
+          <div style={{ fontSize: 14, color: "var(--text-1)", lineHeight: 1.6 }}>{report.summary}</div>
+        </div>
+      ) : null}
+
+      {layoutVm.showNoisySections && decisionCenterVm.show ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {decisionCenterVm.title}
+          </div>
+          {decisionCenterVm.empty ? (
+            emptyStateText(decisionCenterVm.emptyMessage)
+          ) : (
+            <div
+              style={{
+                padding: "16px 18px",
+                background: "var(--bg-2)",
+                borderRadius: 8,
+                border: "1px solid var(--border, rgba(255,255,255,0.08))",
+              }}
+            >
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+                <span className={decisionCenterVm.center.statusBadgeClass}>
+                  {decisionCenterVm.overallStatusLabel}: {decisionCenterVm.center.statusLabel}
+                </span>
+                {decisionCenterVm.center.top_risk_score > 0 ? (
+                  <div
+                    style={{
+                      minWidth: 72,
+                      padding: "8px 12px",
+                      borderRadius: 8,
+                      background: "var(--bg-3, rgba(255,255,255,0.04))",
+                      textAlign: "center",
+                    }}
+                  >
+                    <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 2 }}>
+                      {decisionCenterVm.topRiskScoreLabel}
+                    </div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text-1)" }}>
+                      {decisionCenterVm.center.top_risk_score}
+                      <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text-3)" }}> / 100</span>
+                    </div>
+                  </div>
+                ) : null}
+                <span className="badge badge-orange">
+                  {decisionCenterVm.confidenceLabel}: {decisionCenterVm.center.confidenceText}
+                </span>
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 6 }}>
+                {decisionCenterVm.executiveSummaryLabel}
+              </div>
+              <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.55, marginBottom: 14 }}>
+                {decisionCenterVm.center.executive_summary}
+              </div>
+              {decisionCenterVm.center.showTrace ? (
+                <IncidentInsightTracePanel trace={decisionCenterVm.center.trace} />
+              ) : null}
+              {(decisionCenterVm.center.top_impacted_area || decisionCenterVm.center.top_hypothesis) ? (
+                <div style={{ display: "grid", gap: 10, marginBottom: 14 }}>
+                  {decisionCenterVm.center.top_impacted_area ? (
+                    <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+                      <span style={{ fontWeight: 600, color: "var(--text-3)" }}>
+                        {decisionCenterVm.topImpactedAreaLabel}:
+                      </span>{" "}
+                      <span style={{ color: "var(--text-2)" }}>{decisionCenterVm.center.top_impacted_area}</span>
+                    </div>
+                  ) : null}
+                  {decisionCenterVm.center.top_hypothesis ? (
+                    <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+                      <span style={{ fontWeight: 600, color: "var(--text-3)" }}>
+                        {decisionCenterVm.topHypothesisLabel}:
+                      </span>{" "}
+                      <span style={{ color: "var(--text-2)" }}>{decisionCenterVm.center.top_hypothesis}</span>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              {decisionCenterVm.center.takeaways?.length > 0 ? (
+                <>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+                    {decisionCenterVm.keyTakeawaysLabel}
+                  </div>
+                  <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                    {decisionCenterVm.center.takeaways.slice(0, 3).map((insight) => (
+                      <li
+                        key={`${insight.priority}-${insight.title}`}
+                        style={{
+                          marginBottom: 10,
+                          padding: "10px 12px",
+                          background: "var(--bg-3, rgba(255,255,255,0.03))",
+                          borderRadius: 6,
+                          fontSize: 13,
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        <strong style={{ color: "var(--text-1)", display: "block", marginBottom: 4 }}>
+                          {insight.title}
+                        </strong>
+                        <div style={{ color: "var(--text-3)", marginBottom: insight.drilldownItem ? 8 : 0 }}>
+                          {insight.description}
+                        </div>
+                        {insight.drilldownItem ? (
+                          <EvidenceCorrelationDrilldownCell item={insight.drilldownItem} />
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+              <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+                {decisionCenterVm.readOnlyNote}
+              </p>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {layoutVm.showNoisySections && recommendedActionsVm.show && !recommendedActionsVm.empty ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {layoutVm.recommendedActionsTitle}
+          </div>
+          <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+            {recommendedActionSlices.top.map((action) => (
+              <RecommendedActionCard
+                key={action.action_id}
+                action={action}
+                labels={{
+                  approvalRequiredLabel: recommendedActionsVm.approvalRequiredLabel,
+                  priorityLabel: recommendedActionsVm.priorityLabel,
+                  confidenceLabel: recommendedActionsVm.confidenceLabel,
+                  actionTypeLabel: recommendedActionsVm.actionTypeLabel,
+                }}
+              />
+            ))}
+          </ul>
+          {recommendedActionSlices.hasRemainder ? (
+            <ReportCollapsibleSection
+              title={layoutVm.allRecommendedActionsTitle}
+              defaultOpen={layoutVm.expandAllRecommendedActions}
+            >
+              <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                {recommendedActionSlices.remainder.map((action) => (
+                  <RecommendedActionCard
+                    key={action.action_id}
+                    action={action}
+                    labels={{
+                      approvalRequiredLabel: recommendedActionsVm.approvalRequiredLabel,
+                      priorityLabel: recommendedActionsVm.priorityLabel,
+                      confidenceLabel: recommendedActionsVm.confidenceLabel,
+                      actionTypeLabel: recommendedActionsVm.actionTypeLabel,
+                    }}
+                  />
+                ))}
+              </ul>
+            </ReportCollapsibleSection>
+          ) : null}
+        </div>
+      ) : null}
+
+      {layoutVm.lowConfidence && Array.isArray(report.investigation_plan) && report.investigation_plan.length > 0 ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {layoutVm.suggestedNextStepsTitle}
+          </div>
+          <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none" }}>
+            {report.investigation_plan.slice(0, 3).map((step, i) => (
+              <li
+                key={`${step.title}-${i}`}
+                style={{
+                  marginBottom: 10,
+                  padding: "12px 14px",
+                  background: "var(--bg-2)",
+                  borderRadius: 8,
+                  fontSize: 13,
+                  lineHeight: 1.5,
+                }}
+              >
+                <strong style={{ color: "var(--text-1)" }}>{step.title}</strong>
+                <div style={{ color: "var(--text-3)", marginTop: 6 }}>{step.reason}</div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {layoutVm.lowConfidence && report.data_gaps?.length > 0 ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.data_gaps")}</div>
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "var(--text-3)", lineHeight: 1.7 }}>
+            {report.data_gaps.slice(0, 5).map((g, i) => <li key={i}>{g}</li>)}
+          </ul>
+        </div>
+      ) : null}
+
+      {layoutVm.showNoisySections ? (
+      <ReportCollapsibleSection
+        title={layoutVm.operationalAnalysisTitle}
+        defaultOpen={layoutVm.expandOperationalAnalysis}
+      >
       {qualityTrendVm.show ? (
         <div style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
@@ -282,231 +556,182 @@ export default function QaInvestigationReport({ report, t }) {
         </div>
       ) : null}
 
-      {report.summary ? (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 6 }}>{t("incident.qa.summary")}</div>
-          <div style={{ fontSize: 14, color: "var(--text-1)", lineHeight: 1.6 }}>{report.summary}</div>
-        </div>
-      ) : null}
-
-      {report.hypotheses?.length > 0 ? (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.hypotheses")}</div>
-          <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none" }}>
-            {report.hypotheses.map((h) => (
-              <li key={h.id || h.rank || h.statement} style={{ marginBottom: 10, padding: "10px 12px", background: "var(--bg-2)", borderRadius: 8, fontSize: 13, lineHeight: 1.5 }}>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
-                  {h.id === report.primary_hypothesis_id ? (
-                    <span className="badge badge-orange">{t("incident.qa.primary_hypothesis")}</span>
-                  ) : null}
-                  {h.rank ? <span className="badge badge-gray">#{h.rank}</span> : null}
-                  <span className="badge badge-gray">{hypothesisBasisLabel(h.basis, t)}</span>
-                  <span className="badge badge-blue">{confidencePct(h.confidence)}</span>
-                </div>
-                {h.statement}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {Array.isArray(report.investigation_plan) ? (
-        <div style={{ marginBottom: 16 }}>
+      {releaseReadinessVm.show ? (
+        <div style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
-            {t("incident.qa.investigation_plan")}
+            {releaseReadinessVm.title}
           </div>
-          {report.investigation_plan.length > 0 ? (
-            <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none" }}>
-              {report.investigation_plan.map((step, i) => (
-                <li
-                  key={`${step.title}-${i}`}
-                  style={{
-                    marginBottom: 10,
-                    padding: "12px 14px",
-                    background: "var(--bg-2)",
-                    borderRadius: 8,
-                    fontSize: 13,
-                    lineHeight: 1.5,
-                  }}
-                >
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 6 }}>
-                    <span className="badge badge-orange">
-                      {t("incident.qa.investigation_plan_priority")}: {step.priority ?? 0}
-                    </span>
-                    <strong style={{ color: "var(--text-1)" }}>{step.title}</strong>
-                  </div>
-                  <div style={{ color: "var(--text-3)", marginBottom: 8 }}>{step.reason}</div>
-                  {step.related_entity_type && step.related_entity_id ? (
-                    <EvidenceCorrelationDrilldownCell
-                      item={{
-                        source: step.related_entity_type,
-                        related_entity_type: step.related_entity_type,
-                        related_entity_id: step.related_entity_id,
-                        reason: step.reason,
-                        detail: step.title,
-                        title: step.title,
-                      }}
-                    />
-                  ) : null}
-                </li>
-              ))}
-            </ul>
+          {releaseReadinessVm.empty ? (
+            emptyStateText(releaseReadinessVm.emptyMessage)
           ) : (
-            emptyStateText(t("incident.qa.investigation_plan_empty"))
+            <ReleaseReadinessView vm={releaseReadinessVm} />
           )}
         </div>
       ) : null}
 
-      {storylineVm.show ? (
-        <div style={{ marginBottom: 16 }}>
+      {historicalLearningVm.show ? (
+        <div style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
-            {storylineVm.title}
+            {historicalLearningVm.title}
           </div>
-          {storylineVm.empty ? (
-            emptyStateText(storylineVm.emptyMessage)
-          ) : (
-            <ol style={{ margin: 0, padding: 0, listStyle: "none" }}>
-              {storylineVm.steps.map((step) => (
-                <li
-                  key={`storyline-${step.step_number}-${step.title}`}
-                  style={{
-                    display: "flex",
-                    gap: 12,
-                    marginBottom: step.isLast ? 0 : 4,
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      flexShrink: 0,
-                      width: 28,
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: 28,
-                        height: 28,
-                        borderRadius: "50%",
-                        background: "var(--accent, #f97316)",
-                        color: "#fff",
-                        fontSize: 12,
-                        fontWeight: 700,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      {step.step_number}
-                    </div>
-                    {!step.isLast ? (
-                      <div
-                        style={{
-                          flex: 1,
-                          width: 2,
-                          minHeight: 24,
-                          background: "var(--border, rgba(255,255,255,0.12))",
-                          marginTop: 4,
-                        }}
-                      />
-                    ) : null}
-                  </div>
-                  <div
-                    style={{
-                      flex: 1,
-                      marginBottom: step.isLast ? 0 : 14,
-                      padding: "12px 14px",
-                      background: "var(--bg-2)",
-                      borderRadius: 8,
-                      fontSize: 13,
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 6 }}>
-                      <span className="badge badge-blue">
-                        {storylineVm.stepLabel} {step.step_number}
-                      </span>
-                      <span className="badge badge-orange">
-                        {storylineVm.confidenceLabel}: {step.confidenceText}
-                      </span>
-                      {step.timestamp ? (
-                        <span style={{ fontSize: 12, color: "var(--text-3)" }}>
-                          {storylineVm.timestampLabel}: {fmtTs(step.timestamp)}
-                        </span>
-                      ) : null}
-                    </div>
-                    <strong style={{ color: "var(--text-1)", display: "block", marginBottom: 6 }}>
-                      {step.title}
-                    </strong>
-                    <div style={{ color: "var(--text-3)", marginBottom: step.drilldownItem ? 8 : 0 }}>
-                      {step.description}
-                    </div>
-                    {step.drilldownItem ? (
-                      <EvidenceCorrelationDrilldownCell item={step.drilldownItem} />
-                    ) : null}
-                  </div>
-                </li>
-              ))}
-            </ol>
-          )}
-        </div>
-      ) : null}
-
-      {impactMapVm.show ? (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
-            {impactMapVm.title}
-          </div>
-          {impactMapVm.empty ? (
-            emptyStateText(impactMapVm.emptyMessage)
+          {historicalLearningVm.empty ? (
+            emptyStateText(historicalLearningVm.emptyMessage)
           ) : (
             <div
               style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
-                gap: 12,
+                padding: "16px 18px",
+                background: "var(--bg-2)",
+                borderRadius: 8,
+                border: "1px solid var(--border, rgba(255,255,255,0.08))",
               }}
             >
-              {impactMapVm.nodes.map((node) => (
-                <div
-                  key={`impact-${node.title}`}
-                  style={{
-                    padding: "14px 16px",
-                    background: "var(--bg-2)",
-                    borderRadius: 8,
-                    fontSize: 13,
-                    lineHeight: 1.5,
-                    border: "1px solid var(--border, rgba(255,255,255,0.08))",
-                  }}
-                >
-                  <strong style={{ color: "var(--text-1)", display: "block", marginBottom: 8, fontSize: 14 }}>
-                    {node.title}
-                  </strong>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
-                    <span className={node.severityBadgeClass}>
-                      {impactMapVm.severityLabel}: {node.severityLabel}
-                    </span>
-                    <span className="badge badge-blue">
-                      {node.related_entity_count} {impactMapVm.signalsLabel.toLowerCase()}
-                    </span>
-                    <span className="badge badge-orange">
-                      {impactMapVm.confidenceLabel}: {node.confidenceText}
-                    </span>
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+                <span className="badge badge-orange">
+                  {historicalLearningVm.confidenceLabel}: {historicalLearningVm.learning.confidenceText}
+                </span>
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 6 }}>
+                {historicalLearningVm.patternSummaryLabel}
+              </div>
+              <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.55, marginBottom: 14 }}>
+                {historicalLearningVm.learning.pattern_summary}
+              </div>
+              {historicalLearningVm.learning.incidents?.length > 0 ? (
+                <>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+                    {historicalLearningVm.similarIncidentsLabel}
                   </div>
-                  <div style={{ color: "var(--text-3)", marginBottom: node.drilldownItem ? 10 : 0 }}>
-                    {node.description}
-                  </div>
-                  {node.drilldownItem ? (
-                    <EvidenceCorrelationDrilldownCell item={node.drilldownItem} />
-                  ) : null}
-                </div>
-              ))}
+                  <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                    {historicalLearningVm.learning.incidents.map((incident) => (
+                      <SimilarIncidentCard
+                        key={incident.incident_id}
+                        incident={incident}
+                        labels={{
+                          similarityLabel: historicalLearningVm.similarityLabel,
+                          previewLabel: historicalLearningVm.previewLabel,
+                        }}
+                      />
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+              <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+                {historicalLearningVm.readOnlyNote}
+              </p>
             </div>
           )}
         </div>
       ) : null}
+      </ReportCollapsibleSection>
+      ) : null}
 
+      {layoutVm.showNoisySections && impactMapVm.show ? (
+        <ReportCollapsibleSection
+          title={`${layoutVm.operationalAnalysisTitle} · ${impactMapVm.title}`}
+          defaultOpen={layoutVm.expandOperationalAnalysis}
+        >
+          {impactMapVm.empty ? (
+            emptyStateText(impactMapVm.emptyMessage)
+          ) : (
+            <>
+              {impactPartition.confirmed.length > 0 ? (
+                <>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+                    {layoutVm.confirmedImpactedAreasTitle}
+                  </div>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+                      gap: 12,
+                      marginBottom: impactPartition.inferred.length > 0 ? 16 : 0,
+                    }}
+                  >
+                    {impactPartition.confirmed.map((node) => (
+                      <div
+                        key={`impact-confirmed-${node.title}`}
+                        style={{
+                          padding: "14px 16px",
+                          background: "var(--bg-2)",
+                          borderRadius: 8,
+                          fontSize: 13,
+                          lineHeight: 1.5,
+                          border: "1px solid var(--border, rgba(255,255,255,0.08))",
+                        }}
+                      >
+                        <strong style={{ color: "var(--text-1)", display: "block", marginBottom: 8, fontSize: 14 }}>
+                          {node.title}
+                        </strong>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                          <span className={node.severityBadgeClass}>
+                            {impactMapVm.severityLabel}: {node.severityLabel}
+                          </span>
+                          <span className="badge badge-blue">
+                            {node.related_entity_count} {impactMapVm.signalsLabel.toLowerCase()}
+                          </span>
+                          <span className="badge badge-orange">
+                            {impactMapVm.confidenceLabel}: {node.confidenceText}
+                          </span>
+                        </div>
+                        <div style={{ color: "var(--text-3)", marginBottom: node.drilldownItem ? 10 : 0 }}>
+                          {node.description}
+                        </div>
+                        {node.drilldownItem ? (
+                          <EvidenceCorrelationDrilldownCell item={node.drilldownItem} />
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : null}
+              {impactPartition.inferred.length > 0 ? (
+                <ReportCollapsibleSection
+                  title={layoutVm.potentialInferredAreasTitle}
+                  defaultOpen={layoutVm.expandInferredImpactAreas}
+                >
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+                      gap: 12,
+                    }}
+                  >
+                    {impactPartition.inferred.map((node) => (
+                      <div
+                        key={`impact-inferred-${node.title}`}
+                        style={{
+                          padding: "14px 16px",
+                          background: "var(--bg-2)",
+                          borderRadius: 8,
+                          fontSize: 13,
+                          lineHeight: 1.5,
+                          border: "1px solid var(--border, rgba(255,255,255,0.08))",
+                        }}
+                      >
+                        <strong style={{ color: "var(--text-1)", display: "block", marginBottom: 8, fontSize: 14 }}>
+                          {node.title}
+                        </strong>
+                        <div style={{ color: "var(--text-3)", marginBottom: node.drilldownItem ? 10 : 0 }}>
+                          {node.description}
+                        </div>
+                        {node.drilldownItem ? (
+                          <EvidenceCorrelationDrilldownCell item={node.drilldownItem} />
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                </ReportCollapsibleSection>
+              ) : null}
+            </>
+          )}
+        </ReportCollapsibleSection>
+      ) : null}
+
+      {layoutVm.showNoisySections ? (
+      <ReportCollapsibleSection
+        title={layoutVm.dependencyIntelligenceTitle}
+        defaultOpen={layoutVm.expandDependencyIntelligence}
+      >
       {testRecommendationsVm.show ? (
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
@@ -520,7 +745,7 @@ export default function QaInvestigationReport({ report, t }) {
                 {testRecommendationsVm.summary}
               </div>
               <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
-                {testRecommendationsVm.recommendations.map((rec) => (
+                {testRecommendationSlices.top.map((rec) => (
                   <RecommendedTestCard
                     key={rec.recommendation_id}
                     recommendation={rec}
@@ -534,6 +759,28 @@ export default function QaInvestigationReport({ report, t }) {
                   />
                 ))}
               </ul>
+              {testRecommendationSlices.hasRemainder ? (
+                <ReportCollapsibleSection
+                  title={layoutVm.additionalTestRecommendationsTitle}
+                  defaultOpen={layoutVm.expandAdditionalTestRecommendations}
+                >
+                  <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                    {testRecommendationSlices.remainder.map((rec) => (
+                      <RecommendedTestCard
+                        key={rec.recommendation_id}
+                        recommendation={rec}
+                        labels={{
+                          approvalRequiredLabel: testRecommendationsVm.approvalRequiredLabel,
+                          priorityLabel: testRecommendationsVm.priorityLabel,
+                          confidenceLabel: testRecommendationsVm.confidenceLabel,
+                          riskReductionLabel: testRecommendationsVm.riskReductionLabel,
+                          previewLabel: testRecommendationsVm.previewLabel,
+                        }}
+                      />
+                    ))}
+                  </ul>
+                </ReportCollapsibleSection>
+              ) : null}
             </>
           )}
         </div>
@@ -795,274 +1042,6 @@ export default function QaInvestigationReport({ report, t }) {
         </div>
       ) : null}
 
-      {decisionCenterVm.show ? (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
-            {decisionCenterVm.title}
-          </div>
-          {decisionCenterVm.empty ? (
-            emptyStateText(decisionCenterVm.emptyMessage)
-          ) : (
-            <div
-              style={{
-                padding: "16px 18px",
-                background: "var(--bg-2)",
-                borderRadius: 8,
-                border: "1px solid var(--border, rgba(255,255,255,0.08))",
-              }}
-            >
-              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
-                <span className={decisionCenterVm.center.statusBadgeClass}>
-                  {decisionCenterVm.overallStatusLabel}: {decisionCenterVm.center.statusLabel}
-                </span>
-                {decisionCenterVm.center.top_risk_score > 0 ? (
-                  <div
-                    style={{
-                      minWidth: 72,
-                      padding: "8px 12px",
-                      borderRadius: 8,
-                      background: "var(--bg-3, rgba(255,255,255,0.04))",
-                      textAlign: "center",
-                    }}
-                  >
-                    <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 2 }}>
-                      {decisionCenterVm.topRiskScoreLabel}
-                    </div>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text-1)" }}>
-                      {decisionCenterVm.center.top_risk_score}
-                      <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text-3)" }}> / 100</span>
-                    </div>
-                  </div>
-                ) : null}
-                <span className="badge badge-orange">
-                  {decisionCenterVm.confidenceLabel}: {decisionCenterVm.center.confidenceText}
-                </span>
-                <span className="badge badge-blue">
-                  {decisionCenterVm.recommendedTestsLabel}: {decisionCenterVm.center.recommended_test_count}
-                </span>
-                <span className="badge badge-blue">
-                  {decisionCenterVm.recommendedActionsLabel}: {decisionCenterVm.center.recommended_action_count}
-                </span>
-              </div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 6 }}>
-                {decisionCenterVm.executiveSummaryLabel}
-              </div>
-              <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.55, marginBottom: 14 }}>
-                {decisionCenterVm.center.executive_summary}
-              </div>
-              {decisionCenterVm.center.showTrace ? (
-                <IncidentInsightTracePanel trace={decisionCenterVm.center.trace} />
-              ) : null}
-              {(decisionCenterVm.center.top_impacted_area || decisionCenterVm.center.top_hypothesis) ? (
-                <div style={{ display: "grid", gap: 10, marginBottom: 14 }}>
-                  {decisionCenterVm.center.top_impacted_area ? (
-                    <div style={{ fontSize: 13, lineHeight: 1.5 }}>
-                      <span style={{ fontWeight: 600, color: "var(--text-3)" }}>
-                        {decisionCenterVm.topImpactedAreaLabel}:
-                      </span>{" "}
-                      <span style={{ color: "var(--text-2)" }}>{decisionCenterVm.center.top_impacted_area}</span>
-                    </div>
-                  ) : null}
-                  {decisionCenterVm.center.top_hypothesis ? (
-                    <div style={{ fontSize: 13, lineHeight: 1.5 }}>
-                      <span style={{ fontWeight: 600, color: "var(--text-3)" }}>
-                        {decisionCenterVm.topHypothesisLabel}:
-                      </span>{" "}
-                      <span style={{ color: "var(--text-2)" }}>{decisionCenterVm.center.top_hypothesis}</span>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-              {decisionCenterVm.center.takeaways?.length > 0 ? (
-                <>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
-                    {decisionCenterVm.keyTakeawaysLabel}
-                  </div>
-                  <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
-                    {decisionCenterVm.center.takeaways.map((insight) => (
-                      <li
-                        key={`${insight.priority}-${insight.title}`}
-                        style={{
-                          marginBottom: 10,
-                          padding: "10px 12px",
-                          background: "var(--bg-3, rgba(255,255,255,0.03))",
-                          borderRadius: 6,
-                          fontSize: 13,
-                          lineHeight: 1.5,
-                        }}
-                      >
-                        <strong style={{ color: "var(--text-1)", display: "block", marginBottom: 4 }}>
-                          {insight.title}
-                        </strong>
-                        <div style={{ color: "var(--text-3)", marginBottom: insight.drilldownItem ? 8 : 0 }}>
-                          {insight.description}
-                        </div>
-                        {insight.drilldownItem ? (
-                          <EvidenceCorrelationDrilldownCell item={insight.drilldownItem} />
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              ) : null}
-              <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
-                {decisionCenterVm.readOnlyNote}
-              </p>
-            </div>
-          )}
-        </div>
-      ) : null}
-
-      {historicalLearningVm.show ? (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
-            {historicalLearningVm.title}
-          </div>
-          {historicalLearningVm.empty ? (
-            emptyStateText(historicalLearningVm.emptyMessage)
-          ) : (
-            <div
-              style={{
-                padding: "16px 18px",
-                background: "var(--bg-2)",
-                borderRadius: 8,
-                border: "1px solid var(--border, rgba(255,255,255,0.08))",
-              }}
-            >
-              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
-                <span className="badge badge-orange">
-                  {historicalLearningVm.confidenceLabel}: {historicalLearningVm.learning.confidenceText}
-                </span>
-              </div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 6 }}>
-                {historicalLearningVm.patternSummaryLabel}
-              </div>
-              <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.55, marginBottom: 14 }}>
-                {historicalLearningVm.learning.pattern_summary}
-              </div>
-              {historicalLearningVm.learning.incidents?.length > 0 ? (
-                <>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
-                    {historicalLearningVm.similarIncidentsLabel}
-                  </div>
-                  <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
-                    {historicalLearningVm.learning.incidents.map((incident) => (
-                      <SimilarIncidentCard
-                        key={incident.incident_id}
-                        incident={incident}
-                        labels={{
-                          similarityLabel: historicalLearningVm.similarityLabel,
-                          previewLabel: historicalLearningVm.previewLabel,
-                        }}
-                      />
-                    ))}
-                  </ul>
-                </>
-              ) : null}
-              <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
-                {historicalLearningVm.readOnlyNote}
-              </p>
-            </div>
-          )}
-        </div>
-      ) : null}
-
-      {deploymentRiskVm.show ? (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
-            {deploymentRiskVm.title}
-          </div>
-          {deploymentRiskVm.empty ? (
-            emptyStateText(deploymentRiskVm.emptyMessage)
-          ) : (
-            <div
-              style={{
-                padding: "16px 18px",
-                background: "var(--bg-2)",
-                borderRadius: 8,
-                border: "1px solid var(--border, rgba(255,255,255,0.08))",
-              }}
-            >
-              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
-                <div
-                  style={{
-                    minWidth: 88,
-                    padding: "10px 14px",
-                    borderRadius: 8,
-                    background: "var(--bg-3, rgba(255,255,255,0.04))",
-                    textAlign: "center",
-                  }}
-                >
-                  <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 4 }}>
-                    {deploymentRiskVm.riskScoreLabel}
-                  </div>
-                  <div style={{ fontSize: 22, fontWeight: 700, color: "var(--text-1)" }}>
-                    {deploymentRiskVm.assessment.risk_score}
-                    <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-3)" }}> / 100</span>
-                  </div>
-                </div>
-                <span className={deploymentRiskVm.assessment.riskLevelBadgeClass}>
-                  {deploymentRiskVm.riskLevelLabel}: {deploymentRiskVm.assessment.riskLevelLabel}
-                </span>
-                <span className="badge badge-orange">
-                  {deploymentRiskVm.confidenceLabel}: {deploymentRiskVm.assessment.confidenceText}
-                </span>
-              </div>
-              <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.55, marginBottom: 14 }}>
-                {deploymentRiskVm.assessment.summary}
-              </div>
-              {deploymentRiskVm.assessment.showTrace ? (
-                <IncidentInsightTracePanel trace={deploymentRiskVm.assessment.trace} />
-              ) : null}
-              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
-                {deploymentRiskVm.factorsLabel}
-              </div>
-              <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
-                {deploymentRiskVm.assessment.factors.map((factor) => (
-                  <li
-                    key={factor.title}
-                    style={{
-                      marginBottom: 10,
-                      padding: "10px 12px",
-                      background: "var(--bg-3, rgba(255,255,255,0.03))",
-                      borderRadius: 6,
-                      fontSize: 13,
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 4 }}>
-                      <strong style={{ color: "var(--text-1)" }}>{factor.title}</strong>
-                      <span className="badge badge-blue">
-                        {deploymentRiskVm.weightLabel}: {factor.weightText}
-                      </span>
-                    </div>
-                    <div style={{ color: "var(--text-3)", marginBottom: factor.drilldownItem ? 8 : 0 }}>
-                      {factor.description}
-                    </div>
-                    {factor.drilldownItem ? (
-                      <EvidenceCorrelationDrilldownCell item={factor.drilldownItem} />
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      ) : null}
-
-      {releaseReadinessVm.show ? (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
-            {releaseReadinessVm.title}
-          </div>
-          {releaseReadinessVm.empty ? (
-            emptyStateText(releaseReadinessVm.emptyMessage)
-          ) : (
-            <ReleaseReadinessView vm={releaseReadinessVm} />
-          )}
-        </div>
-      ) : null}
-
       {jiraIssueIntelligenceVm.show ? (
         <div style={{ marginBottom: 16 }}>
           {!isCapabilityGated(jiraIssueIntelligenceVm) ? (
@@ -1126,37 +1105,17 @@ export default function QaInvestigationReport({ report, t }) {
         </div>
       ) : null}
 
-      {recommendedActionsVm.show ? (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
-            {recommendedActionsVm.title}
-          </div>
-          {recommendedActionsVm.empty ? (
-            emptyStateText(recommendedActionsVm.emptyMessage)
-          ) : (
-            <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
-              {recommendedActionsVm.actions.map((action) => (
-                <RecommendedActionCard
-                  key={action.action_id}
-                  action={action}
-                  labels={{
-                    approvalRequiredLabel: recommendedActionsVm.approvalRequiredLabel,
-                    priorityLabel: recommendedActionsVm.priorityLabel,
-                    confidenceLabel: recommendedActionsVm.confidenceLabel,
-                    actionTypeLabel: recommendedActionsVm.actionTypeLabel,
-                  }}
-                />
-              ))}
-            </ul>
-          )}
-        </div>
+      {recommendedActionsVm.show && !recommendedActionsVm.empty ? (
+        <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "0 0 16px", fontStyle: "italic" }}>
+          {layoutVm.seeRecommendedActionsLabel}
+        </p>
       ) : null}
 
       {approvalWorkflowVm.show ? (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
-            {approvalWorkflowVm.title}
-          </div>
+        <ReportCollapsibleSection
+          title={approvalWorkflowVm.title}
+          defaultOpen={false}
+        >
           {approvalWorkflowVm.empty ? (
             emptyStateText(approvalWorkflowVm.emptyMessage)
           ) : (
@@ -1197,6 +1156,177 @@ export default function QaInvestigationReport({ report, t }) {
                 {approvalWorkflowVm.readOnlyNote}
               </p>
             </div>
+          )}
+        </ReportCollapsibleSection>
+      ) : null}
+      </ReportCollapsibleSection>
+      ) : null}
+
+      {layoutVm.showNoisySections ? (
+      <ReportCollapsibleSection
+        title={layoutVm.technicalEvidenceTitle}
+        defaultOpen={layoutVm.expandTechnicalEvidence}
+      >
+      {report.hypotheses?.length > 0 ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.hypotheses")}</div>
+          <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none" }}>
+            {report.hypotheses.map((h) => (
+              <li key={h.id || h.rank || h.statement} style={{ marginBottom: 10, padding: "10px 12px", background: "var(--bg-2)", borderRadius: 8, fontSize: 13, lineHeight: 1.5 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+                  {h.id === report.primary_hypothesis_id ? (
+                    <span className="badge badge-orange">{t("incident.qa.primary_hypothesis")}</span>
+                  ) : null}
+                  {h.rank ? <span className="badge badge-gray">#{h.rank}</span> : null}
+                  <span className="badge badge-gray">{hypothesisBasisLabel(h.basis, t)}</span>
+                  <span className="badge badge-blue">{confidencePct(h.confidence)}</span>
+                </div>
+                {h.statement}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {!layoutVm.lowConfidence && Array.isArray(report.investigation_plan) ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {t("incident.qa.investigation_plan")}
+          </div>
+          {report.investigation_plan.length > 0 ? (
+            <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none" }}>
+              {report.investigation_plan.map((step, i) => (
+                <li
+                  key={`${step.title}-${i}`}
+                  style={{
+                    marginBottom: 10,
+                    padding: "12px 14px",
+                    background: "var(--bg-2)",
+                    borderRadius: 8,
+                    fontSize: 13,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 6 }}>
+                    <span className="badge badge-orange">
+                      {t("incident.qa.investigation_plan_priority")}: {step.priority ?? 0}
+                    </span>
+                    <strong style={{ color: "var(--text-1)" }}>{step.title}</strong>
+                  </div>
+                  <div style={{ color: "var(--text-3)", marginBottom: 8 }}>{step.reason}</div>
+                  {step.related_entity_type && step.related_entity_id ? (
+                    <EvidenceCorrelationDrilldownCell
+                      item={{
+                        source: step.related_entity_type,
+                        related_entity_type: step.related_entity_type,
+                        related_entity_id: step.related_entity_id,
+                        reason: step.reason,
+                        detail: step.title,
+                        title: step.title,
+                      }}
+                    />
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            emptyStateText(t("incident.qa.investigation_plan_empty"))
+          )}
+        </div>
+      ) : null}
+
+      {storylineVm.show ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {storylineVm.title}
+          </div>
+          {storylineVm.empty ? (
+            emptyStateText(storylineVm.emptyMessage)
+          ) : (
+            <ol style={{ margin: 0, padding: 0, listStyle: "none" }}>
+              {storylineVm.steps.map((step) => (
+                <li
+                  key={`storyline-${step.step_number}-${step.title}`}
+                  style={{
+                    display: "flex",
+                    gap: 12,
+                    marginBottom: step.isLast ? 0 : 4,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      flexShrink: 0,
+                      width: 28,
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: "50%",
+                        background: "var(--accent, #f97316)",
+                        color: "#fff",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      {step.step_number}
+                    </div>
+                    {!step.isLast ? (
+                      <div
+                        style={{
+                          flex: 1,
+                          width: 2,
+                          minHeight: 24,
+                          background: "var(--border, rgba(255,255,255,0.12))",
+                          marginTop: 4,
+                        }}
+                      />
+                    ) : null}
+                  </div>
+                  <div
+                    style={{
+                      flex: 1,
+                      marginBottom: step.isLast ? 0 : 14,
+                      padding: "12px 14px",
+                      background: "var(--bg-2)",
+                      borderRadius: 8,
+                      fontSize: 13,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 6 }}>
+                      <span className="badge badge-blue">
+                        {storylineVm.stepLabel} {step.step_number}
+                      </span>
+                      <span className="badge badge-orange">
+                        {storylineVm.confidenceLabel}: {step.confidenceText}
+                      </span>
+                      {step.timestamp ? (
+                        <span style={{ fontSize: 12, color: "var(--text-3)" }}>
+                          {storylineVm.timestampLabel}: {fmtTs(step.timestamp)}
+                        </span>
+                      ) : null}
+                    </div>
+                    <strong style={{ color: "var(--text-1)", display: "block", marginBottom: 6 }}>
+                      {step.title}
+                    </strong>
+                    <div style={{ color: "var(--text-3)", marginBottom: step.drilldownItem ? 8 : 0 }}>
+                      {step.description}
+                    </div>
+                    {step.drilldownItem ? (
+                      <EvidenceCorrelationDrilldownCell item={step.drilldownItem} />
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ol>
           )}
         </div>
       ) : null}
@@ -1346,7 +1476,7 @@ export default function QaInvestigationReport({ report, t }) {
         </div>
       ) : null}
 
-      {report.data_gaps?.length > 0 ? (
+      {report.data_gaps?.length > 0 && !layoutVm.lowConfidence ? (
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.data_gaps")}</div>
           <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "var(--text-3)", lineHeight: 1.7 }}>
@@ -1532,7 +1662,7 @@ export default function QaInvestigationReport({ report, t }) {
         </div>
       ) : null}
 
-      {vm.recommendedTests.show ? (
+      {!testRecommendationsVm.show && vm.recommendedTests.show ? (
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.tests")}</div>
           {vm.recommendedTests.empty ? (
@@ -1569,6 +1699,9 @@ export default function QaInvestigationReport({ report, t }) {
             ))}
           </div>
         </div>
+      ) : null}
+
+      </ReportCollapsibleSection>
       ) : null}
 
       {report.next_steps?.length > 0 ? (
