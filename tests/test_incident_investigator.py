@@ -127,9 +127,21 @@ def test_post_investigate_endpoint(client: TestClient):
             json={"incident_description": "No URL provided"},
         )
     assert r.status_code == 200
+    assert r.headers.get("Deprecation") == "true"
+    assert r.headers.get("Sunset") == "2026-12-31"
+    assert 'rel="successor-version"' in (r.headers.get("Link") or "")
     body = r.json()
     assert body["status"] == "completed"
     assert body["incident_description"] == "No URL provided"
+
+
+def test_post_investigate_endpoint_openapi_deprecated(client: TestClient):
+    from app import app
+
+    spec = app.openapi()
+    op = spec["paths"]["/incidents/investigate"]["post"]
+    assert op.get("deprecated") is True
+    assert "[DEPRECATED]" in (op.get("summary") or "")
 
 
 def test_list_and_get_incident_runs(client: TestClient):

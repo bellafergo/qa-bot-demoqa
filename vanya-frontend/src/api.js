@@ -1047,8 +1047,13 @@ export function getLocalAgentFoundationReport(params = {}) {
 
 // ========= Incident Investigator (Autonomous) =========
 
+/**
+ * @deprecated Use investigateProjectIncident(projectId, body) instead.
+ * Canonical path: POST /projects/{id}/incidents/investigate
+ */
 /** POST /incidents/investigate */
 export function investigateIncident(body) {
+  console.warn("[VANYA] investigateIncident() is deprecated. Use investigateProjectIncident() instead.");
   return apiPost("/incidents/investigate", body);
 }
 
