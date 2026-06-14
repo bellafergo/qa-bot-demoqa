@@ -35,6 +35,11 @@ import ServiceNowIntegrationPanel from "../components/integrations/ServiceNowInt
 import { deriveJiraHeaderState } from "../utils/jiraViewUtils.js";
 import { deriveQMetryHeaderState } from "../utils/qmetryViewUtils.js";
 import { deriveServiceNowHeaderState } from "../utils/servicenowViewUtils.js";
+import {
+  parseGitHubInstallCallback,
+  shouldRunGitHubInstallCallback,
+  clearGitHubInstallCallbackParams,
+} from "../utils/githubInstallCallbackUtils.js";
 
 const CONNECTOR_DISPLAY_ORDER = ["github", "azure_devops", "jira", "qmetry", "servicenow"];
 
@@ -793,7 +798,6 @@ function GitHubAppPanel({ onStatusChange }) {
   const [changingRepo, setChangingRepo] = useState(false);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
-  const callbackHandled = useRef(false);
 
   const loadRepos = useCallback(async () => {
     if (!projectId) return;
@@ -834,34 +838,6 @@ function GitHubAppPanel({ onStatusChange }) {
   useEffect(() => {
     refreshStatus(false);
   }, [refreshStatus]);
-
-  useEffect(() => {
-    if (!projectId || callbackHandled.current) return;
-
-    const params = new URLSearchParams(window.location.search);
-    const iid = (params.get("installation_id") || params.get("github_installation_id") || "").trim();
-    const stateProject = (params.get("state") || "").trim().toLowerCase();
-    if (!iid) return;
-    if (stateProject && stateProject !== projectId.toLowerCase()) return;
-
-    callbackHandled.current = true;
-    setConnecting(true);
-    setError("");
-
-    (async () => {
-      try {
-        await connectProjectGitHubApp(projectId, { installation_id: iid });
-        await refreshStatus(true);
-        if (stateProject || iid) {
-          window.history.replaceState({}, "", window.location.pathname);
-        }
-      } catch (e) {
-        setError(e?.message || t("gh.error.connect"));
-      } finally {
-        setConnecting(false);
-      }
-    })();
-  }, [projectId, refreshStatus, t]);
 
   useEffect(() => {
     if (!projectId || !status?.installation_id) return;
@@ -1095,7 +1071,18 @@ function GitHubAppPanel({ onStatusChange }) {
 
 // ── Connector card ────────────────────────────────────────────────────────────
 
-function ConnectorCard({ summary, onAction, jiraStatus, onJiraStatusChange, qmetryStatus, onQMetryStatusChange, servicenowStatus, onServiceNowStatusChange }) {
+function ConnectorCard({
+  summary,
+  onAction,
+  jiraStatus,
+  onJiraStatusChange,
+  qmetryStatus,
+  onQMetryStatusChange,
+  servicenowStatus,
+  onServiceNowStatusChange,
+  githubAutoExpand = false,
+  githubRefreshKey = 0,
+}) {
   const { t, lang } = useLang();
   const { currentProject } = useProject();
   const { permissions, enforcementEnabled } = useRbac();
@@ -1106,7 +1093,7 @@ function ConnectorCard({ summary, onAction, jiraStatus, onJiraStatusChange, qmet
   const isQmetry = summary.connector_id === "qmetry";
   const isServiceNow = summary.connector_id === "servicenow";
   const isScmPanel = isGitHub || isAzureDevOps;
-  const [expanded,  setExpanded]  = useState(false);
+  const [expanded,  setExpanded]  = useState(isGitHub && githubAutoExpand);
   const [detail,    setDetail]    = useState(null);
   const [actions,   setActions]   = useState(null);
   const [checking,  setChecking]  = useState(false);
@@ -1146,7 +1133,11 @@ function ConnectorCard({ summary, onAction, jiraStatus, onJiraStatusChange, qmet
 
   useEffect(() => {
     loadGitHubHeaderStatus();
-  }, [loadGitHubHeaderStatus]);
+  }, [loadGitHubHeaderStatus, githubRefreshKey]);
+
+  useEffect(() => {
+    if (isGitHub && githubAutoExpand) setExpanded(true);
+  }, [isGitHub, githubAutoExpand]);
 
   useEffect(() => {
     loadAzureHeaderStatus();
@@ -1433,6 +1424,13 @@ export default function IntegrationsPage() {
   const [jiraStatus, setJiraStatus] = useState(null);
   const [qmetryStatus, setQmetryStatus] = useState(null);
   const [servicenowStatus, setServicenowStatus] = useState(null);
+  const [githubRefreshKey, setGithubRefreshKey] = useState(0);
+  const githubCallbackHandled = useRef(false);
+
+  const githubCallbackParams = parseGitHubInstallCallback(
+    typeof window !== "undefined" ? window.location.search : "",
+  );
+  const githubAutoExpand = Boolean(githubCallbackParams?.installationId);
 
   const loadJiraHeaderStatus = useCallback(async () => {
     try {
@@ -1486,6 +1484,65 @@ export default function IntegrationsPage() {
   useEffect(() => {
     loadServiceNowHeaderStatus();
   }, [loadServiceNowHeaderStatus]);
+
+  useEffect(() => {
+    const pid = currentProject?.id;
+    if (!pid || githubCallbackHandled.current) return;
+
+    const parsed = parseGitHubInstallCallback(window.location.search);
+    if (!parsed) return;
+
+    const gate = shouldRunGitHubInstallCallback({
+      installationId: parsed.installationId,
+      stateProject: parsed.stateProject,
+      projectId: pid,
+    });
+
+    if (!gate.run) {
+      console.warn("[vanya.github.callback] skipped", gate);
+      if (gate.reason === "state_project_mismatch") {
+        setError(
+          `GitHub installation is for project "${gate.expected}" but "${gate.actual}" is selected. Switch project and try again.`,
+        );
+      }
+      return;
+    }
+
+    githubCallbackHandled.current = true;
+    let cancelled = false;
+
+    (async () => {
+      console.info("[vanya.github.callback] POST connect-app", {
+        projectId: pid,
+        installationId: parsed.installationId,
+        setupAction: parsed.setupAction || null,
+      });
+      try {
+        const connected = await connectProjectGitHubApp(pid, { installation_id: parsed.installationId });
+        console.info("[vanya.github.callback] connect-app ok", {
+          installation_id: connected?.installation_id,
+          connected: connected?.connected,
+        });
+        const st = await getProjectGitHubStatus(pid, false);
+        console.info("[vanya.github.callback] status after connect", {
+          installation_id: st?.installation_id,
+          connected: st?.connected,
+          full_name: st?.full_name || null,
+        });
+        if (!cancelled) {
+          setGhStatus(st);
+          setGithubRefreshKey((k) => k + 1);
+          clearGitHubInstallCallbackParams();
+        }
+      } catch (e) {
+        console.error("[vanya.github.callback] connect-app failed", e);
+        githubCallbackHandled.current = false;
+        if (!cancelled) setError(e?.message || t("gh.error.connect"));
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [currentProject?.id, t]);
 
   useEffect(() => {
     const pid = currentProject?.id;
@@ -1593,6 +1650,8 @@ export default function IntegrationsPage() {
           onQMetryStatusChange={setQmetryStatus}
           servicenowStatus={servicenowStatus}
           onServiceNowStatusChange={setServicenowStatus}
+          githubAutoExpand={c.connector_id === "github" && githubAutoExpand}
+          githubRefreshKey={c.connector_id === "github" ? githubRefreshKey : 0}
         />
       ))}
     </div>
