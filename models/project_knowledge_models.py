@@ -23,6 +23,7 @@ KnowledgeSource = Literal[
     "incidents",
     "refresh",
     "manual",
+    "repository",
 ]
 
 
@@ -32,6 +33,8 @@ class KnowledgeRoute(BaseModel):
     page_types: List[str] = Field(default_factory=list)
     source: str = "unknown"
     last_seen_at: str = ""
+    module: str = ""
+    file_path: str = ""
 
 
 class KnowledgeApi(BaseModel):
@@ -39,6 +42,8 @@ class KnowledgeApi(BaseModel):
     method: str = "GET"
     source: str = "unknown"
     last_seen_at: str = ""
+    module: str = ""
+    file_path: str = ""
 
 
 class KnowledgeForm(BaseModel):
@@ -68,8 +73,13 @@ class KnowledgeModule(BaseModel):
     name: str
     test_count: int = 0
     routes: List[str] = Field(default_factory=list)
+    apis: List[str] = Field(default_factory=list)
     source: str = "catalog"
     last_seen_at: str = ""
+    entity_type: str = ""
+    fields: List[str] = Field(default_factory=list)
+    relations: List[str] = Field(default_factory=list)
+    file_path: str = ""
 
 
 class KnowledgeRelatedTest(BaseModel):
@@ -133,6 +143,7 @@ class ProjectKnowledgeRefreshRequest(BaseModel):
     include_failures: bool = True
     include_incidents: bool = True
     include_discovery: bool = True
+    include_repository: bool = False
     mode: KnowledgeRefreshMode = "replace"
 
 
