@@ -82,6 +82,7 @@ def refresh_knowledge(
     include_failures: bool = Query(default=True),
     include_incidents: bool = Query(default=True),
     include_discovery: bool = Query(default=True),
+    include_repository: bool = Query(default=False),
 ):
     try:
         return refresh_project_knowledge(
@@ -93,6 +94,7 @@ def refresh_knowledge(
                 include_failures=include_failures,
                 include_incidents=include_incidents,
                 include_discovery=include_discovery,
+                include_repository=include_repository,
             ),
         )
     except ValueError as e:

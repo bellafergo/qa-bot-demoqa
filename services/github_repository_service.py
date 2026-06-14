@@ -160,3 +160,86 @@ class GitHubRepositoryClient:
                 break
             page += 1
         return out
+
+    def get_branch_head_sha(self, branch: str) -> str:
+        data = self.get_branch(branch)
+        commit = data.get("commit") if isinstance(data, dict) else {}
+        if isinstance(commit, dict):
+            sha = str(commit.get("sha") or "").strip()
+            if sha:
+                return sha
+        raise GitHubAPIError(
+            f"Could not resolve branch head for {branch!r}.",
+            status_code=404,
+            code="branch_head_not_found",
+        )
+
+    def list_tree_recursive(
+        self,
+        tree_sha: str,
+        *,
+        max_paths: int = 15000,
+    ) -> Tuple[List[str], bool]:
+        """
+        Return blob paths from a recursive git tree.
+
+        Tuple: (paths, truncated).
+        """
+        sha = (tree_sha or "").strip()
+        if not sha:
+            return [], False
+        res = self._get(
+            f"/repos/{self.owner}/{self.repo}/git/trees/{sha}",
+            params={"recursive": "1"},
+        )
+        _raise_for_status(res, context=f"tree {sha[:8]}")
+        data = res.json() if res.content else {}
+        if not isinstance(data, dict):
+            return [], False
+        truncated = bool(data.get("truncated"))
+        tree = data.get("tree")
+        if not isinstance(tree, list):
+            return [], truncated
+        paths: List[str] = []
+        for item in tree:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("type") or "") != "blob":
+                continue
+            path = str(item.get("path") or "").strip()
+            if path:
+                paths.append(path)
+            if len(paths) >= max_paths:
+                truncated = True
+                break
+        return paths, truncated
+
+    def get_file_text(self, path: str, *, ref: str) -> str:
+        """Fetch file content at ref (branch name or commit SHA)."""
+        p = (path or "").strip()
+        r = (ref or "").strip()
+        if not p or not r:
+            return ""
+        res = self._get(
+            f"/repos/{self.owner}/{self.repo}/contents/{p}",
+            params={"ref": r},
+        )
+        if res.status_code == 404:
+            return ""
+        _raise_for_status(res, context=f"contents {p}")
+        data = res.json() if res.content else {}
+        if not isinstance(data, dict):
+            return ""
+        encoding = str(data.get("encoding") or "").lower()
+        content = data.get("content")
+        if encoding == "base64" and isinstance(content, str):
+            import base64
+
+            try:
+                raw = base64.b64decode(content, validate=False)
+                return raw.decode("utf-8", errors="replace")
+            except Exception:
+                return ""
+        if isinstance(content, str):
+            return content
+        return ""

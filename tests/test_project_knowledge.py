@@ -303,3 +303,65 @@ def test_refresh_canonical_merge_auth_variants_single_module():
     assert len(auth_modules) == 1
     assert auth_modules[0].name == "AUTH"
     assert auth_modules[0].test_count == 3
+
+
+def test_refresh_include_repository_false_does_not_call_indexer():
+    pid = "demo-no-repo"
+    mocks = _mock_refresh_deps()
+    with patch("services.db.catalog_repository.catalog_repo.list_test_cases", return_value=mocks["catalog"]), \
+         patch("services.run_history_service.run_history_service.list_runs", return_value=mocks["runs"]), \
+         patch("services.failure_intelligence_service.failure_intelligence_service.get_regressions", return_value=mocks["regressions"]), \
+         patch("services.db.incident_investigation_repository.incident_investigation_repo.list_runs", return_value=mocks["incidents"]), \
+         patch("services.db.test_run_repository.test_run_repo.list_browser_inspection_runs", return_value=mocks["inspections"]), \
+         patch("services.project_knowledge_service._resolve_project_name", return_value="Demo"), \
+         patch("services.repository_knowledge_service.index_repository_knowledge") as mock_index:
+
+        result = refresh_project_knowledge(
+            pid,
+            ProjectKnowledgeRefreshRequest(mode="replace", include_repository=False),
+        )
+
+    mock_index.assert_not_called()
+    assert "repository" not in (result.metadata.get("reconstruction_sources") or [])
+
+
+@patch("services.repository_knowledge_service.index_repository_knowledge")
+def test_refresh_include_repository_true_merges_metadata(mock_index):
+    from models.project_knowledge_models import KnowledgeApi, KnowledgeRoute
+    from services.repository_knowledge_models import RepositoryIndexResult
+
+    pid = "demo-with-repo"
+    mocks = _mock_refresh_deps()
+    mock_index.return_value = RepositoryIndexResult(
+        routes=[KnowledgeRoute(url="/candidates", source="repository")],
+        apis=[KnowledgeApi(url="/api/candidates", method="GET", source="repository")],
+        modules=[],
+        metadata={
+            "repository_indexed": True,
+            "repository_files_scanned": 42,
+            "repository_routes_detected": 1,
+            "repository_apis_detected": 1,
+            "repository_models_detected": 0,
+            "repository_workflows_detected": 0,
+            "repository_warnings": [],
+        },
+        skipped=False,
+    )
+
+    with patch("services.db.catalog_repository.catalog_repo.list_test_cases", return_value=mocks["catalog"]), \
+         patch("services.run_history_service.run_history_service.list_runs", return_value=mocks["runs"]), \
+         patch("services.failure_intelligence_service.failure_intelligence_service.get_regressions", return_value=mocks["regressions"]), \
+         patch("services.db.incident_investigation_repository.incident_investigation_repo.list_runs", return_value=mocks["incidents"]), \
+         patch("services.db.test_run_repository.test_run_repo.list_browser_inspection_runs", return_value=mocks["inspections"]), \
+         patch("services.project_knowledge_service._resolve_project_name", return_value="Demo"):
+
+        result = refresh_project_knowledge(
+            pid,
+            ProjectKnowledgeRefreshRequest(mode="replace", include_repository=True),
+        )
+
+    mock_index.assert_called_once()
+    assert result.metadata.get("repository_indexed") is True
+    assert result.metadata.get("repository_files_scanned") == 42
+    assert "repository" in (result.metadata.get("reconstruction_sources") or [])
+    assert any(r.url == "/candidates" for r in result.routes)

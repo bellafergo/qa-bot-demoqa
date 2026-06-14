@@ -29,6 +29,7 @@ from services.app_knowledge_graph import (
     explorer_page_to_entities,
     inspection_summaries_to_entities,
 )
+from services.repository_knowledge_relations import link_entities_to_modules
 from services.project_memory_service import get_memory, get_or_create, merge_memory_patch, save_memory
 from services.pr_analysis_project_debug import log_project_id_lookup
 
@@ -356,7 +357,7 @@ def refresh_project_knowledge(
         components.extend(disc["components"])
         discovery_rows = len(disc["routes"])
 
-    reconstruction_sources = []
+    reconstruction_sources: List[str] = []
     if opts.include_catalog:
         reconstruction_sources.append("catalog")
     if opts.include_discovery:
@@ -367,6 +368,39 @@ def refresh_project_knowledge(
         reconstruction_sources.append("failure_intelligence")
     if opts.include_incidents:
         reconstruction_sources.append("incidents")
+
+    repository_meta: Dict[str, Any] = {}
+    if opts.include_repository:
+        try:
+            from services.repository_knowledge_service import index_repository_knowledge
+
+            known_names = [m.name for m in modules if m.name]
+            repo = index_repository_knowledge(
+                pid,
+                known_module_names=known_names,
+                related_tests=related_tests,
+            )
+            routes.extend(repo.routes)
+            apis.extend(repo.apis)
+            modules.extend(repo.modules)
+            repository_meta = dict(repo.metadata or {})
+            if repo.warnings:
+                repository_meta["repository_warnings"] = repo.warnings
+            if not repo.skipped:
+                reconstruction_sources.append("repository")
+        except Exception:
+            logger.exception("refresh: repository index failed project_id=%s", pid)
+            repository_meta = {
+                "repository_indexed": False,
+                "repository_warnings": ["repository_index_failed"],
+            }
+
+    modules, routes, apis = link_entities_to_modules(
+        modules,
+        routes,
+        apis,
+        related_tests=related_tests,
+    )
 
     refresh_meta: Dict[str, Any] = {
         "last_refresh_at": _utc_now_iso(),
@@ -380,6 +414,7 @@ def refresh_project_knowledge(
             "only browser_inspection + app_map_summary rows are rebuilt on refresh. "
             "Full forms/tables field lists require live ingest hooks."
         ),
+        **repository_meta,
     }
 
     if mode == "replace":
