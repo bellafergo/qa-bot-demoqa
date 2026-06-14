@@ -5,6 +5,9 @@ import {
   getBrowserWatchEventsPage,
   apiErrorMessage,
 } from "../../api";
+import BaselineComparisonModal from "./BaselineComparisonModal.jsx";
+import BaselineHistoryPanel from "./BaselineHistoryPanel.jsx";
+import BaselineSummaryCard from "./BaselineSummaryCard.jsx";
 import { effectiveEventRunOrigin } from "../../lib/browserWatchUi.js";
 import {
   BROWSER_WATCH_I18N_KEYS,
@@ -77,6 +80,7 @@ export default function BrowserWatchDetailPanel({
   const [nextCursor, setNextCursor] = useState(null);
   const [eLoading, setELoading] = useState(false);
   const [eMoreLoading, setEMoreLoading] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
 
   useEffect(() => {
     if (!watchId) {
@@ -227,21 +231,31 @@ export default function BrowserWatchDetailPanel({
           </div>
         )}
 
-        {(selectedWatch?.last_inspection_id || selectedWatch?.baseline_inspection_id) ? (
+        {selectedWatch?.last_inspection_id ? (
           <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-3)", display: "flex", flexWrap: "wrap", gap: 12 }}>
-            {selectedWatch?.last_inspection_id ? (
-              <span>
-                {t("watch.col.last_insp")}: <InspectionRunRef id={selectedWatch.last_inspection_id} t={t} showToast={showToast} />
-              </span>
-            ) : null}
-            {selectedWatch?.baseline_inspection_id ? (
-              <span>
-                {t("watch.col.baseline")}: <InspectionRunRef id={selectedWatch.baseline_inspection_id} t={t} showToast={showToast} />
-              </span>
-            ) : null}
+            <span>
+              {t("watch.col.last_insp")}: <InspectionRunRef id={selectedWatch.last_inspection_id} t={t} showToast={showToast} />
+            </span>
           </div>
         ) : null}
       </div>
+
+      <BaselineSummaryCard
+        watch={selectedWatch}
+        busy={isBusy}
+        t={t}
+        showToast={showToast}
+        onChangeBaseline={() => onBaseline?.(watchId)}
+        onCompare={() => setCompareOpen(true)}
+      />
+      <BaselineHistoryPanel watchId={watchId} detailVersion={detailVersion} t={t} showToast={showToast} />
+      <BaselineComparisonModal
+        open={compareOpen}
+        onClose={() => setCompareOpen(false)}
+        watch={selectedWatch}
+        t={t}
+        showToast={showToast}
+      />
 
       <div className="card" style={{ padding: 16, marginTop: 12 }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 12 }}>

@@ -879,6 +879,15 @@ export function getBrowserWatchEventsPage(watchId, params = {}) {
   return apiGet(`/browser-inspections/watch/${encodeURIComponent(watchId)}/events?${q}`);
 }
 
+/** GET /browser-inspections/{inspection_id} — persisted inspection detail. */
+export const getBrowserInspection = (inspectionId) =>
+  apiGet(`/browser-inspections/${encodeURIComponent(inspectionId)}`);
+
+/** POST /browser-inspections/diff — compare two persisted inspections. */
+export function diffBrowserInspections(body) {
+  return apiPost("/browser-inspections/diff", body ?? {});
+}
+
 // ========= Local agents admin (Phase 4E) — optional admin headers for GET /local-agents (configure per deployment). =========
 function localAgentAdminHeaders() {
   const h = {};
