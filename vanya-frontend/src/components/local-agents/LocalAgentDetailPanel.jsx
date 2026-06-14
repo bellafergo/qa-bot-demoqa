@@ -66,8 +66,21 @@ export default function LocalAgentDetailPanel({
         <dd style={{ margin: 0, fontWeight: 600 }}>{vm.environment}</dd>
         <dt style={{ color: "var(--text-3)" }}>{vm.versionLabel}</dt>
         <dd style={{ margin: 0 }}>{vm.version}</dd>
-        <dt style={{ color: "var(--text-3)" }}>{vm.lastHeartbeatLabel}</dt>
-        <dd style={{ margin: 0 }}>{vm.lastHeartbeat}</dd>
+        {vm.isPlatformManaged && vm.platformHealth ? (
+          <>
+            <dt style={{ color: "var(--text-3)" }}>{vm.platformHealth.lastProbeLabel}</dt>
+            <dd style={{ margin: 0 }}>{vm.platformHealth.lastProbe}</dd>
+            <dt style={{ color: "var(--text-3)" }}>{vm.platformHealth.lastValidationLabel}</dt>
+            <dd style={{ margin: 0 }}>{vm.platformHealth.lastValidation}</dd>
+            <dt style={{ color: "var(--text-3)" }}>{vm.platformHealth.platformAssetHealthLabel}</dt>
+            <dd style={{ margin: 0, fontWeight: 600 }}>{vm.platformHealth.platformAssetHealth}</dd>
+          </>
+        ) : (
+          <>
+            <dt style={{ color: "var(--text-3)" }}>{vm.lastHeartbeatLabel}</dt>
+            <dd style={{ margin: 0 }}>{vm.lastHeartbeat}</dd>
+          </>
+        )}
       </dl>
 
       <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>

@@ -17,6 +17,8 @@ import {
   getCapabilitySummary,
   sortAgents,
   isFoundationAgent,
+  isPlatformManagedAgent,
+  resolvePlatformAgentStatus,
   hasInventory,
   inventoryLines,
 } from "./localAgentsViewUtils.js";
@@ -27,6 +29,9 @@ const t = (key, vars) => {
   }
   if (vars && key === LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.capabilitiesAgents) {
     return `${vars.count} agents`;
+  }
+  if (vars && key === LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.platformAssetHealthSummary) {
+    return `${vars.connected}/${vars.total} Connected`;
   }
   return key;
 };
@@ -62,6 +67,47 @@ const onlineAgent = {
   capabilities: ["browser_probe"],
   created_at: "2026-06-12T08:00:00Z",
   last_seen_at: "2026-06-12T11:59:30Z",
+};
+
+const platformAgent = {
+  agent_id: "agent:demo:platform_agent",
+  name: "Any Platform Agent",
+  enabled: true,
+  capabilities: ["database_validation"],
+  created_at: "2026-06-12T08:00:00Z",
+  last_seen_at: "2026-06-10T08:00:00Z",
+  metadata: {
+    agent_type: "platform",
+    platform_managed: true,
+  },
+};
+
+const healthyPlatformConnection = {
+  connection_id: "conn-platform-1",
+  agent_id: platformAgent.agent_id,
+  name: "Platform Operational Store (SQLite)",
+  database_type: "sqlite",
+  asset_scope: "platform_internal",
+  execution_mode: "platform_backend",
+  status: "CONNECTED",
+  last_probe_status: "SUCCESS",
+  last_probe_at: "2026-06-12T11:00:00Z",
+  created_at: "2026-06-12T10:00:00Z",
+};
+
+const degradedPlatformConnection = {
+  ...healthyPlatformConnection,
+  connection_id: "conn-platform-2",
+  status: "DEGRADED",
+  last_probe_status: "FAILED",
+};
+
+const platformExecution = {
+  execution_id: "exec-1",
+  agent_id: platformAgent.agent_id,
+  connection_id: healthyPlatformConnection.connection_id,
+  status: "SUCCESS",
+  executed_at: "2026-06-12T11:05:00Z",
 };
 
 const sampleReport = {
@@ -285,5 +331,92 @@ describe("localAgents enterprise view utils", () => {
       dbConnections: 0,
       capabilities: 0,
     });
+  });
+
+  it("detects platform-managed agents from metadata", () => {
+    expect(isPlatformManagedAgent(platformAgent)).toBe(true);
+    expect(isPlatformManagedAgent({ metadata: { agent_type: "platform" } })).toBe(true);
+    expect(isPlatformManagedAgent(foundationAgent)).toBe(false);
+  });
+
+  it("marks platform-managed agents as platform managed when probes succeed", () => {
+    const status = getAgentStatus(platformAgent, NOW, {
+      connections: [healthyPlatformConnection],
+      executions: [platformExecution],
+    });
+    expect(status.key).toBe("PLATFORM_MANAGED");
+    expect(status.labelKey).toBe(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.statusPlatformManaged);
+    expect(status.needsAttention).toBe(false);
+  });
+
+  it("marks platform-managed agents as degraded when probe evidence fails", () => {
+    const status = getAgentStatus(platformAgent, NOW, {
+      connections: [degradedPlatformConnection],
+      executions: [],
+    });
+    expect(status.key).toBe("DEGRADED");
+    expect(status.labelKey).toBe(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.statusDegraded);
+    expect(status.needsAttention).toBe(true);
+  });
+
+  it("marks platform-managed agents unavailable without platform connections", () => {
+    const status = resolvePlatformAgentStatus(platformAgent, { connections: [], executions: [] });
+    expect(status.key).toBe("UNAVAILABLE");
+    expect(status.labelKey).toBe(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.statusUnavailable);
+  });
+
+  it("keeps customer agents on heartbeat lifecycle when online", () => {
+    const status = getAgentStatus(onlineAgent, NOW);
+    expect(status.key).toBe("ONLINE");
+    expect(status.labelKey).toBe(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.statusOnline);
+  });
+
+  it("keeps customer agents on heartbeat lifecycle when offline", () => {
+    const status = getAgentStatus(foundationAgent, NOW);
+    expect(status.key).toBe("OFFLINE");
+    expect(status.labelKey).toBe(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.statusOffline);
+  });
+
+  it("does not count healthy platform agents as offline in summary metrics", () => {
+    const metrics = getSummaryMetrics(
+      [platformAgent, foundationAgent],
+      [healthyPlatformConnection],
+      [platformExecution],
+    );
+    expect(metrics.online).toBe(1);
+    expect(metrics.offline).toBe(1);
+  });
+
+  it("builds platform detail fields instead of heartbeat for platform-managed agents", () => {
+    const vm = buildAgentDetailViewModel({
+      detail: platformAgent,
+      foundationRow: null,
+      dbConnectionCount: 1,
+      validationCount: 1,
+      systemsCount: 0,
+      dbConnections: [healthyPlatformConnection],
+      dbExecutions: [platformExecution],
+      t,
+      formatTimestamp: (v) => v,
+    });
+    expect(vm.isPlatformManaged).toBe(true);
+    expect(vm.status.key).toBe("PLATFORM_MANAGED");
+    expect(vm.platformHealth.lastProbe).toBe("2026-06-12T11:00:00Z");
+    expect(vm.platformHealth.lastValidation).toBe("2026-06-12T11:05:00Z");
+    expect(vm.platformHealth.platformAssetHealth).toBe("1/1 Connected");
+  });
+
+  it("builds list item with probe secondary label for platform-managed agents", () => {
+    const item = buildAgentListItemViewModel(
+      platformAgent,
+      null,
+      t,
+      NOW,
+      { connections: [healthyPlatformConnection], executions: [platformExecution] },
+    );
+    expect(item.statusLabel).toBe(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.statusPlatformManaged);
+    expect(item.secondaryLabel).toBe(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.lastProbe);
+    expect(item.secondaryText).toBeTruthy();
+    expect(item.needsAttention).toBe(false);
   });
 });

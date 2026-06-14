@@ -250,11 +250,12 @@ export default function LocalAgentsPage() {
       buildLocalAgentsConsoleViewModel({
         agents,
         dbConnections,
+        dbExecutions,
         foundationReport,
         t,
         formatTimestamp: fmtTs,
       }),
-    [agents, dbConnections, foundationReport, t],
+    [agents, dbConnections, dbExecutions, foundationReport, t],
   );
 
   const agentNameById = useMemo(
@@ -279,8 +280,10 @@ export default function LocalAgentsPage() {
       detail,
       foundationRow: selectedFoundation,
       dbConnectionCount: dbConnections.filter((c) => c.agent_id === detail.agent_id).length,
-      validationCount: dbExecutions.length,
+      validationCount: dbExecutions.filter((e) => e.agent_id === detail.agent_id).length,
       systemsCount,
+      dbConnections,
+      dbExecutions,
       t,
       formatTimestamp: fmtTs,
     });

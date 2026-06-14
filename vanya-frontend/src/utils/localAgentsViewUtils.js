@@ -62,6 +62,15 @@ export const LOCAL_AGENTS_ENTERPRISE_I18N_KEYS = {
   statusOffline: "localAgents.enterprise.status.offline",
   statusWarning: "localAgents.enterprise.status.warning",
   statusError: "localAgents.enterprise.status.error",
+  statusPlatformManaged: "localAgents.enterprise.status.platform_managed",
+  statusDegraded: "localAgents.enterprise.status.degraded",
+  statusUnavailable: "localAgents.enterprise.status.unavailable",
+  lastProbe: "localAgents.enterprise.last_probe",
+  detailLastProbe: "localAgents.enterprise.detail.last_probe",
+  detailLastValidation: "localAgents.enterprise.detail.last_validation",
+  detailPlatformAssetHealth: "localAgents.enterprise.detail.platform_asset_health",
+  detailPlatformManaged: "localAgents.enterprise.detail.platform_managed",
+  platformAssetHealthSummary: "localAgents.enterprise.platform_asset_health_summary",
 };
 
 const STATUS_BADGE = {
@@ -70,6 +79,9 @@ const STATUS_BADGE = {
   UNKNOWN: "badge badge-orange",
   WARNING: "badge badge-orange",
   ERROR: "badge badge-red",
+  PLATFORM_MANAGED: "badge badge-green",
+  DEGRADED: "badge badge-orange",
+  UNAVAILABLE: "badge badge-red",
 };
 
 const CAPABILITY_LABELS = {
@@ -90,8 +102,149 @@ export function foundationStatusBadgeClass(status) {
   return STATUS_BADGE[key] || "badge badge-gray";
 }
 
-/** Heuristic agent runtime status (online <2m, stale <10m). */
-export function getAgentStatus(agent, nowMs = Date.now()) {
+export function isPlatformManagedAgent(agent) {
+  const metadata = agent?.metadata && typeof agent.metadata === "object" ? agent.metadata : {};
+  if (metadata.platform_managed === true) return true;
+  return String(metadata.agent_type || "").trim().toLowerCase() === "platform";
+}
+
+export function filterPlatformConnections(agentId, connections = []) {
+  const aid = String(agentId || "").trim();
+  if (!aid) return [];
+  return (connections || []).filter(
+    (connection) =>
+      String(connection?.agent_id || "").trim() === aid
+      && String(connection?.asset_scope || "").trim().toLowerCase() === "platform_internal",
+  );
+}
+
+function latestIsoTimestamp(values = []) {
+  let latest = null;
+  let latestMs = Number.NEGATIVE_INFINITY;
+  for (const raw of values) {
+    if (!raw) continue;
+    const ms = new Date(raw).getTime();
+    if (!Number.isFinite(ms) || ms <= latestMs) continue;
+    latestMs = ms;
+    latest = raw;
+  }
+  return latest;
+}
+
+function agentScopedExecutions(agentId, executions = []) {
+  const aid = String(agentId || "").trim();
+  if (!aid) return [];
+  return (executions || []).filter((execution) => String(execution?.agent_id || "").trim() === aid);
+}
+
+/** Platform-managed agents derive health from probes and validation evidence, not heartbeat. */
+export function resolvePlatformAgentStatus(agent, options = {}) {
+  if (!agent?.enabled || String(agent.status || "").toLowerCase() === "disabled") {
+    return {
+      key: "ERROR",
+      labelKey: LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.statusError,
+      badgeClass: STATUS_BADGE.ERROR,
+      needsAttention: true,
+    };
+  }
+
+  const platformConnections = filterPlatformConnections(agent.agent_id, options.connections);
+  const scopedExecutions = agentScopedExecutions(agent.agent_id, options.executions);
+
+  if (platformConnections.length === 0) {
+    return {
+      key: "UNAVAILABLE",
+      labelKey: LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.statusUnavailable,
+      badgeClass: STATUS_BADGE.UNAVAILABLE,
+      needsAttention: true,
+    };
+  }
+
+  const connectionStatuses = platformConnections.map((c) => String(c.status || "UNKNOWN").toUpperCase());
+  const probeStatuses = platformConnections.map((c) => String(c.last_probe_status || "").toUpperCase());
+  const hasSuccessfulProbe = probeStatuses.some((status) => status === "SUCCESS");
+  const hasSuccessfulExecution = scopedExecutions.some(
+    (execution) => String(execution.status || "").toUpperCase() === "SUCCESS",
+  );
+  const hasValidationEvidence = hasSuccessfulProbe || hasSuccessfulExecution;
+
+  if (connectionStatuses.every((status) => status === "ERROR")) {
+    return {
+      key: "UNAVAILABLE",
+      labelKey: LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.statusUnavailable,
+      badgeClass: STATUS_BADGE.UNAVAILABLE,
+      needsAttention: true,
+    };
+  }
+
+  const hasDegradedSignal =
+    connectionStatuses.some((status) => status === "DEGRADED" || status === "PENDING_VALIDATION")
+    || probeStatuses.some((status) => status === "FAILED");
+
+  const allConnected = connectionStatuses.every((status) => status === "CONNECTED");
+
+  if (allConnected && hasValidationEvidence && !hasDegradedSignal) {
+    return {
+      key: "PLATFORM_MANAGED",
+      labelKey: LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.statusPlatformManaged,
+      badgeClass: STATUS_BADGE.PLATFORM_MANAGED,
+      needsAttention: false,
+    };
+  }
+
+  if (hasDegradedSignal || connectionStatuses.some((status) => status === "CONNECTED")) {
+    return {
+      key: "DEGRADED",
+      labelKey: LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.statusDegraded,
+      badgeClass: STATUS_BADGE.DEGRADED,
+      needsAttention: true,
+    };
+  }
+
+  return {
+    key: "UNAVAILABLE",
+    labelKey: LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.statusUnavailable,
+    badgeClass: STATUS_BADGE.UNAVAILABLE,
+    needsAttention: true,
+  };
+}
+
+export function buildPlatformHealthSummary(agent, connections = [], executions = [], t, formatTimestamp) {
+  const fmt = typeof formatTimestamp === "function" ? formatTimestamp : (v) => v || "—";
+  const platformConnections = filterPlatformConnections(agent?.agent_id, connections);
+  const scopedExecutions = agentScopedExecutions(agent?.agent_id, executions);
+  const lastProbeAt = latestIsoTimestamp(platformConnections.map((c) => c.last_probe_at));
+  const lastValidationAt = latestIsoTimestamp(
+    scopedExecutions
+      .filter((execution) => String(execution.status || "").toUpperCase() === "SUCCESS")
+      .map((execution) => execution.executed_at),
+  );
+  const connectedCount = platformConnections.filter(
+    (connection) => String(connection.status || "").toUpperCase() === "CONNECTED",
+  ).length;
+
+  return {
+    lastProbe: lastProbeAt ? fmt(lastProbeAt) : t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.lastSeenNever),
+    lastValidation: lastValidationAt ? fmt(lastValidationAt) : t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.lastSeenNever),
+    platformAssetHealth:
+      platformConnections.length === 0
+        ? t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.lastSeenNever)
+        : t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.platformAssetHealthSummary, {
+            connected: String(connectedCount),
+            total: String(platformConnections.length),
+          }),
+    lastProbeLabel: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.detailLastProbe),
+    lastValidationLabel: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.detailLastValidation),
+    platformAssetHealthLabel: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.detailPlatformAssetHealth),
+  };
+}
+
+/** Heuristic agent runtime status (online <2m, stale <10m). Platform agents use probe-derived status. */
+export function getAgentStatus(agent, nowMs = Date.now(), options = {}) {
+  if (isPlatformManagedAgent(agent)) {
+    return resolvePlatformAgentStatus(agent, options);
+  }
+
   if (!agent?.enabled || String(agent.status || "").toLowerCase() === "disabled") {
     return {
       key: "ERROR",
@@ -149,13 +302,20 @@ export function isFoundationAgent(agent) {
   return name === "foundation agent" || String(agent?.agent_id || "").toLowerCase().includes("foundation");
 }
 
-export function getSummaryMetrics(agents, dbConnections) {
+function statusOptionsForAgent(agent, connections = [], executions = []) {
+  return {
+    connections: filterPlatformConnections(agent?.agent_id, connections),
+    executions: agentScopedExecutions(agent?.agent_id, executions),
+  };
+}
+
+export function getSummaryMetrics(agents, dbConnections, dbExecutions = []) {
   const list = Array.isArray(agents) ? agents : [];
   let online = 0;
   let offline = 0;
   for (const agent of list) {
-    const status = getAgentStatus(agent).key;
-    if (status === "ONLINE") online += 1;
+    const status = getAgentStatus(agent, Date.now(), statusOptionsForAgent(agent, dbConnections, dbExecutions)).key;
+    if (status === "ONLINE" || status === "PLATFORM_MANAGED") online += 1;
     else offline += 1;
   }
   const capabilityCount = list.reduce((sum, a) => sum + (a.capabilities?.length || 0), 0);
@@ -186,14 +346,23 @@ export function getCapabilitySummary(agents, t) {
     .sort((a, b) => b.agentCount - a.agentCount || a.label.localeCompare(b.label));
 }
 
-export function sortAgents(agents, nowMs = Date.now()) {
-  const order = { ONLINE: 0, WARNING: 1, OFFLINE: 2, ERROR: 3 };
+export function sortAgents(agents, nowMs = Date.now(), options = {}) {
+  const { connections = [], executions = [] } = options;
+  const order = {
+    PLATFORM_MANAGED: 0,
+    ONLINE: 0,
+    WARNING: 1,
+    DEGRADED: 1,
+    OFFLINE: 2,
+    UNAVAILABLE: 2,
+    ERROR: 3,
+  };
   return [...(agents || [])].sort((a, b) => {
     const aFoundation = isFoundationAgent(a) ? 0 : 1;
     const bFoundation = isFoundationAgent(b) ? 0 : 1;
     if (aFoundation !== bFoundation) return aFoundation - bFoundation;
-    const sa = getAgentStatus(a, nowMs).key;
-    const sb = getAgentStatus(b, nowMs).key;
+    const sa = getAgentStatus(a, nowMs, statusOptionsForAgent(a, connections, executions)).key;
+    const sb = getAgentStatus(b, nowMs, statusOptionsForAgent(b, connections, executions)).key;
     return (order[sa] ?? 9) - (order[sb] ?? 9);
   });
 }
@@ -230,8 +399,12 @@ export function buildMetadataTags({ detail, foundationRow, t }) {
   ];
 }
 
-export function buildAgentListItemViewModel(agent, foundationRow, t, nowMs = Date.now()) {
-  const status = getAgentStatus(agent, nowMs);
+export function buildAgentListItemViewModel(agent, foundationRow, t, nowMs = Date.now(), options = {}) {
+  const { connections = [], executions = [] } = options;
+  const isPlatformManaged = isPlatformManagedAgent(agent);
+  const status = getAgentStatus(agent, nowMs, statusOptionsForAgent(agent, connections, executions));
+  const platformConnections = filterPlatformConnections(agent.agent_id, connections);
+  const lastProbeAt = latestIsoTimestamp(platformConnections.map((c) => c.last_probe_at));
   return {
     agentId: agent.agent_id,
     name: agent.name || agent.agent_id,
@@ -241,7 +414,17 @@ export function buildAgentListItemViewModel(agent, foundationRow, t, nowMs = Dat
     capabilityLabels: foundationRow?.capabilityLabels || formatCapabilityList(agent.capabilities, t),
     createdText: formatShortDate(agent.created_at, t),
     lastSeenText: agent.last_seen_at ? formatShortDate(agent.last_seen_at, t) : t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.lastSeenNever),
+    secondaryLabel: isPlatformManaged
+      ? t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.lastProbe)
+      : t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.lastSeen),
+    secondaryText: isPlatformManaged
+      ? (lastProbeAt ? formatShortDate(lastProbeAt, t) : t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.lastSeenNever))
+      : (agent.last_seen_at ? formatShortDate(agent.last_seen_at, t) : t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.lastSeenNever)),
     isFoundation: isFoundationAgent(agent),
+    isPlatformManaged,
+    platformManagedLabel: isPlatformManaged
+      ? t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.detailPlatformManaged)
+      : null,
     needsAttention: status.needsAttention,
   };
 }
@@ -252,19 +435,27 @@ export function buildAgentDetailViewModel({
   dbConnectionCount,
   validationCount,
   systemsCount,
+  dbConnections = [],
+  dbExecutions = [],
   t,
   formatTimestamp,
 }) {
   const fmt = typeof formatTimestamp === "function" ? formatTimestamp : (v) => v || "—";
-  const status = getAgentStatus(detail || {});
+  const isPlatformManaged = isPlatformManagedAgent(detail || {});
+  const status = getAgentStatus(detail || {}, Date.now(), statusOptionsForAgent(detail, dbConnections, dbExecutions));
+  const platformHealth = isPlatformManaged
+    ? buildPlatformHealthSummary(detail, dbConnections, dbExecutions, t, formatTimestamp)
+    : null;
   return {
     name: detail?.name || "—",
     agentId: detail?.agent_id || "",
     status,
     statusLabel: t(status.labelKey),
+    isPlatformManaged,
     environment: foundationRow?.environment || detail?.metadata?.environment || "—",
     version: foundationRow?.version || detail?.version || "—",
     lastHeartbeat: foundationRow?.lastHeartbeatText || fmt(detail?.last_seen_at) || t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.lastSeenNever),
+    platformHealth,
     capabilities: foundationRow?.capabilityLabels || formatCapabilityList(detail?.capabilities, t),
     inventorySummary: {
       dbConnections: dbConnectionCount,
@@ -288,12 +479,13 @@ export function buildAgentDetailViewModel({
 export function buildLocalAgentsConsoleViewModel({
   agents,
   dbConnections,
+  dbExecutions = [],
   foundationReport,
   t,
   formatTimestamp,
   nowMs,
 }) {
-  const sorted = sortAgents(agents, nowMs);
+  const sorted = sortAgents(agents, nowMs, { connections: dbConnections, executions: dbExecutions });
   const foundationVm = buildLocalAgentsViewModel(
     foundationReport || { agents: [], inventory: [], summary: "" },
     t,
@@ -302,7 +494,7 @@ export function buildLocalAgentsConsoleViewModel({
   const foundationById = new Map(foundationVm.agents.map((a) => [a.agent_id, a]));
 
   return {
-    summary: getSummaryMetrics(agents, dbConnections),
+    summary: getSummaryMetrics(agents, dbConnections, dbExecutions),
     summaryLabels: {
       totalAgents: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.summaryTotalAgents),
       online: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.summaryOnline),
@@ -314,7 +506,13 @@ export function buildLocalAgentsConsoleViewModel({
     createdLabel: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.created),
     lastSeenLabel: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.lastSeen),
     agents: sorted.map((agent) =>
-      buildAgentListItemViewModel(agent, foundationById.get(agent.agent_id) || null, t, nowMs),
+      buildAgentListItemViewModel(
+        agent,
+        foundationById.get(agent.agent_id) || null,
+        t,
+        nowMs,
+        { connections: dbConnections, executions: dbExecutions },
+      ),
     ),
     capabilitySummary: getCapabilitySummary(agents, t),
     capabilitiesOverviewTitle: t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.capabilitiesOverview),

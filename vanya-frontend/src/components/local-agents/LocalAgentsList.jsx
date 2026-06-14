@@ -25,6 +25,11 @@ function AgentCard({ item, selected, labels, onSelect }) {
               Foundation
             </div>
           ) : null}
+          {item.isPlatformManaged ? (
+            <div style={{ fontSize: 10, color: "var(--text-3)", marginTop: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              {item.platformManagedLabel}
+            </div>
+          ) : null}
         </div>
         <span className={item.status.badgeClass} style={{ fontSize: 10, flexShrink: 0 }}>
           {item.statusLabel}
@@ -40,7 +45,7 @@ function AgentCard({ item, selected, labels, onSelect }) {
 
       <div style={{ display: "flex", gap: 16, fontSize: 12, color: "var(--text-3)" }}>
         <span>{labels.created} {item.createdText}</span>
-        <span>{labels.lastSeen} {item.lastSeenText}</span>
+        <span>{item.secondaryLabel || labels.lastSeen} {item.secondaryText || item.lastSeenText}</span>
       </div>
     </button>
   );
