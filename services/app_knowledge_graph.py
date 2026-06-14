@@ -68,6 +68,8 @@ def merge_routes(existing: List[KnowledgeRoute], incoming: Iterable[KnowledgeRou
                 "page_types": list(dict.fromkeys((prev.page_types or []) + (r.page_types or [])))[:10],
                 "source": r.source or prev.source,
                 "last_seen_at": r.last_seen_at or prev.last_seen_at,
+                "module": r.module or prev.module,
+                "file_path": r.file_path or prev.file_path,
             })
             by_key[k] = merged
         else:
@@ -85,9 +87,14 @@ def merge_modules(existing: List[KnowledgeModule], incoming: Iterable[KnowledgeM
         if prev:
             by_name[key] = prev.model_copy(update={
                 "test_count": max(prev.test_count, m.test_count),
-                "routes": list(dict.fromkeys((prev.routes or []) + (m.routes or [])))[:20],
+                "routes": list(dict.fromkeys((prev.routes or []) + (m.routes or [])))[:30],
+                "apis": list(dict.fromkeys((prev.apis or []) + (m.apis or [])))[:30],
                 "source": m.source or prev.source,
                 "last_seen_at": m.last_seen_at or prev.last_seen_at,
+                "entity_type": m.entity_type or prev.entity_type,
+                "fields": list(dict.fromkeys((prev.fields or []) + (m.fields or [])))[:40],
+                "relations": list(dict.fromkeys((prev.relations or []) + (m.relations or [])))[:20],
+                "file_path": m.file_path or prev.file_path,
             })
         else:
             by_name[key] = m
@@ -141,6 +148,9 @@ def merge_apis(existing: List[KnowledgeApi], incoming: Iterable[KnowledgeApi]) -
             by_key[k] = prev.model_copy(update={
                 "source": a.source or prev.source,
                 "last_seen_at": a.last_seen_at or prev.last_seen_at,
+                "module": a.module or prev.module,
+                "file_path": a.file_path or prev.file_path,
+                "method": a.method if a.method and a.method != "UNKNOWN" else prev.method,
             })
         else:
             by_key[k] = a
