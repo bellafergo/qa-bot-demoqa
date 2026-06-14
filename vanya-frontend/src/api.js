@@ -1183,7 +1183,10 @@ export function analyzeProjectAzureDevOpsPR(projectId, pullRequestId) {
 }
 
 /** POST /projects/{id}/knowledge/refresh — mode: "replace" (default) | "merge" */
-export function refreshProjectKnowledge(projectId, mode = "replace") {
+export function refreshProjectKnowledge(projectId, mode = "replace", options = {}) {
   const q = new URLSearchParams({ mode: String(mode || "replace") });
+  if (options.includeRepository) {
+    q.set("include_repository", "true");
+  }
   return apiPost(`/projects/${encodeURIComponent(projectId)}/knowledge/refresh?${q}`, {});
 }

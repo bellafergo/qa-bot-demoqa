@@ -8,6 +8,11 @@ import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
 import KpiStrip from "../components/KpiStrip.jsx";
 import InitializeProjectPanel from "../components/InitializeProjectPanel.jsx";
+import {
+  computeMemoryDepth,
+  formatMemoryDepthLabel,
+  formatSourcesLabel,
+} from "../utils/knowledgeDepthUtils.js";
 
 function fmtTs(iso) {
   if (!iso) return "—";
@@ -35,7 +40,7 @@ function knowledgeKpiItems(knowledge, t) {
   const apiN = (knowledge.apis || []).length;
   const testN = (knowledge.related_tests || []).length;
   const relN = (knowledge.workflows || []).length + (knowledge.forms || []).length;
-  const coveragePct = modN > 0 ? Math.min(100, Math.round((testN / modN) * 100)) : (testN > 0 ? 50 : 0);
+  const depth = computeMemoryDepth(knowledge);
   const signalCount = modN + routeN + apiN;
   const confKey =
     signalCount >= 5 && testN >= 3 ? "knowledge.kpi.conf_high"
@@ -47,7 +52,11 @@ function knowledgeKpiItems(knowledge, t) {
     { key: "apis", label: t("knowledge.kpi.apis"), value: apiN },
     { key: "tests", label: t("knowledge.kpi.tests"), value: testN },
     { key: "rel", label: t("knowledge.kpi.relations"), value: relN },
-    { key: "cov", label: t("knowledge.kpi.coverage"), value: `${coveragePct}%` },
+    {
+      key: "depth",
+      label: t("knowledge.kpi.memory_depth"),
+      value: `${depth.score}% (${formatMemoryDepthLabel(depth.label, t)})`,
+    },
     { key: "conf", label: t("knowledge.kpi.confidence"), value: t(confKey) },
     { key: "upd", label: t("knowledge.updated"), value: fmtTs(knowledge.updated_at) },
   ];
@@ -114,12 +123,12 @@ export default function KnowledgePage() {
     load();
   }, [load]);
 
-  const handleRefresh = async (mode = "replace") => {
+  const handleRefresh = async (mode = "replace", includeRepository = false) => {
     if (!projectId) return;
     setRefreshing(true);
     setError("");
     try {
-      const data = await refreshProjectKnowledge(projectId, mode);
+      const data = await refreshProjectKnowledge(projectId, mode, { includeRepository });
       setKnowledge(data);
     } catch (e) {
       setError(apiErrorMessage(e) || t("knowledge.error"));
@@ -151,6 +160,9 @@ export default function KnowledgePage() {
           <button type="button" className="btn btn-primary btn-sm" onClick={() => handleRefresh("replace")} disabled={refreshing || loading}>
             {refreshing ? t("knowledge.refreshing") : t("knowledge.refresh")}
           </button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleRefresh("replace", true)} disabled={refreshing || loading}>
+            {refreshing ? t("knowledge.refreshing") : t("knowledge.refresh_repo")}
+          </button>
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleRefresh("merge")} disabled={refreshing || loading}>
             {t("knowledge.merge")}
           </button>
@@ -178,6 +190,26 @@ export default function KnowledgePage() {
       ) : (
         <>
           <KpiStrip items={knowledgeKpiItems(knowledge, t)} />
+          {(() => {
+            const depth = computeMemoryDepth(knowledge);
+            return (
+              <div className="card" style={{ padding: "12px 20px", marginBottom: 16, fontSize: 13, color: "var(--text-2)" }}>
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+                  <span>
+                    {t("knowledge.sources.label")}: {formatSourcesLabel(depth.sources, t)}
+                  </span>
+                  <span className={`badge ${depth.repositoryIndexed ? "badge-blue" : "badge-gray"}`}>
+                    {depth.repositoryIndexed ? t("knowledge.repo.indexed") : t("knowledge.repo.not_indexed")}
+                  </span>
+                  {depth.repositoryIndexed && depth.repositoryFilesScanned > 0 ? (
+                    <span style={{ color: "var(--text-3)" }}>
+                      {t("knowledge.repo.files_scanned", { count: depth.repositoryFilesScanned })}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })()}
           <div className="card" style={{ padding: "16px 20px", marginBottom: 16, display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
             <div>
               <div style={{ fontSize: 11, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("knowledge.risk")}</div>
@@ -256,7 +288,11 @@ export default function KnowledgePage() {
           <Section title={t("knowledge.modules")} count={(knowledge.modules || []).length} empty={t("knowledge.none")}>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {(knowledge.modules || []).map((m) => (
-                <span key={m.name} className="badge badge-gray">{m.name} ({m.test_count})</span>
+                <span key={m.name} className="badge badge-gray">
+                  {m.name} ({m.test_count})
+                  {(m.routes || []).length > 0 ? ` · ${m.routes.length} routes` : ""}
+                  {(m.apis || []).length > 0 ? ` · ${m.apis.length} apis` : ""}
+                </span>
               ))}
             </div>
           </Section>
@@ -264,7 +300,11 @@ export default function KnowledgePage() {
           <Section title={t("knowledge.routes")} count={(knowledge.routes || []).length} empty={t("knowledge.none")}>
             <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "var(--text-2)", lineHeight: 1.7 }}>
               {(knowledge.routes || []).slice(0, 20).map((r, i) => (
-                <li key={`${r.url}-${i}`}><span style={{ fontFamily: "monospace", fontSize: 12 }}>{r.url}</span>{r.title ? ` — ${r.title}` : ""}</li>
+                <li key={`${r.url}-${i}`}>
+                  <span style={{ fontFamily: "monospace", fontSize: 12 }}>{r.url}</span>
+                  {r.module ? <span className="badge badge-gray" style={{ marginLeft: 6 }}>{r.module}</span> : null}
+                  {r.title ? ` — ${r.title}` : ""}
+                </li>
               ))}
             </ul>
           </Section>
@@ -272,7 +312,10 @@ export default function KnowledgePage() {
           <Section title={t("knowledge.apis")} count={(knowledge.apis || []).length} empty={t("knowledge.none")}>
             <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, fontFamily: "monospace", color: "var(--text-2)", lineHeight: 1.7 }}>
               {(knowledge.apis || []).slice(0, 15).map((a, i) => (
-                <li key={`${a.method}-${a.url}-${i}`}>{a.method} {a.url}</li>
+                <li key={`${a.method}-${a.url}-${i}`}>
+                  {a.method} {a.url}
+                  {a.module ? <span className="badge badge-gray" style={{ marginLeft: 6, fontFamily: "inherit" }}>{a.module}</span> : null}
+                </li>
               ))}
             </ul>
           </Section>
