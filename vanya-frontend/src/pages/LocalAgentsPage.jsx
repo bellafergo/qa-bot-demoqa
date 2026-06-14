@@ -1,6 +1,7 @@
 // src/pages/LocalAgentsPage.jsx
 /** Phase 4E — Local agents admin UI (list, health heuristic, detail, disable). */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
 import {
   listLocalAgents,
   getLocalAgent,
@@ -58,6 +59,7 @@ export default function LocalAgentsPage() {
   const { t } = useLang();
   const { currentProject } = useProject();
   const { showToast } = useToast();
+  const location = useLocation();
   const [agents, setAgents] = useState([]);
   const [foundationReport, setFoundationReport] = useState(null);
   const [dbConnections, setDbConnections] = useState([]);
@@ -120,6 +122,14 @@ export default function LocalAgentsPage() {
   useEffect(() => {
     loadAgents({ silent: false });
   }, [loadAgents]);
+
+  useEffect(() => {
+    if (location.hash !== "#database-connections") return;
+    const el = document.getElementById("database-connections");
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [location.hash, loading]);
 
   useEffect(() => {
     if (!selectedId) {
@@ -392,19 +402,21 @@ export default function LocalAgentsPage() {
         />
       </div>
 
-      <LocalAgentsDatabaseConnections
-        title={t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.dbSectionTitle)}
-        emptyTitle={t("localAgents.database.connections_empty_title")}
-        emptyDesc={t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.dbEmptyDesc)}
-        platformLabel={connectionsVm.registerPlatformAssetsLabel}
-        connections={dbConnectionCards}
-        empty={connectionsVm.empty}
-        creating={creatingPlatformAssets}
-        canRegisterPlatform={Boolean(currentProject?.id)}
-        noProjectHint={t(LOCAL_AGENTS_I18N_KEYS.toastNoProject)}
-        onRegisterPlatform={onRegisterPlatformAssets}
-        lastProbeLabel={t(DATABASE_CONNECTOR_I18N_KEYS.lastProbe)}
-      />
+      <div id="database-connections">
+        <LocalAgentsDatabaseConnections
+          title={t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.dbSectionTitle)}
+          emptyTitle={t("localAgents.database.connections_empty_title")}
+          emptyDesc={t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.dbEmptyDesc)}
+          platformLabel={connectionsVm.registerPlatformAssetsLabel}
+          connections={dbConnectionCards}
+          empty={connectionsVm.empty}
+          creating={creatingPlatformAssets}
+          canRegisterPlatform={Boolean(currentProject?.id)}
+          noProjectHint={t(LOCAL_AGENTS_I18N_KEYS.toastNoProject)}
+          onRegisterPlatform={onRegisterPlatformAssets}
+          lastProbeLabel={t(DATABASE_CONNECTOR_I18N_KEYS.lastProbe)}
+        />
+      </div>
 
       {!loading && !error && agents.length > 0 ? (
         <LocalAgentsCapabilitiesOverview title={consoleVm.capabilitiesOverviewTitle} items={consoleVm.capabilitySummary} />

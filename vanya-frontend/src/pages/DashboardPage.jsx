@@ -143,8 +143,8 @@ export default function DashboardPage() {
   const passRate = passRateValid ? `${passRateNum.toFixed(1)}%` : "—";
 
   const onboardingVm = useMemo(
-    () => buildOnboardingViewModel(s.onboarding ?? null, t),
-    [s.onboarding, t],
+    () => buildOnboardingViewModel(s.onboarding ?? null, t, { projectId }),
+    [s.onboarding, t, projectId],
   );
 
   const scheduledReportVm = useMemo(

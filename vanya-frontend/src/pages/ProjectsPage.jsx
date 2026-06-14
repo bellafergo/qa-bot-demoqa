@@ -1,5 +1,5 @@
 // src/pages/ProjectsPage.jsx
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useLang } from "../i18n/LangContext.jsx";
 import { useProject } from "../context/ProjectContext.jsx";
@@ -14,6 +14,7 @@ export default function ProjectsPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const openCreateFromQuery = searchParams.get("new") === "1";
+  const editProjectIdFromQuery = searchParams.get("edit") || "";
 
   const { projects, setCurrentProject, deleteProject, reloadProjects, loading, error } = useProject();
 
@@ -33,6 +34,23 @@ export default function ProjectsPage() {
     setSearchParams(next, { replace: true });
   }
 
+  function clearEditQuery() {
+    if (!editProjectIdFromQuery) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete("edit");
+    setSearchParams(next, { replace: true });
+  }
+
+  useEffect(() => {
+    if (!editProjectIdFromQuery || loading || modalOpen) return;
+    const target = projects.find((p) => p.id === editProjectIdFromQuery);
+    if (target) {
+      setModalMode("edit");
+      setEditTarget(target);
+      setModalOpen(true);
+    }
+  }, [editProjectIdFromQuery, loading, projects, modalOpen]);
+
   const modalVisible = modalOpen || openCreateFromQuery;
   const effectiveModalMode =
     modalOpen && modalMode === "edit" ? "edit" : openCreateFromQuery ? "create" : modalMode;
@@ -46,6 +64,7 @@ export default function ProjectsPage() {
 
   function openEdit(p) {
     clearNewQuery();
+    clearEditQuery();
     setModalMode("edit");
     setEditTarget(p);
     setModalOpen(true);
@@ -54,6 +73,7 @@ export default function ProjectsPage() {
   function closeModal() {
     setModalOpen(false);
     clearNewQuery();
+    clearEditQuery();
   }
 
   async function handleOpen(p) {

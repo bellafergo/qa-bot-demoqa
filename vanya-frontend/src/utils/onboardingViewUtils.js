@@ -20,8 +20,17 @@ export const ONBOARDING_I18N_KEYS = {
   goToLocalAgents: "onboarding.action.go_local_agents",
   goToDatabaseValidation: "onboarding.action.go_database_validation",
   goToCatalog: "onboarding.action.go_catalog",
+  goToGenerate: "onboarding.action.go_generate",
   goToIncidents: "onboarding.action.go_incidents",
   goToProjects: "onboarding.action.go_projects",
+  manageIntegration: "onboarding.action.manage_integration",
+  openCatalog: "onboarding.action.open_catalog",
+  manageBrowserWatch: "onboarding.action.manage_browser_watch",
+  manageEnvironments: "onboarding.action.manage_environments",
+  manageLocalAgents: "onboarding.action.manage_local_agents",
+  manageDatabaseValidation: "onboarding.action.manage_database_validation",
+  viewContractIntelligence: "onboarding.action.view_contract_intelligence",
+  viewExecutiveReports: "onboarding.action.view_executive_reports",
   readOnlyNote: "onboarding.read_only_note",
   operationalTitle: "onboarding.operational.title",
   operationalSubtitle: "onboarding.operational.subtitle",
@@ -91,7 +100,7 @@ const READINESS_BADGE = {
   FULLY_OPERATIONAL: "badge badge-green",
 };
 
-const NAVIGATION_BY_CATEGORY = {
+const INCOMPLETE_NAVIGATION_BY_CATEGORY = {
   repository: { path: "/integrations", labelKey: ONBOARDING_I18N_KEYS.goToRepositories },
   testing: { path: "/catalog", labelKey: ONBOARDING_I18N_KEYS.goToCatalog },
   browser_monitoring: { path: "/browser-watch", labelKey: ONBOARDING_I18N_KEYS.goToBrowserWatches },
@@ -100,6 +109,17 @@ const NAVIGATION_BY_CATEGORY = {
   database_validation: { path: "/local-agents", labelKey: ONBOARDING_I18N_KEYS.goToDatabaseValidation },
   contract_intelligence: { path: "/incidents", labelKey: ONBOARDING_I18N_KEYS.goToIncidents },
   reporting: { path: "/incidents", labelKey: ONBOARDING_I18N_KEYS.goToIncidents },
+};
+
+const COMPLETED_NAVIGATION_BY_CATEGORY = {
+  repository: { path: "/integrations", labelKey: ONBOARDING_I18N_KEYS.manageIntegration },
+  testing: { path: "/catalog", labelKey: ONBOARDING_I18N_KEYS.openCatalog },
+  browser_monitoring: { path: "/browser-watch", labelKey: ONBOARDING_I18N_KEYS.manageBrowserWatch },
+  environments: { path: "/projects", labelKey: ONBOARDING_I18N_KEYS.manageEnvironments },
+  agents: { path: "/local-agents", labelKey: ONBOARDING_I18N_KEYS.manageLocalAgents },
+  database_validation: { path: "/local-agents#database-connections", labelKey: ONBOARDING_I18N_KEYS.manageDatabaseValidation },
+  contract_intelligence: { path: "/incidents", labelKey: ONBOARDING_I18N_KEYS.viewContractIntelligence },
+  reporting: { path: "/incidents", labelKey: ONBOARDING_I18N_KEYS.viewExecutiveReports },
 };
 
 export function readinessLabelKey(level) {
@@ -126,13 +146,40 @@ export function stepStatusIcon(status) {
   return "○";
 }
 
-export function navigationForStep(step) {
-  return NAVIGATION_BY_CATEGORY[String(step?.category || "")] || null;
+export function navigationForStep(step, options = {}) {
+  const category = String(step?.category || "");
+  const status = String(step?.status || "NOT_STARTED").toUpperCase();
+  const projectId = String(options.projectId || step?.project_id || "").trim();
+
+  if (category === "testing") {
+    if (status === "NOT_STARTED") {
+      return { path: "/generate", labelKey: ONBOARDING_I18N_KEYS.goToGenerate };
+    }
+    if (status === "COMPLETED") {
+      return { path: "/catalog", labelKey: ONBOARDING_I18N_KEYS.openCatalog };
+    }
+    return INCOMPLETE_NAVIGATION_BY_CATEGORY.testing;
+  }
+
+  if (category === "environments" && status === "COMPLETED") {
+    const path = projectId
+      ? `/projects?edit=${encodeURIComponent(projectId)}`
+      : COMPLETED_NAVIGATION_BY_CATEGORY.environments.path;
+    return { path, labelKey: ONBOARDING_I18N_KEYS.manageEnvironments };
+  }
+
+  const navMap = status === "COMPLETED"
+    ? COMPLETED_NAVIGATION_BY_CATEGORY
+    : INCOMPLETE_NAVIGATION_BY_CATEGORY;
+
+  return navMap[category] || null;
 }
 
-export function buildOnboardingViewModel(checklist, t) {
+export function buildOnboardingViewModel(checklist, t, options = {}) {
+  const projectId = String(options.projectId || checklist?.project_id || "").trim();
+
   const steps = (checklist?.steps || []).map((step) => {
-    const nav = navigationForStep(step);
+    const nav = navigationForStep(step, { projectId });
     return {
       ...step,
       statusLabel: t(stepStatusLabelKey(step.status)),

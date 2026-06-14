@@ -30,7 +30,7 @@ export default function OnboardingStepCard({ step }) {
               {step.description}
             </div>
           ) : null}
-          {step.navigation && step.status !== "COMPLETED" ? (
+          {step.navigation ? (
             <Link to={step.navigation.path} className="btn btn-secondary btn-sm" style={{ fontSize: 11 }}>
               {step.navigation.label}
             </Link>

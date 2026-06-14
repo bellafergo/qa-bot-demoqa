@@ -73,10 +73,43 @@ describe("onboardingViewUtils", () => {
   });
 
   it("maps navigation actions by category", () => {
-    const nav = navigationForStep({ category: "database_validation" });
-    expect(nav.path).toBe("/local-agents");
-    const vm = buildOnboardingViewModel(sampleChecklist, t);
+    const incompleteNav = navigationForStep({ category: "database_validation", status: "NOT_STARTED" });
+    expect(incompleteNav.path).toBe("/local-agents");
+    const vm = buildOnboardingViewModel(sampleChecklist, t, { projectId: "demo" });
     expect(vm.checklist.steps[1].navigation.label).toBe(ONBOARDING_I18N_KEYS.goToDatabaseValidation);
+  });
+
+  it("shows management navigation for completed steps", () => {
+    const vm = buildOnboardingViewModel(sampleChecklist, t, { projectId: "demo" });
+    expect(vm.checklist.steps[0].navigation.path).toBe("/integrations");
+    expect(vm.checklist.steps[0].navigation.label).toBe(ONBOARDING_I18N_KEYS.manageIntegration);
+  });
+
+  it("routes testing NOT_STARTED to generate", () => {
+    const nav = navigationForStep({ category: "testing", status: "NOT_STARTED" });
+    expect(nav.path).toBe("/generate");
+    expect(nav.labelKey).toBe(ONBOARDING_I18N_KEYS.goToGenerate);
+  });
+
+  it("routes testing COMPLETED to catalog with manage label", () => {
+    const nav = navigationForStep({ category: "testing", status: "COMPLETED" });
+    expect(nav.path).toBe("/catalog");
+    expect(nav.labelKey).toBe(ONBOARDING_I18N_KEYS.openCatalog);
+  });
+
+  it("routes completed environments to project edit deep link", () => {
+    const nav = navigationForStep(
+      { category: "environments", status: "COMPLETED" },
+      { projectId: "proj-42" },
+    );
+    expect(nav.path).toBe("/projects?edit=proj-42");
+    expect(nav.labelKey).toBe(ONBOARDING_I18N_KEYS.manageEnvironments);
+  });
+
+  it("routes completed database validation to hash anchor", () => {
+    const nav = navigationForStep({ category: "database_validation", status: "COMPLETED" });
+    expect(nav.path).toBe("/local-agents#database-connections");
+    expect(nav.labelKey).toBe(ONBOARDING_I18N_KEYS.manageDatabaseValidation);
   });
 
   it("exposes translation keys", () => {
