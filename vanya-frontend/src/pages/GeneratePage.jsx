@@ -660,7 +660,7 @@ export default function GeneratePage() {
       {/* ── Tab content ──────────────────────────────────────────────────── */}
       {tab === 0 && <PlannerPage embedded />}
       {tab === 1 && <FromUrlPanel />}
-      {tab === 2 && <PRAnalysisPage />}
+      {tab === 2 && <PRAnalysisPage embedded />}
       {tab === 3 && <ApiTestingPage />}
     </div>
   );

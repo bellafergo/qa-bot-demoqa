@@ -29,7 +29,7 @@ function WatchRow({ item, selected, labels, onSelect }) {
         <div>
           <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-3)", marginBottom: 3 }}>{labels.url}</div>
           <div
-            title={item.url}
+            title={item.url || undefined}
             style={{
               color: "var(--text-2)",
               overflow: "hidden",

@@ -34,14 +34,12 @@ function getThreadId(t) {
   return id || null;
 }
 
-function buildTitle(t) {
+function buildTitle(t, labels) {
   const title = String(t?.title || "").trim();
   if (title && title.toLowerCase() !== "new chat") return title;
   const preview = String(t?.preview || "").trim();
   if (preview) return preview.length > 48 ? preview.slice(0, 48) + "…" : preview;
-  const id = getThreadId(t);
-  if (id) return `Chat ${id.slice(0, 6)}…`;
-  return "Chat";
+  return labels?.untitled || "Conversation";
 }
 
 export default function Sidebar({
@@ -51,6 +49,7 @@ export default function Sidebar({
   onSelect,
   onDelete,
   isLoading = false,
+  hint = "",
 }) {
   const { t } = useLang();
   const [filter, setFilter] = useState("");
@@ -102,6 +101,10 @@ export default function Sidebar({
 
   const activeStr = String(activeId || "").trim();
   const busy = Boolean(isLoading || isFetching);
+  const threadLabels = useMemo(() => ({
+    untitled: t("chat.sidebar.untitled"),
+  }), [t]);
+  const listHint = hint || fetchErr;
 
   return (
     <div style={{
@@ -199,17 +202,17 @@ export default function Sidebar({
       </div>
 
       {/* ── Error ───────────────────────────────────────── */}
-      {fetchErr && (
-        <div style={{ padding: "8px 14px", fontSize: 12, color: "var(--red-text)", background: "var(--red-bg)" }}>
-          {fetchErr}
+      {listHint ? (
+        <div style={{ padding: "8px 14px", fontSize: 11, color: "var(--text-3)", background: "var(--surface-2)", lineHeight: 1.45 }}>
+          {listHint}
         </div>
-      )}
+      ) : null}
 
       {/* ── Thread list ─────────────────────────────────── */}
       <div style={{ flex: 1, overflowY: "auto", padding: "6px 8px" }}>
         {filtered.map(th => {
           const id = th.__id;
-          const title = buildTitle(th);
+          const title = buildTitle(th, threadLabels);
           const subtitle = String(th?.preview || "").trim() || (th?.updated_at ? fmtDate(th.updated_at) : "");
           const isActive = id === activeStr;
 

@@ -5,8 +5,8 @@
  * POST /pr-analysis/analyze      — analyze impact and match catalog tests
  * POST /execution/run-batch      — enqueue matched test IDs via Execution Center
  */
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   analyzePR,
   analyzeProjectPR,
@@ -31,16 +31,22 @@ import { parseChangedFilesList } from "../utils/prAnalysisViewUtils";
 import {
   isAzureDrilldownProvider,
   isGithubDrilldownProvider,
-  parsePrAnalysisDrilldown,
   resolvePrAnalysisDrilldown,
 } from "../utils/prAnalysisDrilldownUtils.js";
+import {
+  buildPrAnalysisPageShellClassName,
+  parsePrAnalysisSearch,
+} from "../utils/prAnalysisPageViewUtils.js";
 
-export default function PRAnalysisPage() {
+export default function PRAnalysisPage({ embedded = false }) {
   const { t } = useLang();
   const { currentProject } = useProject();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const drilldownTarget = parsePrAnalysisDrilldown(searchParams);
+  const location = useLocation();
+  const drilldownTarget = useMemo(
+    () => parsePrAnalysisSearch(location.search),
+    [location.search],
+  );
   const drilldownResolvedRef = useRef(false);
   const [drilldownHighlightPr, setDrilldownHighlightPr] = useState(null);
   const [drilldownNotFound, setDrilldownNotFound] = useState(false);
@@ -451,9 +457,12 @@ export default function PRAnalysisPage() {
   }
 
   return (
-    <div className="page-wrap">
+    <div
+      className={buildPrAnalysisPageShellClassName({ embedded })}
+      style={{ minHeight: embedded ? undefined : "100%", background: "var(--bg)" }}
+    >
 
-      <PrRiskFlowGuide variant="pr" />
+      {!embedded ? <PrRiskFlowGuide variant="pr" /> : null}
 
       {drilldownTarget ? (
         drilldownNotFound ? (

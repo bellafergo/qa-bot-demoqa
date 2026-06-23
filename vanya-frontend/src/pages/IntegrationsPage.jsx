@@ -1355,8 +1355,12 @@ function ConnectorCard({
           </div>
           <button
             type="button"
-            onClick={handleExpand}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleExpand();
+            }}
             aria-expanded={expanded}
+            aria-label={expanded ? t("integrations.card.collapse") : t("integrations.card.expand")}
             style={{
               fontSize: 12,
               color: "var(--text-2)",

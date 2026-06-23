@@ -3,6 +3,7 @@ import { useLang } from "../../i18n/LangContext";
 import { useRbac } from "../../auth/RbacContext.jsx";
 import { useAuth } from "../../auth/AuthContext.jsx";
 import { buildCurrentPermissionsViewModel } from "../../utils/permissionViewUtils.js";
+import { humanizePermission } from "../../utils/permissionLabelUtils.js";
 import { roleLabelKey } from "../../utils/rbacViewUtils.js";
 
 export default function CurrentPermissionsSection() {
@@ -59,7 +60,9 @@ export default function CurrentPermissionsSection() {
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {vm.permissions.map((permission) => (
-              <span key={permission} className="badge badge-gray">{permission}</span>
+              <span key={permission} className="badge badge-gray">
+                {humanizePermission(permission, t)}
+              </span>
             ))}
           </div>
         </>

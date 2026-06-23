@@ -25,8 +25,6 @@ const getRunnerContract = (m) => {
  * - RunDebugBlock: details, copy json
  */
 
-const BUILD_TAG = "product-chat-2025-12-29-01";
-
 // ---------- helpers ----------
 const safeJsonParse = (v) => {
   if (!v) return null;
@@ -457,8 +455,6 @@ export default function Chat(props) {
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", background: "var(--chat-bg)" }}>
-      <div style={{ fontSize: 10, color: "var(--text-4)", padding: "6px 20px", borderBottom: "1px solid var(--border-light)" }}>build: {BUILD_TAG}</div>
-
       <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
         <div style={{ maxWidth: 800, margin: "0 auto" }}>
         {!threadId ? (

@@ -1,5 +1,5 @@
 // src/components/Layout.jsx
-import React from "react";
+import React, { Suspense } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import NavSidebar from "./NavSidebar";
 import { useLang } from "../i18n/LangContext";
@@ -70,7 +70,15 @@ export default function Layout() {
 
         {/* Scrollable page content */}
         <main style={{ flex: 1, overflow: "auto", background: "var(--bg)" }}>
-          <Outlet />
+          <Suspense
+            fallback={(
+              <div style={{ padding: 32, fontSize: 13, color: "var(--text-3)" }}>
+                {t("common.loading")}
+              </div>
+            )}
+          >
+            <Outlet />
+          </Suspense>
         </main>
       </div>
     </div>

@@ -42,7 +42,6 @@ const formatText = (text) => {
     .replace(/\*\*(.*?)\*\*/g, "<b>$1</b>")
     .replace(/\n/g, "<br/>");
 };
-const shortId = (id) => (id ? `${String(id).slice(0, 8)}…` : "");
 
 export default function ChatPage() {
   const { t } = useLang();
@@ -50,6 +49,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState([]);
   const [input, setInput]       = useState("");
   const [uiError, setUiError]   = useState("");
+  const [sidebarHint, setSidebarHint] = useState("");
   const [isSending, setIsSending]           = useState(false);
   const [isThreadsLoading, setIsThreadsLoading] = useState(false);
   const sidebarBusy = isSending || isThreadsLoading;
@@ -91,16 +91,18 @@ export default function ChatPage() {
       });
   }, []);
 
-  const refreshThreads = useCallback(async () => {
+  const refreshThreads = useCallback(async ({ quiet = false } = {}) => {
     setIsThreadsLoading(true);
-    setUiError("");
+    if (!quiet) setSidebarHint("");
     try {
       const list = await safeListThreads();
       const normalized = normalizeThreads(list || []);
       setThreads(normalized);
+      setSidebarHint("");
       return normalized;
     } catch (e) {
-      setUiError(`${t("chat.error.load_threads")} ${apiErrorMessage(e)}`);
+      const msg = `${t("chat.error.load_threads")} ${apiErrorMessage(e)}`;
+      setSidebarHint(msg);
       setThreads([]);
       return [];
     } finally { setIsThreadsLoading(false); }
@@ -136,11 +138,17 @@ export default function ChatPage() {
       const data = await safeGetThread(tid);
       const backendMsgs = data?.messages || data?.items || data?.history || data?.thread?.messages;
       const ui = mapBackendMessagesToUI(backendMsgs);
-      if (ui) setMessages(ui); else setWelcome();
-      if (refreshSidebar) await refreshThreads().catch(() => {});
+      if (ui) {
+        setMessages(ui);
+        setUiError("");
+      } else {
+        setWelcome();
+      }
+      if (refreshSidebar) await refreshThreads({ quiet: true }).catch(() => {});
     } catch (e) {
-      setUiError(`${t("chat.error.load_chat")} ${apiErrorMessage(e)}`);
+      const msg = `${t("chat.error.load_chat")} ${apiErrorMessage(e)}`;
       setWelcome();
+      setUiError(msg);
     } finally { setIsThreadsLoading(false); }
   }, [mapBackendMessagesToUI, refreshThreads, setWelcome, t]);
 
@@ -226,9 +234,8 @@ export default function ChatPage() {
         content: answer || t("chat.done"),
         meta: { ...(resp || {}), mode: resp?.mode || "chat_only", runner: resp?.runner || null },
       }]);
-      await refreshThreads().catch(() => {});
-    } catch (e) {
-      setUiError(`${t("chat.error.send")} ${apiErrorMessage(e)}`);
+      await refreshThreads({ quiet: true }).catch(() => {});
+    } catch {
       setMessages(prev => [...prev, {
         role: "bot",
         content: t("chat.error.send_retry"),
@@ -239,9 +246,13 @@ export default function ChatPage() {
 
   useEffect(() => {
     (async () => {
-      await refreshThreads().catch(() => {});
-      if (threadId) await loadThread(threadId).catch(() => setWelcome());
-      else setWelcome();
+      await refreshThreads({ quiet: true }).catch(() => []);
+      if (threadId) {
+        await loadThread(threadId).catch(() => setWelcome());
+        setUiError("");
+      } else {
+        setWelcome();
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -265,6 +276,7 @@ export default function ChatPage() {
             onSelect={handleSelect}
             onDelete={requestDeleteThread}
             isLoading={sidebarBusy}
+            hint={sidebarHint}
           />
         )}
       </div>
@@ -310,11 +322,10 @@ export default function ChatPage() {
             </button>
 
             <span style={{
-              fontSize: 11,
-              color: "var(--text-3)",
-              fontFamily: "ui-monospace, monospace",
+              fontSize: 12,
+              color: "var(--text-2)",
             }}>
-              {threadId ? `thread:${shortId(threadId)}` : t("chat.toolbar.no_thread")}
+              {threadId ? t("chat.toolbar.current_thread") : t("chat.toolbar.no_thread")}
             </span>
           </div>
 
