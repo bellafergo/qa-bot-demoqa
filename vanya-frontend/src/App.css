@@ -1054,6 +1054,30 @@ code {
 }
 .zu-empty-state__action { margin-top: 20px; }
 
+.zu-empty-state--loading .zu-empty-state__title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.zu-empty-state__spinner {
+  width: 28px;
+  height: 28px;
+  margin: 0 auto 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: zu-spin 0.75s linear infinite;
+}
+
+.zu-empty-state--error .zu-empty-state__title {
+  color: var(--red-text, #ef4444);
+}
+
+@keyframes zu-spin {
+  to { transform: rotate(360deg); }
+}
+
 .zu-sidebar-brand {
   display: flex;
   align-items: center;

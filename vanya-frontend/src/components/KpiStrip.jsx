@@ -2,7 +2,7 @@
 /** Compact KPI row for Runs, Evidence, Knowledge pages. */
 import React from "react";
 
-export default function KpiStrip({ items = [], loading = false }) {
+export default function KpiStrip({ items = [], loading = false, loadingLabel = "…" }) {
   if (!items.length && !loading) return null;
   return (
     <div
@@ -20,16 +20,17 @@ export default function KpiStrip({ items = [], loading = false }) {
           <div
             style={{
               marginTop: 6,
-              fontSize: 22,
-              fontWeight: 700,
-              color: accent || "var(--text-1)",
+              fontSize: loading ? 13 : 22,
+              fontWeight: loading ? 500 : 700,
+              color: loading ? "var(--text-2)" : (accent || "var(--text-1)"),
               fontVariantNumeric: "tabular-nums",
+              lineHeight: loading ? 1.4 : 1.2,
             }}
             title={hint || undefined}
           >
-            {loading ? "…" : value ?? "—"}
+            {loading ? loadingLabel : value ?? "—"}
           </div>
-          {hint ? (
+          {hint && !loading ? (
             <div style={{ fontSize: 10, color: "var(--text-4)", marginTop: 4, lineHeight: 1.35 }}>{hint}</div>
           ) : null}
         </div>

@@ -30,7 +30,16 @@ export const ONBOARDING_I18N_KEYS = {
   manageLocalAgents: "onboarding.action.manage_local_agents",
   manageDatabaseValidation: "onboarding.action.manage_database_validation",
   viewContractIntelligence: "onboarding.action.view_contract_intelligence",
+  generateContractIntelligence: "onboarding.action.generate_contract_intelligence",
   viewExecutiveReports: "onboarding.action.view_executive_reports",
+  optionalCapability: "onboarding.step.optional_capability",
+  coreSetupComplete: "onboarding.core_setup_complete",
+  platformOperationalNote: "onboarding.platform_operational_note",
+  contractIntelligenceTitle: "onboarding.step.contract_intelligence.title",
+  contractIntelligenceDescription: "onboarding.step.contract_intelligence.description",
+  contractIntelligenceGuidanceNotStarted: "onboarding.step.contract_intelligence.guidance_not_started",
+  contractIntelligenceGuidanceInProgress: "onboarding.step.contract_intelligence.guidance_in_progress",
+  contractIntelligenceGuidanceCompleted: "onboarding.step.contract_intelligence.guidance_completed",
   readOnlyNote: "onboarding.read_only_note",
   operationalTitle: "onboarding.operational.title",
   operationalSubtitle: "onboarding.operational.subtitle",
@@ -40,7 +49,22 @@ export const ONBOARDING_I18N_KEYS = {
   operationalProject: "onboarding.operational.project",
   viewSetupDetails: "onboarding.operational.view_setup_details",
   hideSetupDetails: "onboarding.operational.hide_setup_details",
+  expandChecklist: "onboarding.dashboard.expand_checklist",
+  collapseChecklist: "onboarding.dashboard.collapse_checklist",
 };
+
+export const CONTRACT_INTELLIGENCE_STEP_ID = "configure_contract_intelligence";
+
+/** Core setup steps — contract intelligence is optional/advanced. */
+export const CORE_ONBOARDING_STEP_IDS = new Set([
+  "connect_repository",
+  "import_tests",
+  "configure_browser_monitoring",
+  "configure_environments",
+  "configure_local_agent",
+  "configure_database_validation",
+  "generate_executive_report",
+]);
 
 /** True when onboarding checklist is fully complete (frontend-only UX gate). */
 export function isOnboardingComplete(checklist) {
@@ -107,7 +131,7 @@ const INCOMPLETE_NAVIGATION_BY_CATEGORY = {
   environments: { path: "/projects", labelKey: ONBOARDING_I18N_KEYS.goToProjects },
   agents: { path: "/local-agents", labelKey: ONBOARDING_I18N_KEYS.goToLocalAgents },
   database_validation: { path: "/local-agents", labelKey: ONBOARDING_I18N_KEYS.goToDatabaseValidation },
-  contract_intelligence: { path: "/incidents", labelKey: ONBOARDING_I18N_KEYS.goToIncidents },
+  contract_intelligence: { path: "/incidents", labelKey: ONBOARDING_I18N_KEYS.generateContractIntelligence },
   reporting: { path: "/incidents", labelKey: ONBOARDING_I18N_KEYS.goToIncidents },
 };
 
@@ -175,16 +199,74 @@ export function navigationForStep(step, options = {}) {
   return navMap[category] || null;
 }
 
+export function isOptionalOnboardingStep(step) {
+  return String(step?.step_id || "") === CONTRACT_INTELLIGENCE_STEP_ID;
+}
+
+export function isCoreOnboardingComplete(checklist) {
+  const steps = checklist?.steps || [];
+  if (!steps.length) return false;
+  const coreSteps = steps.filter((step) => CORE_ONBOARDING_STEP_IDS.has(step.step_id));
+  if (!coreSteps.length) return false;
+  return coreSteps.every((step) => String(step.status || "").toUpperCase() === "COMPLETED");
+}
+
+/** Dashboard fold: collapse onboarding checklist when setup is nearly complete. */
+export const ONBOARDING_DASHBOARD_COLLAPSE_THRESHOLD = 88;
+
+export function shouldCollapseOnboardingDashboard(checklist, onboardingVm) {
+  if (!checklist) return false;
+  if (onboardingVm?.isComplete) return true;
+  const pct = Number(checklist.overall_completion) || 0;
+  if (pct >= ONBOARDING_DASHBOARD_COLLAPSE_THRESHOLD) return true;
+  return Boolean(onboardingVm?.coreSetupComplete);
+}
+
+function contractIntelligenceGuidanceKey(status) {
+  const key = String(status || "NOT_STARTED").toUpperCase();
+  if (key === "IN_PROGRESS") return ONBOARDING_I18N_KEYS.contractIntelligenceGuidanceInProgress;
+  if (key === "COMPLETED") return ONBOARDING_I18N_KEYS.contractIntelligenceGuidanceCompleted;
+  return ONBOARDING_I18N_KEYS.contractIntelligenceGuidanceNotStarted;
+}
+
+export function localizeOnboardingStep(step, t) {
+  if (!isOptionalOnboardingStep(step)) return step;
+
+  const status = String(step.status || "NOT_STARTED").toUpperCase();
+  const guidanceKey = contractIntelligenceGuidanceKey(status);
+
+  return {
+    ...step,
+    title: t(ONBOARDING_I18N_KEYS.contractIntelligenceTitle),
+    description: t(ONBOARDING_I18N_KEYS.contractIntelligenceDescription),
+    guidanceText: t(guidanceKey),
+    isOptional: true,
+    optionalLabel: t(ONBOARDING_I18N_KEYS.optionalCapability),
+  };
+}
+
+function localizeNextRecommendedStep(title, t) {
+  const normalized = String(title || "").trim().toLowerCase();
+  if (
+    normalized === "configure contract intelligence"
+    || normalized === "generate contract intelligence"
+  ) {
+    return t(ONBOARDING_I18N_KEYS.contractIntelligenceTitle);
+  }
+  return title;
+}
+
 export function buildOnboardingViewModel(checklist, t, options = {}) {
   const projectId = String(options.projectId || checklist?.project_id || "").trim();
 
   const steps = (checklist?.steps || []).map((step) => {
-    const nav = navigationForStep(step, { projectId });
+    const localized = localizeOnboardingStep(step, t);
+    const nav = navigationForStep(localized, { projectId });
     return {
-      ...step,
-      statusLabel: t(stepStatusLabelKey(step.status)),
-      statusBadgeClass: stepStatusBadgeClass(step.status),
-      statusIcon: stepStatusIcon(step.status),
+      ...localized,
+      statusLabel: t(stepStatusLabelKey(localized.status)),
+      statusBadgeClass: stepStatusBadgeClass(localized.status),
+      statusIcon: stepStatusIcon(localized.status),
       navigation: nav
         ? {
             path: nav.path,
@@ -195,6 +277,7 @@ export function buildOnboardingViewModel(checklist, t, options = {}) {
   });
 
   const isComplete = isOnboardingComplete(checklist);
+  const coreSetupComplete = isCoreOnboardingComplete(checklist) && !isComplete;
   const completionDateText = resolveOnboardingCompletionDate(checklist);
 
   return {
@@ -206,6 +289,11 @@ export function buildOnboardingViewModel(checklist, t, options = {}) {
     nextRecommendedStepLabel: t(ONBOARDING_I18N_KEYS.nextRecommendedStep),
     checklistLabel: t(ONBOARDING_I18N_KEYS.checklist),
     readOnlyNote: t(ONBOARDING_I18N_KEYS.readOnlyNote),
+    coreSetupComplete,
+    coreSetupCompleteLabel: coreSetupComplete ? t(ONBOARDING_I18N_KEYS.coreSetupComplete) : "",
+    platformOperationalNote: coreSetupComplete ? t(ONBOARDING_I18N_KEYS.platformOperationalNote) : "",
+    expandChecklistLabel: t(ONBOARDING_I18N_KEYS.expandChecklist),
+    collapseChecklistLabel: t(ONBOARDING_I18N_KEYS.collapseChecklist),
     operational: isComplete && checklist
       ? {
           title: t(ONBOARDING_I18N_KEYS.operationalTitle),
@@ -228,6 +316,7 @@ export function buildOnboardingViewModel(checklist, t, options = {}) {
           readinessLabel: t(readinessLabelKey(checklist.readiness_level)),
           readinessBadgeClass: readinessBadgeClass(checklist.readiness_level),
           completedLabel: `${checklist.completed_steps} / ${checklist.total_steps} ${t(ONBOARDING_I18N_KEYS.completed)}`,
+          next_recommended_step: localizeNextRecommendedStep(checklist.next_recommended_step, t),
           steps,
         }
       : null,

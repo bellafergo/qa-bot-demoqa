@@ -39,7 +39,8 @@ const NAV_SECTIONS_DEF = [
     items: [
       { to: "/projects",     icon: "▤", labelKey: "nav.projects", permission: "VIEW_DASHBOARD" },
       { to: "/integrations", icon: "◇", labelKey: "nav.integrations", permission: "VIEW_DASHBOARD" },
-      { to: "/documents",    icon: "⊟", labelKey: "nav.documents", permission: "VIEW_DASHBOARD" },
+      { to: "/documents",    icon: "◧", labelKey: "nav.documents", permission: "VIEW_DASHBOARD" },
+      { to: "/chat",         icon: "◎", labelKey: "nav.chat", permission: "VIEW_DASHBOARD" },
       { to: "/settings",     icon: "⊛", labelKey: "nav.settings", permission: "VIEW_DASHBOARD" },
     ],
   },
@@ -169,7 +170,7 @@ export default function NavSidebar() {
           </div>
         ) : null}
         <div style={{ marginTop: 2, padding: "0 10px", fontSize: 10, color: "rgba(148, 163, 184, 0.4)" }}>
-          v1.0 · QA Platform
+          {t("nav.footer_tagline")}
         </div>
       </div>
     </nav>

@@ -23,20 +23,20 @@ function healthVariant(summary, passRateValid, passRateNum) {
 }
 
 function memoryLabel(t, hasKnowledge, loading) {
-  if (loading) return "…";
+  if (loading) return t("common.loading");
   if (hasKnowledge === true) return t("health.memory.ready");
   if (hasKnowledge === false) return t("health.memory.pending");
   return t("health.memory.unknown");
 }
 
 function executionLabel(t, runs, loading) {
-  if (loading) return "…";
+  if (loading) return t("common.loading");
   if (runs > 0) return t("health.execution.active");
   return t("health.execution.none");
 }
 
 function generalHealthLabel(t, variant, loading) {
-  if (loading) return "…";
+  if (loading) return t("common.loading");
   if (variant === "empty") return t("health.pending");
   if (variant === "good") return t("health.good");
   if (variant === "danger") return t("health.at_risk");
@@ -44,14 +44,14 @@ function generalHealthLabel(t, variant, loading) {
 }
 
 function riskLabel(t, variant, riskLevel, loading) {
-  if (loading) return "…";
+  if (loading) return t("common.loading");
   if (variant === "empty") return t("health.risk_not_evaluated");
   if (riskLevel === "elevated") return t("health.elevated");
   if (riskLevel === "watch") return t("health.watch");
   return t("health.stable");
 }
 
-function ExecutiveStatusGrid({ cells, loading }) {
+function ExecutiveStatusGrid({ cells, loading, loadingLabel }) {
   return (
     <div
       style={{
@@ -68,14 +68,14 @@ function ExecutiveStatusGrid({ cells, loading }) {
           </div>
           <div
             style={{
-              fontSize: 14,
-              fontWeight: 600,
-              color: c.accent || "var(--text-1)",
+              fontSize: loading ? 12 : 14,
+              fontWeight: loading ? 500 : 600,
+              color: loading ? "var(--text-2)" : (c.accent || "var(--text-1)"),
               marginTop: 4,
               lineHeight: 1.35,
             }}
           >
-            {loading ? "…" : c.value}
+            {loading ? loadingLabel : c.value}
           </div>
         </div>
       ))}
@@ -150,10 +150,10 @@ export default function ProjectHealthStrip({
           {t("health.executive_title")}
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
-          <ExecutiveStatusGrid cells={cells} loading={loading} />
+          <ExecutiveStatusGrid cells={cells} loading={loading} loadingLabel={t("common.loading")} />
           <div style={{ minWidth: 220, maxWidth: 300 }}>
             <div style={{ fontSize: 10, color: "var(--text-3)", textTransform: "uppercase" }}>{t("health.recommendation")}</div>
-            <div style={{ fontSize: 12, color: "var(--text-2)", marginTop: 4, lineHeight: 1.5 }}>{loading ? "…" : recommendation}</div>
+            <div style={{ fontSize: 12, color: "var(--text-2)", marginTop: 4, lineHeight: 1.5 }}>{loading ? t("common.loading") : recommendation}</div>
             {lastRefresh ? (
               <div style={{ fontSize: 10, color: "var(--text-4)", marginTop: 6 }}>
                 {t("dash.refreshed")}: {fmtDate(lastRefresh.toISOString?.() || lastRefresh)}

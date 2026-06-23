@@ -514,6 +514,42 @@ def test_no_external_calls():
     assert "httpx." not in source
 
 
+@patch("services.onboarding_service._incident_intelligence_flags")
+@patch("services.onboarding_service._knowledge_has_apis", return_value=False)
+def test_contract_intelligence_not_started_guidance(mock_knowledge, mock_intel_flags):
+    from services.onboarding_service import _contract_intelligence_state
+
+    mock_intel_flags.return_value = {
+        "has_executive_report": False,
+        "has_contract_intelligence": False,
+        "has_quality_health": False,
+    }
+
+    status, completion, action = _contract_intelligence_state("demo")
+    assert status == "NOT_STARTED"
+    assert completion == 0
+    assert "generated yet" in action.lower()
+    assert "investigation" in action.lower()
+
+
+@patch("services.onboarding_service._incident_intelligence_flags")
+@patch("services.onboarding_service._knowledge_has_apis", return_value=True)
+def test_contract_intelligence_in_progress_guidance(mock_knowledge, mock_intel_flags):
+    from services.onboarding_service import _contract_intelligence_state
+
+    mock_intel_flags.return_value = {
+        "has_executive_report": False,
+        "has_contract_intelligence": False,
+        "has_quality_health": False,
+    }
+
+    status, completion, action = _contract_intelligence_state("demo")
+    assert status == "IN_PROGRESS"
+    assert completion == 70
+    assert "api knowledge detected" in action.lower()
+    assert "investigation" in action.lower()
+
+
 @pytest.fixture
 def client():
     from app import app

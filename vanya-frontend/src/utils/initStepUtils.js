@@ -36,6 +36,38 @@ export function isSmokeQueued(result) {
   return Boolean(result.job_id || smoke.details?.job_id);
 }
 
+const INIT_PANEL_DISMISS_PREFIX = "vanya_init_panel_dismissed_";
+
+export function isInitializeProjectPanelDismissed(projectId) {
+  const pid = String(projectId || "").trim();
+  if (!pid) return false;
+  try {
+    return localStorage.getItem(`${INIT_PANEL_DISMISS_PREFIX}${pid}`) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function dismissInitializeProjectPanel(projectId) {
+  const pid = String(projectId || "").trim();
+  if (!pid) return;
+  try {
+    localStorage.setItem(`${INIT_PANEL_DISMISS_PREFIX}${pid}`, "1");
+  } catch {
+    void 0;
+  }
+}
+
+export function clearInitializeProjectPanelDismiss(projectId) {
+  const pid = String(projectId || "").trim();
+  if (!pid) return;
+  try {
+    localStorage.removeItem(`${INIT_PANEL_DISMISS_PREFIX}${pid}`);
+  } catch {
+    void 0;
+  }
+}
+
 export function sortInitSteps(steps) {
   const list = Array.isArray(steps) ? steps : [];
   const rank = Object.fromEntries(INIT_STEP_ORDER.map((k, i) => [k, i]));

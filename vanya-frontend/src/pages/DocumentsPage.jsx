@@ -4,6 +4,7 @@
  * POST /documents/upload  |  GET /documents/query
  */
 import React, { useState, useCallback } from "react";
+import { Link } from "react-router-dom";
 import { useLang } from "../i18n/LangContext";
 import { apiFetch } from "../api.js";
 
@@ -81,6 +82,18 @@ export default function DocumentsPage() {
       <div className="page-header">
         <h1 className="page-title">{t("docs.title")}</h1>
         <p className="page-subtitle">{t("docs.subtitle")}</p>
+      </div>
+
+      <div className="card" style={{ marginBottom: 20, padding: "14px 16px", background: "var(--bg-2)" }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-1)", marginBottom: 6 }}>
+          {t("docs.chat_link.title")}
+        </div>
+        <p style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.55, margin: "0 0 10px" }}>
+          {t("docs.chat_link.desc")}
+        </p>
+        <Link to="/chat" className="btn btn-secondary btn-sm" style={{ textDecoration: "none" }}>
+          {t("docs.chat_link.cta")}
+        </Link>
       </div>
 
       {/* ── Upload card ─────────────────────────────────── */}

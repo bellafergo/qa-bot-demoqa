@@ -15,7 +15,7 @@ import { useProject } from "../context/ProjectContext.jsx";
 import { useDashboardData } from "../hooks/useDashboardData.js";
 import ProjectHealthStrip from "../components/ProjectHealthStrip.jsx";
 import OnboardingDashboardSection from "../components/onboarding/OnboardingDashboardSection.jsx";
-import { buildOnboardingViewModel } from "../utils/onboardingViewUtils.js";
+import { buildOnboardingViewModel, shouldCollapseOnboardingDashboard } from "../utils/onboardingViewUtils.js";
 import DashboardCommandHeader from "../components/dashboard/DashboardCommandHeader.jsx";
 import CommandCenterView from "../components/dashboard/CommandCenterView.jsx";
 import NextRecommendedActionCard from "../components/dashboard/NextRecommendedActionCard.jsx";
@@ -50,6 +50,7 @@ import PlatformObservabilityView from "../components/platform-observability/Plat
 import { buildPlatformObservabilityViewModel } from "../utils/platformObservabilityViewUtils.js";
 import DashboardSectionState from "../components/dashboard/DashboardSectionState.jsx";
 import ExecutiveBriefCard from "../components/dashboard/ExecutiveBriefCard.jsx";
+import DashboardMoreIntelligenceSection from "../components/dashboard/DashboardMoreIntelligenceSection.jsx";
 import ExecutiveRiskBriefCard from "../components/dashboard/ExecutiveRiskBriefCard.jsx";
 import ColdProjectGuidance from "../components/dashboard/ColdProjectGuidance.jsx";
 import {
@@ -259,6 +260,7 @@ export default function DashboardPage() {
   );
 
   const isOperationalDashboard = Boolean(projectId && onboardingVm.isComplete);
+  const collapseOnboarding = shouldCollapseOnboardingDashboard(s.onboarding ?? null, onboardingVm);
 
   const commandCenterHeaderVm = useMemo(
     () => (isOperationalDashboard
@@ -316,6 +318,7 @@ export default function DashboardPage() {
       empty: executiveImpactVm.empty,
       capabilityState: executiveImpactVm.capabilityState,
       emptyCta: DASHBOARD_SECTION_CTA.incidents,
+      hideWhenEmpty: true,
       t,
     }),
     [executiveImpact, intelErrors.executiveImpact, intelLoading.executiveImpact, executiveImpactVm, t],
@@ -329,6 +332,7 @@ export default function DashboardPage() {
       empty: valueDashboardVm.empty,
       emptyMessage: valueDashboardVm.emptyMessage,
       emptyCta: DASHBOARD_SECTION_CTA.incidents,
+      hideWhenEmpty: true,
       t,
     }),
     [valueDashboard, intelErrors.valueDashboard, intelLoading.valueDashboard, valueDashboardVm, t],
@@ -342,6 +346,7 @@ export default function DashboardPage() {
       empty: businessRiskVm.empty,
       capabilityState: businessRiskVm.capabilityState,
       emptyCta: DASHBOARD_SECTION_CTA.incidents,
+      hideWhenEmpty: true,
       t,
     }),
     [businessRisk, intelErrors.businessRisk, intelLoading.businessRisk, businessRiskVm, t],
@@ -604,8 +609,6 @@ export default function DashboardPage() {
           <>
             <DashboardCommandHeader vm={commandCenterHeaderVm} />
             <CommandCenterView vm={commandCenterVm} />
-            <OnboardingDashboardSection vm={onboardingVm} projectName={currentProject?.name} />
-            <NextRecommendedActionCard vm={nextRecommendedActionVm} />
             {executiveBriefVm.show ? (
               <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
@@ -619,11 +622,17 @@ export default function DashboardPage() {
                 ) : null}
               </div>
             ) : null}
+            <NextRecommendedActionCard vm={nextRecommendedActionVm} />
+            {projectId ? (
+              <OnboardingDashboardSection
+                vm={onboardingVm}
+                projectName={currentProject?.name}
+                collapsedByDefault={collapseOnboarding}
+              />
+            ) : null}
           </>
         ) : (
           <>
-            {projectId ? <OnboardingDashboardSection vm={onboardingVm} projectName={currentProject?.name} /> : null}
-
             <ProjectHealthStrip
               t={t}
               projectId={projectId}
@@ -638,12 +647,6 @@ export default function DashboardPage() {
               onInitialized={() => load()}
             />
 
-            {projectId && coldProjectGuidanceVm.show ? (
-              <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
-                <ColdProjectGuidance vm={coldProjectGuidanceVm} />
-              </div>
-            ) : null}
-
             {projectId && executiveBriefVm.show ? (
               <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
@@ -654,6 +657,20 @@ export default function DashboardPage() {
                   {executiveBriefVm.readOnlyNote}
                 </p>
               </div>
+            ) : null}
+
+            {projectId && coldProjectGuidanceVm.show ? (
+              <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
+                <ColdProjectGuidance vm={coldProjectGuidanceVm} />
+              </div>
+            ) : null}
+
+            {projectId ? (
+              <OnboardingDashboardSection
+                vm={onboardingVm}
+                projectName={currentProject?.name}
+                collapsedByDefault={collapseOnboarding}
+              />
             ) : null}
           </>
         )}
@@ -694,18 +711,53 @@ export default function DashboardPage() {
           </div>
         ) : null}
 
-        {projectId && valueDashboardSection.show ? (
-          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
-              {valueDashboardVm.title}
-            </div>
-            <DashboardSectionState state={valueDashboardSection} onRetry={load}>
-              <ValueDashboardView vm={valueDashboardVm} />
-            </DashboardSectionState>
-            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
-              {valueDashboardVm.labels?.readOnlyNote}
-            </p>
-          </div>
+        {projectId && (valueDashboardSection.show || executiveImpactSection.show || businessRiskSection.show) ? (
+          <DashboardMoreIntelligenceSection
+            title={t("dash.more_intelligence.title")}
+            summary={t("dash.more_intelligence.summary")}
+          >
+            {valueDashboardSection.show ? (
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
+                  {valueDashboardVm.title}
+                </div>
+                <DashboardSectionState state={valueDashboardSection} onRetry={load}>
+                  <ValueDashboardView vm={valueDashboardVm} />
+                </DashboardSectionState>
+                <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+                  {valueDashboardVm.labels?.readOnlyNote}
+                </p>
+              </div>
+            ) : null}
+
+            {executiveImpactSection.show ? (
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
+                  {executiveImpactVm.title}
+                </div>
+                <DashboardSectionState state={executiveImpactSection} onRetry={load}>
+                  <ExecutiveImpactView vm={executiveImpactVm} />
+                </DashboardSectionState>
+                <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+                  {executiveImpactVm.readOnlyNote}
+                </p>
+              </div>
+            ) : null}
+
+            {businessRiskSection.show ? (
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
+                  {businessRiskVm.title}
+                </div>
+                <DashboardSectionState state={businessRiskSection} onRetry={load}>
+                  <BusinessRiskView vm={businessRiskVm} />
+                </DashboardSectionState>
+                <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
+                  {businessRiskVm.readOnlyNote}
+                </p>
+              </div>
+            ) : null}
+          </DashboardMoreIntelligenceSection>
         ) : null}
 
         {platformObservabilitySection.show ? (
@@ -718,34 +770,6 @@ export default function DashboardPage() {
             </DashboardSectionState>
             <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
               {platformObservabilityVm.readOnlyNote}
-            </p>
-          </div>
-        ) : null}
-
-        {projectId && executiveImpactSection.show ? (
-          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
-              {executiveImpactVm.title}
-            </div>
-            <DashboardSectionState state={executiveImpactSection} onRetry={load}>
-              <ExecutiveImpactView vm={executiveImpactVm} />
-            </DashboardSectionState>
-            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
-              {executiveImpactVm.readOnlyNote}
-            </p>
-          </div>
-        ) : null}
-
-        {projectId && businessRiskSection.show ? (
-          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
-              {businessRiskVm.title}
-            </div>
-            <DashboardSectionState state={businessRiskSection} onRetry={load}>
-              <BusinessRiskView vm={businessRiskVm} />
-            </DashboardSectionState>
-            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
-              {businessRiskVm.readOnlyNote}
             </p>
           </div>
         ) : null}

@@ -3,12 +3,28 @@
  * Coverage & Exploration — module-level coverage metrics, discovered pages, uncovered flows.
  * GET /coverage/summary
  */
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { getCoverageSummary, generateCoverageTests, batchSaveDrafts } from "../api";
 import { useLang } from "../i18n/LangContext";
+import CapabilityStateCard from "../components/capability-state/CapabilityStateCard.jsx";
+import { buildInsufficientHistoryState } from "../utils/capabilityStateViewUtils.js";
+import { LoadingState, ErrorState } from "../ui/EmptyState.jsx";
+import { isCoverageInsufficientHistory } from "../utils/coveragePageViewUtils.js";
 
-function ScoreBar({ value, max = 100 }) {
+const COVERAGE_MIN_RUNS = 3;
+
+function ScoreBar({ value, max = 100, insufficientHistory = false }) {
+  if (insufficientHistory) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 160 }}>
+        <div style={{ flex: 1, height: 6, background: "var(--surface-2)", borderRadius: 3 }} />
+        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", minWidth: 32, textAlign: "right" }}>
+          —
+        </span>
+      </div>
+    );
+  }
   const pct = Math.min(100, Math.max(0, ((value ?? 0) / (max || 1)) * 100));
   const color = pct >= 80 ? "var(--green)" : pct >= 50 ? "var(--orange)" : "var(--red)";
   return (
@@ -23,8 +39,11 @@ function ScoreBar({ value, max = 100 }) {
   );
 }
 
-function CoverageGrade({ pct }) {
+function CoverageGrade({ pct, insufficientHistory = false }) {
   const { t } = useLang();
+  if (insufficientHistory) {
+    return <span className="badge badge-gray">{t("cov.grade.pending")}</span>;
+  }
   if (pct >= 80) return <span className="badge badge-green">{t("cov.grade.good")}</span>;
   if (pct >= 50) return <span className="badge badge-orange">{t("cov.grade.partial")}</span>;
   return <span className="badge badge-red">{t("cov.grade.low")}</span>;
@@ -35,12 +54,12 @@ export default function CoveragePage() {
   const [summary, setSummary]   = useState(null);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState("");
-  const [expanded, setExpanded] = useState(null); // module name
-  const [suggestions, setSuggestions]       = useState(null);  // { module, gap_summary, suggested_tests }
-  const [suggestingFor, setSuggestingFor]   = useState(null);  // module currently loading
+  const [expanded, setExpanded] = useState(null);
+  const [suggestions, setSuggestions]       = useState(null);
+  const [suggestingFor, setSuggestingFor]   = useState(null);
   const [suggestError, setSuggestError]     = useState("");
   const [saving, setSaving]                 = useState(false);
-  const [saveResult, setSaveResult]         = useState(null);  // { saved, skipped } or null
+  const [saveResult, setSaveResult]         = useState(null);
   const navigate = useNavigate();
 
   async function handleGenerateTests(e, moduleName) {
@@ -106,19 +125,38 @@ export default function CoveragePage() {
   const uncoveredCount = summary?.uncovered_flows_count ?? 0;
   const discoveredPages = summary?.discovered_pages ?? [];
   const uncoveredFlows  = summary?.uncovered_flow_suggestions ?? [];
+  const insufficientHistory = !loading && !error && isCoverageInsufficientHistory(summary);
+
+  const insufficientState = useMemo(() => (
+    insufficientHistory
+      ? buildInsufficientHistoryState({
+          capabilityTitle: t("cov.insufficient_history.title"),
+          minRuns: COVERAGE_MIN_RUNS,
+          currentRuns: totalTests,
+          t,
+        })
+      : null
+  ), [insufficientHistory, t, totalTests]);
 
   const kpiItems = [
-    { labelKey: "cov.kpi.overall",  value: loading ? "…" : `${Math.round(overall)}%`, accent: overall >= 80 ? "var(--green)" : overall >= 50 ? "var(--orange)" : "var(--red)" },
-    { labelKey: "cov.kpi.modules",  value: loading ? "…" : modules.length },
-    { labelKey: "cov.kpi.tests",    value: loading ? "…" : totalTests },
-    { labelKey: "cov.kpi.flows",    value: loading ? "…" : totalFlows },
-    { labelKey: "cov.kpi.uncovered",value: loading ? "…" : uncoveredCount, accent: uncoveredCount > 0 ? "var(--orange)" : undefined },
+    {
+      labelKey: "cov.kpi.overall",
+      value: loading ? t("common.loading") : (insufficientHistory ? "—" : `${Math.round(overall)}%`),
+      accent: insufficientHistory ? "var(--text-3)" : (overall >= 80 ? "var(--green)" : overall >= 50 ? "var(--orange)" : "var(--red)"),
+    },
+    { labelKey: "cov.kpi.modules", value: loading ? t("common.loading") : modules.length },
+    { labelKey: "cov.kpi.tests", value: loading ? t("common.loading") : totalTests },
+    { labelKey: "cov.kpi.flows", value: loading ? t("common.loading") : totalFlows },
+    {
+      labelKey: "cov.kpi.uncovered",
+      value: loading ? t("common.loading") : (insufficientHistory ? "—" : uncoveredCount),
+      accent: insufficientHistory ? undefined : (uncoveredCount > 0 ? "var(--orange)" : undefined),
+    },
   ];
 
   return (
     <div className="page-wrap">
 
-      {/* Header KPIs */}
       <div className="kpi-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", marginBottom: 24 }}>
         {kpiItems.map(({ labelKey, value, accent }) => (
           <div key={labelKey} className="kpi-card">
@@ -128,9 +166,23 @@ export default function CoveragePage() {
         ))}
       </div>
 
-      {error && <div className="alert alert-error" style={{ marginBottom: 16 }}>{error}</div>}
+      {error && (
+        <div className="card" style={{ padding: 0, marginBottom: 16 }}>
+          <ErrorState
+            title={t("cov.error.load")}
+            description={error}
+            onRetry={load}
+            retryLabel={t("common.retry")}
+          />
+        </div>
+      )}
 
-      {/* Module coverage table */}
+      {insufficientHistory ? (
+        <div style={{ marginBottom: 24 }}>
+          <CapabilityStateCard state={insufficientState} />
+        </div>
+      ) : null}
+
       <div className="card" style={{ marginBottom: 24, padding: 0, overflow: "hidden" }}>
         <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div className="section-title" style={{ margin: 0 }}>{t("cov.table.title")}</div>
@@ -138,7 +190,11 @@ export default function CoveragePage() {
         </div>
 
         {loading ? (
-          <div style={{ padding: 24, color: "var(--text-3)", fontSize: 13 }}>{t("cov.table.loading")}</div>
+          <LoadingState message={t("cov.table.loading")} />
+        ) : insufficientHistory ? (
+          <div style={{ padding: "16px 20px", fontSize: 13, color: "var(--text-3)", lineHeight: 1.55 }}>
+            {t("cov.insufficient_history.table_note")}
+          </div>
         ) : modules.length === 0 ? (
           <div style={{ padding: 24, color: "var(--text-3)", fontSize: 13 }}>{t("cov.table.none")}</div>
         ) : (
@@ -176,7 +232,7 @@ export default function CoveragePage() {
                               onClick={(e) => handleGenerateTests(e, m.module)}
                             >
                               {suggestingFor === m.module
-                                ? "…"
+                                ? t("common.loading")
                                 : `${m.gaps.length} ${m.gaps.length !== 1 ? t("cov.table.gap_plural") : t("cov.table.gap_single")} ↗`
                               }
                             </span>
@@ -219,7 +275,6 @@ export default function CoveragePage() {
         )}
       </div>
 
-      {/* Suggestions panel */}
       {suggestError && (
         <div className="alert alert-error" style={{ marginBottom: 16 }}>{suggestError}</div>
       )}
@@ -295,7 +350,6 @@ export default function CoveragePage() {
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 24, alignItems: "start" }}>
 
-        {/* Discovered pages */}
         {discoveredPages.length > 0 && (
           <div className="card">
             <div className="section-title">{t("cov.section.discovered")}</div>
@@ -312,7 +366,6 @@ export default function CoveragePage() {
           </div>
         )}
 
-        {/* Uncovered flow suggestions */}
         {uncoveredFlows.length > 0 && (
           <div className="card">
             <div className="section-title">{t("cov.section.uncovered")}</div>
@@ -335,8 +388,7 @@ export default function CoveragePage() {
         )}
       </div>
 
-      {/* Empty state */}
-      {!loading && !error && modules.length === 0 && discoveredPages.length === 0 && uncoveredFlows.length === 0 && (
+      {!loading && !error && !insufficientHistory && modules.length === 0 && discoveredPages.length === 0 && uncoveredFlows.length === 0 && (
         <div className="card" style={{ textAlign: "center", padding: "40px 20px", color: "var(--text-3)" }}>
           <div style={{ fontSize: 32, marginBottom: 12 }}>◎</div>
           <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>{t("cov.empty.title")}</div>

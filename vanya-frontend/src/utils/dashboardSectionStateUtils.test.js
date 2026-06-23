@@ -37,6 +37,19 @@ describe("dashboardSectionStateUtils", () => {
     expect(state.emptyCta).toEqual({ path: "/integrations", label: "dash.section.cta.integrations" });
   });
 
+  it("hides section when empty and hideWhenEmpty is true", () => {
+    const state = buildDashboardSectionState({
+      data: {},
+      loadError: "",
+      loading: false,
+      empty: true,
+      hideWhenEmpty: true,
+      t,
+    });
+    expect(state.show).toBe(false);
+    expect(state.empty).toBe(true);
+  });
+
   it("builds capability-gated state", () => {
     const state = buildDashboardSectionState({
       data: { connected: false },

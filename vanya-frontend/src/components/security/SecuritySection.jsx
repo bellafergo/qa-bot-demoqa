@@ -4,6 +4,7 @@ import { useLang } from "../../i18n/LangContext";
 import { buildSecurityReadinessViewModel } from "../../utils/securityReadinessViewUtils.js";
 import SecurityProviderCard from "./SecurityProviderCard.jsx";
 import SecurityReadinessCard from "./SecurityReadinessCard.jsx";
+import { LoadingState, ErrorState } from "../../ui/EmptyState.jsx";
 
 export default function SecuritySection() {
   const { t } = useLang();
@@ -46,9 +47,14 @@ export default function SecuritySection() {
       </p>
 
       {loading ? (
-        <div style={{ fontSize: 12, color: "var(--text-3)" }}>…</div>
+        <LoadingState message={t("common.loading")} />
       ) : error ? (
-        <div className="alert alert-error" style={{ fontSize: 12 }}>{error}</div>
+        <ErrorState
+          title={vm.title}
+          description={error}
+          onRetry={load}
+          retryLabel={t("common.retry")}
+        />
       ) : vm.empty ? (
         <p style={{ fontSize: 13, color: "var(--text-3)", margin: 0 }}>{vm.emptyMessage}</p>
       ) : (

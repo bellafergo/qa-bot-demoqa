@@ -1,7 +1,7 @@
 import React from "react";
 import ProjectReadinessBadge from "./ProjectReadinessBadge.jsx";
 
-export default function OnboardingProgressCard({ checklist, labels }) {
+export default function OnboardingProgressCard({ checklist, labels, showCoreSetupComplete = false }) {
   if (!checklist) return null;
 
   const pct = Math.max(0, Math.min(100, Number(checklist.overall_completion) || 0));
@@ -26,7 +26,17 @@ export default function OnboardingProgressCard({ checklist, labels }) {
               {pct}%
             </span>
             <ProjectReadinessBadge label={checklist.readinessLabel} badgeClass={checklist.readinessBadgeClass} />
+            {showCoreSetupComplete && labels.coreSetupCompleteLabel ? (
+              <span className="badge badge-green" style={{ fontSize: 11 }}>
+                {labels.coreSetupCompleteLabel}
+              </span>
+            ) : null}
           </div>
+          {showCoreSetupComplete && labels.platformOperationalNote ? (
+            <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.5, marginTop: 8, maxWidth: 420 }}>
+              {labels.platformOperationalNote}
+            </div>
+          ) : null}
         </div>
         <div style={{ minWidth: 180 }}>
           <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 4 }}>{labels.completionLabel}</div>

@@ -1,5 +1,7 @@
 /** V1.1 — Executive Brief rollup from existing dashboard intelligence (no new scoring). */
 
+import { localizeBackendMessage } from "./localizeBackendMessage.js";
+
 export const EXECUTIVE_BRIEF_I18N_KEYS = {
   title: "executive_brief.title",
   releaseStatus: "executive_brief.release_status",
@@ -102,15 +104,16 @@ function resolveBriefTrend({
   };
 }
 
-function collectTopRisks({ businessRiskVm, platformObservabilityVm, releaseReadinessVm }) {
+function collectTopRisks({ businessRiskVm, platformObservabilityVm, releaseReadinessVm, t }) {
   const risks = [];
   const seen = new Set();
 
   const add = (text) => {
-    const key = String(text || "").trim().toLowerCase();
+    const localized = t ? localizeBackendMessage(text, t) : text;
+    const key = String(localized || "").trim().toLowerCase();
     if (!key || seen.has(key)) return;
     seen.add(key);
-    risks.push(text);
+    risks.push(localized);
   };
 
   (businessRiskVm?.businessRisks || []).slice(0, 2).forEach((r) => add(r.title || r.capability));
@@ -233,7 +236,7 @@ export function buildExecutiveBriefViewModel({
   t,
 }) {
   const hasRelease = releaseReadinessVm?.show && !releaseReadinessVm?.empty;
-  const topRisks = collectTopRisks({ businessRiskVm, platformObservabilityVm, releaseReadinessVm });
+  const topRisks = collectTopRisks({ businessRiskVm, platformObservabilityVm, releaseReadinessVm, t });
   const trend = resolveTrend(executiveImpactVm, valueDashboardVm);
   const releaseStatus = resolveBriefReleaseStatus({
     hasRelease,

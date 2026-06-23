@@ -1,23 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  getSsoProviders,
-  validateSsoProvider,
-  getSsoLoginUrl,
-  apiErrorMessage,
-} from "../../api";
+import { getSsoProviders, apiErrorMessage } from "../../api";
 import { useLang } from "../../i18n/LangContext";
-import { buildSsoConfigurationViewModel } from "../../utils/ssoViewUtils.js";
-import SSOProviderCard from "./SSOProviderCard.jsx";
+import { buildSsoRoadmapViewModel } from "../../utils/ssoRoadmapViewUtils.js";
+import { LoadingState, ErrorState } from "../../ui/EmptyState.jsx";
+import SSORoadmapProviderRow, { EnterpriseAvailableTodayCard } from "./SSORoadmapProviderRow.jsx";
 
 export default function SSOConfigurationSection() {
   const { t } = useLang();
   const [providers, setProviders] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [validatingProvider, setValidatingProvider] = useState("");
-  const [generatingProvider, setGeneratingProvider] = useState("");
-  const [validationMessages, setValidationMessages] = useState({});
-  const [loginUrls, setLoginUrls] = useState({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -37,42 +29,9 @@ export default function SSOConfigurationSection() {
   }, [load]);
 
   const vm = useMemo(
-    () => buildSsoConfigurationViewModel({ providers, t }),
+    () => buildSsoRoadmapViewModel({ providers, t }),
     [providers, t],
   );
-
-  const handleValidate = async (payload) => {
-    setValidatingProvider(payload.provider);
-    setError("");
-    try {
-      const result = await validateSsoProvider(payload);
-      const message = result.valid
-        ? `${vm.validationSuccessLabel}: ${result.message}`
-        : `${vm.validationFailedLabel}: ${result.message}`;
-      setValidationMessages((prev) => ({ ...prev, [payload.provider]: message }));
-      await load();
-    } catch (err) {
-      setValidationMessages((prev) => ({
-        ...prev,
-        [payload.provider]: `${vm.validationFailedLabel}: ${apiErrorMessage(err)}`,
-      }));
-    } finally {
-      setValidatingProvider("");
-    }
-  };
-
-  const handleGenerateLoginUrl = async (provider) => {
-    setGeneratingProvider(provider);
-    setError("");
-    try {
-      const result = await getSsoLoginUrl(provider);
-      setLoginUrls((prev) => ({ ...prev, [provider]: result.login_url || "" }));
-    } catch (err) {
-      setError(apiErrorMessage(err));
-    } finally {
-      setGeneratingProvider("");
-    }
-  };
 
   return (
     <div className="card" style={{ marginBottom: 20 }}>
@@ -82,26 +41,45 @@ export default function SSOConfigurationSection() {
       </p>
 
       {loading ? (
-        <div style={{ fontSize: 12, color: "var(--text-3)" }}>…</div>
+        <LoadingState message={t("common.loading")} />
       ) : error ? (
-        <div className="alert alert-error" style={{ fontSize: 12 }}>{error}</div>
-      ) : vm.empty ? (
-        <p style={{ fontSize: 13, color: "var(--text-3)", margin: 0 }}>{vm.emptyMessage}</p>
+        <ErrorState
+          title={vm.title}
+          description={error}
+          onRetry={load}
+          retryLabel={t("common.retry")}
+        />
       ) : (
-        <ul style={{ margin: 0, padding: 0 }}>
-          {vm.providers.map((provider) => (
-            <SSOProviderCard
-              key={provider.provider}
-              provider={provider}
-              validating={validatingProvider === provider.provider}
-              generating={generatingProvider === provider.provider}
-              validationMessage={validationMessages[provider.provider] || ""}
-              loginUrl={loginUrls[provider.provider] || ""}
-              onValidate={handleValidate}
-              onGenerateLoginUrl={handleGenerateLoginUrl}
+        <>
+          <div style={{ marginBottom: 16 }}>
+            <EnterpriseAvailableTodayCard
+              title={vm.availableTodayTitle}
+              description={vm.availableTodayDesc}
+              badgeLabel={vm.availableTodayBadge}
             />
-          ))}
-        </ul>
+          </div>
+
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
+            {vm.roadmapTitle}
+          </div>
+          <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--text-3)", lineHeight: 1.5 }}>
+            {vm.roadmapDesc}
+          </p>
+
+          {vm.providers.length ? (
+            <ul style={{ margin: 0, padding: 0 }}>
+              {vm.providers.map((provider) => (
+                <SSORoadmapProviderRow
+                  key={provider.provider}
+                  provider={{
+                    ...provider,
+                    targetQuarterLabel: vm.targetQuarterLabel,
+                  }}
+                />
+              ))}
+            </ul>
+          ) : null}
+        </>
       )}
 
       <p style={{ margin: "12px 0 0", fontSize: 11, color: "var(--text-3)", fontStyle: "italic" }}>

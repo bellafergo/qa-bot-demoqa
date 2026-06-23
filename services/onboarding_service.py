@@ -21,7 +21,7 @@ _DEFAULT_STEPS: Tuple[Tuple[str, str, str, str, int], ...] = (
     ("configure_environments", "Configure Environments", "Define QA, staging, and production environments for release intelligence.", "environments", 4),
     ("configure_local_agent", "Configure Local Agent", "Register a local agent to run tests and validations in your network.", "agents", 5),
     ("configure_database_validation", "Configure Database Validation", "Add secure database connectors for data integrity checks.", "database_validation", 6),
-    ("configure_contract_intelligence", "Configure Contract Intelligence", "Enable API contract intelligence to catch breaking changes.", "contract_intelligence", 7),
+    ("configure_contract_intelligence", "Generate Contract Intelligence", "Generate API contract intelligence from investigations, PR analysis, or API contract evidence.", "contract_intelligence", 7),
     ("generate_executive_report", "Generate Executive Report", "Run an incident investigation to produce executive quality reporting.", "reporting", 8),
 )
 
@@ -219,10 +219,15 @@ def _knowledge_has_apis(project_id: str) -> bool:
 def _contract_intelligence_state(project_id: str) -> Tuple[str, int, str]:
     flags = _incident_intelligence_flags(project_id)
     if flags["has_contract_intelligence"]:
-        return "COMPLETED", 100, "Contract intelligence available from investigations."
+        return "COMPLETED", 100, "Contract intelligence generated from investigations."
     if _knowledge_has_apis(project_id):
-        return "IN_PROGRESS", 70, "API knowledge detected — run contract intelligence via investigation."
-    return "NOT_STARTED", 0, "Connect a repository and investigate incidents to enable contract intelligence."
+        return "IN_PROGRESS", 70, "API knowledge detected. Run an investigation to generate contract intelligence."
+    return (
+        "NOT_STARTED",
+        0,
+        "No API contract intelligence has been generated yet. "
+        "Run an investigation involving APIs, contract changes, or OpenAPI evidence.",
+    )
 
 
 def _executive_report_state(project_id: str) -> Tuple[str, int, str]:

@@ -10,11 +10,13 @@ export default function OnboardingChecklistView({ vm }) {
     projectReadinessLabel: vm.projectReadinessLabel,
     completionLabel: vm.completionLabel,
     nextRecommendedStepLabel: vm.nextRecommendedStepLabel,
+    coreSetupCompleteLabel: vm.coreSetupCompleteLabel,
+    platformOperationalNote: vm.platformOperationalNote,
   };
 
   return (
     <>
-      <OnboardingProgressCard checklist={checklist} labels={labels} />
+      <OnboardingProgressCard checklist={checklist} labels={labels} showCoreSetupComplete={vm.coreSetupComplete} />
       <div>
         <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
           {vm.checklistLabel}

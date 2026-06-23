@@ -28,15 +28,19 @@ export function buildDashboardSectionState({
   emptyMessage = "",
   emptyCta = null,
   capabilityState = null,
+  hideWhenEmpty = false,
   t,
 }) {
   const hasError = Boolean(loadError);
   const isLoading = Boolean(loading) && !hasError && data == null;
   const isGated = Boolean(capabilityState && capabilityState.state !== "AVAILABLE");
   const isEmpty = !hasError && !isLoading && !isGated && empty;
+  const show = hideWhenEmpty && isEmpty
+    ? false
+    : hasError || isLoading || data != null || isEmpty || isGated;
 
   return {
-    show: hasError || isLoading || data != null || isEmpty || isGated,
+    show,
     loading: isLoading,
     error: hasError ? loadError : "",
     empty: isEmpty,

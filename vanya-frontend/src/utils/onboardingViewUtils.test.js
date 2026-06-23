@@ -2,10 +2,14 @@ import { describe, it, expect } from "vitest";
 import {
   ONBOARDING_I18N_KEYS,
   buildOnboardingViewModel,
+  isCoreOnboardingComplete,
   isOnboardingComplete,
+  isOptionalOnboardingStep,
+  localizeOnboardingStep,
   navigationForStep,
   readinessBadgeClass,
   resolveOnboardingCompletionDate,
+  shouldCollapseOnboardingDashboard,
   stepStatusIcon,
   stepStatusLabelKey,
 } from "./onboardingViewUtils.js";
@@ -164,5 +168,73 @@ describe("onboardingViewUtils", () => {
       t,
     );
     expect(vm.operational.completionDateText).not.toBe("—");
+  });
+
+  it("localizes contract intelligence step and marks it optional", () => {
+    const step = localizeOnboardingStep(
+      {
+        step_id: "configure_contract_intelligence",
+        title: "Generate Contract Intelligence",
+        description: "Backend description",
+        category: "contract_intelligence",
+        status: "NOT_STARTED",
+        completion_percentage: 0,
+      },
+      t,
+    );
+    expect(isOptionalOnboardingStep(step)).toBe(true);
+    expect(step.title).toBe(ONBOARDING_I18N_KEYS.contractIntelligenceTitle);
+    expect(step.optionalLabel).toBe(ONBOARDING_I18N_KEYS.optionalCapability);
+    expect(step.guidanceText).toBe(ONBOARDING_I18N_KEYS.contractIntelligenceGuidanceNotStarted);
+  });
+
+  it("routes incomplete contract intelligence to incidents with generate label", () => {
+    const nav = navigationForStep({ category: "contract_intelligence", status: "NOT_STARTED" });
+    expect(nav.path).toBe("/incidents");
+    expect(nav.labelKey).toBe(ONBOARDING_I18N_KEYS.generateContractIntelligence);
+  });
+
+  it("shows core setup complete when only optional step remains", () => {
+    const checklist = {
+      ...sampleChecklist,
+      overall_completion: 88,
+      completed_steps: 7,
+      total_steps: 8,
+      next_recommended_step: "Generate Contract Intelligence",
+      steps: [
+        { step_id: "connect_repository", status: "COMPLETED" },
+        { step_id: "import_tests", status: "COMPLETED" },
+        { step_id: "configure_browser_monitoring", status: "COMPLETED" },
+        { step_id: "configure_environments", status: "COMPLETED" },
+        { step_id: "configure_local_agent", status: "COMPLETED" },
+        { step_id: "configure_database_validation", status: "COMPLETED" },
+        { step_id: "configure_contract_intelligence", status: "NOT_STARTED", category: "contract_intelligence" },
+        { step_id: "generate_executive_report", status: "COMPLETED" },
+      ],
+    };
+    expect(isCoreOnboardingComplete(checklist)).toBe(true);
+    const vm = buildOnboardingViewModel(checklist, t);
+    expect(vm.coreSetupComplete).toBe(true);
+    expect(vm.coreSetupCompleteLabel).toBe(ONBOARDING_I18N_KEYS.coreSetupComplete);
+    expect(vm.checklist.next_recommended_step).toBe(ONBOARDING_I18N_KEYS.contractIntelligenceTitle);
+  });
+
+  it("collapses onboarding dashboard when core setup complete or pct >= 88", () => {
+    const checklist = {
+      overall_completion: 96,
+      steps: [
+        { step_id: "connect_repository", status: "COMPLETED" },
+        { step_id: "import_tests", status: "COMPLETED" },
+        { step_id: "configure_browser_monitoring", status: "COMPLETED" },
+        { step_id: "configure_environments", status: "COMPLETED" },
+        { step_id: "configure_local_agent", status: "COMPLETED" },
+        { step_id: "configure_database_validation", status: "COMPLETED" },
+        { step_id: "configure_contract_intelligence", status: "NOT_STARTED" },
+        { step_id: "generate_executive_report", status: "COMPLETED" },
+      ],
+    };
+    const vm = buildOnboardingViewModel(checklist, t);
+    expect(shouldCollapseOnboardingDashboard(checklist, vm)).toBe(true);
+    expect(shouldCollapseOnboardingDashboard({ overall_completion: 50, steps: [] }, { coreSetupComplete: false })).toBe(false);
   });
 });

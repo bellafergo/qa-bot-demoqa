@@ -19,9 +19,18 @@ describe("qaInvestigationReportLayoutUtils", () => {
 
   it("resolves confidence tiers", () => {
     expect(resolveConfidenceTier(0.1)).toBe("low");
-    expect(resolveConfidenceTier(0.2)).toBe("medium");
+    expect(resolveConfidenceTier(0.39)).toBe("low");
+    expect(resolveConfidenceTier(0.4)).toBe("medium");
     expect(resolveConfidenceTier(0.6)).toBe("medium");
-    expect(resolveConfidenceTier(0.61)).toBe("high");
+    expect(resolveConfidenceTier(0.79)).toBe("medium");
+    expect(resolveConfidenceTier(0.81)).toBe("high");
+  });
+
+  it("exposes confidence presentation fields", () => {
+    const vm = buildQaInvestigationReportLayoutViewModel({ confidence: 0.05 }, t);
+    expect(vm.confidencePctText).toBe("5%");
+    expect(vm.confidenceBadgeClass).toBe("badge badge-red");
+    expect(vm.degradedPresentation).toBe(true);
   });
 
   it("flags generic inferred modules", () => {
@@ -57,8 +66,9 @@ describe("qaInvestigationReportLayoutUtils", () => {
     expect(low.showNoisySections).toBe(false);
     expect(low.showLowConfidenceWarning).toBe(true);
 
-    const high = buildQaInvestigationReportLayoutViewModel({ confidence: 0.75 }, t);
+    const high = buildQaInvestigationReportLayoutViewModel({ confidence: 0.85 }, t);
     expect(high.tier).toBe("high");
+    expect(high.confidenceBadgeClass).toBe("badge badge-green");
     expect(high.expandOperationalAnalysis).toBe(true);
     expect(high.expandDependencyIntelligence).toBe(false);
     expect(high.expandTechnicalEvidence).toBe(false);

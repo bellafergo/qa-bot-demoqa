@@ -31,6 +31,7 @@ import LocalAgentsList from "../components/local-agents/LocalAgentsList.jsx";
 import LocalAgentDetailPanel from "../components/local-agents/LocalAgentDetailPanel.jsx";
 import LocalAgentsDatabaseConnections from "../components/local-agents/LocalAgentsDatabaseConnections.jsx";
 import LocalAgentsCapabilitiesOverview from "../components/local-agents/LocalAgentsCapabilitiesOverview.jsx";
+import EmptyState, { LoadingState, ErrorState } from "../ui/EmptyState.jsx";
 import {
   buildDatabaseConnectionsViewModel,
   buildDatabaseExecutionsViewModel,
@@ -351,30 +352,35 @@ export default function LocalAgentsPage() {
 
       <div className="local-agents-layout" style={{ marginTop: 20 }}>
         <div className="local-agents-layout__list">
-          {loading && <div style={{ padding: 20, color: "var(--text-3)", fontSize: 13 }}>{t("localAgents.loading")}</div>}
+          {loading && <LoadingState message={t("localAgents.loading")} className="card" />}
           {!loading && error && (
-            <div className="alert alert-error" style={{ marginTop: 8 }}>
-              {t("localAgents.error")} {error}
-            </div>
+            <ErrorState
+              title={t("localAgents.error")}
+              description={error}
+              onRetry={() => loadAgents({ silent: false })}
+              retryLabel={t("localAgents.refresh")}
+              className="card"
+            />
           )}
           {!loading && !error && agents.length === 0 && (
-            <div className="card" style={{ padding: 28, textAlign: "center" }}>
-              <div style={{ fontSize: 32, marginBottom: 12, opacity: 0.35 }}>⎔</div>
-              <div style={{ fontSize: 15, fontWeight: 600 }}>{t("localAgents.empty_title")}</div>
-              <div style={{ fontSize: 13, color: "var(--text-2)", marginTop: 8, maxWidth: 420, margin: "8px auto 0", lineHeight: 1.55 }}>
-                {t("localAgents.empty_desc")}
-              </div>
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                style={{ marginTop: 18 }}
-                disabled={creatingFoundation || !currentProject?.id}
-                onClick={onCreateFoundationAgent}
-              >
-                {creatingFoundation ? t("localAgents.loading") : t(LOCAL_AGENTS_I18N_KEYS.createFoundationAgent)}
-              </button>
+            <div className="card" style={{ padding: 0 }}>
+              <EmptyState
+                icon="⎔"
+                title={t("localAgents.empty_title")}
+                description={t("localAgents.empty_desc")}
+                action={(
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    disabled={creatingFoundation || !currentProject?.id}
+                    onClick={onCreateFoundationAgent}
+                  >
+                    {creatingFoundation ? t("localAgents.loading") : t(LOCAL_AGENTS_I18N_KEYS.createFoundationAgent)}
+                  </button>
+                )}
+              />
               {!currentProject?.id ? (
-                <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 10 }}>
+                <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: -8, paddingBottom: 20, textAlign: "center" }}>
                   {t(LOCAL_AGENTS_I18N_KEYS.toastNoProject)}
                 </div>
               ) : null}
@@ -430,7 +436,11 @@ export default function LocalAgentsPage() {
           {executionsVm.title}
         </div>
         {executionsVm.empty ? (
-          <div style={{ fontSize: 13, color: "var(--text-3)", fontStyle: "italic" }}>—</div>
+          <EmptyState
+            icon="◎"
+            title={t("localAgents.executions_empty_title")}
+            description={t("localAgents.executions_empty_desc")}
+          />
         ) : (
           <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 8 }}>
             <table className="data-table" style={{ margin: 0, minWidth: 820 }}>

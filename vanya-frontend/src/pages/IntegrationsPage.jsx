@@ -1326,34 +1326,49 @@ function ConnectorCard({
         </div>
 
         {/* Actions */}
-        <div style={{ display: "flex", gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-          {canManageIntegrations && summary.connector_id !== "github" && summary.connector_id !== "azure_devops" && (
-            <>
-              <button
-                className="btn btn-secondary btn-sm"
-                onClick={handleHealthCheck}
-                disabled={checking}
-                title={t("integrations.card.check")}
-              >
-                {checking ? "…" : t("integrations.card.check")}
-              </button>
-              <button
-                className="btn btn-sm"
-                style={{
-                  background: summary.enabled ? "rgba(239,68,68,0.1)" : "rgba(34,197,94,0.1)",
-                  color:      summary.enabled ? "var(--red, #ef4444)" : "var(--green, #22c55e)",
-                  border:     `1px solid ${summary.enabled ? "rgba(239,68,68,0.3)" : "rgba(34,197,94,0.3)"}`,
-                }}
-                onClick={handleToggle}
-                disabled={toggling}
-              >
-                {toggling ? "…" : summary.enabled ? t("integrations.card.disable") : t("integrations.card.enable")}
-              </button>
-            </>
-          )}
-          <span style={{ fontSize: 12, color: "var(--text-2)", alignSelf: "center", paddingLeft: 4 }}>
+        <div style={{ display: "flex", gap: 6, flexShrink: 0, alignItems: "center" }}>
+          <div onClick={(e) => e.stopPropagation()}>
+            {canManageIntegrations && summary.connector_id !== "github" && summary.connector_id !== "azure_devops" && (
+              <div style={{ display: "flex", gap: 6 }}>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={handleHealthCheck}
+                  disabled={checking}
+                  title={t("integrations.card.check")}
+                >
+                  {checking ? t("common.loading") : t("integrations.card.check")}
+                </button>
+                <button
+                  className="btn btn-sm"
+                  style={{
+                    background: summary.enabled ? "rgba(239,68,68,0.1)" : "rgba(34,197,94,0.1)",
+                    color:      summary.enabled ? "var(--red, #ef4444)" : "var(--green, #22c55e)",
+                    border:     `1px solid ${summary.enabled ? "rgba(239,68,68,0.3)" : "rgba(34,197,94,0.3)"}`,
+                  }}
+                  onClick={handleToggle}
+                  disabled={toggling}
+                >
+                  {toggling ? t("common.loading") : summary.enabled ? t("integrations.card.disable") : t("integrations.card.enable")}
+                </button>
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={handleExpand}
+            aria-expanded={expanded}
+            style={{
+              fontSize: 12,
+              color: "var(--text-2)",
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+              padding: "4px 6px",
+              lineHeight: 1,
+            }}
+          >
             {expanded ? "▲" : "▼"}
-          </span>
+          </button>
         </div>
       </div>
 
@@ -1671,6 +1686,7 @@ export default function IntegrationsPage() {
 
   const enabledCount = connectors.filter((c) => effectiveConnectorStatus(c, ghStatus, azStatus, jiraStatus, qmetryStatus, servicenowStatus).enabled).length;
   const healthyCount = connectors.filter((c) => effectiveConnectorStatus(c, ghStatus, azStatus, jiraStatus, qmetryStatus, servicenowStatus).health === "ok").length;
+  const showHealthyHint = !loading && enabledCount > 0 && healthyCount < enabledCount;
 
   const kpiItems = [
     { labelKey: "integrations.kpi.connectors", value: connectors.length },
@@ -1689,13 +1705,30 @@ export default function IntegrationsPage() {
       </div>
 
       {/* KPI strip */}
-      <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 12, marginBottom: showHealthyHint ? 8 : 24, flexWrap: "wrap" }}>
         {kpiItems.map(k => (
           <div key={k.labelKey} className="kpi-card" style={{ minWidth: 110 }}>
-            <div className="kpi-value" style={k.color ? { color: k.color } : {}}>{loading ? "…" : k.value}</div>
+            <div className="kpi-value" style={k.color ? { color: k.color } : {}}>
+              {loading ? t("common.loading") : k.value}
+            </div>
             <div className="kpi-label">{t(k.labelKey)}</div>
           </div>
         ))}
+      </div>
+
+      {showHealthyHint ? (
+        <div className="alert alert-info" style={{ marginBottom: 24, fontSize: 13, lineHeight: 1.55 }}>
+          {t("integrations.kpi.healthy_hint")}
+        </div>
+      ) : null}
+
+      <div className="card" style={{ marginBottom: 20, padding: "14px 16px", background: "var(--bg-2)" }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-1)", marginBottom: 6 }}>
+          {t("integrations.status.legend_title")}
+        </div>
+        <p style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.55, margin: 0 }}>
+          {t("integrations.status.legend_desc")}
+        </p>
       </div>
 
       {/* Error */}

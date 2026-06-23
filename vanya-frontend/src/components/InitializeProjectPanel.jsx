@@ -4,7 +4,12 @@ import { Link } from "react-router-dom";
 import { initializeProject, apiErrorMessage } from "../api";
 import { useLang } from "../i18n/LangContext";
 import InitStepTimeline from "./InitStepTimeline.jsx";
-import { INIT_CHECKLIST_KEYS } from "../utils/initStepUtils";
+import {
+  INIT_CHECKLIST_KEYS,
+  dismissInitializeProjectPanel,
+  isInitializeProjectPanelDismissed,
+  clearInitializeProjectPanelDismiss,
+} from "../utils/initStepUtils";
 
 export default function InitializeProjectPanel({
   projectId,
@@ -17,10 +22,11 @@ export default function InitializeProjectPanel({
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
+  const [dismissed, setDismissed] = useState(() => isInitializeProjectPanelDismissed(projectId));
 
   const handleDone = onInitialized || onDone;
 
-  if (!projectId) return null;
+  if (!projectId || dismissed) return null;
 
   async function handleInit() {
     if (busy) return;
@@ -30,12 +36,18 @@ export default function InitializeProjectPanel({
     try {
       const res = await initializeProject(projectId, { run_smoke: true, refresh_knowledge: true });
       setResult(res);
+      clearInitializeProjectPanelDismiss(projectId);
       handleDone?.(res);
     } catch (e) {
       setError(apiErrorMessage(e) || t("init.error"));
     } finally {
       setBusy(false);
     }
+  }
+
+  function handleDismiss() {
+    dismissInitializeProjectPanel(projectId);
+    setDismissed(true);
   }
 
   const failed = (result?.steps || []).filter((s) => s.status === "failed");
@@ -89,15 +101,26 @@ export default function InitializeProjectPanel({
             </p>
           ) : null}
         </div>
-        <button
-          type="button"
-          className="btn btn-primary"
-          style={{ flexShrink: 0, minWidth: compact ? undefined : 160 }}
-          onClick={handleInit}
-          disabled={busy}
-        >
-          {busy ? t("init.working") : t("init.cta")}
-        </button>
+        <div style={{ display: "flex", gap: 8, flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={handleDismiss}
+            disabled={busy}
+            title={t("init.dismiss_hint")}
+          >
+            {t("init.dismiss")}
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{ minWidth: compact ? undefined : 160 }}
+            onClick={handleInit}
+            disabled={busy}
+          >
+            {busy ? t("init.working") : t("init.cta")}
+          </button>
+        </div>
       </div>
 
       <ul

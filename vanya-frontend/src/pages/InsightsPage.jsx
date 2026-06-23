@@ -12,7 +12,7 @@
  * in App.jsx for backward compatibility.
  */
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
 import FailureIntelligencePage from "./FailureIntelligencePage";
@@ -26,10 +26,15 @@ const TABS = [
   { key: "insights.tab.ai",       icon: "✦" },
 ];
 
+const RISK_TAB_INDEX = 2;
+
 export default function InsightsPage() {
   const { t } = useLang();
   const { currentProject } = useProject();
-  const [tab, setTab] = useState(0);
+  const location = useLocation();
+  const navTab = location.state?.tab === "risk" ? RISK_TAB_INDEX : null;
+  const [userTab, setUserTab] = useState(null);
+  const tab = userTab ?? navTab ?? 0;
 
   return (
     <div>
@@ -52,7 +57,7 @@ export default function InsightsPage() {
           {TABS.map((tb, i) => (
             <button
               key={tb.key}
-              onClick={() => setTab(i)}
+              onClick={() => setUserTab(i)}
               style={{
                 padding: "7px 16px",
                 borderRadius: 8,

@@ -13,7 +13,25 @@ export const REPORT_LAYOUT_I18N_KEYS = {
   allRecommendedActions: "incident.qa.layout.all_recommended_actions",
   additionalTestRecommendations: "incident.qa.layout.additional_test_recommendations",
   suggestedNextSteps: "incident.qa.layout.suggested_next_steps",
+  confidenceTierLow: "incident.qa.confidence_tier.low",
+  confidenceTierMedium: "incident.qa.confidence_tier.medium",
+  confidenceTierHigh: "incident.qa.confidence_tier.high",
 };
+
+const CONFIDENCE_TIER_BADGE = {
+  low: "badge badge-red",
+  medium: "badge badge-orange",
+  high: "badge badge-green",
+};
+
+const CONFIDENCE_TIER_LABEL_KEY = {
+  low: REPORT_LAYOUT_I18N_KEYS.confidenceTierLow,
+  medium: REPORT_LAYOUT_I18N_KEYS.confidenceTierMedium,
+  high: REPORT_LAYOUT_I18N_KEYS.confidenceTierHigh,
+};
+
+export const CONFIDENCE_TIER_LOW_THRESHOLD = 0.4;
+export const CONFIDENCE_TIER_HIGH_THRESHOLD = 0.8;
 
 export const GENERIC_INFERRED_MODULE_TOKENS = new Set([
   "necesito",
@@ -37,9 +55,18 @@ export function normalizeInvestigationConfidence(value) {
 
 export function resolveConfidenceTier(confidence) {
   const value = normalizeInvestigationConfidence(confidence);
-  if (value < 0.2) return "low";
-  if (value <= 0.6) return "medium";
+  if (value < CONFIDENCE_TIER_LOW_THRESHOLD) return "low";
+  if (value < CONFIDENCE_TIER_HIGH_THRESHOLD) return "medium";
   return "high";
+}
+
+export function confidenceTierBadgeClass(tier) {
+  return CONFIDENCE_TIER_BADGE[tier] || "badge badge-gray";
+}
+
+export function formatConfidencePercent(confidence) {
+  const value = normalizeInvestigationConfidence(confidence);
+  return `${Math.round(value * 100)}%`;
 }
 
 export function isGenericInferredModule(node) {
@@ -79,6 +106,10 @@ export function buildQaInvestigationReportLayoutViewModel(report, t) {
     confidence,
     tier,
     lowConfidence,
+    confidencePctText: formatConfidencePercent(report?.confidence),
+    confidenceBadgeClass: confidenceTierBadgeClass(tier),
+    confidenceTierLabel: t(CONFIDENCE_TIER_LABEL_KEY[tier] || CONFIDENCE_TIER_LABEL_KEY.medium),
+    degradedPresentation: lowConfidence,
     showLowConfidenceWarning: lowConfidence,
     lowConfidenceMessage: t(REPORT_LAYOUT_I18N_KEYS.lowConfidenceWarning),
     showNoisySections: !lowConfidence,

@@ -12,6 +12,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { selectTests, selectAndRun, runBatch, runTest, listVersions } from "../api";
 import { useLang } from "../i18n/LangContext";
+import PrRiskFlowGuide from "../components/platform/PrRiskFlowGuide.jsx";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -233,6 +234,8 @@ export default function RiskSelectionPage({ embedded = false }) {
 
   return (
     <div className="page-wrap">
+
+      {!fromPR && <PrRiskFlowGuide variant="risk" />}
 
       {/* Hero — h1/subtitle suppressed when embedded inside InsightsPage */}
       <div style={{ marginBottom: 24 }}>

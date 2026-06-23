@@ -8,6 +8,7 @@ import {
   buildIncidentReportViewModel,
   correlationReasonText,
   isEvidenceCorrelationEmpty,
+  localizeReportDataGaps,
 } from "../../utils/incidentReportViewUtils.js";
 import { buildStorylineViewModel } from "../../utils/incidentStorylineViewUtils.js";
 import { buildImpactMapViewModel } from "../../utils/incidentImpactMapViewUtils.js";
@@ -101,6 +102,7 @@ export default function QaInvestigationReport({ report, t }) {
 
   if (!report) return null;
   const vm = buildIncidentReportViewModel(report, t);
+  const localizedDataGaps = localizeReportDataGaps(report.data_gaps, t);
   const storylineVm = buildStorylineViewModel(report, t);
   const impactMapVm = buildImpactMapViewModel(report, t);
   const deploymentRiskVm = buildDeploymentRiskViewModel(report, t);
@@ -141,7 +143,16 @@ export default function QaInvestigationReport({ report, t }) {
     ? buildQMetryIntegrationGroupState(t)
     : null;
   return (
-    <div className="card" style={{ padding: "20px 24px", marginTop: 20 }}>
+    <div
+      className="card"
+      style={{
+        padding: "20px 24px",
+        marginTop: 20,
+        ...(layoutVm.degradedPresentation
+          ? { borderColor: "var(--orange-border, rgba(234, 179, 8, 0.35))" }
+          : {}),
+      }}
+    >
       {vm.showLegacyBanner ? (
         <div className="alert alert-warning" style={{ marginBottom: 16, fontSize: 13, lineHeight: 1.5 }}>
           {vm.legacyBannerMessage}
@@ -163,7 +174,15 @@ export default function QaInvestigationReport({ report, t }) {
         <div className="section-title" style={{ margin: 0 }}>{t("incident.qa.title")}</div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <span className={severityBadge(report.severity)}>{report.severity}</span>
-          <span className="badge badge-blue">{t("incident.qa.confidence")}: {confidencePct(report.confidence)}</span>
+          <span
+            className={layoutVm.confidenceBadgeClass}
+            title={layoutVm.confidenceTierLabel}
+          >
+            {t("incident.qa.confidence")}: {layoutVm.confidencePctText}
+            <span style={{ fontWeight: 500, marginLeft: 6, opacity: 0.9 }}>
+              ({layoutVm.confidenceTierLabel})
+            </span>
+          </span>
         </div>
       </div>
 
@@ -467,11 +486,11 @@ export default function QaInvestigationReport({ report, t }) {
         </div>
       ) : null}
 
-      {layoutVm.lowConfidence && report.data_gaps?.length > 0 ? (
+      {layoutVm.lowConfidence && localizedDataGaps.length > 0 ? (
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.data_gaps")}</div>
           <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "var(--text-3)", lineHeight: 1.7 }}>
-            {report.data_gaps.slice(0, 5).map((g, i) => <li key={i}>{g}</li>)}
+            {localizedDataGaps.slice(0, 5).map((g, i) => <li key={i}>{g}</li>)}
           </ul>
         </div>
       ) : null}
@@ -1476,11 +1495,11 @@ export default function QaInvestigationReport({ report, t }) {
         </div>
       ) : null}
 
-      {report.data_gaps?.length > 0 && !layoutVm.lowConfidence ? (
+      {localizedDataGaps.length > 0 && !layoutVm.lowConfidence ? (
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.data_gaps")}</div>
           <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "var(--text-3)", lineHeight: 1.7 }}>
-            {report.data_gaps.map((g, i) => <li key={i}>{g}</li>)}
+            {localizedDataGaps.map((g, i) => <li key={i}>{g}</li>)}
           </ul>
         </div>
       ) : null}

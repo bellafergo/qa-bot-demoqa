@@ -4,9 +4,11 @@
  * GET /tests, POST /execution/run-batch | POST /orchestrator/jobs/single, GET /orchestrator/jobs
  */
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { Link } from "react-router-dom";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
 import { listTests, listJobs, runBatch, enqueueSingle, getJob } from "../api";
+import EmptyState, { LoadingState, ErrorState, EmptyStateLinkAction } from "../ui/EmptyState.jsx";
 
 const JOB_POLL_MS = 10_000;
 const AVG_SEC_PER_TEST = 9.8;
@@ -277,18 +279,32 @@ export default function BatchRunnerPage() {
           )}
 
           {loadingTests && (
-            <div style={{ padding: 16, color: "var(--text-3)" }}>…</div>
+            <LoadingState message={t("batch.tests_loading")} />
           )}
           {testsError && !loadingTests && (
-            <div className="alert alert-error" style={{ marginBottom: 12 }}>
-              {testsError}
-              <button type="button" className="btn btn-secondary btn-sm" style={{ marginLeft: 10 }} onClick={loadTests}>
-                {t("batch.retry")}
-              </button>
-            </div>
+            <ErrorState
+              title={t("batch.tests_load_error")}
+              description={testsError}
+              onRetry={loadTests}
+              retryLabel={t("batch.retry")}
+            />
           )}
 
-          {!loadingTests && !testsError && (
+          {!loadingTests && !testsError && tests.length === 0 && (
+            <EmptyState
+              icon="☰"
+              title={t("batch.tests_empty_title")}
+              description={t("batch.tests_empty_desc")}
+              action={(
+                <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+                  <EmptyStateLinkAction to="/catalog" label={t("batch.tests_empty_catalog")} />
+                  <EmptyStateLinkAction to="/generate" label={t("batch.tests_empty_generate")} />
+                </div>
+              )}
+            />
+          )}
+
+          {!loadingTests && !testsError && tests.length > 0 && (
             <>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
                 <button type="button" className="btn btn-secondary btn-sm" onClick={selectAll}>{t("batch.sel_all")}</button>
@@ -416,17 +432,26 @@ export default function BatchRunnerPage() {
         )}
 
         {jobsError && (
-          <div className="alert alert-error" style={{ marginBottom: 12, fontSize: 12 }}>{jobsError}</div>
+          <ErrorState
+            title={t("batch.jobs_load_error")}
+            description={jobsError}
+            onRetry={() => loadJobs(false)}
+            retryLabel={t("batch.retry")}
+            className="card"
+          />
         )}
 
         {loadingJobs && !jobs.length && !jobsError && (
-          <div style={{ padding: 16, color: "var(--text-3)" }}>…</div>
+          <LoadingState message={t("batch.jobs_loading")} />
         )}
 
         {!loadingJobs && !jobs.length && !jobsError && (
-          <div style={{ padding: 24, textAlign: "center", color: "var(--text-3)", fontSize: 13 }}>
-            {t("batch.jobs_empty")}
-          </div>
+          <EmptyState
+            icon="▶"
+            title={t("batch.jobs_empty")}
+            description={t("batch.jobs_empty_desc")}
+            action={<EmptyStateLinkAction to="/catalog" label={t("batch.tests_empty_catalog")} />}
+          />
         )}
 
         {jobs.length > 0 && (

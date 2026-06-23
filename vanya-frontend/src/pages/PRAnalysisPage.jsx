@@ -26,6 +26,7 @@ import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
 import PRAnalysisEnterpriseView from "../components/pr/PRAnalysisEnterpriseView";
 import PREmptyState from "../components/pr/PREmptyState";
+import PrRiskFlowGuide from "../components/platform/PrRiskFlowGuide.jsx";
 import { parseChangedFilesList } from "../utils/prAnalysisViewUtils";
 import {
   isAzureDrilldownProvider,
@@ -452,6 +453,8 @@ export default function PRAnalysisPage() {
   return (
     <div className="page-wrap">
 
+      <PrRiskFlowGuide variant="pr" />
+
       {drilldownTarget ? (
         drilldownNotFound ? (
           <div className="alert alert-warning" style={{ marginBottom: 16, fontSize: 13, lineHeight: 1.5 }}>
@@ -722,7 +725,7 @@ export default function PRAnalysisPage() {
             className="input"
             rows={4}
             style={{ width: "100%", resize: "vertical", fontFamily: "monospace", fontSize: 12 }}
-            placeholder={"src/components/CandidateForm.tsx\nsrc/services/candidate_service.py"}
+            placeholder={t("pr.form.changed_files_ph")}
             value={form.changed_files}
             onChange={(e) => set("changed_files", e.target.value)}
           />

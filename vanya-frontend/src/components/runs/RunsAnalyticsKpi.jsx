@@ -5,6 +5,7 @@ import { useLang } from "../../i18n/LangContext";
 import { useProject } from "../../context/ProjectContext.jsx";
 import KpiStrip from "../KpiStrip.jsx";
 import InitializeProjectPanel from "../InitializeProjectPanel.jsx";
+import { ErrorState, EmptyStateLinkAction } from "../../ui/EmptyState.jsx";
 import { fmtRunsKpiDate, fmtRunsKpiMs } from "../../utils/runHelpers.js";
 
 export default function RunsAnalyticsKpi({ onInitialized }) {
@@ -14,9 +15,11 @@ export default function RunsAnalyticsKpi({ onInitialized }) {
   const [analytics, setAnalytics] = useState(null);
   const [lastRunAt, setLastRunAt] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   const load = useCallback(() => {
     setLoading(true);
+    setError("");
     const runOpts = { limit: 1 };
     if (projectId) runOpts.project_id = projectId;
     Promise.all([
@@ -28,12 +31,13 @@ export default function RunsAnalyticsKpi({ onInitialized }) {
         const first = Array.isArray(runs) ? runs[0] : runs?.runs?.[0];
         setLastRunAt(first?.started_at || first?.finished_at || null);
       })
-      .catch(() => {
+      .catch((e) => {
         setAnalytics(null);
         setLastRunAt(null);
+        setError(e?.message || t("runs.kpi.load_error"));
       })
       .finally(() => setLoading(false));
-  }, [projectId]);
+  }, [projectId, t]);
 
   useEffect(() => {
     load();
@@ -47,7 +51,21 @@ export default function RunsAnalyticsKpi({ onInitialized }) {
       ? `${((s.failed_runs / s.total_runs) * 100).toFixed(1)}%`
       : "—";
 
-  if (!loading && total === 0) {
+  if (!loading && error) {
+    return (
+      <div style={{ marginBottom: 20 }}>
+        <ErrorState
+          title={t("runs.kpi.load_error")}
+          description={error}
+          onRetry={load}
+          retryLabel={t("common.retry")}
+          className="card"
+        />
+      </div>
+    );
+  }
+
+  if (!loading && !error && total === 0) {
     return (
       <div style={{ marginBottom: 20 }}>
         {projectId ? (
@@ -69,7 +87,7 @@ export default function RunsAnalyticsKpi({ onInitialized }) {
           {projectId ? (
             <Link to="/dashboard" className="btn btn-secondary btn-sm">{t("runs.kpi.init_cta")}</Link>
           ) : null}
-          <Link to="/batch" className="btn btn-primary btn-sm">{t("runs.kpi.batch_cta")}</Link>
+          <EmptyStateLinkAction to="/batch" label={t("runs.kpi.batch_cta")} />
         </div>
       </div>
     );
@@ -78,6 +96,7 @@ export default function RunsAnalyticsKpi({ onInitialized }) {
   return (
     <KpiStrip
       loading={loading}
+      loadingLabel={t("common.loading")}
       items={[
         { key: "total", label: t("runs.kpi.total"), value: total },
         { key: "pass", label: t("runs.kpi.pass_rate"), value: passRate, accent: "var(--green)" },

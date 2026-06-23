@@ -1,5 +1,7 @@
 /** View-model helpers for Incident Investigator report UI (v1.3C). */
 
+import { localizeBackendMessages } from "./localizeBackendMessage.js";
+
 export function isLegacyIncidentReport(report) {
   if (!report) return false;
   return (
@@ -54,6 +56,10 @@ export function isEvidenceCorrelationEmpty(evidenceCorrelation) {
 export function correlationReasonText(item, t) {
   const reason = String(item?.reason || "").trim();
   return reason || t("incident.qa.correlation_reason_unavailable");
+}
+
+export function localizeReportDataGaps(gaps, t) {
+  return localizeBackendMessages(gaps, t);
 }
 
 export function buildIncidentReportViewModel(report, t) {

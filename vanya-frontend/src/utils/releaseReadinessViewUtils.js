@@ -1,5 +1,6 @@
 /** View helpers for Release Readiness compositor (REL-01A). */
 
+import { localizeBackendMessages } from "./localizeBackendMessage.js";
 import { buildDecisionCenterViewModel } from "./qualityDecisionCenterViewUtils.js";
 import { buildJiraIssueIntelligenceViewModel } from "./jiraIssueIntelligenceViewUtils.js";
 import { buildMultiEnvironmentIntelligenceViewModel } from "./environmentIntelligenceViewUtils.js";
@@ -144,7 +145,7 @@ export function buildReleaseReadinessViewModel(payload, t) {
     summaryLabel: t(RELEASE_READINESS_I18N_KEYS.summary),
     summary: view?.summary || "",
     dataGapsLabel: t(RELEASE_READINESS_I18N_KEYS.dataGaps),
-    data_gaps: view?.data_gaps || [],
+    data_gaps: localizeBackendMessages(view?.data_gaps || [], t),
     scmConnectionsLabel: t(RELEASE_READINESS_I18N_KEYS.scmConnections),
     scm: [
       {

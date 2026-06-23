@@ -22,12 +22,22 @@ export default function OnboardingStepCard({ step }) {
         <div style={{ flex: 1 }}>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 4 }}>
             <strong style={{ color: "var(--text-1)" }}>{step.title}</strong>
+            {step.isOptional ? (
+              <span className="badge badge-blue" style={{ fontSize: 10 }}>
+                {step.optionalLabel}
+              </span>
+            ) : null}
             <span className={step.statusBadgeClass}>{step.statusLabel}</span>
             <span className="badge badge-gray">{step.completion_percentage}%</span>
           </div>
           {step.description ? (
-            <div style={{ color: "var(--text-3)", fontSize: 12, marginBottom: step.navigation ? 8 : 0 }}>
+            <div style={{ color: "var(--text-3)", fontSize: 12, marginBottom: step.guidanceText || step.navigation ? 8 : 0 }}>
               {step.description}
+            </div>
+          ) : null}
+          {step.guidanceText ? (
+            <div style={{ color: "var(--text-2)", fontSize: 12, lineHeight: 1.55, marginBottom: step.navigation ? 8 : 0 }}>
+              {step.guidanceText}
             </div>
           ) : null}
           {step.navigation ? (

@@ -14,6 +14,7 @@ import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
 import KpiStrip from "../components/KpiStrip.jsx";
 import InitializeProjectPanel from "../components/InitializeProjectPanel.jsx";
+import EmptyState, { LoadingState, ErrorState, EmptyStateLinkAction } from "../ui/EmptyState.jsx";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -236,6 +237,7 @@ export default function EvidencePage() {
 
       <KpiStrip
         loading={loading}
+        loadingLabel={t("common.loading")}
         items={[
           { key: "total", label: t("ev.kpi.total"), value: kpi?.total ?? (loading ? null : rows.length) },
           { key: "shots", label: t("ev.kpi.screenshots"), value: kpi?.screenshots ?? "—" },
@@ -348,41 +350,43 @@ export default function EvidencePage() {
             disabled={loading}
             style={{ marginLeft: "auto" }}
           >
-            {loading ? "…" : "↻"}
+            {loading ? t("ev.refreshing") : t("ev.refresh")}
           </button>
         </div>
       </div>
 
       {/* Content */}
       {loading && (
-        <div className="card" style={{ color: "var(--text-3)", fontSize: 13, padding: "24px 20px" }}>
-          {t("ev.loading")}
+        <div className="card" style={{ padding: 0 }}>
+          <LoadingState message={t("ev.loading")} />
         </div>
       )}
 
       {!loading && error && (
-        <div className="card" style={{ borderColor: "var(--red-border)", padding: "16px 20px" }}>
-          <div style={{ color: "var(--red-text)", fontSize: 13 }}>{error}</div>
-          <button className="btn btn-secondary btn-sm" style={{ marginTop: 10 }} onClick={load}>
-            Retry
-          </button>
+        <div className="card" style={{ padding: 0 }}>
+          <ErrorState
+            title={t("ev.error")}
+            description={error}
+            onRetry={load}
+            retryLabel={t("common.retry")}
+          />
         </div>
       )}
 
       {!loading && !error && filtered.length === 0 && (
-        <div className="card" style={{ padding: "48px 32px", textAlign: "center" }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>⊟</div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", marginBottom: 6 }}>
-            {rows.length === 0 ? t("ev.empty_state.title") : t("ev.filter.no_results")}
-          </div>
-          <div style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.7, marginBottom: 16, maxWidth: 340, margin: "0 auto 16px" }}>
-            {rows.length === 0 ? t("ev.empty_state.desc") : t("ev.filter.no_results")}
-          </div>
-          {rows.length === 0 && (
-            <button className="btn btn-primary btn-sm" onClick={() => navigate("/runs")}>
-              {t("ev.empty_state.cta")}
-            </button>
-          )}
+        <div className="card" style={{ padding: 0 }}>
+          <EmptyState
+            icon="⊟"
+            title={rows.length === 0 ? t("ev.empty_state.title") : t("ev.filter.no_results")}
+            description={rows.length === 0 ? t("ev.empty_state.desc") : t("ev.filter.no_results_desc")}
+            action={rows.length === 0 ? (
+              <EmptyStateLinkAction to="/runs" label={t("ev.empty_state.cta")} />
+            ) : (
+              <button type="button" className="btn btn-secondary btn-sm" onClick={clearFilters}>
+                {t("ev.filter.clear")}
+              </button>
+            )}
+          />
         </div>
       )}
 
