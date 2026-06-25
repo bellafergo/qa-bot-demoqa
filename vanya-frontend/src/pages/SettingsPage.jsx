@@ -158,26 +158,6 @@ export default function SettingsPage() {
         )}
       </div>
 
-      <div className="card">
-        <div className="section-title">{t("settings.upcoming.title")}</div>
-        <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 12 }}>
-          {t("settings.upcoming.heading")}
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {[
-            t("settings.upcoming.item1"),
-            t("settings.upcoming.item2"),
-            t("settings.upcoming.item3"),
-            t("settings.upcoming.item4"),
-            t("settings.upcoming.item5"),
-          ].map((item, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, fontSize: 13, color: "var(--text-2)" }}>
-              <span style={{ color: "var(--border)", fontSize: 11, marginTop: 2, flexShrink: 0 }}>◻</span>
-              {item}
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }

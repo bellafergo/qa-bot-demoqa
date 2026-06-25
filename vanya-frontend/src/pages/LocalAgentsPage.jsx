@@ -334,7 +334,6 @@ export default function LocalAgentsPage() {
             <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0, color: "var(--text-1)" }}>
               {t(LOCAL_AGENTS_ENTERPRISE_I18N_KEYS.commandCenterTitle)}
             </h1>
-            <span className="badge badge-orange">{t("localAgents.beta_badge")}</span>
           </div>
           <p style={{ fontSize: 13, color: "var(--text-3)", margin: "6px 0 0" }}>{t("localAgents.subtitle")}</p>
           <p style={{ fontSize: 12, color: "var(--text-2)", margin: "8px 0 0" }}>

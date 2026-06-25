@@ -17,6 +17,12 @@ import {
 } from "../api.js";
 import { useAuth } from "../auth/AuthContext.jsx";
 import { PROJECT_STORAGE_KEY } from "./projectStorage.js";
+import {
+  filterPresentationProjects,
+  hasDemoEnterpriseProject,
+  buildDemoEnterpriseProjectPayload,
+} from "../utils/projectDemoReadinessUtils.js";
+import { useLang } from "../i18n/LangContext";
 
 /** @typedef {{ id: string, name: string, description?: string, color?: string, base_url?: string|null, created_at?: string, updated_at?: string }} Project */
 
@@ -42,6 +48,7 @@ function pickCurrentAfterLoad(list, preferId, previousId, storedId) {
 
 export function ProjectProvider({ children }) {
   const { session, loading: authLoading } = useAuth();
+  const { lang } = useLang();
   /** @type {[Project[], function]} */
   const [projects, setProjects] = useState([]);
   /** @type {[Project | null, function]} */
@@ -91,12 +98,24 @@ export function ProjectProvider({ children }) {
     try {
       const raw = await apiListProjects();
       const listNorm = Array.isArray(raw) ? raw : [];
-      setProjects(listNorm);
+      let visible = filterPresentationProjects(listNorm);
+
+      if (!hasDemoEnterpriseProject(visible)) {
+        try {
+          await apiCreateProject(buildDemoEnterpriseProjectPayload(lang));
+          const refreshed = await apiListProjects();
+          visible = filterPresentationProjects(Array.isArray(refreshed) ? refreshed : []);
+        } catch {
+          /* keep filtered list */
+        }
+      }
+
+      setProjects(visible);
       setError(null);
 
       const prev = currentIdRef.current;
       const next = pickCurrentAfterLoad(
-        listNorm,
+        visible,
         preferIdAfter || null,
         prev,
         stored,
@@ -112,7 +131,7 @@ export function ProjectProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  }, [persistId]);
+  }, [persistId, lang]);
 
   useEffect(() => {
     if (authLoading) return;

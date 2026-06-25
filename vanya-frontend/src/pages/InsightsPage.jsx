@@ -12,7 +12,7 @@
  * in App.jsx for backward compatibility.
  */
 import React, { useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
 import FailureIntelligencePage from "./FailureIntelligencePage";
@@ -23,7 +23,6 @@ const TABS = [
   { key: "insights.tab.failures", icon: "⚠" },
   { key: "insights.tab.coverage", icon: "◐" },
   { key: "insights.tab.risk",     icon: "◈" },
-  { key: "insights.tab.ai",       icon: "✦" },
 ];
 
 const RISK_TAB_INDEX = 2;
@@ -87,102 +86,6 @@ export default function InsightsPage() {
       {tab === 0 && <FailureIntelligencePage embedded />}
       {tab === 1 && <CoveragePage />}
       {tab === 2 && <RiskSelectionPage embedded />}
-      {tab === 3 && <AIRecommendationsTab />}
-    </div>
-  );
-}
-
-// ── AI Recommendations tab ────────────────────────────────────────────────────
-
-const REC_CARDS = [
-  {
-    icon: "◈",
-    titleKey: "insights.ai.rec1.title",
-    descKey:  "insights.ai.rec1.desc",
-    accentColor: "rgba(79,107,255,0.12)",
-  },
-  {
-    icon: "◐",
-    titleKey: "insights.ai.rec2.title",
-    descKey:  "insights.ai.rec2.desc",
-    accentColor: "rgba(16,185,129,0.10)",
-  },
-  {
-    icon: "⚠",
-    titleKey: "insights.ai.rec3.title",
-    descKey:  "insights.ai.rec3.desc",
-    accentColor: "rgba(245,158,11,0.10)",
-  },
-];
-
-function AIRecommendationsTab() {
-  const { t } = useLang();
-  const navigate = useNavigate();
-
-  return (
-    <div className="page-wrap">
-
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 28, flexWrap: "wrap" }}>
-        <div style={{
-          width: 48, height: 48, borderRadius: 14, flexShrink: 0,
-          background: "rgba(79,107,255,0.1)",
-          display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22,
-        }}>
-          ✦
-        </div>
-        <div>
-          <div style={{ fontSize: 16, fontWeight: 600, color: "var(--text-1)", marginBottom: 4 }}>
-            {t("insights.ai.title")}
-          </div>
-          <div style={{ fontSize: 13, color: "var(--text-3)", lineHeight: 1.6, maxWidth: 520 }}>
-            {t("insights.ai.desc")}
-          </div>
-          <span className="badge badge-gray" style={{ marginTop: 10, display: "inline-block", fontSize: 10 }}>
-            {t("insights.ai.badge")}
-          </span>
-        </div>
-      </div>
-
-      {/* Strategic recommendation cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16, marginBottom: 28 }}>
-        {REC_CARDS.map((card, i) => (
-          <div
-            key={i}
-            className="card"
-            style={{ background: card.accentColor, borderColor: "transparent" }}
-          >
-            <div style={{ fontSize: 20, marginBottom: 10 }}>{card.icon}</div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", marginBottom: 6 }}>
-              {t(card.titleKey)}
-            </div>
-            <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.6 }}>
-              {t(card.descKey)}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* CTAs */}
-      <div className="card" style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-        <div style={{ flex: 1, minWidth: 200 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-1)", marginBottom: 4 }}>
-            {t("insights.ai.cta_heading")}
-          </div>
-          <div style={{ fontSize: 12, color: "var(--text-3)" }}>
-            {t("insights.ai.cta_desc")}
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-          <button className="btn btn-primary" onClick={() => navigate("/generate")}>
-            {t("insights.ai.cta_generate")}
-          </button>
-          <button className="btn btn-secondary" onClick={() => navigate("/catalog")}>
-            {t("insights.ai.cta_catalog")}
-          </button>
-        </div>
-      </div>
-
     </div>
   );
 }

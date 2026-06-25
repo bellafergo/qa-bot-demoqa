@@ -3,11 +3,48 @@ import { Link } from "react-router-dom";
 import { useLang } from "../../i18n/LangContext";
 import { CAPABILITY_STATE, CAPABILITY_STATE_I18N_KEYS } from "../../utils/capabilityStateViewUtils.js";
 
-export default function CapabilityStateCard({ state }) {
+export default function CapabilityStateCard({ state, compact = false }) {
   const { t } = useLang();
   if (!state || state.state === CAPABILITY_STATE.AVAILABLE) return null;
 
   const isIntegration = state.state === CAPABILITY_STATE.INTEGRATION_REQUIRED;
+  const ctaLabel = state.cta?.label || t(CAPABILITY_STATE_I18N_KEYS.connectIntegrationCta);
+
+  if (compact) {
+    return (
+      <div
+        className="card integration-teaser-card"
+        style={{
+          padding: "14px 16px",
+          border: "1px solid var(--border)",
+          background: "var(--bg-2)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ flex: "1 1 220px", minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-1)", marginBottom: 4 }}>
+            {state.compactTitle || state.title}
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.5 }}>
+            {state.compactDescription || state.description}
+          </div>
+        </div>
+        {state.cta ? (
+          <Link
+            to={state.cta.path}
+            className="btn btn-secondary btn-sm"
+            style={{ textDecoration: "none", display: "inline-flex", flexShrink: 0 }}
+          >
+            {ctaLabel}
+          </Link>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div

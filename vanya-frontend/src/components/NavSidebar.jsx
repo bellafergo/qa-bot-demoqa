@@ -39,8 +39,7 @@ const NAV_SECTIONS_DEF = [
     items: [
       { to: "/projects",     icon: "▤", labelKey: "nav.projects", permission: "VIEW_DASHBOARD" },
       { to: "/integrations", icon: "◇", labelKey: "nav.integrations", permission: "VIEW_DASHBOARD" },
-      { to: "/documents",    icon: "◧", labelKey: "nav.documents", permission: "VIEW_DASHBOARD" },
-      { to: "/chat",         icon: "◎", labelKey: "nav.chat", permission: "VIEW_DASHBOARD" },
+      { to: "/chat",         icon: "◉", labelKey: "nav.chat", permission: "VIEW_DASHBOARD" },
       { to: "/settings",     icon: "⊛", labelKey: "nav.settings", permission: "VIEW_DASHBOARD" },
     ],
   },

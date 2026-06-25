@@ -3,7 +3,7 @@ import { getSsoProviders, apiErrorMessage } from "../../api";
 import { useLang } from "../../i18n/LangContext";
 import { buildSsoRoadmapViewModel } from "../../utils/ssoRoadmapViewUtils.js";
 import { LoadingState, ErrorState } from "../../ui/EmptyState.jsx";
-import SSORoadmapProviderRow, { EnterpriseAvailableTodayCard } from "./SSORoadmapProviderRow.jsx";
+import { EnterpriseAvailableTodayCard } from "./SSORoadmapProviderRow.jsx";
 
 export default function SSOConfigurationSection() {
   const { t } = useLang();
@@ -58,27 +58,6 @@ export default function SSOConfigurationSection() {
               badgeLabel={vm.availableTodayBadge}
             />
           </div>
-
-          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>
-            {vm.roadmapTitle}
-          </div>
-          <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--text-3)", lineHeight: 1.5 }}>
-            {vm.roadmapDesc}
-          </p>
-
-          {vm.providers.length ? (
-            <ul style={{ margin: 0, padding: 0 }}>
-              {vm.providers.map((provider) => (
-                <SSORoadmapProviderRow
-                  key={provider.provider}
-                  provider={{
-                    ...provider,
-                    targetQuarterLabel: vm.targetQuarterLabel,
-                  }}
-                />
-              ))}
-            </ul>
-          ) : null}
         </>
       )}
 

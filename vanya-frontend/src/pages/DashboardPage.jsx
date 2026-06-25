@@ -44,6 +44,13 @@ import { buildServiceNowIntelligenceOverviewViewModel } from "../utils/serviceno
 import { buildReportDeliveryViewModel } from "../utils/reportDeliveryViewUtils.js";
 import { buildPlatformObservabilityViewModel } from "../utils/platformObservabilityViewUtils.js";
 import DashboardSectionState from "../components/dashboard/DashboardSectionState.jsx";
+import DashboardIntegrationSlot from "../components/dashboard/DashboardIntegrationSlot.jsx";
+import CapabilityStateCard from "../components/capability-state/CapabilityStateCard.jsx";
+import {
+  buildQMetryIntegrationGroupState,
+  shouldConsolidateQMetryIntegration,
+} from "../utils/capabilityStateViewUtils.js";
+import { formatExecutionStatus } from "../utils/executionStatusDisplayUtils.js";
 import ColdProjectGuidance from "../components/dashboard/ColdProjectGuidance.jsx";
 import ExecutiveDashboardV2 from "../components/dashboard/ExecutiveDashboardV2.jsx";
 import { buildExecutiveDashboardV2ViewModel } from "../utils/executiveDashboardV2ViewUtils.js";
@@ -424,6 +431,26 @@ export default function DashboardPage() {
     [coverageOverview, intelErrors.coverageOverview, intelLoading.coverageOverview, coverageOverviewVm, t],
   );
 
+  const recommendedTestsSection = useMemo(
+    () => buildDashboardSectionState({
+      data: recommendedTests,
+      loadError: intelErrors.recommendedTests,
+      loading: intelLoading.recommendedTests,
+      empty: recommendedTestsVm.empty,
+      capabilityState: recommendedTestsVm.showContent ? null : recommendedTestsVm.capabilityState,
+      emptyCta: DASHBOARD_SECTION_CTA.integrations,
+      hideWhenEmpty: true,
+      t,
+    }),
+    [
+      recommendedTests,
+      intelErrors.recommendedTests,
+      intelLoading.recommendedTests,
+      recommendedTestsVm,
+      t,
+    ],
+  );
+
   const servicenowSection = useMemo(
     () => buildDashboardSectionState({
       data: servicenowIntelligence,
@@ -763,7 +790,7 @@ export default function DashboardPage() {
                               <td style={{ fontWeight: 500, fontSize: 12 }} title={testMeta.showTechnicalId ? testMeta.technicalId : undefined}>
                                 {testMeta.display || "—"}
                               </td>
-                              <td><span className={`badge ${statusClass(r.status)}`}>{r.status}</span></td>
+                              <td><span className={`badge ${statusClass(r.status)}`}>{formatExecutionStatus(r.status, t)}</span></td>
                               <td style={{ fontSize: 12, color: "var(--text-2)" }}>{fmtMs(r.duration_ms)}</td>
                               <td style={{ fontSize: 11, color: "var(--text-3)", whiteSpace: "nowrap" }}>
                                 {fmtDate(r.started_at || r.executed_at)}
@@ -829,7 +856,7 @@ export default function DashboardPage() {
                     {recentJobs.slice(0, 6).map((j, i) => (
                       <tr key={j.job_id || i}>
                         <td style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-2)" }}>{(j.job_id || "").slice(0, 12)}…</td>
-                        <td><span className={`badge ${statusClass(j.status)}`}>{j.status}</span></td>
+                        <td><span className={`badge ${statusClass(j.status)}`}>{formatExecutionStatus(j.status, t)}</span></td>
                         <td style={{ fontSize: 12, color: "var(--text-2)" }}>
                           {j.passed_count ?? 0}✓ {j.failed_count ?? 0}✗ / {j.total_count ?? 0}
                         </td>
@@ -1120,36 +1147,31 @@ export default function DashboardPage() {
                   </div>
                 ) : null}
 
-                {servicenowSection.show ? (
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
-                      {servicenowIntelligenceVm.title}
-                    </div>
-                    <DashboardSectionState state={servicenowSection} onRetry={load}>
-                      <ServiceNowIntelligenceView vm={servicenowIntelligenceVm} />
-                    </DashboardSectionState>
-                  </div>
-                ) : null}
+                {shouldConsolidateQMetryIntegration(coverageOverviewVm, recommendedTestsVm) ? (
+                  <CapabilityStateCard state={buildQMetryIntegrationGroupState(t)} compact />
+                ) : (
+                  <>
+                    <DashboardIntegrationSlot
+                      section={coverageOverviewSection}
+                      vm={coverageOverviewVm}
+                      contentComponent={CoverageIntelligenceView}
+                      onRetry={load}
+                    />
+                    <DashboardIntegrationSlot
+                      section={recommendedTestsSection}
+                      vm={recommendedTestsVm}
+                      contentComponent={QMetryRecommendationView}
+                      onRetry={load}
+                    />
+                  </>
+                )}
 
-                {coverageOverviewSection.show ? (
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
-                      {coverageOverviewVm.title}
-                    </div>
-                    <DashboardSectionState state={coverageOverviewSection} onRetry={load}>
-                      <CoverageIntelligenceView vm={coverageOverviewVm} />
-                    </DashboardSectionState>
-                  </div>
-                ) : null}
-
-                {recommendedTestsVm.show ? (
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
-                      {recommendedTestsVm.title}
-                    </div>
-                    <QMetryRecommendationView vm={recommendedTestsVm} />
-                  </div>
-                ) : null}
+                <DashboardIntegrationSlot
+                  section={servicenowSection}
+                  vm={servicenowIntelligenceVm}
+                  contentComponent={ServiceNowIntelligenceView}
+                  onRetry={load}
+                />
 
                 <div>
                   <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>

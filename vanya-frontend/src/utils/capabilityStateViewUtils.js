@@ -9,8 +9,10 @@ export const CAPABILITY_STATE = {
 export const CAPABILITY_STATE_I18N_KEYS = {
   integrationRequiredTitle: "capability_state.integration_required_title",
   integrationRequiredDesc: "capability_state.integration_required_desc",
+  integrationAvailableDesc: "capability_state.integration_available_desc",
   integrationBenefits: "capability_state.integration_benefits",
   connectCta: "capability_state.connect_cta",
+  connectIntegrationCta: "capability_state.connect_integration_cta",
   insufficientHistoryTitle: "capability_state.insufficient_history_title",
   insufficientHistoryDesc: "capability_state.insufficient_history_desc",
   insufficientHistoryStatus: "capability_state.insufficient_history_status",
@@ -43,6 +45,18 @@ export const CAPABILITY_STATE_I18N_KEYS = {
   riskAssessmentTitle: "capability_state.risk_assessment.title",
   executiveImpactTitle: "capability_state.executive_impact.title",
   businessRiskTitle: "capability_state.business_risk.title",
+  qmetryCompactTitle: "integration_teaser.qmetry.title",
+  qmetryCompactDesc: "integration_teaser.qmetry.desc",
+  servicenowCompactTitle: "integration_teaser.servicenow.title",
+  servicenowCompactDesc: "integration_teaser.servicenow.desc",
+  jiraCompactTitle: "integration_teaser.jira.title",
+  jiraCompactDesc: "integration_teaser.jira.desc",
+  slackCompactTitle: "integration_teaser.slack.title",
+  slackCompactDesc: "integration_teaser.slack.desc",
+  teamsCompactTitle: "integration_teaser.teams.title",
+  teamsCompactDesc: "integration_teaser.teams.desc",
+  azureCompactTitle: "integration_teaser.azure.title",
+  azureCompactDesc: "integration_teaser.azure.desc",
 };
 
 export const DEFAULT_MIN_RUNS_FOR_TRENDS = 2;
@@ -61,6 +75,8 @@ export function buildIntegrationRequiredState({
   integrationName,
   benefits = [],
   cta = INTEGRATION_CTA,
+  compactTitleKey = null,
+  compactDescKey = null,
   t,
 }) {
   return {
@@ -68,12 +84,16 @@ export function buildIntegrationRequiredState({
     icon: "🔒",
     title: capabilityTitle,
     description: t(CAPABILITY_STATE_I18N_KEYS.integrationRequiredDesc, { integration: integrationName }),
+    compactTitle: compactTitleKey ? t(compactTitleKey) : capabilityTitle,
+    compactDescription: compactDescKey
+      ? t(compactDescKey, { integration: integrationName })
+      : t(CAPABILITY_STATE_I18N_KEYS.integrationAvailableDesc, { integration: integrationName }),
     benefits,
     statusLabel: null,
     statusValue: null,
     cta: {
       path: cta.path,
-      label: t(cta.labelKey, { integration: integrationName }),
+      label: t(CAPABILITY_STATE_I18N_KEYS.connectIntegrationCta),
     },
   };
 }
@@ -146,13 +166,15 @@ export function buildQMetryIntegrationGroupState(t) {
     icon: "🔒",
     title: t(CAPABILITY_STATE_I18N_KEYS.qmetryGroupTitle),
     description: null,
+    compactTitle: t(CAPABILITY_STATE_I18N_KEYS.qmetryCompactTitle),
+    compactDescription: t(CAPABILITY_STATE_I18N_KEYS.qmetryCompactDesc, { integration: integrationName }),
     benefitsLabel: t(CAPABILITY_STATE_I18N_KEYS.qmetryGroupUnlocks),
     benefits: qmetryBenefits(t),
     statusLabel: null,
     statusValue: null,
     cta: {
       path: INTEGRATION_CTA.path,
-      label: t(INTEGRATION_CTA.labelKey, { integration: integrationName }),
+      label: t(CAPABILITY_STATE_I18N_KEYS.connectIntegrationCta),
     },
   };
 }
@@ -189,6 +211,8 @@ export function resolveQMetryCapabilityState({
       capabilityTitle,
       integrationName,
       benefits: qmetryBenefits(t),
+      compactTitleKey: CAPABILITY_STATE_I18N_KEYS.qmetryCompactTitle,
+      compactDescKey: CAPABILITY_STATE_I18N_KEYS.qmetryCompactDesc,
       t,
     });
   }
@@ -216,6 +240,8 @@ export function resolveServiceNowCapabilityState({ connected, correlationCount =
       capabilityTitle,
       integrationName,
       benefits: servicenowBenefits(t),
+      compactTitleKey: CAPABILITY_STATE_I18N_KEYS.servicenowCompactTitle,
+      compactDescKey: CAPABILITY_STATE_I18N_KEYS.servicenowCompactDesc,
       t,
     });
   }
@@ -248,6 +274,8 @@ export function resolveJiraCapabilityState({
       capabilityTitle,
       integrationName,
       benefits: jiraBenefits(t),
+      compactTitleKey: CAPABILITY_STATE_I18N_KEYS.jiraCompactTitle,
+      compactDescKey: CAPABILITY_STATE_I18N_KEYS.jiraCompactDesc,
       t,
     });
   }

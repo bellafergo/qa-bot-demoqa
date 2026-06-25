@@ -6,7 +6,7 @@ import { SkeletonCard } from "../ui/Skeleton.jsx";
 /**
  * Consistent empty, error, loading, and capability-gated states for dashboard sections.
  */
-export default function DashboardSectionState({ state, onRetry, children }) {
+export default function DashboardSectionState({ state, onRetry, children, compact = false }) {
   if (!state) return children ?? null;
 
   if (state.loading) {
@@ -32,7 +32,7 @@ export default function DashboardSectionState({ state, onRetry, children }) {
   }
 
   if (state.capabilityState) {
-    return <CapabilityStateCard state={state.capabilityState} />;
+    return <CapabilityStateCard state={state.capabilityState} compact={compact} />;
   }
 
   if (state.empty) {

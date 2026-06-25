@@ -42,20 +42,7 @@ export default function RecommendedTestPreviewModal({ open, payload, onClose }) 
               </div>
             </div>
           ))}
-          <div
-            style={{
-              marginTop: 8,
-              padding: "10px 12px",
-              borderRadius: 8,
-              background: "var(--bg-2)",
-              fontSize: 12,
-              color: "var(--text-3)",
-              lineHeight: 1.55,
-              fontStyle: "italic",
-            }}
-          >
-            {payload.futureNote}
-          </div>
+
         </div>
         <div style={{ padding: "14px 20px", display: "flex", justifyContent: "flex-end", borderTop: "1px solid var(--border)" }}>
           <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>
