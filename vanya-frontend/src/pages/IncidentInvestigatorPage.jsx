@@ -21,6 +21,7 @@ import {
   reproducedLabel,
   confidencePct,
 } from "../utils/incidentInvestigatorHelpers.js";
+import { isInsufficientEvidence } from "../utils/qaInvestigationReportLayoutUtils.js";
 import QaInvestigationReport from "../components/incident/QaInvestigationReport.jsx";
 import InvestigationResult from "../components/incident/InvestigationResult.jsx";
 
@@ -302,7 +303,7 @@ export default function IncidentInvestigatorPage() {
                     <th>{t("incident.history.col.date")}</th>
                     <th>{t("incident.history.col.description")}</th>
                     <th>{t("incident.history.col.severity")}</th>
-                    <th>{t("incident.qa.confidence")}</th>
+                    <th>{t("incident.qa.evidence_quality")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -313,7 +314,11 @@ export default function IncidentInvestigatorPage() {
                         {h.description}
                       </td>
                       <td><span className={severityBadge(h.severity)}>{h.severity}</span></td>
-                      <td style={{ fontSize: 12 }}>{confidencePct(h.confidence)}</td>
+                      <td style={{ fontSize: 12 }}>
+                        {isInsufficientEvidence(h.confidence)
+                          ? t("incident.qa.insufficient_evidence_title")
+                          : confidencePct(h.confidence)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

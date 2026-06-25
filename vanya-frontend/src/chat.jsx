@@ -519,7 +519,6 @@ export default function Chat(props) {
               transition: "background 0.15s",
               boxShadow: isLoading || !String(input || "").trim() ? "none" : "var(--shadow-1)",
             }}
-            title={sessionId ? `session: ${sessionId}` : ""}
           >
             {isLoading ? "…" : t("chat.send")}
           </button>

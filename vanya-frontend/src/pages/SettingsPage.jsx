@@ -2,19 +2,20 @@
 import React, { useEffect, useState } from "react";
 import { useLang } from "../i18n/LangContext";
 import { useTheme } from "../context/ThemeContext.jsx";
-import { apiGet, apiErrorMessage, API_BASE } from "../api.js";
+import { apiGet, apiErrorMessage } from "../api.js";
+import { buildSettingsPlatformViewModel } from "../utils/settingsPlatformViewUtils.js";
 import SecuritySection from "../components/security/SecuritySection.jsx";
 import SSOConfigurationSection from "../components/security/SSOConfigurationSection.jsx";
 import RBACSection from "../components/security/RBACSection.jsx";
 import CurrentPermissionsSection from "../components/security/CurrentPermissionsSection.jsx";
 import AuditTrailSection from "../components/security/AuditTrailSection.jsx";
 
-function InfoRow({ label, value, mono = false, badge }) {
+function InfoRow({ label, value, badge }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
       <span style={{ fontSize: 12, color: "var(--text-3)", minWidth: 160, flexShrink: 0 }}>{label}</span>
       {badge ? badge : (
-        <span style={{ fontSize: 13, color: "var(--text-1)", fontFamily: mono ? "monospace" : undefined, wordBreak: "break-all" }}>
+        <span style={{ fontSize: 13, color: "var(--text-1)", wordBreak: "break-word" }}>
           {value}
         </span>
       )}
@@ -49,7 +50,6 @@ function ThemeAppearanceCard() {
 
 export default function SettingsPage() {
   const { t } = useLang();
-  const apiBase = API_BASE;
   const mode = import.meta?.env?.MODE || "production";
 
   const [meta, setMeta] = useState(null);
@@ -74,7 +74,7 @@ export default function SettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [apiBase]);
+  }, []);
 
   function StatusBadge({ variant, text }) {
     return (
@@ -84,24 +84,11 @@ export default function SettingsPage() {
     );
   }
 
-  const m = meta || {};
-  const hasOpenAI = m.has_openai_key === true;
-  const hasDB = m.has_db === true;
-  const hasCloudinary = m.has_cloudinary === true;
-
-  const supabaseConfigured = m.supabase_configured === true;
-  const supabaseOk = m.supabase_ok === true;
-  const supabaseStrict = m.supabase_strict;
-
-  const supabaseBadge = !supabaseConfigured
-    ? { variant: "gray", text: "Disabled" }
-    : supabaseOk
-      ? { variant: "green", text: "OK" }
-      : { variant: "orange", text: "Configured" };
+  const platformVm = buildSettingsPlatformViewModel(meta, t);
+  const serviceConnected = platformVm.serviceOperational;
 
   return (
     <div className="page-wrap" style={{ maxWidth: 640 }}>
-      {/* ── Page header ────────────────────────────────── */}
       <div className="page-header">
         <h1 className="page-title">{t("settings.title")}</h1>
         <p className="page-subtitle">{t("settings.subtitle")}</p>
@@ -119,121 +106,58 @@ export default function SettingsPage() {
 
       <AuditTrailSection />
 
-      {/* ── API config card ─────────────────────────────── */}
       <div className="card" style={{ marginBottom: 20 }}>
-        <div className="section-title">{t("settings.api.title")}</div>
+        <div className="section-title">{platformVm.serviceTitle}</div>
         <div>
           <InfoRow
-            label={t("settings.api.url_label")}
-            value={apiBase}
-            mono
+            label={platformVm.serviceConnectedLabel}
+            badge={
+              <StatusBadge
+                variant={serviceConnected ? "green" : "orange"}
+                text={serviceConnected ? t("settings.api.status_live") : platformVm.aiEngineStatus}
+              />
+            }
           />
           <InfoRow
-            label={t("settings.api.status_label")}
+            label={platformVm.serviceStatusLabel}
             badge={
-              <span className="badge badge-green" style={{ fontSize: 11 }}>
-                ● {t("settings.api.status_live")}
-              </span>
+              <StatusBadge
+                variant={serviceConnected ? "green" : "orange"}
+                text={serviceConnected ? platformVm.aiEngineStatus : platformVm.databaseStatus}
+              />
             }
           />
         </div>
-        <p style={{ margin: "10px 0 0", fontSize: 11, color: "var(--text-3)" }}>
-          {t("settings.api.url_note")} (<code>VITE_API_BASE</code>)
-        </p>
       </div>
 
-      {/* ── Environment card ────────────────────────────── */}
       <div className="card" style={{ marginBottom: 20 }}>
         <div className="section-title">{t("settings.env.title")}</div>
         <div>
-          <InfoRow label={t("settings.env.mode_label")}    value={mode === "production" ? t("settings.env.mode_value") : mode} />
+          <InfoRow label={t("settings.env.mode_label")} value={mode === "production" ? t("settings.env.mode_value") : mode} />
           <InfoRow label={t("settings.env.version_label")} value={t("settings.env.version_value")} />
         </div>
       </div>
 
-      {/* ── Platform health / diagnostics card ───────────────── */}
       <div className="card" style={{ marginBottom: 20 }}>
-        <div className="section-title">Platform Health</div>
+        <div className="section-title">{platformVm.platformTitle}</div>
 
         {metaLoading ? (
-          <div style={{ fontSize: 12, color: "var(--text-3)", padding: "6px 0 10px" }}>Loading diagnostics…</div>
+          <div style={{ fontSize: 12, color: "var(--text-3)", padding: "6px 0 10px" }}>{t("settings.platform.loading")}</div>
         ) : metaError ? (
           <div className="alert alert-error" style={{ marginTop: 12, marginBottom: 0, fontSize: 12 }}>
             {metaError}
           </div>
         ) : (
           <div>
-            <InfoRow
-              label="OpenAI"
-              badge={
-                <StatusBadge
-                  variant={hasOpenAI ? "green" : "red"}
-                  text={hasOpenAI ? "OK" : "Missing"}
-                />
-              }
-            />
-
-            <InfoRow
-              label="Session TTL"
-              value={m.session_ttl_s != null ? `${m.session_ttl_s}s` : "—"}
-              mono
-            />
-
-            <InfoRow
-              label="Database"
-              badge={<StatusBadge variant={hasDB ? "green" : "gray"} text={hasDB ? "Enabled" : "Disabled"} />}
-            />
-
-            <InfoRow
-              label="Cloudinary"
-              badge={<StatusBadge variant={hasCloudinary ? "green" : "gray"} text={hasCloudinary ? "Enabled" : "Disabled"} />}
-            />
-
-            <InfoRow
-              label="Supabase"
-              badge={<StatusBadge variant={supabaseBadge.variant} text={supabaseBadge.text} />}
-            />
-
-            <InfoRow
-              label="Supabase Strict"
-              badge={
-                supabaseStrict == null
-                  ? <StatusBadge variant="gray" text="Unknown" />
-                  : <StatusBadge variant={supabaseStrict ? "orange" : "gray"} text={supabaseStrict ? "Strict" : "Relaxed"} />
-              }
-            />
-
-            <InfoRow
-              label="Model"
-              value={m.model || "—"}
-            />
-
-            <InfoRow
-              label="Git Commit"
-              value={m.render_git_commit || "—"}
-              mono
-            />
-
-            {typeof m.sessions_in_memory === "number" && (
-              <InfoRow
-                label="Sessions (memory)"
-                value={m.sessions_in_memory}
-                mono
-              />
-            )}
-
-            {typeof m.doc_cache_items === "number" && (
-              <InfoRow
-                label="Doc cache"
-                value={m.doc_cache_items}
-                mono
-              />
-            )}
+            <InfoRow label={platformVm.aiEngineLabel} value={platformVm.aiEngineStatus} />
+            <InfoRow label={platformVm.databaseLabel} value={platformVm.databaseStatus} />
+            <InfoRow label={platformVm.evidenceStorageLabel} value={platformVm.evidenceStorageStatus} />
+            <InfoRow label={platformVm.authServiceLabel} value={platformVm.authServiceStatus} />
+            <InfoRow label={platformVm.lastUpdatedLabel} value={platformVm.lastUpdatedValue} />
           </div>
         )}
       </div>
 
-      {/* ── Roadmap card ─────────────────────────────────── */}
       <div className="card">
         <div className="section-title">{t("settings.upcoming.title")}</div>
         <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 12 }}>

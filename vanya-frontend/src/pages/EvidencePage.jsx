@@ -600,8 +600,8 @@ function EvidenceRow({ row, t, navigate }) {
                   </span>
                 )}
                 {quarantineRecommended === true && (
-                  <span className="badge badge-orange" style={{ fontSize: 10 }} title="Quarantine recommended">
-                    Quarantine recommended
+                  <span className="badge badge-orange" style={{ fontSize: 10 }} title={t("runs.quarantine.badge_tooltip")}>
+                    {t("runs.quarantine.badge_recommended")}
                   </span>
                 )}
                 {flakySignal && (

@@ -72,9 +72,12 @@ import CapabilityStateCard from "../capability-state/CapabilityStateCard.jsx";
 import ReportCollapsibleSection from "./ReportCollapsibleSection.jsx";
 import {
   buildQaInvestigationReportLayoutViewModel,
+  normalizeInvestigationConfidence,
   partitionImpactMapNodes,
   sliceTopItems,
 } from "../../utils/qaInvestigationReportLayoutUtils.js";
+import { buildIncidentTechnicalDetailsViewModel } from "../../utils/incidentTechnicalDetailsViewUtils.js";
+import IncidentTechnicalDetailsSection from "./IncidentTechnicalDetailsSection.jsx";
 
 export default function QaInvestigationReport({ report, t }) {
   const [dbConnections, setDbConnections] = useState([]);
@@ -130,6 +133,7 @@ export default function QaInvestigationReport({ report, t }) {
   const recommendationCorrelationVm = buildRecommendationCorrelationViewModel(report, t);
   const approvalWorkflowVm = buildApprovalWorkflowViewModel(report, t);
   const layoutVm = buildQaInvestigationReportLayoutViewModel(report, t);
+  const technicalDetailsVm = buildIncidentTechnicalDetailsViewModel(report, t);
   const impactPartition = partitionImpactMapNodes(impactMapVm.nodes);
   const recommendedActionSlices = sliceTopItems(recommendedActionsVm.actions, 3);
   const testRecommendationSlices = sliceTopItems(testRecommendationsVm.recommendations, 3);
@@ -158,35 +162,37 @@ export default function QaInvestigationReport({ report, t }) {
           {vm.legacyBannerMessage}
         </div>
       ) : null}
-      {report.meta?.analyze_only ? (
-        <div className="alert alert-info" style={{ marginBottom: 16, fontSize: 13, lineHeight: 1.5 }}>
-          <strong>{t("incident.qa.analyze_only_banner")}</strong>
-          {" "}{t("incident.qa.approval_notice")}
-        </div>
-      ) : null}
-      {vm.showEngineMeta ? (
-        <div style={{ marginBottom: 16, display: "flex", gap: 12, flexWrap: "wrap", fontSize: 12, color: "var(--text-3)" }}>
-          <span><strong>{t("incident.qa.engine_label")}:</strong> {vm.engineVersion}</span>
-          <span><strong>{t("incident.qa.analyze_only_label")}:</strong> {String(vm.analyzeOnly)}</span>
-        </div>
-      ) : null}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
         <div className="section-title" style={{ margin: 0 }}>{t("incident.qa.title")}</div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <span className={severityBadge(report.severity)}>{report.severity}</span>
-          <span
-            className={layoutVm.confidenceBadgeClass}
-            title={layoutVm.confidenceTierLabel}
-          >
-            {t("incident.qa.confidence")}: {layoutVm.confidencePctText}
-            <span style={{ fontWeight: 500, marginLeft: 6, opacity: 0.9 }}>
-              ({layoutVm.confidenceTierLabel})
+          {layoutVm.showInsufficientEvidenceState ? (
+            <span
+              className={layoutVm.confidenceBadgeClass}
+              title={layoutVm.evidenceQualityTooltip}
+            >
+              {layoutVm.insufficientEvidenceTitle}
             </span>
-          </span>
+          ) : (
+            <span
+              className={layoutVm.confidenceBadgeClass}
+              title={layoutVm.evidenceQualityTooltip}
+            >
+              {layoutVm.evidenceQualityLabel}: {layoutVm.confidencePctText}
+              <span style={{ fontWeight: 500, marginLeft: 6, opacity: 0.9 }}>
+                ({layoutVm.confidenceTierLabel})
+              </span>
+            </span>
+          )}
         </div>
       </div>
 
-      {layoutVm.showLowConfidenceWarning ? (
+      {layoutVm.showInsufficientEvidenceState ? (
+        <div className="alert alert-warning" style={{ marginBottom: 16, fontSize: 13, lineHeight: 1.55 }}>
+          <strong>{layoutVm.insufficientEvidenceTitle}</strong>
+          {" — "}{layoutVm.insufficientEvidenceMessage}
+        </div>
+      ) : layoutVm.showLowConfidenceWarning ? (
         <div className="alert alert-warning" style={{ marginBottom: 16, fontSize: 13, lineHeight: 1.55 }}>
           {layoutVm.lowConfidenceMessage}
         </div>
@@ -1198,7 +1204,11 @@ export default function QaInvestigationReport({ report, t }) {
                   ) : null}
                   {h.rank ? <span className="badge badge-gray">#{h.rank}</span> : null}
                   <span className="badge badge-gray">{hypothesisBasisLabel(h.basis, t)}</span>
-                  <span className="badge badge-blue">{confidencePct(h.confidence)}</span>
+                  {layoutVm.showHypothesisConfidence && normalizeInvestigationConfidence(h.confidence) >= 0.2 ? (
+                    <span className="badge badge-blue">
+                      {layoutVm.hypothesisConfidenceLabel}: {confidencePct(h.confidence)}
+                    </span>
+                  ) : null}
                 </div>
                 {h.statement}
               </li>
@@ -1404,7 +1414,14 @@ export default function QaInvestigationReport({ report, t }) {
             ) : null}
           </div>
           <p style={{ fontSize: 12, color: "var(--text-3)", margin: "0 0 10px", lineHeight: 1.5 }}>
-            <strong>{t("incident.qa.correlation_global_confidence")}:</strong> {confidencePct(report.confidence)}
+            <strong>
+              {layoutVm.showInsufficientEvidenceState
+                ? layoutVm.insufficientEvidenceTitle
+                : layoutVm.evidenceQualityLabel}
+            </strong>
+            {!layoutVm.showInsufficientEvidenceState ? (
+              <>: {confidencePct(report.confidence)}</>
+            ) : null}
             {" · "}{t("incident.qa.correlation_ranked_independently")}
           </p>
           {!isEvidenceCorrelationEmpty(report.evidence_correlation) ? (
@@ -1552,7 +1569,7 @@ export default function QaInvestigationReport({ report, t }) {
 
       {report.confidence_breakdown?.length > 0 ? (
         <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.confidence_breakdown")}</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 8 }}>{t("incident.qa.evidence_quality_breakdown")}</div>
           <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none" }}>
             {report.confidence_breakdown.map((f, i) => (
               <li key={i} style={{ fontSize: 12, color: "var(--text-2)", marginBottom: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -1731,6 +1748,8 @@ export default function QaInvestigationReport({ report, t }) {
           </ol>
         </div>
       ) : null}
+
+      <IncidentTechnicalDetailsSection vm={technicalDetailsVm} />
     </div>
   );
 }

@@ -13,6 +13,11 @@ export const REPORT_LAYOUT_I18N_KEYS = {
   allRecommendedActions: "incident.qa.layout.all_recommended_actions",
   additionalTestRecommendations: "incident.qa.layout.additional_test_recommendations",
   suggestedNextSteps: "incident.qa.layout.suggested_next_steps",
+  evidenceQuality: "incident.qa.evidence_quality",
+  insufficientEvidenceTitle: "incident.qa.insufficient_evidence_title",
+  insufficientEvidenceDesc: "incident.qa.insufficient_evidence_desc",
+  evidenceQualityTooltip: "incident.qa.evidence_quality_tooltip",
+  hypothesisConfidence: "incident.qa.hypothesis_confidence",
   confidenceTierLow: "incident.qa.confidence_tier.low",
   confidenceTierMedium: "incident.qa.confidence_tier.medium",
   confidenceTierHigh: "incident.qa.confidence_tier.high",
@@ -32,6 +37,7 @@ const CONFIDENCE_TIER_LABEL_KEY = {
 
 export const CONFIDENCE_TIER_LOW_THRESHOLD = 0.4;
 export const CONFIDENCE_TIER_HIGH_THRESHOLD = 0.8;
+export const INSUFFICIENT_EVIDENCE_THRESHOLD = 0.2;
 
 export const GENERIC_INFERRED_MODULE_TOKENS = new Set([
   "necesito",
@@ -69,6 +75,10 @@ export function formatConfidencePercent(confidence) {
   return `${Math.round(value * 100)}%`;
 }
 
+export function isInsufficientEvidence(confidence) {
+  return normalizeInvestigationConfidence(confidence) < INSUFFICIENT_EVIDENCE_THRESHOLD;
+}
+
 export function isGenericInferredModule(node) {
   const title = String(node?.title || node?.module || node?.name || "").trim().toLowerCase();
   if (!title) return true;
@@ -100,18 +110,31 @@ export function sliceTopItems(items = [], limit = 3) {
 export function buildQaInvestigationReportLayoutViewModel(report, t) {
   const confidence = normalizeInvestigationConfidence(report?.confidence);
   const tier = resolveConfidenceTier(confidence);
+  const insufficientEvidence = isInsufficientEvidence(report?.confidence);
   const lowConfidence = tier === "low";
+  const hasHypotheses = Array.isArray(report?.hypotheses) && report.hypotheses.length > 0;
 
   return {
     confidence,
     tier,
     lowConfidence,
+    insufficientEvidence,
+    showEvidenceQualityMetric: !insufficientEvidence,
+    showInsufficientEvidenceState: insufficientEvidence,
+    evidenceQualityLabel: t(REPORT_LAYOUT_I18N_KEYS.evidenceQuality),
+    insufficientEvidenceTitle: t(REPORT_LAYOUT_I18N_KEYS.insufficientEvidenceTitle),
+    insufficientEvidenceMessage: t(REPORT_LAYOUT_I18N_KEYS.insufficientEvidenceDesc),
+    evidenceQualityTooltip: t(REPORT_LAYOUT_I18N_KEYS.evidenceQualityTooltip),
+    hypothesisConfidenceLabel: t(REPORT_LAYOUT_I18N_KEYS.hypothesisConfidence),
+    showHypothesisConfidence: !insufficientEvidence && hasHypotheses,
     confidencePctText: formatConfidencePercent(report?.confidence),
-    confidenceBadgeClass: confidenceTierBadgeClass(tier),
+    confidenceBadgeClass: insufficientEvidence ? "badge badge-orange" : confidenceTierBadgeClass(tier),
     confidenceTierLabel: t(CONFIDENCE_TIER_LABEL_KEY[tier] || CONFIDENCE_TIER_LABEL_KEY.medium),
-    degradedPresentation: lowConfidence,
-    showLowConfidenceWarning: lowConfidence,
-    lowConfidenceMessage: t(REPORT_LAYOUT_I18N_KEYS.lowConfidenceWarning),
+    degradedPresentation: insufficientEvidence || lowConfidence,
+    showLowConfidenceWarning: !insufficientEvidence && lowConfidence,
+    lowConfidenceMessage: insufficientEvidence
+      ? t(REPORT_LAYOUT_I18N_KEYS.insufficientEvidenceDesc)
+      : t(REPORT_LAYOUT_I18N_KEYS.lowConfidenceWarning),
     showNoisySections: !lowConfidence,
     expandOperationalAnalysis: tier === "high",
     expandDependencyIntelligence: false,

@@ -75,7 +75,7 @@ export function buildIncidentReportViewModel(report, t) {
     legacyBannerMessage: t("incident.qa.legacy_banner"),
     engineVersion: getEngineVersion(report),
     analyzeOnly: isAnalyzeOnly(report),
-    showEngineMeta: Boolean(report),
+    showEngineMeta: false,
     evidenceStrength: {
       show: v13b,
       evidenceEmpty: shouldShowEvidenceEmptyState(es),

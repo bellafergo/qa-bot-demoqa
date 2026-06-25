@@ -75,7 +75,7 @@ describe("buildIncidentReportViewModel — engine meta", () => {
     const vm = buildIncidentReportViewModel(v13bSparseReport, t);
     expect(vm.engineVersion).toBe("incident-v1.3b");
     expect(vm.analyzeOnly).toBe(true);
-    expect(vm.showEngineMeta).toBe(true);
+    expect(vm.showEngineMeta).toBe(false);
   });
 });
 

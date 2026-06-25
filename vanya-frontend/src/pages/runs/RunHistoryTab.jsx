@@ -391,9 +391,9 @@ export default function RunHistoryTab({ initialRunId }) {
                           <span
                             className="badge badge-orange"
                             style={{ fontSize: 10 }}
-                            title="Quarantine recommended (inconsistent after retries)"
+                            title={t("runs.quarantine.badge_tooltip")}
                           >
-                            Quarantine
+                            {t("runs.quarantine.badge")}
                           </span>
                         )}
                         {hasEvidenceForList(r) && (
@@ -476,8 +476,8 @@ export default function RunHistoryTab({ initialRunId }) {
                 </span>
               )}
               {detail.meta?.quarantine_recommended && (
-                <span className="badge badge-orange" style={{ fontSize: 10 }} title="Quarantine recommended (inconsistent after retries)">
-                  Quarantine recommended
+                <span className="badge badge-orange" style={{ fontSize: 10 }} title={t("runs.quarantine.badge_tooltip")}>
+                  {t("runs.quarantine.badge_recommended")}
                 </span>
               )}
                 </div>
