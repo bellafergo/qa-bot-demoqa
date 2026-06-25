@@ -18,19 +18,15 @@ import OnboardingDashboardSection from "../components/onboarding/OnboardingDashb
 import { buildOnboardingViewModel, shouldCollapseOnboardingDashboard } from "../utils/onboardingViewUtils.js";
 import DashboardCommandHeader from "../components/dashboard/DashboardCommandHeader.jsx";
 import CommandCenterView from "../components/dashboard/CommandCenterView.jsx";
-import NextRecommendedActionCard from "../components/dashboard/NextRecommendedActionCard.jsx";
 import {
   buildCommandCenterHeaderViewModel,
   buildCommandCenterViewModel,
   buildNextRecommendedActionViewModel,
 } from "../utils/commandCenterViewUtils.js";
 import { buildQualityTrendViewModelFromApi } from "../utils/qualityTrendViewUtils.js";
-import QualityTrendReportView from "../components/incident/QualityTrendReportView.jsx";
 import { buildScheduledReportViewModel } from "../utils/scheduledReportViewUtils.js";
 import ExecutiveReportCenterView from "../components/executive-reports/ExecutiveReportCenterView.jsx";
 import { buildEarlyDegradationViewModelFromApi } from "../utils/earlyDegradationViewUtils.js";
-import EarlyDegradationReportView from "../components/incident/EarlyDegradationReportView.jsx";
-import ReleaseReadinessView from "../components/release-readiness/ReleaseReadinessView.jsx";
 import ReportDeliveryCenter from "../components/executive-reports/ReportDeliveryCenter.jsx";
 import { buildReleaseReadinessViewModel } from "../utils/releaseReadinessViewUtils.js";
 import ValueDashboardView from "../components/value-dashboard/ValueDashboardView.jsx";
@@ -46,13 +42,11 @@ import { buildRecommendedTestsOverviewViewModel } from "../utils/qmetryRecommend
 import ServiceNowIntelligenceView from "../components/servicenow-intelligence/ServiceNowIntelligenceView.jsx";
 import { buildServiceNowIntelligenceOverviewViewModel } from "../utils/servicenowIntelligenceViewUtils.js";
 import { buildReportDeliveryViewModel } from "../utils/reportDeliveryViewUtils.js";
-import PlatformObservabilityView from "../components/platform-observability/PlatformObservabilityView.jsx";
 import { buildPlatformObservabilityViewModel } from "../utils/platformObservabilityViewUtils.js";
 import DashboardSectionState from "../components/dashboard/DashboardSectionState.jsx";
-import ExecutiveBriefCard from "../components/dashboard/ExecutiveBriefCard.jsx";
-import DashboardMoreIntelligenceSection from "../components/dashboard/DashboardMoreIntelligenceSection.jsx";
-import ExecutiveRiskBriefCard from "../components/dashboard/ExecutiveRiskBriefCard.jsx";
 import ColdProjectGuidance from "../components/dashboard/ColdProjectGuidance.jsx";
+import ExecutiveDashboardV2 from "../components/dashboard/ExecutiveDashboardV2.jsx";
+import { buildExecutiveDashboardV2ViewModel } from "../utils/executiveDashboardV2ViewUtils.js";
 import {
   buildDashboardSectionState,
   buildColdProjectGuidanceViewModel,
@@ -65,7 +59,6 @@ import {
   fmtDate,
   fmtMs,
   statusClass,
-  isPassStatus,
   isFailStatus,
   filterDashboardRuns,
   findRecentFailedRunForTest,
@@ -323,6 +316,40 @@ export default function DashboardPage() {
     [isOperationalDashboard, hasKnowledge, s, fi, passRateValid, passRateNum, businessRiskVm, loading, t],
   );
 
+  const executiveDashboardV2Vm = useMemo(
+    () => (projectId
+      ? buildExecutiveDashboardV2ViewModel({
+          releaseReadinessVm,
+          executiveBriefVm,
+          earlyDegradationVm,
+          qualityTrendVm,
+          platformObservabilityVm,
+          businessRiskVm,
+          executiveRiskBriefVm,
+          executiveImpactVm,
+          nextRecommendedActionVm,
+          totalRuns: s.total_runs ?? 0,
+          loading,
+          t,
+        })
+      : null),
+    [
+      projectId,
+      releaseReadinessVm,
+      executiveBriefVm,
+      earlyDegradationVm,
+      qualityTrendVm,
+      platformObservabilityVm,
+      businessRiskVm,
+      executiveRiskBriefVm,
+      executiveImpactVm,
+      nextRecommendedActionVm,
+      s.total_runs,
+      loading,
+      t,
+    ],
+  );
+
   const executiveImpactSection = useMemo(
     () => buildDashboardSectionState({
       data: executiveImpact,
@@ -559,301 +586,9 @@ export default function DashboardPage() {
   const showTopProblemCard =
     analyticsLoading || !!(analytics && Array.isArray(analytics.top_failures) && analytics.top_failures[0]);
 
-  return (
-    <div style={{ height: "100%", overflow: "auto", background: "var(--bg)" }}>
-
-      {/* ── Hero ─────────────────────────────────────────────────────────── */}
-      <div className="dash-hero">
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 24, flexWrap: "wrap" }}>
-          <div style={{ flex: "1 1 280px", minWidth: 0 }}>
-            <h1 style={{ margin: 0, fontSize: 26, fontWeight: 600, color: "var(--text-1)", letterSpacing: "-0.02em", lineHeight: 1.2 }}>
-              {t("dash.title")}
-            </h1>
-            <p style={{ margin: "10px 0 18px", fontSize: 13, fontWeight: 400, color: "var(--text-3)", lineHeight: 1.55 }}>
-              {t("dash.subtitle")}
-            </p>
-            <div className="dash-hero-pill-row" style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-              {currentProject && (
-                <span className="badge badge-gray" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                  <span aria-hidden style={{ width: 8, height: 8, borderRadius: "50%", background: currentProject.color || "var(--accent)" }} />
-                  {t("dash.active_project", { name: currentProject.name })}
-                </span>
-              )}
-              <span className="badge badge-green">● {t("common.live")}</span>
-              <span className="badge badge-accent">{t("common.production")}</span>
-              {lastRefresh && (
-                <span className="badge badge-gray">
-                  {t("dash.refreshed")} {lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                </span>
-              )}
-            </div>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "stretch", gap: 10, flexShrink: 0 }}>
-            <div className="zu-action-row" style={{ justifyContent: "flex-end" }}>
-              <Link to="/generate" className="btn btn-primary btn-lg">
-                {t("nav.quick_generate")}
-              </Link>
-              <Link to="/projects?new=1" className="btn btn-secondary btn-lg">
-                {t("projects.create_new")}
-              </Link>
-            </div>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={load} disabled={loading} style={{ alignSelf: "flex-end" }}>
-              {loading ? t("dash.refreshing") : t("dash.refresh")}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <SystemStatusRibbon ribbon={systemRibbon} />
-
-      {projectId && executiveRiskBriefVm.show ? (
-        <div style={{ padding: "16px 40px 0" }}>
-          <div className="card" style={{ padding: "20px 24px", marginBottom: 0 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 12 }}>
-              {executiveRiskBriefVm.widgetTitle}
-            </div>
-            <ExecutiveRiskBriefCard vm={executiveRiskBriefVm} />
-          </div>
-        </div>
-      ) : null}
-
-      <div style={{ padding: "24px 40px 0" }}>
-        {isOperationalDashboard ? (
-          <>
-            <DashboardCommandHeader vm={commandCenterHeaderVm} />
-            <CommandCenterView vm={commandCenterVm} />
-            {executiveBriefVm.show ? (
-              <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
-                  {executiveBriefVm.title}
-                </div>
-                <ExecutiveBriefCard vm={executiveBriefVm} compact={executiveBriefVm.operationalMode} />
-                {!executiveBriefVm.operationalMode ? (
-                  <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
-                    {executiveBriefVm.readOnlyNote}
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-            <NextRecommendedActionCard vm={nextRecommendedActionVm} />
-            {projectId ? (
-              <OnboardingDashboardSection
-                vm={onboardingVm}
-                projectName={currentProject?.name}
-                collapsedByDefault={collapseOnboarding}
-              />
-            ) : null}
-          </>
-        ) : (
-          <>
-            <ProjectHealthStrip
-              t={t}
-              projectId={projectId}
-              projectName={currentProject?.name}
-              summary={s}
-              fi={fi}
-              hasKnowledge={hasKnowledge}
-              loading={loading}
-              passRateValid={passRateValid}
-              passRateNum={passRateNum}
-              lastRefresh={lastRefresh}
-              onInitialized={() => load()}
-            />
-
-            {projectId && executiveBriefVm.show ? (
-              <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
-                  {executiveBriefVm.title}
-                </div>
-                <ExecutiveBriefCard vm={executiveBriefVm} />
-                <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
-                  {executiveBriefVm.readOnlyNote}
-                </p>
-              </div>
-            ) : null}
-
-            {projectId && coldProjectGuidanceVm.show ? (
-              <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
-                <ColdProjectGuidance vm={coldProjectGuidanceVm} />
-              </div>
-            ) : null}
-
-            {projectId ? (
-              <OnboardingDashboardSection
-                vm={onboardingVm}
-                projectName={currentProject?.name}
-                collapsedByDefault={collapseOnboarding}
-              />
-            ) : null}
-          </>
-        )}
-
-        {projectId && qualityTrendVm.show && !qualityTrendVm.empty ? (
-          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
-              {qualityTrendVm.title}
-            </div>
-            <QualityTrendReportView vm={qualityTrendVm} />
-            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
-              {qualityTrendVm.readOnlyNote}
-            </p>
-          </div>
-        ) : null}
-
-        {projectId && earlyDegradationVm.show && !earlyDegradationVm.empty ? (
-          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
-              {earlyDegradationVm.title}
-            </div>
-            <EarlyDegradationReportView vm={earlyDegradationVm} />
-            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
-              {earlyDegradationVm.readOnlyNote}
-            </p>
-          </div>
-        ) : null}
-
-        {projectId && releaseReadinessVm.show ? (
-          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
-              {releaseReadinessVm.title}
-            </div>
-            <ReleaseReadinessView vm={releaseReadinessVm} />
-            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
-              {releaseReadinessVm.readOnlyNote}
-            </p>
-          </div>
-        ) : null}
-
-        {projectId && (valueDashboardSection.show || executiveImpactSection.show || businessRiskSection.show) ? (
-          <DashboardMoreIntelligenceSection
-            title={t("dash.more_intelligence.title")}
-            summary={t("dash.more_intelligence.summary")}
-          >
-            {valueDashboardSection.show ? (
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
-                  {valueDashboardVm.title}
-                </div>
-                <DashboardSectionState state={valueDashboardSection} onRetry={load}>
-                  <ValueDashboardView vm={valueDashboardVm} />
-                </DashboardSectionState>
-                <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
-                  {valueDashboardVm.labels?.readOnlyNote}
-                </p>
-              </div>
-            ) : null}
-
-            {executiveImpactSection.show ? (
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
-                  {executiveImpactVm.title}
-                </div>
-                <DashboardSectionState state={executiveImpactSection} onRetry={load}>
-                  <ExecutiveImpactView vm={executiveImpactVm} />
-                </DashboardSectionState>
-                <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
-                  {executiveImpactVm.readOnlyNote}
-                </p>
-              </div>
-            ) : null}
-
-            {businessRiskSection.show ? (
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
-                  {businessRiskVm.title}
-                </div>
-                <DashboardSectionState state={businessRiskSection} onRetry={load}>
-                  <BusinessRiskView vm={businessRiskVm} />
-                </DashboardSectionState>
-                <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
-                  {businessRiskVm.readOnlyNote}
-                </p>
-              </div>
-            ) : null}
-          </DashboardMoreIntelligenceSection>
-        ) : null}
-
-        {platformObservabilitySection.show ? (
-          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
-              {platformObservabilityVm.title}
-            </div>
-            <DashboardSectionState state={platformObservabilitySection} onRetry={load}>
-              <PlatformObservabilityView vm={platformObservabilityVm} />
-            </DashboardSectionState>
-            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
-              {platformObservabilityVm.readOnlyNote}
-            </p>
-          </div>
-        ) : null}
-
-        {projectId && servicenowSection.show ? (
-          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
-              {servicenowIntelligenceVm.title}
-            </div>
-            <DashboardSectionState state={servicenowSection} onRetry={load}>
-              <ServiceNowIntelligenceView vm={servicenowIntelligenceVm} />
-            </DashboardSectionState>
-            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
-              {servicenowIntelligenceVm.readOnlyNote}
-            </p>
-          </div>
-        ) : null}
-
-        {projectId && coverageOverviewSection.show ? (
-          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
-              {coverageOverviewVm.title}
-            </div>
-            <DashboardSectionState state={coverageOverviewSection} onRetry={load}>
-              <CoverageIntelligenceView vm={coverageOverviewVm} />
-            </DashboardSectionState>
-            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
-              {coverageOverviewVm.readOnlyNote}
-            </p>
-          </div>
-        ) : null}
-
-        {projectId && recommendedTestsVm.show ? (
-          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
-              {recommendedTestsVm.title}
-            </div>
-            <QMetryRecommendationView vm={recommendedTestsVm} />
-            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
-              {recommendedTestsVm.readOnlyNote}
-            </p>
-          </div>
-        ) : null}
-
-        {projectId ? (
-          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
-              {reportDeliveryVm.title}
-            </div>
-            <ReportDeliveryCenter projectId={projectId} />
-            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
-              {reportDeliveryVm.readOnlyNote}
-            </p>
-          </div>
-        ) : null}
-
-        {projectId && scheduledReportVm.show ? (
-          <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
-              {scheduledReportVm.title}
-            </div>
-            <ExecutiveReportCenterView vm={scheduledReportVm} />
-            <p style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, margin: "12px 0 0", fontStyle: "italic" }}>
-              {scheduledReportVm.readOnlyNote}
-            </p>
-          </div>
-        ) : null}
-      </div>
-
-      <div style={{ padding: "32px 40px" }}>
-
+  function renderDashboardMetricsSection() {
+    return (
+      <>
         {summaryError && !loading ? (
           <div className="alert alert-error" style={{ marginBottom: 20, fontSize: 13 }}>
             {summaryError}{" "}
@@ -865,7 +600,6 @@ export default function DashboardPage() {
 
         <DashboardSparseHints vm={sparseHintsVm} />
 
-        {/* ── KPI grid (MEJORA #3 — rely on .kpi-grid auto-fit for variable card count) ── */}
         <div className="kpi-grid" style={{ marginBottom: 28 }}>
           <KpiCard loading={loading} label={t("dash.kpi.total_tests")} value={formatDashboardCount(s.total_test_cases, { loading, sparse: dataSparse })} sub={loading ? "" : `${s.active_test_cases ?? "—"} ${t("dash.kpi.active")}`} icon="☰" />
           <KpiCard loading={loading} label={t("dash.kpi.total_runs")} value={formatDashboardCount(s.total_runs, { loading, sparse: dataSparse })} sub={loading ? "" : runsSub} icon="▶" />
@@ -893,7 +627,6 @@ export default function DashboardPage() {
           <KpiCard loading={loading} label={t("dash.kpi.ui_tests")} value={formatDashboardCount(s.total_ui_tests, { loading, sparse: dataSparse })} sub={loading ? "" : t("dash.kpi.in_catalog")} icon="◻" />
           <KpiCard loading={loading} label={t("dash.kpi.api_tests")} value={formatDashboardCount(s.total_api_tests, { loading, sparse: dataSparse })} sub={loading ? "" : t("dash.kpi.in_catalog")} icon="⌥" />
           {fi && <KpiCard label={t("dash.kpi.flaky_tests")} value={fi.flaky_tests_count ?? 0} sub={`${fi.total_clusters ?? 0} ${t("dash.kpi.clusters")}`} accent={fi.flaky_tests_count > 0 ? "var(--orange)" : undefined} icon="⚠" />}
-          {/* MEJORA #2 — compact CTA when no active workers and no jobs */}
           {idleExecKpis && (
             <div
               className="kpi-card dash-kpi-idle-cta"
@@ -931,7 +664,6 @@ export default function DashboardPage() {
           <ProjectCapacitySection execStatus={execStatus} execError={execError} projects={projects} t={t} />
         )}
 
-        {/* ── Visual row 1: Trend (2/3) + Coverage Donut (1/3) ─────────────── */}
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr)", gap: 24, marginBottom: 24 }}>
           <WidgetCard title={t("dash.trends.title")} subtitle={`${t("dash.trends.subtitle")} · ${recentRuns.length}`}>
             <PassRateTrendChart runs={recentRuns} loading={loading} t={t} />
@@ -941,7 +673,6 @@ export default function DashboardPage() {
           </WidgetCard>
         </div>
 
-        {/* ── Visual row 2: Failure Distribution (1/2) + Risk Summary (1/2) ── */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 28 }}>
           <WidgetCard title={t("dash.failures.title")} subtitle={t("dash.failures.subtitle")}>
             <FailureDistributionChart fi={fi} loading={fiLoading} t={t} />
@@ -957,12 +688,8 @@ export default function DashboardPage() {
           </WidgetCard>
         </div>
 
-        {/* ── Bottom: runs + jobs + insights (MEJORA #6 — quick actions column removed) ─── */}
         <div style={{ display: "flex", flexDirection: "column", gap: 28, alignItems: "stretch" }}>
-
           <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-
-            {/* Recent Runs */}
             <SectionCard title={t("dash.recent_runs")} link="/runs" linkLabel={t("dash.recent_runs.link")}>
               {runsError && !recentRuns.length ? (
                 <div style={{ padding: "20px", color: "var(--red-text)", fontSize: 13 }}>{runsError}</div>
@@ -974,7 +701,6 @@ export default function DashboardPage() {
                 </div>
               ) : (
                 <>
-                  {/* MEJORA #4 — quick client-side filters */}
                   <div
                     className="dash-recent-runs-filters"
                     role="toolbar"
@@ -1024,7 +750,6 @@ export default function DashboardPage() {
                         <th className="dash-recent-actions-col">{t("dash.col.actions")}</th>
                       </tr></thead>
                       <tbody>
-                        {/* MEJORA #5 — inline actions for failed-style rows (hover emphasis via CSS) */}
                         {filteredRecentRuns.slice(0, 8).map((r, i) => {
                           const showFailActions = isFailStatus(r.status);
                           const busyKey = r.run_id || r.test_id || r.test_case_id;
@@ -1083,7 +808,6 @@ export default function DashboardPage() {
               )}
             </SectionCard>
 
-            {/* Recent Jobs */}
             <SectionCard title={t("dash.recent_jobs")} link="/batch" linkLabel={t("dash.recent_jobs.link")}>
               {jobsError && !recentJobs.length ? (
                 <div style={{ padding: "20px", color: "var(--red-text)", fontSize: 13 }}>{jobsError}</div>
@@ -1116,17 +840,15 @@ export default function DashboardPage() {
                 </table>
               )}
             </SectionCard>
-
           </div>
 
-          {/* Failure Intelligence summary — full width after MEJORA #6 */}
           {fi && (
             <div className="card">
               <div className="section-title">{t("dash.insights_summary")}</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 6 }}>
-                <Row label={t("dash.fi.flaky_tests")}  value={fi.flaky_tests_count ?? 0}           accent={fi.flaky_tests_count > 0 ? "var(--orange)" : undefined} />
-                <Row label={t("dash.fi.clusters")}      value={fi.total_clusters ?? 0} />
-                <Row label={t("dash.fi.regressions")}   value={fi.recurrent_regressions_count ?? 0} accent={fi.recurrent_regressions_count > 0 ? "var(--red)" : undefined} />
+                <Row label={t("dash.fi.flaky_tests")} value={fi.flaky_tests_count ?? 0} accent={fi.flaky_tests_count > 0 ? "var(--orange)" : undefined} />
+                <Row label={t("dash.fi.clusters")} value={fi.total_clusters ?? 0} />
+                <Row label={t("dash.fi.regressions")} value={fi.recurrent_regressions_count ?? 0} accent={fi.recurrent_regressions_count > 0 ? "var(--red)" : undefined} />
                 {fi.notes && (
                   <div style={{ fontSize: 12, color: "var(--text-2)", marginTop: 4, lineHeight: 1.5, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
                     {fi.notes}
@@ -1140,13 +862,9 @@ export default function DashboardPage() {
               </div>
             </div>
           )}
-
         </div>
-      </div>
 
-      {/* ── Run Analytics ────────────────────────────────────────────────── */}
-      <div style={{ marginTop: 32, padding: "0 40px 40px" }}>
-        <div className="card" style={{ padding: "20px 24px" }}>
+        <div className="card" style={{ padding: "20px 24px", marginTop: 32 }}>
           <div style={{ marginBottom: 18, display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
             <div>
               <div className="section-title" style={{ margin: 0 }}>{t("dash.analytics.title")}</div>
@@ -1165,12 +883,11 @@ export default function DashboardPage() {
 
           {analytics && (
             <>
-              {/* Summary mini-KPIs */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 14, marginBottom: 24 }}>
                 {[
-                  { label: t("dash.analytics.runs_7d"),      value: analytics.summary.runs_last_7_days },
-                  { label: t("dash.analytics.runs_30d"),     value: analytics.summary.runs_last_30_days },
-                  { label: t("dash.analytics.pass_rate"),    value: `${analytics.summary.pass_rate}%`,
+                  { label: t("dash.analytics.runs_7d"), value: analytics.summary.runs_last_7_days },
+                  { label: t("dash.analytics.runs_30d"), value: analytics.summary.runs_last_30_days },
+                  { label: t("dash.analytics.pass_rate"), value: `${analytics.summary.pass_rate}%`,
                     accent: analytics.summary.pass_rate >= 80 ? "var(--green)" : "var(--orange)" },
                   { label: t("dash.analytics.avg_duration"), value: fmtMs(analytics.summary.avg_duration_ms) },
                 ].map(({ label, value, accent }) => (
@@ -1189,10 +906,7 @@ export default function DashboardPage() {
                 ))}
               </div>
 
-              {/* Two-column: top failures + 7-day trend */}
               <div style={{ display: "grid", gridTemplateColumns: "minmax(0,3fr) minmax(0,2fr)", gap: 24 }}>
-
-                {/* Top Failing Tests */}
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 500, color: "var(--text-4)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
                     {t("dash.analytics.top_failures")}
@@ -1210,7 +924,7 @@ export default function DashboardPage() {
                         <th style={{ width: 76, textAlign: "right" }}>{t("dash.analytics.col.pass_rate")}</th>
                       </tr></thead>
                       <tbody>
-                        {analytics.top_failures.slice(0, 7).map(tf => (
+                        {analytics.top_failures.slice(0, 7).map((tf) => (
                           <tr key={tf.test_case_id}>
                             <td>
                               <div style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-2)" }}>{tf.test_case_id}</div>
@@ -1234,7 +948,6 @@ export default function DashboardPage() {
                   )}
                 </div>
 
-                {/* 7-day daily trend */}
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 500, color: "var(--text-4)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
                     {t("dash.analytics.trend_7d")}
@@ -1246,7 +959,7 @@ export default function DashboardPage() {
                       <th style={{ width: 76, textAlign: "right" }}>{t("dash.analytics.col.pass_rate")}</th>
                     </tr></thead>
                     <tbody>
-                      {[...analytics.trend].reverse().map(pt => (
+                      {[...analytics.trend].reverse().map((pt) => (
                         <tr key={pt.date}>
                           <td style={{ fontFamily: "monospace", fontSize: 11 }}>{pt.date}</td>
                           <td style={{ textAlign: "right" }}>{pt.total}</td>
@@ -1264,12 +977,210 @@ export default function DashboardPage() {
                     </tbody>
                   </table>
                 </div>
-
               </div>
             </>
           )}
         </div>
+      </>
+    );
+  }
+
+  return (
+    <div style={{ height: "100%", overflow: "auto", background: "var(--bg)" }}>
+
+      {/* ── Hero ─────────────────────────────────────────────────────────── */}
+      <div className="dash-hero">
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 24, flexWrap: "wrap" }}>
+          <div style={{ flex: "1 1 280px", minWidth: 0 }}>
+            <h1 style={{ margin: 0, fontSize: 26, fontWeight: 600, color: "var(--text-1)", letterSpacing: "-0.02em", lineHeight: 1.2 }}>
+              {t("dash.title")}
+            </h1>
+            <p style={{ margin: "10px 0 18px", fontSize: 13, fontWeight: 400, color: "var(--text-3)", lineHeight: 1.55 }}>
+              {t("dash.subtitle")}
+            </p>
+            <div className="dash-hero-pill-row" style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+              {currentProject && (
+                <span className="badge badge-gray" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <span aria-hidden style={{ width: 8, height: 8, borderRadius: "50%", background: currentProject.color || "var(--accent)" }} />
+                  {t("dash.active_project", { name: currentProject.name })}
+                </span>
+              )}
+              <span className="badge badge-green">● {t("common.live")}</span>
+              <span className="badge badge-accent">{t("common.production")}</span>
+              {lastRefresh && (
+                <span className="badge badge-gray">
+                  {t("dash.refreshed")} {lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </span>
+              )}
+            </div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "stretch", gap: 10, flexShrink: 0 }}>
+            <div className="zu-action-row" style={{ justifyContent: "flex-end" }}>
+              <Link to="/generate" className="btn btn-primary btn-lg">
+                {t("nav.quick_generate")}
+              </Link>
+              <Link to="/projects?new=1" className="btn btn-secondary btn-lg">
+                {t("projects.create_new")}
+              </Link>
+            </div>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={load} disabled={loading} style={{ alignSelf: "flex-end" }}>
+              {loading ? t("dash.refreshing") : t("dash.refresh")}
+            </button>
+          </div>
+        </div>
       </div>
+
+      <SystemStatusRibbon ribbon={systemRibbon} />
+
+      <div style={{ padding: "24px 40px 0" }}>
+        {!isOperationalDashboard && projectId ? (
+          <>
+            <ProjectHealthStrip
+              t={t}
+              projectId={projectId}
+              projectName={currentProject?.name}
+              summary={s}
+              fi={fi}
+              hasKnowledge={hasKnowledge}
+              loading={loading}
+              passRateValid={passRateValid}
+              passRateNum={passRateNum}
+              lastRefresh={lastRefresh}
+              onInitialized={() => load()}
+            />
+            {coldProjectGuidanceVm.show ? (
+              <div className="card" style={{ padding: "20px 24px", marginBottom: 20 }}>
+                <ColdProjectGuidance vm={coldProjectGuidanceVm} />
+              </div>
+            ) : null}
+            <OnboardingDashboardSection
+              vm={onboardingVm}
+              projectName={currentProject?.name}
+              collapsedByDefault={collapseOnboarding}
+            />
+          </>
+        ) : null}
+        {isOperationalDashboard && projectId ? (
+          <OnboardingDashboardSection
+            vm={onboardingVm}
+            projectName={currentProject?.name}
+            collapsedByDefault={collapseOnboarding}
+          />
+        ) : null}
+
+        {projectId && executiveDashboardV2Vm ? (
+          <ExecutiveDashboardV2
+            vm={executiveDashboardV2Vm}
+            qualityTrendVm={qualityTrendVm}
+            earlyDegradationVm={earlyDegradationVm}
+            releaseReadinessVm={releaseReadinessVm}
+            platformObservabilityVm={platformObservabilityVm}
+            platformObservabilitySection={platformObservabilitySection}
+            onRetry={load}
+            DashboardSectionState={DashboardSectionState}
+            exploreChildren={(
+              <>
+                {isOperationalDashboard ? (
+                  <>
+                    <DashboardCommandHeader vm={commandCenterHeaderVm} />
+                    <CommandCenterView vm={commandCenterVm} />
+                  </>
+                ) : null}
+
+                {valueDashboardSection.show ? (
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
+                      {valueDashboardVm.title}
+                    </div>
+                    <DashboardSectionState state={valueDashboardSection} onRetry={load}>
+                      <ValueDashboardView vm={valueDashboardVm} />
+                    </DashboardSectionState>
+                  </div>
+                ) : null}
+
+                {executiveImpactSection.show ? (
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
+                      {executiveImpactVm.title}
+                    </div>
+                    <DashboardSectionState state={executiveImpactSection} onRetry={load}>
+                      <ExecutiveImpactView vm={executiveImpactVm} />
+                    </DashboardSectionState>
+                  </div>
+                ) : null}
+
+                {businessRiskSection.show ? (
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
+                      {businessRiskVm.title}
+                    </div>
+                    <DashboardSectionState state={businessRiskSection} onRetry={load}>
+                      <BusinessRiskView vm={businessRiskVm} />
+                    </DashboardSectionState>
+                  </div>
+                ) : null}
+
+                {servicenowSection.show ? (
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
+                      {servicenowIntelligenceVm.title}
+                    </div>
+                    <DashboardSectionState state={servicenowSection} onRetry={load}>
+                      <ServiceNowIntelligenceView vm={servicenowIntelligenceVm} />
+                    </DashboardSectionState>
+                  </div>
+                ) : null}
+
+                {coverageOverviewSection.show ? (
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
+                      {coverageOverviewVm.title}
+                    </div>
+                    <DashboardSectionState state={coverageOverviewSection} onRetry={load}>
+                      <CoverageIntelligenceView vm={coverageOverviewVm} />
+                    </DashboardSectionState>
+                  </div>
+                ) : null}
+
+                {recommendedTestsVm.show ? (
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
+                      {recommendedTestsVm.title}
+                    </div>
+                    <QMetryRecommendationView vm={recommendedTestsVm} />
+                  </div>
+                ) : null}
+
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
+                    {reportDeliveryVm.title}
+                  </div>
+                  <ReportDeliveryCenter projectId={projectId} />
+                </div>
+
+                {scheduledReportVm.show ? (
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>
+                      {scheduledReportVm.title}
+                    </div>
+                    <ExecutiveReportCenterView vm={scheduledReportVm} />
+                  </div>
+                ) : null}
+
+                {renderDashboardMetricsSection()}
+              </>
+            )}
+          />
+        ) : null}
+      </div>
+
+      {projectId ? <div style={{ paddingBottom: 40 }} /> : null}
+
+      {!projectId ? (
+        <div style={{ padding: "32px 40px" }}>
+          {renderDashboardMetricsSection()}
+        </div>
+      ) : null}
 
     </div>
   );
