@@ -6,6 +6,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { getProjectKnowledge, getProjectKnowledgeExplorer, getProjectKnowledgeWorkflows, refreshProjectKnowledge, apiErrorMessage } from "../api";
 import { useLang } from "../i18n/LangContext";
 import { useProject } from "../context/ProjectContext.jsx";
+import { SkeletonCard } from "../components/ui/Skeleton.jsx";
 import KpiStrip from "../components/KpiStrip.jsx";
 import InitializeProjectPanel from "../components/InitializeProjectPanel.jsx";
 import {
@@ -90,7 +91,7 @@ function Section({ title, count, children, empty }) {
 
 export default function KnowledgePage() {
   const { t } = useLang();
-  const { currentProject } = useProject();
+  const { currentProject, loading: projectsLoading, projects } = useProject();
   const projectId = currentProject?.id;
 
   const [knowledge, setKnowledge] = useState(null);
@@ -171,6 +172,15 @@ export default function KnowledgePage() {
     [workflows, t],
   );
 
+  if (projectsLoading || (!projectId && projects.length > 0)) {
+    return (
+      <div style={{ padding: "32px 40px", maxWidth: 960, margin: "0 auto" }}>
+        <h1 className="page-title">{t("knowledge.title")}</h1>
+        <SkeletonCard lines={6} />
+      </div>
+    );
+  }
+
   if (!projectId) {
     return (
       <div style={{ padding: "32px 40px", maxWidth: 960, margin: "0 auto" }}>
@@ -206,7 +216,7 @@ export default function KnowledgePage() {
       {error ? <div className="alert alert-error" style={{ marginBottom: 16 }}>{error}</div> : null}
 
       {loading ? (
-        <div style={{ fontSize: 13, color: "var(--text-3)", padding: 24 }}>{t("knowledge.loading")}</div>
+        <SkeletonCard lines={8} />
       ) : !knowledge ? (
         <>
           <InitializeProjectPanel

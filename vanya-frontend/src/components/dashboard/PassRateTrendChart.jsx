@@ -1,5 +1,6 @@
 import React from "react";
 import CapabilityStateCard from "../capability-state/CapabilityStateCard.jsx";
+import { SkeletonCard } from "../ui/Skeleton.jsx";
 import {
   resolveHistoryCapabilityState,
   CAPABILITY_STATE_I18N_KEYS,
@@ -14,9 +15,7 @@ export default function PassRateTrendChart({ runs, loading, t }) {
   // When loading, show skeleton. When done but insufficient data, show no-data state.
   if (data.length < 2) {
     if (loading) {
-      return (
-        <div style={{ textAlign: "center", padding: "24px 0", fontSize: 12, color: "var(--text-3)" }}>…</div>
-      );
+      return <SkeletonCard lines={5} />;
     }
     return (
       <CapabilityStateCard

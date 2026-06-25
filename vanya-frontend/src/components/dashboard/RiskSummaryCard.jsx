@@ -1,6 +1,7 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import CapabilityStateCard from "../capability-state/CapabilityStateCard.jsx";
+import { SkeletonCard } from "../ui/Skeleton.jsx";
 import {
   resolveHistoryCapabilityState,
   CAPABILITY_STATE_I18N_KEYS,
@@ -9,11 +10,7 @@ import {
 
 export default function RiskSummaryCard({ summary, fi, loading, sectionError, t }) {
   if (loading && !summary) {
-    return (
-      <div style={{ padding: "12px 0", fontSize: 12, color: "var(--text-3)" }}>
-        {t("dash.risk.loading")}
-      </div>
-    );
+    return <SkeletonCard lines={4} />;
   }
   if (sectionError && !summary) {
     return (

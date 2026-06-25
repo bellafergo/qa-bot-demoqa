@@ -1,5 +1,6 @@
 import React from "react";
 import CapabilityStateCard from "../capability-state/CapabilityStateCard.jsx";
+import { SkeletonCard } from "../ui/Skeleton.jsx";
 import {
   resolveHistoryCapabilityState,
   CAPABILITY_STATE_I18N_KEYS,
@@ -9,6 +10,10 @@ export default function CoverageDonutChart({ summary, loading, t }) {
   const ui    = summary?.total_ui_tests  ?? 0;
   const api   = summary?.total_api_tests ?? 0;
   const total = ui + api;
+
+  if (loading) {
+    return <SkeletonCard lines={4} />;
+  }
 
   if (!loading && total === 0) {
     return (
@@ -55,7 +60,7 @@ export default function CoverageDonutChart({ summary, loading, t }) {
 
         {/* Center */}
         <text x={CX} y={CY - 7} textAnchor="middle" fontSize="18" fontWeight="600" fill="var(--text-1)">
-          {loading ? "…" : total}
+          {total}
         </text>
         <text x={CX} y={CY + 9} textAnchor="middle" fontSize="9" fill="var(--text-3)">
           {t("dash.coverage.total")}
@@ -66,12 +71,12 @@ export default function CoverageDonutChart({ summary, loading, t }) {
         <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
           <span style={{ width: 9, height: 9, borderRadius: "50%", background: "var(--chart-donut-ui)", flexShrink: 0 }} />
           <span style={{ color: "var(--text-2)", flex: 1 }}>{t("dash.coverage.ui")}</span>
-          <span style={{ fontWeight: 600, color: "var(--text-1)" }}>{loading ? "…" : ui}</span>
+          <span style={{ fontWeight: 600, color: "var(--text-1)" }}>{ui}</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
           <span style={{ width: 9, height: 9, borderRadius: "50%", background: "var(--chart-donut-api)", flexShrink: 0 }} />
           <span style={{ color: "var(--text-2)", flex: 1 }}>{t("dash.coverage.api")}</span>
-          <span style={{ fontWeight: 600, color: "var(--text-1)" }}>{loading ? "…" : api}</span>
+          <span style={{ fontWeight: 600, color: "var(--text-1)" }}>{api}</span>
         </div>
         {total > 0 && (
           <div style={{ fontSize: 10, color: "var(--text-3)", borderTop: "1px solid var(--border)", paddingTop: 6 }}>

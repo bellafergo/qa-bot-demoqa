@@ -1,4 +1,6 @@
 import React from "react";
+import { SkeletonCard } from "../ui/Skeleton.jsx";
+import { formatTestDisplayNameWithMeta } from "../../utils/humanizeTestNameUtils.js";
 
 export default function TopProblemCard({
   analytics,
@@ -14,22 +16,28 @@ export default function TopProblemCard({
     return (
       <div className="card dash-top-problem" style={{ padding: "18px 22px", marginBottom: 28 }}>
         <div className="section-title" style={{ margin: 0, marginBottom: 10 }}>{t("dash.top_problem.title")}</div>
-        <div style={{ fontSize: 13, color: "var(--text-3)" }}>{t("dash.top_problem.loading")}</div>
+        <SkeletonCard lines={3} />
       </div>
     );
   }
   if (!tf) return null;
 
-  const displayName = tf.test_name && tf.test_name !== tf.test_case_id ? tf.test_name : null;
+  const testMeta = formatTestDisplayNameWithMeta({
+    testId: tf.test_case_id,
+    testName: tf.test_name,
+  }, t);
+  const displayName = testMeta.display;
 
   return (
     <div className="card dash-top-problem" style={{ padding: "18px 22px", marginBottom: 28 }}>
       <div className="section-title" style={{ margin: 0, marginBottom: 12 }}>{t("dash.top_problem.title")}</div>
       <div style={{ marginBottom: 10 }}>
-        {displayName && (
-          <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)", marginBottom: 4 }}>{displayName}</div>
-        )}
-        <div style={{ fontFamily: "monospace", fontSize: 12, color: "var(--text-2)" }}>{tf.test_case_id}</div>
+        <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)", marginBottom: 4 }} title={testMeta.showTechnicalId ? testMeta.technicalId : undefined}>
+          {displayName}
+        </div>
+        {testMeta.showTechnicalId ? (
+          <div style={{ fontFamily: "ui-monospace, monospace", fontSize: 11, color: "var(--text-3)" }}>{testMeta.technicalId}</div>
+        ) : null}
       </div>
       <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 14, lineHeight: 1.5 }}>
         <span>{t("dash.top_problem.impact_failed", { n: tf.failed_runs ?? 0 })}</span>

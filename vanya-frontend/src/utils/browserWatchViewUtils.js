@@ -1,5 +1,8 @@
 /** UX-03 — Browser Monitoring enterprise view helpers (frontend-only). */
 
+import { formatRelativeTime } from "./relativeTimeUtils.js";
+import { formatWatchChangeLevel } from "./watchStatusDisplayUtils.js";
+
 export const BROWSER_WATCH_I18N_KEYS = {
   title: "watch.enterprise.title",
   subtitle: "watch.enterprise.subtitle",
@@ -107,24 +110,7 @@ export function truncateWatchUrl(url, maxLen = 52) {
   return `${s.slice(0, head)}…${s.slice(-tail)}`;
 }
 
-export function formatRelativeTime(iso, nowMs = Date.now()) {
-  if (!iso) return "—";
-  try {
-    const d = new Date(iso);
-    const ms = nowMs - d.getTime();
-    if (!Number.isFinite(ms)) return "—";
-    const sec = Math.floor(ms / 1000);
-    if (sec < 45) return "just now";
-    const min = Math.floor(sec / 60);
-    if (min < 60) return `${min} minute${min === 1 ? "" : "s"} ago`;
-    const hr = Math.floor(min / 60);
-    if (hr < 24) return `${hr} hour${hr === 1 ? "" : "s"} ago`;
-    const day = Math.floor(hr / 24);
-    return `${day} day${day === 1 ? "" : "s"} ago`;
-  } catch {
-    return "—";
-  }
-}
+export { formatRelativeTime } from "./relativeTimeUtils.js";
 
 export function formatWatchTimestamp(iso) {
   if (!iso) return "—";
@@ -148,13 +134,11 @@ export function executionModeLabel(mode, t) {
   return v === "local_agent" ? t("watch.mode.badge_local_agent") : t("watch.mode.badge_cloud");
 }
 
-export function changeLevelLabel(watch) {
-  return (
-    watch?.last_change_level
+export function changeLevelLabel(watch, t) {
+  const level = watch?.last_change_level
     ?? watch?.last_effective_change_level
-    ?? watch?.last_visual_change_level
-    ?? "—"
-  );
+    ?? watch?.last_visual_change_level;
+  return formatWatchChangeLevel(level, t);
 }
 
 /** Human-readable event label for timeline. */
@@ -182,8 +166,8 @@ export function buildWatchListItemViewModel(watch, t, nowMs) {
     statusLabel: t(watchStatusLabelKey(bucket)),
     executionLabel: executionModeLabel(watch.execution_mode, t),
     compareLabel: compareModeLabel(watch.compare_mode, t),
-    lastRunText: formatRelativeTime(watch.last_run_at, nowMs),
-    lastChangeText: changeLevelLabel(watch),
+    lastRunText: formatRelativeTime(watch.last_run_at, t, nowMs),
+    lastChangeText: changeLevelLabel(watch, t),
     needsAttention: bucket === "critical" || bucket === "warning",
   };
 }

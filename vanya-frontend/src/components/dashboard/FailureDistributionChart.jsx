@@ -1,5 +1,6 @@
 import React from "react";
 import CapabilityStateCard from "../capability-state/CapabilityStateCard.jsx";
+import { SkeletonCard } from "../ui/Skeleton.jsx";
 import {
   resolveHistoryCapabilityState,
   CAPABILITY_STATE_I18N_KEYS,
@@ -7,6 +8,10 @@ import {
 } from "../../utils/capabilityStateViewUtils.js";
 
 export default function FailureDistributionChart({ fi, loading, t }) {
+  if (loading) {
+    return <SkeletonCard lines={4} />;
+  }
+
   if (!fi && !loading) {
     return (
       <CapabilityStateCard
@@ -47,7 +52,7 @@ export default function FailureDistributionChart({ fi, loading, t }) {
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5, fontSize: 12 }}>
             <span style={{ color: "var(--text-2)" }}>{t(key)}</span>
             <span style={{ fontWeight: 600, color: val > 0 ? color : "var(--text-3)" }}>
-              {loading ? "…" : val}
+              {val}
             </span>
           </div>
           <div style={{ height: 7, borderRadius: 4, background: "var(--border)", overflow: "hidden" }}>

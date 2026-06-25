@@ -213,7 +213,10 @@ export function buildCommandCenterViewModel({
 
   return {
     title: t(COMMAND_CENTER_I18N_KEYS.title),
-    kpis,
+    loading: Boolean(loading),
+    kpis: loading
+      ? [{ id: "loading-1" }, { id: "loading-2" }, { id: "loading-3" }, { id: "loading-4" }]
+      : kpis,
   };
 }
 

@@ -82,6 +82,14 @@ import PassRateTrendChart from "../components/dashboard/PassRateTrendChart.jsx";
 import CoverageDonutChart from "../components/dashboard/CoverageDonutChart.jsx";
 import FailureDistributionChart from "../components/dashboard/FailureDistributionChart.jsx";
 import RiskSummaryCard from "../components/dashboard/RiskSummaryCard.jsx";
+import DashboardSparseHints from "../components/dashboard/DashboardSparseHints.jsx";
+import { SkeletonTable } from "../components/ui/Skeleton.jsx";
+import {
+  buildDashboardSparseHintsViewModel,
+  formatDashboardCount,
+  isDashboardDataSparse,
+} from "../utils/dashboardKpiDisplayUtils.js";
+import { formatTestDisplayNameWithMeta } from "../utils/humanizeTestNameUtils.js";
 
 // ── Main component ────────────────────────────────────────────────────────────
 
@@ -136,6 +144,11 @@ export default function DashboardPage() {
   } = useDashboardData(projectId, t);
 
   const s = summary || {};
+  const dataSparse = !loading && isDashboardDataSparse(s);
+  const sparseHintsVm = useMemo(
+    () => buildDashboardSparseHintsViewModel(dataSparse, t),
+    [dataSparse, t],
+  );
   // QA FINAL — numeric pass_rate only (avoids NaN / string edge cases breaking toFixed / delta)
   const passRateRaw = s.pass_rate;
   const passRateNum =
@@ -850,17 +863,20 @@ export default function DashboardPage() {
           </div>
         ) : null}
 
+        <DashboardSparseHints vm={sparseHintsVm} />
+
         {/* ── KPI grid (MEJORA #3 — rely on .kpi-grid auto-fit for variable card count) ── */}
         <div className="kpi-grid" style={{ marginBottom: 28 }}>
-          <KpiCard label={t("dash.kpi.total_tests")}    value={loading ? "…" : s.total_test_cases} sub={`${s.active_test_cases ?? "—"} ${t("dash.kpi.active")}`}                        icon="☰" />
-          <KpiCard label={t("dash.kpi.total_runs")}     value={loading ? "…" : s.total_runs}        sub={runsSub}      icon="▶" />
+          <KpiCard loading={loading} label={t("dash.kpi.total_tests")} value={formatDashboardCount(s.total_test_cases, { loading, sparse: dataSparse })} sub={loading ? "" : `${s.active_test_cases ?? "—"} ${t("dash.kpi.active")}`} icon="☰" />
+          <KpiCard loading={loading} label={t("dash.kpi.total_runs")} value={formatDashboardCount(s.total_runs, { loading, sparse: dataSparse })} sub={loading ? "" : runsSub} icon="▶" />
           <KpiCard
+            loading={loading}
             label={t("dash.kpi.pass_rate")}
-            value={loading ? "…" : passRate}
+            value={loading ? null : (dataSparse || !passRateValid ? "—" : passRate)}
             valueExtra={passRateBenchmarkExtra}
-            sub={passRateSub}
+            sub={loading ? "" : passRateSub}
             accent={
-              !loading && passRateValid
+              !loading && passRateValid && !dataSparse
                 ? passRateNum >= passBench
                   ? "var(--green)"
                   : "var(--orange)"
@@ -870,12 +886,12 @@ export default function DashboardPage() {
           />
           {!idleExecKpis && (
             <>
-              <KpiCard label={t("dash.kpi.active_workers")} value={loading ? "…" : s.active_workers}    sub={`${s.queue_depth ?? 0} ${t("dash.kpi.queued")}`}                                icon="⚙" />
-              <KpiCard label={t("dash.kpi.total_jobs")}     value={loading ? "…" : s.total_jobs}        sub={`${s.running_jobs ?? 0} ${t("dash.kpi.running")} · ${s.queued_jobs ?? 0} ${t("dash.kpi.queued")}`} icon="◈" />
+              <KpiCard loading={loading} label={t("dash.kpi.active_workers")} value={formatDashboardCount(s.active_workers, { loading })} sub={loading ? "" : `${s.queue_depth ?? 0} ${t("dash.kpi.queued")}`} icon="⚙" />
+              <KpiCard loading={loading} label={t("dash.kpi.total_jobs")} value={formatDashboardCount(s.total_jobs, { loading })} sub={loading ? "" : `${s.running_jobs ?? 0} ${t("dash.kpi.running")} · ${s.queued_jobs ?? 0} ${t("dash.kpi.queued")}`} icon="◈" />
             </>
           )}
-          <KpiCard label={t("dash.kpi.ui_tests")}       value={loading ? "…" : s.total_ui_tests}    sub={t("dash.kpi.in_catalog")}                                                        icon="◻" />
-          <KpiCard label={t("dash.kpi.api_tests")}      value={loading ? "…" : s.total_api_tests}   sub={t("dash.kpi.in_catalog")}                                                        icon="⌥" />
+          <KpiCard loading={loading} label={t("dash.kpi.ui_tests")} value={formatDashboardCount(s.total_ui_tests, { loading, sparse: dataSparse })} sub={loading ? "" : t("dash.kpi.in_catalog")} icon="◻" />
+          <KpiCard loading={loading} label={t("dash.kpi.api_tests")} value={formatDashboardCount(s.total_api_tests, { loading, sparse: dataSparse })} sub={loading ? "" : t("dash.kpi.in_catalog")} icon="⌥" />
           {fi && <KpiCard label={t("dash.kpi.flaky_tests")} value={fi.flaky_tests_count ?? 0} sub={`${fi.total_clusters ?? 0} ${t("dash.kpi.clusters")}`} accent={fi.flaky_tests_count > 0 ? "var(--orange)" : undefined} icon="⚠" />}
           {/* MEJORA #2 — compact CTA when no active workers and no jobs */}
           {idleExecKpis && (
@@ -951,7 +967,7 @@ export default function DashboardPage() {
               {runsError && !recentRuns.length ? (
                 <div style={{ padding: "20px", color: "var(--red-text)", fontSize: 13 }}>{runsError}</div>
               ) : loading && !recentRuns.length ? (
-                <div style={{ padding: "20px", color: "var(--text-3)", fontSize: 13 }}>{t("dash.loading_runs")}</div>
+                <SkeletonTable rows={5} cols={5} />
               ) : recentRuns.length === 0 ? (
                 <div style={{ padding: "20px", color: "var(--text-3)", fontSize: 13 }}>
                   {t("dash.no_runs")} <Link to="/catalog" style={{ color: "var(--accent)", fontWeight: 500, textDecoration: "none" }}>{t("dash.run_a_test")}</Link>
@@ -1013,10 +1029,14 @@ export default function DashboardPage() {
                           const showFailActions = isFailStatus(r.status);
                           const busyKey = r.run_id || r.test_id || r.test_case_id;
                           const busy = rerunBusyRunId && busyKey && rerunBusyRunId === busyKey;
+                          const testMeta = formatTestDisplayNameWithMeta({
+                            testId: r.test_id || r.test_case_id,
+                            testName: r.test_name,
+                          }, t);
                           return (
                             <tr key={r.run_id || i} className="dash-recent-runs-row">
-                              <td style={{ fontWeight: 500, fontSize: 12, fontFamily: "monospace" }}>
-                                {r.test_id || r.test_case_id || "—"}
+                              <td style={{ fontWeight: 500, fontSize: 12 }} title={testMeta.showTechnicalId ? testMeta.technicalId : undefined}>
+                                {testMeta.display || "—"}
                               </td>
                               <td><span className={`badge ${statusClass(r.status)}`}>{r.status}</span></td>
                               <td style={{ fontSize: 12, color: "var(--text-2)" }}>{fmtMs(r.duration_ms)}</td>
@@ -1068,7 +1088,7 @@ export default function DashboardPage() {
               {jobsError && !recentJobs.length ? (
                 <div style={{ padding: "20px", color: "var(--red-text)", fontSize: 13 }}>{jobsError}</div>
               ) : loading && !recentJobs.length ? (
-                <div style={{ padding: "20px", color: "var(--text-3)", fontSize: 13 }}>{t("dash.loading_jobs")}</div>
+                <SkeletonTable rows={4} cols={4} />
               ) : recentJobs.length === 0 ? (
                 <div style={{ padding: "20px", color: "var(--text-3)", fontSize: 13 }}>
                   {t("dash.no_jobs")} <Link to="/batch" style={{ color: "var(--accent)", fontWeight: 500, textDecoration: "none" }}>{t("dash.run_batch")}</Link>

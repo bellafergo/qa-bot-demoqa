@@ -23,7 +23,7 @@ export default function DesktopContextCard({ run }) {
     appPath    && { label: t("runs.desktop.app_path"), value: appPath },
     window_    && { label: t("runs.desktop.window"),   value: window_ },
     backend    && { label: t("runs.desktop.backend"),  value: <BackendBadge backend={backend} /> },
-    evidenceId && { label: "Evidence ID", value: <code style={{ fontSize: 11, color: "var(--text-2)" }}>{evidenceId}</code> },
+    evidenceId && { label: t("planner.run.evidence_id"), value: <code style={{ fontSize: 11, color: "var(--text-2)" }} title={evidenceId}>{String(evidenceId).slice(0, 16)}…</code> },
   ].filter(Boolean);
 
   return (

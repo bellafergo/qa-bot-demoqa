@@ -41,7 +41,7 @@ describe("browserWatchViewUtils", () => {
 
   it("formats relative time", () => {
     const now = new Date("2026-06-12T10:02:00Z").getTime();
-    expect(formatRelativeTime("2026-06-12T10:00:00Z", now)).toBe("2 minutes ago");
+    expect(formatRelativeTime("2026-06-12T10:00:00Z", t, now)).toBe("time.relative.minutes_ago");
   });
 
   it("flags watches that need attention", () => {

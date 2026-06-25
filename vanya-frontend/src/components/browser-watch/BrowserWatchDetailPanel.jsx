@@ -21,6 +21,7 @@ import {
   watchStatusBadgeClass,
   watchStatusLabelKey,
 } from "../../utils/browserWatchViewUtils.js";
+import { formatWatchStatusValue } from "../../utils/watchStatusDisplayUtils.js";
 
 function shortRunId(id) {
   if (id == null || id === "" || id === "_") return "";
@@ -196,11 +197,11 @@ export default function BrowserWatchDetailPanel({
           <dt style={{ color: "var(--text-3)" }}>{t(BROWSER_WATCH_I18N_KEYS.detailBaselineMode)}</dt>
           <dd style={{ margin: 0 }}>{compareModeLabel(selectedWatch?.compare_mode, t)}</dd>
           <dt style={{ color: "var(--text-3)" }}>{t("watch.col.last_run")}</dt>
-          <dd style={{ margin: 0 }}>{formatRelativeTime(metrics?.last_run_at || selectedWatch?.last_run_at)}</dd>
+          <dd style={{ margin: 0 }}>{formatRelativeTime(metrics?.last_run_at || selectedWatch?.last_run_at, t)}</dd>
           <dt style={{ color: "var(--text-3)" }}>{t("watch.col.alert")}</dt>
-          <dd style={{ margin: 0 }}>{formatRelativeTime(metrics?.last_alert_at || selectedWatch?.last_alert_at)}</dd>
+          <dd style={{ margin: 0 }}>{formatRelativeTime(metrics?.last_alert_at || selectedWatch?.last_alert_at, t)}</dd>
           <dt style={{ color: "var(--text-3)" }}>{t(BROWSER_WATCH_I18N_KEYS.detailCurrentStatus)}</dt>
-          <dd style={{ margin: 0 }}>{metrics?.current_status || selectedWatch?.current_status || selectedWatch?.last_status || "—"}</dd>
+          <dd style={{ margin: 0 }}>{formatWatchStatusValue(metrics?.current_status || selectedWatch?.current_status || selectedWatch?.last_status, t)}</dd>
         </dl>
 
         <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>

@@ -1,7 +1,21 @@
 import React from "react";
+import { SkeletonKpi } from "../ui/Skeleton.jsx";
 
 export default function CommandCenterView({ vm }) {
-  if (!vm?.kpis?.length) return null;
+  if (!vm?.kpis?.length && !vm?.loading) return null;
+
+  if (vm.loading) {
+    return (
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+          {vm.title}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
+          {Array.from({ length: 4 }).map((_, i) => <SkeletonKpi key={i} />)}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ marginBottom: 16 }}>

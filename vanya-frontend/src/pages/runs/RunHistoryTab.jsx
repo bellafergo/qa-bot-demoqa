@@ -29,6 +29,7 @@ import RunTypeBadge from "../../components/runs/RunTypeBadge.jsx";
 import BackendBadge from "../../components/runs/BackendBadge.jsx";
 import RiskBadge from "../../components/runs/RiskBadge.jsx";
 import CorrelationIdChip from "../../components/runs/CorrelationIdChip.jsx";
+import { formatTestDisplayNameWithMeta } from "../../utils/humanizeTestNameUtils.js";
 import DebugAccordion from "../../components/runs/DebugAccordion.jsx";
 import ConfirmModal from "../../components/runs/ConfirmModal.jsx";
 import EvidenceCard from "../../components/runs/EvidenceCard.jsx";
@@ -353,7 +354,17 @@ export default function RunHistoryTab({ initialRunId }) {
                     </td>
                     <td style={{ fontWeight: 600, fontSize: 13 }}>
                       <span style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                        {r.test_id || r.test_case_id || "—"}
+                        {(() => {
+                          const testMeta = formatTestDisplayNameWithMeta({
+                            testId: r.test_id || r.test_case_id,
+                            testName: r.test_name,
+                          }, t);
+                          return (
+                            <span title={testMeta.showTechnicalId ? testMeta.technicalId : undefined}>
+                              {testMeta.display || "—"}
+                            </span>
+                          );
+                        })()}
                         <RunTypeBadge runType={inferRunType(r)} />
                         {getStepsCount(r) > 0 && (
                           <span className="badge badge-gray" style={{ fontSize: 10 }} title="Executed steps">
@@ -450,7 +461,17 @@ export default function RunHistoryTab({ initialRunId }) {
                   {getStepsCount(detail) > 0 && (
                     <span className="badge badge-gray" title="Executed steps">{getStepsCount(detail)} steps</span>
                   )}
-                  {(detail.test_id || detail.test_case_id) && <span className="badge badge-gray">{detail.test_id || detail.test_case_id}</span>}
+                  {(() => {
+                    const testMeta = formatTestDisplayNameWithMeta({
+                      testId: detail.test_id || detail.test_case_id,
+                      testName: detail.test_name,
+                    }, t);
+                    return testMeta.display ? (
+                      <span className="badge badge-gray" title={testMeta.showTechnicalId ? testMeta.technicalId : undefined}>
+                        {testMeta.display}
+                      </span>
+                    ) : null;
+                  })()}
                   {detail.started_at || detail.created_at ? (
                     <span className="badge badge-gray" title="Start time">{fmtDate(detail.started_at || detail.created_at)}</span>
                   ) : null}

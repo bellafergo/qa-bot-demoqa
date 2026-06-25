@@ -1,4 +1,6 @@
 import React, { useState } from "react";
+import { useLang } from "../../i18n/LangContext.jsx";
+import { formatTestDisplayNameWithMeta } from "../../utils/humanizeTestNameUtils.js";
 
 function SubSection({ title, count, empty, children }) {
   return (
@@ -14,6 +16,7 @@ function SubSection({ title, count, empty, children }) {
 }
 
 export default function MemoryExplorerSection({ vm }) {
+  const { t } = useLang();
   const [expanded, setExpanded] = useState(vm?.defaultExpanded || "");
 
   if (!vm?.show) return null;
@@ -102,13 +105,18 @@ export default function MemoryExplorerSection({ vm }) {
 
                   <SubSection title={mod.sectionLabels.tests} count={mod.counts.tests} empty={mod.emptyLabels.tests}>
                     <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "var(--text-2)", lineHeight: 1.6 }}>
-                      {mod.tests.map((tc) => (
+                      {mod.tests.map((tc) => {
+                        const testMeta = formatTestDisplayNameWithMeta({
+                          testCaseId: tc.test_case_id,
+                          testName: tc.name,
+                        }, t);
+                        return (
                         <li key={tc.test_case_id}>
-                          <strong>{tc.test_case_id}</strong>
-                          {tc.name ? ` — ${tc.name}` : ""}
+                          <strong title={testMeta.showTechnicalId ? testMeta.technicalId : undefined}>{testMeta.display}</strong>
                           {tc.last_run_status ? <span className="badge badge-gray" style={{ marginLeft: 6 }}>{tc.last_run_status}</span> : null}
                         </li>
-                      ))}
+                        );
+                      })}
                     </ul>
                   </SubSection>
 

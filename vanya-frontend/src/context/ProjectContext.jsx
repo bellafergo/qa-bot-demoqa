@@ -23,6 +23,7 @@ import { PROJECT_STORAGE_KEY } from "./projectStorage.js";
 const ProjectContext = createContext(null);
 
 function pickCurrentAfterLoad(list, preferId, previousId, storedId) {
+  if (list.length === 1) return list[0];
   if (preferId) {
     const hit = list.find((p) => p.id === preferId);
     if (hit) return hit;

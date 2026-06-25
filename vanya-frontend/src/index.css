@@ -1,3 +1,19 @@
 /* Tailwind v4 — utilities; design tokens live in App.css :root */
 @import "tailwindcss";
 @source "../src/**/*.{js,jsx}";
+
+.ui-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--surface-2, rgba(255, 255, 255, 0.06)) 0%,
+    var(--surface-3, rgba(255, 255, 255, 0.12)) 50%,
+    var(--surface-2, rgba(255, 255, 255, 0.06)) 100%
+  );
+  background-size: 200% 100%;
+  animation: ui-skeleton-shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes ui-skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}

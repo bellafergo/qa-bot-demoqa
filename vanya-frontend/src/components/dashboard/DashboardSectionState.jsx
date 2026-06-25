@@ -1,6 +1,7 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import CapabilityStateCard from "../capability-state/CapabilityStateCard.jsx";
+import { SkeletonCard } from "../ui/Skeleton.jsx";
 
 /**
  * Consistent empty, error, loading, and capability-gated states for dashboard sections.
@@ -9,11 +10,7 @@ export default function DashboardSectionState({ state, onRetry, children }) {
   if (!state) return children ?? null;
 
   if (state.loading) {
-    return (
-      <p style={{ fontSize: 13, color: "var(--text-3)", margin: 0, lineHeight: 1.5 }}>
-        {state.loadingMessage}
-      </p>
-    );
+    return <SkeletonCard lines={4} />;
   }
 
   if (state.error) {
