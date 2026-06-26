@@ -41,6 +41,7 @@ import {
   clearGitHubInstallCallbackParams,
   normalizeGitHubInstallationId,
 } from "../utils/githubInstallCallbackUtils.js";
+import { deriveGitHubPanelPhase, GITHUB_PANEL_PHASE } from "../utils/githubIntegrationViewUtils.js";
 
 const CONNECTOR_DISPLAY_ORDER = ["github", "azure_devops", "jira", "qmetry", "servicenow"];
 
@@ -451,7 +452,7 @@ function GitHubDisconnectDialog({ open, busy, onConfirm, onCancel }) {
             {t("integrations.github.disconnect_intro")}
           </p>
           <ul style={{ fontSize: 13, color: "var(--text-2)", margin: "12px 0 0", paddingLeft: 0, listStyle: "none", lineHeight: 1.7 }}>
-            <li>✓ {t("integrations.github.disconnect_item_installation")}</li>
+            <li>✓ {t("integrations.github.disconnect_item_connection")}</li>
             <li>✓ {t("integrations.github.disconnect_item_repo")}</li>
             <li>✓ {t("integrations.github.disconnect_item_state")}</li>
           </ul>
@@ -799,7 +800,6 @@ function GitHubAppPanel({ onStatusChange }) {
   const [changingRepo, setChangingRepo] = useState(false);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
-  const [showManualLink, setShowManualLink] = useState(false);
   const [manualInstallationId, setManualInstallationId] = useState("");
   const [linkingManual, setLinkingManual] = useState(false);
 
@@ -852,11 +852,13 @@ function GitHubAppPanel({ onStatusChange }) {
   async function handleConnect() {
     if (!projectId) return;
     setError("");
+    setConnecting(true);
     try {
       const { install_url: url } = await getProjectGitHubInstallUrl(projectId);
       if (url) window.location.href = url;
     } catch (e) {
       setError(e?.message || t("gh.error.install"));
+      setConnecting(false);
     }
   }
 
@@ -876,7 +878,6 @@ function GitHubAppPanel({ onStatusChange }) {
         installation_id: connected?.installation_id,
       });
       await refreshStatus(false);
-      setShowManualLink(false);
       setManualInstallationId("");
     } catch (e) {
       console.error("[vanya.github.manual-link] connect-app failed", e);
@@ -937,26 +938,69 @@ function GitHubAppPanel({ onStatusChange }) {
     }
   }
 
-  const showRepoPicker = Boolean(
-    status?.installation_id && (!status.full_name || changingRepo),
-  );
-  const accountLabel = status?.owner || status?.connected_by || "";
-  const showActionsMenu = Boolean(status?.installation_id);
+  const panelPhase = deriveGitHubPanelPhase({
+    status,
+    changingRepo,
+    reposCount: repos.length,
+    reposLoading,
+  });
+  const accountLabel = status?.connected_by || status?.owner || "";
 
-  const menuItems = [];
-  if (status?.installation_id && status.full_name && !changingRepo) {
-    menuItems.push(
-      { key: "verify", label: t("integrations.github.verify"), onClick: handleVerify, disabled: verifying },
-      { key: "change", label: t("integrations.github.change_repo"), onClick: () => { setChangingRepo(true); setSelectedRepo(""); } },
-      { key: "reconnect", label: t("integrations.github.reconnect"), onClick: handleConnect, disabled: connecting },
-      { separator: true },
-      { key: "disconnect", label: t("integrations.github.disconnect"), onClick: () => setDisconnectOpen(true), danger: true },
-    );
-  } else if (status?.installation_id) {
-    menuItems.push(
-      { key: "reconnect", label: t("integrations.github.reconnect"), onClick: handleConnect, disabled: connecting },
-      { separator: true },
-      { key: "disconnect", label: t("integrations.github.disconnect"), onClick: () => setDisconnectOpen(true), danger: true },
+  function renderAdvancedManualLink() {
+    if (!canManageIntegrations) return null;
+    return (
+      <details style={{ marginTop: 14 }}>
+        <summary
+          style={{
+            cursor: "pointer",
+            fontSize: 12,
+            color: "var(--text-3)",
+            fontWeight: 600,
+            userSelect: "none",
+          }}
+        >
+          {t("integrations.github.advanced_options")}
+        </summary>
+        <div
+          style={{
+            marginTop: 10,
+            padding: 12,
+            borderRadius: 8,
+            border: "1px solid var(--border, rgba(255,255,255,0.08))",
+            background: "var(--bg-3, rgba(255,255,255,0.02))",
+          }}
+        >
+          <label
+            htmlFor="github-manual-installation-id"
+            style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-2)", marginBottom: 6 }}
+          >
+            {t("integrations.github.advanced_installation_label")}
+          </label>
+          <input
+            id="github-manual-installation-id"
+            className="input"
+            type="text"
+            inputMode="numeric"
+            placeholder="138769836"
+            value={manualInstallationId}
+            onChange={(e) => setManualInstallationId(e.target.value)}
+            disabled={linkingManual}
+            style={{ width: "100%", maxWidth: 360, fontFamily: "ui-monospace, monospace", fontSize: 13 }}
+          />
+          <p style={{ fontSize: 11, color: "var(--text-3)", marginTop: 8, lineHeight: 1.5 }}>
+            {t("integrations.github.advanced_installation_hint")}
+          </p>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={handleLinkExistingInstallation}
+            disabled={!normalizeGitHubInstallationId(manualInstallationId) || linkingManual}
+            style={{ marginTop: 8 }}
+          >
+            {linkingManual ? t("gh.connecting") : t("integrations.github.advanced_link_btn")}
+          </button>
+        </div>
+      </details>
     );
   }
 
@@ -965,9 +1009,6 @@ function GitHubAppPanel({ onStatusChange }) {
       <div style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-2)", marginBottom: 10 }}>
         {t("integrations.github.panel_title")}
       </div>
-      <p style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 12, lineHeight: 1.5 }}>
-        {t("gh.subtitle")}
-      </p>
 
       {!projectId ? (
         <p style={{ fontSize: 12, color: "var(--text-3)" }}>{t("integrations.github.need_project")}</p>
@@ -989,42 +1030,16 @@ function GitHubAppPanel({ onStatusChange }) {
             </div>
           ) : null}
 
-          {status?.installation_id ? (
-            <div style={{ fontSize: 12, color: "var(--text-2)", marginBottom: 12, lineHeight: 1.6 }}>
-              {status.installation_id ? (
-                <div><span style={{ color: "var(--text-3)" }}>{t("gh.installation_id")}:</span>{" "}
-                  <span style={{ fontFamily: "ui-monospace, monospace" }}>{status.installation_id}</span>
-                </div>
-              ) : null}
-              {accountLabel ? (
-                <div><span style={{ color: "var(--text-3)" }}>{t("integrations.github.account")}:</span> {accountLabel}</div>
-              ) : null}
-              {status.full_name && !changingRepo ? (
-                <div><span style={{ color: "var(--text-3)" }}>{t("integrations.github.repo")}:</span> {status.full_name}</div>
-              ) : null}
-              {status.default_branch && status.full_name && !changingRepo ? (
-                <div><span style={{ color: "var(--text-3)" }}>{t("gh.branch")}:</span> {status.default_branch}</div>
-              ) : null}
-              {status.validation_message ? (
-                <div style={{ marginTop: 6 }}>
-                  {status.validation_ok ? (
-                    <span style={{ color: "var(--green, #22c55e)" }}>✓ {status.validation_message}</span>
-                  ) : (
-                    <span style={{ color: "var(--red, #ef4444)" }}>✗ {status.validation_message}</span>
-                  )}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-
           {error ? (
             <div className="alert alert-error" style={{ marginBottom: 12, fontSize: 12 }}>{error}</div>
           ) : null}
 
-          {!status?.installation_id ? (
+          {panelPhase === GITHUB_PANEL_PHASE.NOT_CONNECTED ? (
             canManageIntegrations ? (
-            <div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+              <div>
+                <p style={{ fontSize: 13, color: "var(--text-2)", marginBottom: 12, lineHeight: 1.55 }}>
+                  {t("integrations.github.connect_pitch")}
+                </p>
                 <button
                   type="button"
                   className="btn btn-primary btn-sm"
@@ -1033,69 +1048,103 @@ function GitHubAppPanel({ onStatusChange }) {
                 >
                   {connecting ? t("gh.connecting") : t("gh.connect_github")}
                 </button>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => {
-                    setShowManualLink((v) => !v);
-                    setError("");
-                  }}
-                  disabled={!status?.app_configured || connecting || linkingManual}
-                >
-                  {t("integrations.github.link_existing")}
-                </button>
+                <p style={{ fontSize: 11, color: "var(--text-3)", marginTop: 12, lineHeight: 1.5 }}>
+                  {t("integrations.github.trust_copy")}
+                </p>
+                {renderAdvancedManualLink()}
               </div>
-              <p style={{ fontSize: 11, color: "var(--text-3)", marginTop: 8 }}>{t("integrations.github.install_hint")}</p>
-              {showManualLink ? (
-                <div
-                  style={{
-                    marginTop: 12,
-                    padding: 12,
-                    borderRadius: 8,
-                    border: "1px solid var(--border, rgba(255,255,255,0.08))",
-                    background: "var(--bg-3, rgba(255,255,255,0.02))",
-                  }}
-                >
-                  <label
-                    htmlFor="github-manual-installation-id"
-                    style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-2)", marginBottom: 6 }}
-                  >
-                    {t("gh.installation_id")}
-                  </label>
-                  <input
-                    id="github-manual-installation-id"
-                    className="input"
-                    type="text"
-                    inputMode="numeric"
-                    placeholder="138769836"
-                    value={manualInstallationId}
-                    onChange={(e) => setManualInstallationId(e.target.value)}
-                    disabled={linkingManual}
-                    style={{ width: "100%", maxWidth: 360, fontFamily: "ui-monospace, monospace", fontSize: 13 }}
-                  />
-                  <p style={{ fontSize: 11, color: "var(--text-3)", marginTop: 8, lineHeight: 1.5 }}>
-                    {t("integrations.github.installation_id_hint")}
-                  </p>
-                  <button
-                    type="button"
-                    className="btn btn-primary btn-sm"
-                    onClick={handleLinkExistingInstallation}
-                    disabled={!normalizeGitHubInstallationId(manualInstallationId) || linkingManual}
-                    style={{ marginTop: 8 }}
-                  >
-                    {linkingManual ? t("gh.connecting") : t("gh.link_installation")}
-                  </button>
-                </div>
-              ) : null}
-            </div>
             ) : (
               <p style={{ fontSize: 12, color: "var(--text-3)", margin: 0 }}>{t("permissions.denied")}</p>
             )
           ) : null}
 
-          {showRepoPicker && canManageIntegrations ? (
-            <div style={{ marginTop: 12 }}>
-              <p style={{ fontSize: 12, color: "var(--text-2)", marginBottom: 8 }}>
+          {panelPhase === GITHUB_PANEL_PHASE.REPO_SELECTED ? (
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.06em",
+                    color: "var(--green, #22c55e)",
+                  }}
+                >
+                  {t("integrations.github.repo_connected_title")}
+                </span>
+              </div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)", fontFamily: "ui-monospace, monospace", marginBottom: 6 }}>
+                {status.full_name}
+              </div>
+              {status.default_branch ? (
+                <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 10 }}>
+                  {t("gh.branch")}: {status.default_branch}
+                </div>
+              ) : null}
+              {status.validation_message ? (
+                <div style={{ fontSize: 12, marginBottom: 12 }}>
+                  {status.validation_ok ? (
+                    <span style={{ color: "var(--green, #22c55e)" }}>✓ {status.validation_message}</span>
+                  ) : (
+                    <span style={{ color: "var(--red, #ef4444)" }}>✗ {status.validation_message}</span>
+                  )}
+                </div>
+              ) : null}
+              {canManageIntegrations ? (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => { setChangingRepo(true); setSelectedRepo(""); }}
+                  >
+                    {t("integrations.github.change_repo")}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={loadRepos}
+                    disabled={reposLoading}
+                  >
+                    {reposLoading ? t("gh.loading_repos") : t("integrations.github.refresh_repos")}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={handleVerify}
+                    disabled={verifying}
+                  >
+                    {verifying ? t("gh.loading") : t("integrations.github.verify")}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setDisconnectOpen(true)}
+                    disabled={disconnecting}
+                    style={{ color: "var(--red, #ef4444)" }}
+                  >
+                    {t("integrations.github.disconnect")}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {panelPhase === GITHUB_PANEL_PHASE.CONNECTED_SELECT_REPO && canManageIntegrations ? (
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: "var(--green, #22c55e)" }}>
+                  ✓ {t("gh.connected_badge")}
+                </span>
+              </div>
+              {accountLabel ? (
+                <div style={{ fontSize: 12, color: "var(--text-2)", marginBottom: 12 }}>
+                  <span style={{ color: "var(--text-3)" }}>{t("integrations.github.account")}:</span> {accountLabel}
+                </div>
+              ) : null}
+              <p style={{ fontSize: 12, fontWeight: 600, color: "var(--text-2)", marginBottom: 4 }}>
+                {t("integrations.github.repos_available")}
+              </p>
+              <p style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 10, lineHeight: 1.5 }}>
                 {t("integrations.github.select_repo_prompt")}
               </p>
               {reposLoading ? (
@@ -1132,12 +1181,46 @@ function GitHubAppPanel({ onStatusChange }) {
                   ) : null}
                 </div>
               )}
+              <p style={{ fontSize: 11, color: "var(--text-3)", marginTop: 12, lineHeight: 1.5 }}>
+                {t("integrations.github.trust_copy")}
+              </p>
             </div>
           ) : null}
 
-          {showActionsMenu && canManageIntegrations ? (
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
-              <ActionsMenu items={menuItems} disabled={disconnecting || connecting} />
+          {panelPhase === GITHUB_PANEL_PHASE.CONNECTED_NO_REPOS && canManageIntegrations ? (
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: "var(--green, #22c55e)" }}>
+                  ✓ {t("gh.connected_badge")}
+                </span>
+              </div>
+              {accountLabel ? (
+                <div style={{ fontSize: 12, color: "var(--text-2)", marginBottom: 12 }}>
+                  <span style={{ color: "var(--text-3)" }}>{t("integrations.github.account")}:</span> {accountLabel}
+                </div>
+              ) : null}
+              <div
+                style={{
+                  padding: 14,
+                  borderRadius: 8,
+                  border: "1px solid var(--border, rgba(255,255,255,0.08))",
+                  background: "var(--bg-3, rgba(255,255,255,0.02))",
+                  marginBottom: 12,
+                }}
+              >
+                <p style={{ fontSize: 13, color: "var(--text-2)", margin: "0 0 10px", lineHeight: 1.55 }}>
+                  {t("integrations.github.no_repos")}
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={loadRepos}
+                  disabled={reposLoading}
+                >
+                  {reposLoading ? t("gh.loading_repos") : t("integrations.github.refresh_repos")}
+                </button>
+              </div>
+              {renderAdvancedManualLink()}
             </div>
           ) : null}
 
@@ -1605,7 +1688,10 @@ export default function IntegrationsPage() {
       console.warn("[vanya.github.callback] skipped", gate);
       if (gate.reason === "state_project_mismatch") {
         setError(
-          `GitHub installation is for project "${gate.expected}" but "${gate.actual}" is selected. Switch project and try again.`,
+          t("integrations.github.callback_project_mismatch", {
+            expected: gate.expected,
+            actual: gate.actual,
+          }),
         );
       }
       return;

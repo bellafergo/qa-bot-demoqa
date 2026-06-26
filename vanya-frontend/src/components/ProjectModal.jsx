@@ -454,12 +454,6 @@ export default function ProjectModal({ open, mode, project, onClose }) {
                     <dd style={{ margin: 0 }}>{ghMeta.default_branch}</dd>
                   </>
                 ) : null}
-                {ghMeta.installation_id ? (
-                  <>
-                    <dt style={{ color: "var(--text-3)" }}>{t("projects.github_installation")}</dt>
-                    <dd style={{ margin: 0, fontFamily: "ui-monospace, monospace" }}>{ghMeta.installation_id}</dd>
-                  </>
-                ) : null}
                 {ghMeta.repo_url ? (
                   <>
                     <dt style={{ color: "var(--text-3)" }}>{t("projects.github_repo_url")}</dt>
