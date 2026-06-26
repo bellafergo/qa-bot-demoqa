@@ -53,10 +53,16 @@ def _with_transport_retry(op: Callable[[], T], *, what: str) -> T:
     raise last
 
 # List queries must NOT pull ``result`` (full run payload) — keeps Supabase Disk IO low.
-QA_RUNS_LIST_COLUMNS = (
+# Extended columns require migration.sql ALTERs; fall back when PostgREST reports 42703.
+QA_RUNS_LIST_COLUMNS_EXTENDED = (
     "evidence_id,run_id,status,test_name,duration_ms,error_summary,"
-    "evidence_url,report_url,meta,created_at,thread_id,steps"
+    "evidence_url,report_url,meta,created_at,thread_id,steps,updated_at"
 )
+QA_RUNS_LIST_COLUMNS_BASE = (
+    "evidence_id,status,duration_ms,error_summary,"
+    "evidence_url,report_url,meta,updated_at"
+)
+QA_RUNS_LIST_COLUMNS = QA_RUNS_LIST_COLUMNS_EXTENDED
 
 
 def _safe_str(x: Any) -> str:
@@ -70,6 +76,64 @@ def supabase_qa_runs_enabled() -> bool:
     from services.supabase_store import _is_configured  # noqa: SLF001
 
     return _is_configured()
+
+
+def _is_missing_column_error(exc: BaseException) -> bool:
+    try:
+        from postgrest.exceptions import APIError
+
+        if isinstance(exc, APIError):
+            payload = getattr(exc, "args", (None,))[0]
+            if isinstance(payload, dict) and str(payload.get("code") or "") == "42703":
+                return True
+    except Exception:
+        pass
+    msg = str(exc).lower()
+    return "42703" in msg and "does not exist" in msg
+
+
+def _fetch_qa_runs_list_rows(fetch_cap: int) -> List[Dict[str, Any]]:
+    """Select qa_runs list columns, falling back when optional migration columns are absent."""
+    from services.supabase_store import supabase_client
+
+    last_exc: Optional[BaseException] = None
+    for columns in (QA_RUNS_LIST_COLUMNS_EXTENDED, QA_RUNS_LIST_COLUMNS_BASE):
+        try:
+            def _op(cols: str = columns):
+                sb = supabase_client()
+                if sb is None:
+                    return []
+                res = (
+                    sb.table("qa_runs")
+                    .select(cols)
+                    .order("updated_at", desc=True)
+                    .limit(fetch_cap)
+                    .execute()
+                )
+                return getattr(res, "data", None) or []
+
+            rows = _with_transport_retry(
+                _op,
+                what=f"list_qa_runs(limit={fetch_cap}, columns={columns!r})",
+            )
+            if columns == QA_RUNS_LIST_COLUMNS_BASE:
+                logger.warning(
+                    "qa_runs_read: using base column set — apply supabase/migration.sql "
+                    "(run_id, test_name, created_at) for full run history in System Memory."
+                )
+            return rows
+        except Exception as e:
+            last_exc = e
+            if columns == QA_RUNS_LIST_COLUMNS_BASE or not _is_missing_column_error(e):
+                raise
+            logger.warning(
+                "qa_runs_read: column set %r unavailable (%s) — retrying with base columns",
+                columns,
+                e,
+            )
+    if last_exc is not None:
+        raise last_exc
+    return []
 
 
 def _parse_jsonb(val: Any) -> Dict[str, Any]:
@@ -102,6 +166,8 @@ def qa_runs_row_to_legacy_payload(row: Dict[str, Any]) -> Dict[str, Any]:
     evid = str(row.get("evidence_id") or "").strip()
     # Canonical execution id: persisted column preferred, then embedded payload, never forced to evidence_id.
     col_run = str(row.get("run_id") or "").strip()
+    if not col_run:
+        col_run = evid
 
     if isinstance(result, dict):
         payload: Dict[str, Any] = {**result}
@@ -283,25 +349,7 @@ def list_qa_runs_canonical(
         # or unassigned rows may still qualify for this project.
 
     try:
-        from services.supabase_store import supabase_client
-
-        def _fetch_rows():
-            sb = supabase_client()
-            if sb is None:
-                return []
-            res = (
-                sb.table("qa_runs")
-                .select(QA_RUNS_LIST_COLUMNS)
-                .order("created_at", desc=True)
-                .limit(fetch_cap)
-                .execute()
-            )
-            return getattr(res, "data", None) or []
-
-        raw_rows = _with_transport_retry(
-            _fetch_rows,
-            what=f"list_qa_runs(limit={fetch_cap}, project_id={project_id!r})",
-        )
+        raw_rows = _fetch_qa_runs_list_rows(fetch_cap)
     except Exception:
         logger.exception(
             "qa_runs_read: list failed after retries (project_id=%r, limit=%s)",

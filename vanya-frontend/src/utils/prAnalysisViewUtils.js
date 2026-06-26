@@ -274,3 +274,15 @@ export function buildRecommendedTests({ v1, legacy }) {
     }),
   }));
 }
+
+/** i18n key for empty recommended-tests panel (PR v1). */
+export function resolveEmptyRecommendedTestsMessage({ v1, t }) {
+  if (!v1 || v1.memory_available === false) {
+    return t("pr.v1.no_tests_no_memory");
+  }
+  const impacted = Array.isArray(v1.impacted_modules) ? v1.impacted_modules.length : 0;
+  if (impacted === 0) {
+    return t("pr.v1.no_tests_no_module_match");
+  }
+  return t("pr.v1.no_tests_no_tests_for_modules");
+}

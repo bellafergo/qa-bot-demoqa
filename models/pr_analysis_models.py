@@ -184,6 +184,7 @@ class ProjectPRAnalysisReport(BaseModel):
     reasoning: List[str] = Field(default_factory=list)
     summary: str = ""
     engine_version: str = "pr-v1.3"
+    memory_available: bool = False
 
     @model_validator(mode="after")
     def _sync_deprecated_risk_aliases(self) -> "ProjectPRAnalysisReport":

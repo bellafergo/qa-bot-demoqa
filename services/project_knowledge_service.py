@@ -215,12 +215,16 @@ def _collect_discovery_from_inspection_history(project_id: str) -> Dict[str, Lis
 def refresh_project_knowledge(
     project_id: str,
     req: Optional[ProjectKnowledgeRefreshRequest] = None,
+    *,
+    include_repository_explicit: Optional[bool] = None,
 ) -> ProjectKnowledge:
     """Rebuild derived slices from existing stores (no duplicate raw data)."""
+    from services.project_knowledge_refresh_utils import resolve_refresh_request
+
     pid = (project_id or "").strip()
     if not pid:
         raise ValueError("project_id is required")
-    opts = req or ProjectKnowledgeRefreshRequest()
+    opts = resolve_refresh_request(pid, req, include_repository_explicit=include_repository_explicit)
     mode = (opts.mode or "replace").strip().lower()
     if mode not in ("replace", "merge"):
         raise ValueError("mode must be 'replace' or 'merge'")
@@ -386,6 +390,11 @@ def refresh_project_knowledge(
             repository_meta = dict(repo.metadata or {})
             if repo.warnings:
                 repository_meta["repository_warnings"] = repo.warnings
+            if repo.skipped and repo.warnings:
+                from services.project_knowledge_refresh_utils import github_app_configuration_diagnostic
+
+                repository_meta["repository_index_skipped"] = True
+                repository_meta["repository_index_diagnostic"] = github_app_configuration_diagnostic()
             if not repo.skipped:
                 reconstruction_sources.append("repository")
         except Exception:

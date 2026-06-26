@@ -13,11 +13,22 @@ _ALIAS_GROUPS: tuple[FrozenSet[str], ...] = (
     frozenset({"candidates", "candidatos", "candidate", "candidato"}),
     frozenset({"vacancies", "vacantes", "vacancy", "vacante"}),
     frozenset({"proposals", "propuestas", "proposal", "propuesta"}),
-    frozenset({"auth", "autenticacion", "authentication", "autenticación"}),
+    frozenset({
+        "auth", "autenticacion", "authentication", "autenticación",
+        "login", "signin", "sign-in", "session", "userauth", "user-auth",
+    }),
     frozenset({"dashboard", "tablero", "dashboards"}),
     frozenset({"companies", "empresas", "company", "empresa"}),
     frozenset({"contacts", "contactos", "contact", "contacto"}),
     frozenset({"opportunities", "oportunidades", "opportunity", "oportunidad"}),
+    frozenset({"cart", "basket", "carrito"}),
+    frozenset({"checkout", "payment", "payments", "pagos", "pago"}),
+    frozenset({
+        "product", "products", "inventory", "catalog", "catalogue",
+        "listing", "productlisting", "product-listing",
+    }),
+    frozenset({"navigation", "nav", "menu", "menus", "navegacion", "navegación"}),
+    frozenset({"orders", "order", "pedidos", "pedido"}),
 )
 
 _TERM_TO_GROUP: Dict[str, FrozenSet[str]] = {}

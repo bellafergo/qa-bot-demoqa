@@ -36,8 +36,20 @@ def _singular(token: str) -> str:
     return t
 
 
+def _normalize_path_for_tokens(file_path: str) -> str:
+    """Fold common hyphenated product tokens before splitting."""
+    path = (file_path or "").replace("\\", "/").strip().lower()
+    for src, dst in (
+        ("sign-in", "signin"),
+        ("user-auth", "userauth"),
+        ("product-listing", "productlisting"),
+    ):
+        path = path.replace(src, dst)
+    return path
+
+
 def _tokenize_path(file_path: str) -> List[str]:
-    path = (file_path or "").replace("\\", "/").strip()
+    path = _normalize_path_for_tokens(file_path)
     if not path:
         return []
     tokens: List[str] = []

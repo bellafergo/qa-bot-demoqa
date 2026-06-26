@@ -584,6 +584,7 @@ export const translations = {
     "knowledge.repo.indexed":    "Repository indexed",
     "knowledge.repo.not_indexed": "Repository not indexed",
     "knowledge.repo.files_scanned": "{{count}} files scanned",
+    "knowledge.repo.index_skipped": "Repository indexing was skipped on the server. Missing: {{missing}}. {{hint}}",
 
     "knowledge.explorer.title": "Memory Explorer",
     "knowledge.explorer.empty": "No module relationships detected yet. Refresh memory or index the repository to populate routes, APIs and tests.",
@@ -3046,6 +3047,9 @@ export const translations = {
     "pr.v1.col.reason":               "Reason",
     "pr.v1.no_modules":               "No catalog modules matched these file paths.",
     "pr.v1.no_tests":                 "No recommended tests for impacted modules. Refresh System Memory first.",
+    "pr.v1.no_tests_no_memory":       "Build System Memory to relate changes to modules and tests.",
+    "pr.v1.no_tests_no_module_match": "No module was associated with these files. Refresh memory or review module mapping.",
+    "pr.v1.no_tests_no_tests_for_modules": "Impacted modules were detected, but no associated tests are available yet.",
     "pr.form.analyze_pr":             "Analyze PR",
 
     "gh.title":              "GitHub / Repository",
@@ -4117,6 +4121,7 @@ export const translations = {
     "knowledge.repo.indexed":    "Repositorio indexado",
     "knowledge.repo.not_indexed": "Repositorio no indexado",
     "knowledge.repo.files_scanned": "{{count}} archivos escaneados",
+    "knowledge.repo.index_skipped": "La indexación del repositorio se omitió en el servidor. Faltan: {{missing}}. {{hint}}",
 
     "knowledge.explorer.title": "Explorador de Memoria",
     "knowledge.explorer.empty": "Aún no hay relaciones por módulo. Actualiza la memoria o indexa el repositorio para poblar rutas, APIs y tests.",
@@ -6572,6 +6577,9 @@ export const translations = {
     "pr.v1.col.reason":               "Motivo",
     "pr.v1.no_modules":               "Ningún módulo del catálogo coincide con estas rutas.",
     "pr.v1.no_tests":                 "Sin pruebas recomendadas. Actualizá Memoria del Sistema primero.",
+    "pr.v1.no_tests_no_memory":       "Construí la Memoria del Sistema para relacionar cambios con módulos y pruebas.",
+    "pr.v1.no_tests_no_module_match": "No se encontró un módulo asociado a estos archivos. Podés actualizar la memoria o revisar el mapeo de módulos.",
+    "pr.v1.no_tests_no_tests_for_modules": "Se detectaron módulos impactados, pero todavía no hay pruebas asociadas.",
     "pr.form.analyze_pr":             "Analizar PR",
 
     "gh.title":              "GitHub / Repositorio",

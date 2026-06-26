@@ -897,6 +897,7 @@ class PRAnalysisService:
                 recommended_tests=filtered_tests,
                 recommended_tests_raw=raw_tests,
                 risk_signals=risk_signals,
+                memory_available=False,
                 **baseline,
                 **pr_fields,
             )
@@ -1061,6 +1062,7 @@ class PRAnalysisService:
             risk_signals=risk_signals,
             reasoning=reasoning[:14],
             summary=" ".join(summary_parts),
+            memory_available=True,
             **baseline,
             **pr_fields,
         )

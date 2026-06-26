@@ -254,6 +254,14 @@ export default function KnowledgePage() {
               </div>
             );
           })()}
+          {knowledge?.metadata?.repository_index_skipped ? (
+            <div className="alert alert-error" style={{ marginBottom: 16, fontSize: 12, lineHeight: 1.55 }}>
+              {t("knowledge.repo.index_skipped", {
+                missing: (knowledge.metadata?.repository_index_diagnostic?.missing_env || []).join(", ") || "—",
+                hint: knowledge.metadata?.repository_index_diagnostic?.validate || "",
+              })}
+            </div>
+          ) : null}
           <MemoryExplorerSection vm={explorerVm} />
           <BusinessWorkflowsSection vm={workflowsVm} />
           <div className="card" style={{ padding: "16px 20px", marginBottom: 16, display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>

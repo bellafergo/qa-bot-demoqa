@@ -11,6 +11,7 @@ import {
   buildSuggestedActions,
   buildRecommendedTests,
   parseChangedFilesList,
+  resolveEmptyRecommendedTestsMessage,
   resolvePrRisk,
   resolveProjectRisk,
   resolveFileChangeType,
@@ -244,6 +245,29 @@ describe("buildRecommendedTests", () => {
       },
     });
     expect(tests[0].category).toBe("smoke");
+  });
+});
+
+describe("resolveEmptyRecommendedTestsMessage", () => {
+  const t = (key) => key;
+
+  it("returns no_memory when memory unavailable", () => {
+    expect(resolveEmptyRecommendedTestsMessage({ v1: { memory_available: false }, t }))
+      .toBe("pr.v1.no_tests_no_memory");
+  });
+
+  it("returns no_module_match when memory exists but no impacted modules", () => {
+    expect(resolveEmptyRecommendedTestsMessage({
+      v1: { memory_available: true, impacted_modules: [] },
+      t,
+    })).toBe("pr.v1.no_tests_no_module_match");
+  });
+
+  it("returns no_tests_for_modules when modules exist but list empty", () => {
+    expect(resolveEmptyRecommendedTestsMessage({
+      v1: { memory_available: true, impacted_modules: [{ module: "auth" }] },
+      t,
+    })).toBe("pr.v1.no_tests_no_tests_for_modules");
   });
 });
 

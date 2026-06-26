@@ -110,7 +110,7 @@ def refresh_knowledge(
     include_failures: bool = Query(default=True),
     include_incidents: bool = Query(default=True),
     include_discovery: bool = Query(default=True),
-    include_repository: bool = Query(default=False),
+    include_repository: Optional[bool] = Query(default=None),
 ):
     try:
         return refresh_project_knowledge(
@@ -122,8 +122,9 @@ def refresh_knowledge(
                 include_failures=include_failures,
                 include_incidents=include_incidents,
                 include_discovery=include_discovery,
-                include_repository=include_repository,
+                include_repository=include_repository if include_repository is not None else False,
             ),
+            include_repository_explicit=include_repository,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from None

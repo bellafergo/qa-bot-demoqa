@@ -9,6 +9,7 @@ import {
   collectRiskReasons,
   collectProjectBaselineReasons,
   computeV1Confidence,
+  resolveEmptyRecommendedTestsMessage,
   resolvePrRisk,
   resolveProjectRisk,
   resolveRiskSignals,
@@ -237,6 +238,11 @@ export default function PRAnalysisEnterpriseView({
     [v1, legacy],
   );
 
+  const emptyRecommendedTestsMessage = useMemo(
+    () => (mode === "v1" && v1 ? resolveEmptyRecommendedTestsMessage({ v1, t }) : t("pr.v1.no_tests")),
+    [mode, v1, t],
+  );
+
   const riskReasons = useMemo(
     () => collectRiskReasons({ v1, legacy }),
     [v1, legacy],
@@ -440,7 +446,7 @@ export default function PRAnalysisEnterpriseView({
             </tbody>
           </table>
         ) : (
-          <p style={{ fontSize: 13, color: "var(--text-3)" }}>{t("pr.v1.no_tests")}</p>
+          <p style={{ fontSize: 13, color: "var(--text-3)" }}>{emptyRecommendedTestsMessage}</p>
         )}
       </div>
 
